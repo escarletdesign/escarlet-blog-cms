@@ -1,0 +1,14 @@
+{
+  "name": "escarlet-blog-cms",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.mjs",
+    "start": "node server.mjs",
+    "import:escarlet": "node scripts/import-escarlet.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

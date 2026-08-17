@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Escarlet Blog CMS</title>
+  <style>
+    :root { font-family: Georgia, serif; color: #222; background: #f4f1ea; }
+    body { max-width: 980px; margin: 0 auto; padding: 1.5rem; }
+    h1 { font-size: 1.6rem; }
+    label { display: block; margin: 0.7rem 0 0.2rem; font-size: 0.85rem; font-weight: 700; }
+    input, textarea, select { width: 100%; padding: 0.55rem 0.65rem; border: 1px solid #ccc; border-radius: 6px; font: inherit; box-sizing: border-box; }
+    textarea { min-height: 180px; font-family: ui-monospace, monospace; font-size: 0.85rem; }
+    button { margin-top: 0.8rem; padding: 0.55rem 1rem; background: #1f4d3a; color: #fff; border: 0; border-radius: 6px; cursor: pointer; }
+    .row { display: grid; gap: 0.8rem; grid-template-columns: 1fr 1fr; }
+    .list { margin: 1rem 0 2rem; padding: 0; }
+    .list li { display: flex; justify-content: space-between; gap: 1rem; padding: 0.45rem 0; border-bottom: 1px solid #ddd; list-style: none; }
+    .muted { color: #666; font-size: 0.85rem; }
+    a { color: #1f4d3a; }
+  </style>
+</head>
+<body>
+  <h1>Blog CMS</h1>
+  <p class="muted">Carga un post, publícalo y la API lo sirve en JSON. Similar a WordPress, sin temas ni plugins.</p>
+  <div id="login">
+    <label>Token de administración</label>
+    <input id="token" type="password" autocomplete="current-password" />
+    <button type="button" id="enter">Entrar</button>
+  </div>
+  <div id="app" hidden>
+    <p><button type="button" id="new">Nuevo post</button></p>
+    <ul class="list" id="list"></ul>
+    <form id="form">
+      <div class="row">
+        <div><label>Título</label><input name="title" required /></div>
+        <div><label>Slug</label><input name="slug" required /></div>
+      </div>
+      <div class="row">
+        <div><label>Sitio</label><input name="site" value="escarlet" /></div>
+        <div><label>Autor</label><input name="authorName" value="Charly" /></div>
+      </div>
+      <div class="row">
+        <div><label>Estado</label>
+          <select name="status"><option value="draft">Borrador</option><option value="published">Publicado</option></select>
+        </div>
+        <div><label>Publicado</label><input name="datePublished" type="date" /></div>
+      </div>
+      <label>Modificado</label><input name="dateModified" type="date" />
+      <label>SEO title</label><input name="metaTitleEs" />
+      <label>SEO description</label><textarea name="metaDescriptionEs" style="min-height:70px"></textarea>
+      <label>Extracto</label><textarea name="excerptEs" style="min-height:70px"></textarea>
+      <label>Imagen URL</label><input name="imageUrl" />
+      <label>Imagen alt</label><input name="imageAlt" />
+      <label>Related slugs (coma)</label><input name="relatedSlugs" />
+      <label>Cuerpo HTML</label><textarea name="bodyHtml" required></textarea>
+      <button type="submit">Guardar</button>
+    </form>
+  </div>
+  <script>
+    const login = document.getElementById('login')
+    const app = document.getElementById('app')
+    const form = document.getElementById('form')
+    let token = ''
+
+    const headers = () => ({ Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' })
+
+    async function loadList() {
+      const res = await fetch('/api/admin/posts', { headers: headers() })
+      if (!res.ok) throw new Error('No autorizado')
+      const data = await res.json()
+      document.getElementById('list').innerHTML = data.posts.map((p) => (
+        '<li><span><strong>' + p.title + '</strong> <span class="muted">/' + p.slug + ' · ' + p.status + '</span></span>' +
+        '<a href="#" data-slug="' + p.slug + '">Editar</a></li>'
+      )).join('') || '<li class="muted">Aún no hay posts.</li>'
+      document.querySelectorAll('[data-slug]').forEach((a) => {
+        a.onclick = (e) => {
+          e.preventDefault()
+          const post = data.posts.find((x) => x.slug === a.dataset.slug)
+          fill(post)
+        }
+      })
+    }
+
+    function fill(post) {
+      const f = form.elements
+      f.title.value = post.title || ''
+      f.slug.value = post.slug || ''
+      f.site.value = post.site || 'escarlet'
+      f.authorName.value = post.authorName || ''
+      f.status.value = post.status || 'draft'
+      f.datePublished.value = post.datePublished || ''
+      f.dateModified.value = post.dateModified || ''
+      f.metaTitleEs.value = post.metaTitle?.es || post.metaTitle || ''
+      f.metaDescriptionEs.value = post.metaDescription?.es || post.metaDescription || ''
+      f.excerptEs.value = post.excerptEs || ''
+      f.imageUrl.value = post.imageUrl || ''
+      f.imageAlt.value = post.imageAlt || ''
+      f.relatedSlugs.value = (post.relatedSlugs || []).join(', ')
+      f.bodyHtml.value = post.bodyHtml || ''
+    }
+
+    document.getElementById('enter').onclick = async () => {
+      token = document.getElementById('token').value
+      const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) })
+      if (!res.ok) { alert('Token incorrecto'); return }
+      login.hidden = true
+      app.hidden = false
+      await loadList()
+    }
+
+    document.getElementById('new').onclick = () => form.reset()
+
+    form.onsubmit = async (e) => {
+      e.preventDefault()
+      const f = form.elements
+      const payload = {
+        title: f.title.value,
+        slug: f.slug.value,
+        authorName: f.authorName.value,
+        status: f.status.value,
+        datePublished: f.datePublished.value,
+        dateModified: f.dateModified.value || f.datePublished.value,
+        metaTitle: { es: f.metaTitleEs.value },
+        metaDescription: { es: f.metaDescriptionEs.value },
+        excerptEs: f.excerptEs.value,
+        imageUrl: f.imageUrl.value,
+        imageAlt: f.imageAlt.value,
+        relatedSlugs: f.relatedSlugs.value.split(',').map((s) => s.trim()).filter(Boolean),
+        bodyHtml: f.bodyHtml.value,
+        site: f.site.value || 'escarlet'
+      }
+      const res = await fetch('/api/admin/posts', { method: 'POST', headers: headers(), body: JSON.stringify(payload) })
+      if (!res.ok) { alert('No se pudo guardar'); return }
+      await loadList()
+      alert('Guardado')
+    }
+  </script>
+</body>
+</html>
