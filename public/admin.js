@@ -38,7 +38,11 @@ const toastEl = document.getElementById('toast')
 const bodyPreview = document.getElementById('bodyPreview')
 const loginError = document.getElementById('loginError')
 const enterBtn = document.getElementById('enter')
+const previewPostSelect = document.getElementById('previewPostSelect')
+const imagePreview = document.getElementById('imagePreview')
+const imageUrlInput = document.getElementById('imageUrlInput')
 let brandEditor = null
+let cachedPosts = []
 let token = localStorage.getItem('escarlet_cms_token') || ''
 
 function toast(message) {
@@ -49,12 +53,23 @@ function toast(message) {
 }
 
 function mediaSrc(item) {
+  if (!item) return ''
   const path = item.path || ''
   if (path.startsWith('/media/')) return path
-  const url = item.url || ''
+  const url = item.url || item.imageUrl || ''
   if (url.startsWith('/media/')) return url
-  const match = url.match(/(\/media\/[^\s?#]+)/)
-  return match ? match[1] : url
+  const match = String(url).match(/(\/media\/[^\s?#]+)/)
+  if (match) return match[1]
+  if (/^https?:\/\//i.test(url) && !/localhost|127\.0\.0\.1/i.test(url)) return url
+  return url
+}
+
+function isProbablyMarkdown(text) {
+  const raw = String(text || '').trim()
+  if (!raw) return false
+  if (/<(?:p|h[1-6]|div|ul|ol|article|section|blockquote)\b/i.test(raw)) return false
+  if (/<[a-z][^>]*>/i.test(raw) && !/^#{1,6}\s/m.test(raw)) return false
+  return /^#{1,6}\s|^\s*[-*+]\s|^\s*\d+\.\s|\*\*[^*]+\*\*|^>\s/m.test(raw)
 }
 
 function fileToBase64(file) {
@@ -117,7 +132,27 @@ function setBrandValue(text) {
 }
 
 function updateBodyPreview() {
-  bodyPreview.innerHTML = form.bodyHtml.value || ''
+  const raw = form.bodyHtml.value || ''
+  if (!raw) {
+    bodyPreview.innerHTML = ''
+    return
+  }
+  if (typeof marked !== 'undefined' && isProbablyMarkdown(raw)) {
+    bodyPreview.innerHTML = marked.parse(raw)
+    return
+  }
+  bodyPreview.innerHTML = raw
+}
+
+function updateImagePreview() {
+  const src = mediaSrc({ url: imageUrlInput?.value || form.imageUrl?.value || '' })
+  if (!src || src.startsWith('/images/')) {
+    imagePreview.hidden = true
+    imagePreview.innerHTML = ''
+    return
+  }
+  imagePreview.hidden = false
+  imagePreview.innerHTML = `<img src="${src}" alt="Vista previa de portada" />`
 }
 
 function authHeaders() {
@@ -136,6 +171,45 @@ function switchTab(tab) {
   document.querySelectorAll('.panel').forEach((p) => p.classList.remove('active'))
   document.getElementById('panel-' + tab)?.classList.add('active')
   if (tab === 'brand') ensureBrandEditor()
+  if (tab === 'preview') {
+    populatePreviewSelect()
+    const slug = previewPostSelect?.value
+    if (slug) showPreviewForSlug(slug)
+  }
+}
+
+function populatePreviewSelect(posts = cachedPosts) {
+  if (!previewPostSelect) return
+  previewPostSelect.innerHTML = ''
+  if (!posts.length) {
+    previewPostSelect.innerHTML = '<option value="">No hay posts con este filtro</option>'
+    return
+  }
+  for (const p of posts) {
+    const opt = document.createElement('option')
+    opt.value = p.slug
+    opt.textContent = `${p.title} (${p.status})`
+    previewPostSelect.appendChild(opt)
+  }
+}
+
+function buildPreviewUrl(slug) {
+  const site = siteFilter.value.trim() || 'escarlet'
+  return `/preview/${site}/${encodeURIComponent(slug)}?token=${encodeURIComponent(token)}`
+}
+
+function showPreviewForSlug(slug, { newTab = false } = {}) {
+  if (!slug) {
+    toast('Elige un post para previsualizar')
+    return
+  }
+  const url = buildPreviewUrl(slug)
+  if (newTab) {
+    window.open(url, '_blank', 'noopener')
+    return
+  }
+  previewUrl.innerHTML = `<a href="${url}" target="_blank" rel="noopener">${location.origin}${url}</a>`
+  previewFrame.src = url
 }
 
 async function afterLogin() {
@@ -234,6 +308,8 @@ async function loadPosts() {
   const data = await api('/api/admin/posts?' + q)
   list.innerHTML = ''
   const posts = data.posts || []
+  cachedPosts = posts
+  populatePreviewSelect(posts)
   if (!posts.length) {
     list.innerHTML = '<li class="empty">No hay posts con este filtro.</li>'
     return
@@ -252,7 +328,11 @@ async function loadPosts() {
     prev.className = 'btn btn-sm'
     prev.innerHTML = ICONS.preview + ' Preview'
     prev.onclick = () => openPreview(p)
-    actions.append(edit, prev)
+    const prevTab = document.createElement('button')
+    prevTab.className = 'btn btn-sm'
+    prevTab.innerHTML = ICONS.send + ' Nueva pestaña'
+    prevTab.onclick = () => showPreviewForSlug(p.slug, { newTab: true })
+    actions.append(edit, prev, prevTab)
     li.appendChild(actions)
     list.appendChild(li)
   }
@@ -277,14 +357,14 @@ function fillForm(p) {
   form.x.value = p.socialPack?.x || ''
   form.bodyHtml.value = p.bodyHtml || ''
   updateBodyPreview()
+  updateImagePreview()
   switchTab('editor')
 }
 
 function openPreview(p) {
-  const site = siteFilter.value.trim() || 'escarlet'
-  const url = `/preview/${site}/${encodeURIComponent(p.slug)}?token=${encodeURIComponent(token)}`
-  previewUrl.innerHTML = `<a href="${url}" target="_blank" rel="noopener">${location.origin}${url}</a>`
-  previewFrame.src = url
+  populatePreviewSelect(cachedPosts)
+  if (previewPostSelect) previewPostSelect.value = p.slug
+  showPreviewForSlug(p.slug)
   switchTab('preview')
 }
 
@@ -292,12 +372,17 @@ document.getElementById('reloadPosts').onclick = loadPosts
 statusFilter.onchange = loadPosts
 siteFilter.onchange = () => { loadPosts(); loadMedia(); loadBrand(); loadRefs(); loadSite() }
 form.bodyHtml.addEventListener('input', updateBodyPreview)
+form.imageUrl.addEventListener('input', updateImagePreview)
+document.getElementById('loadPreview').onclick = () => showPreviewForSlug(previewPostSelect?.value)
+document.getElementById('openPreviewTab').onclick = () => showPreviewForSlug(previewPostSelect?.value, { newTab: true })
+previewPostSelect?.addEventListener('change', () => showPreviewForSlug(previewPostSelect.value))
 
 document.getElementById('newPost').onclick = () => {
   form.reset()
   form.authorName.value = 'Silvia'
   form.status.value = 'draft'
   updateBodyPreview()
+  updateImagePreview()
   switchTab('editor')
 }
 
@@ -375,7 +460,10 @@ document.getElementById('uploadForm').onsubmit = async (e) => {
       kind: document.getElementById('uploadKind').value
     })
   })
-  if (data.media) form.imageUrl.value = mediaSrc(data.media)
+  if (data.media) {
+    form.imageUrl.value = mediaSrc(data.media)
+    updateImagePreview()
+  }
   await loadMedia()
   toast('Imagen subida')
 }

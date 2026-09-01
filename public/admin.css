@@ -443,6 +443,23 @@ iframe.preview {
   line-height: 1.6;
 }
 
+.body-preview h2,
+.body-preview h3 {
+  margin-top: 1rem;
+}
+
+.image-preview {
+  margin-top: 0.5rem;
+}
+
+.image-preview img {
+  max-width: 220px;
+  max-height: 140px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
 pre.result {
   background: #1c1c1a;
   color: #e8e4dc;

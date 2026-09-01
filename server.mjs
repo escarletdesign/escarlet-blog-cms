@@ -28,8 +28,9 @@ import {
 } from './lib/brand-kit.mjs'
 import { validatePostSeo } from './lib/seo-validator.mjs'
 import { notifyRebuild, saveUploadedMedia } from './lib/cms-ops.mjs'
-import { mediaForClient, repairMediaInDb } from './lib/media-url.mjs'
+import { mediaForClient, repairMediaInDb, repairPostsInDb, resolveImageSrc } from './lib/media-url.mjs'
 import { withPostLinks } from './lib/preview-url.mjs'
+import { escapeHtml, renderPostBody } from './lib/content-render.mjs'
 import { handleMcpHttp, sendMcpCors } from './mcp/http-handler.mjs'
 import {
   buildDraftPost,
@@ -120,30 +121,48 @@ function serveStaticFile(res, filePath, contentType) {
 
 function renderPreview(post, siteConfig) {
   const canonical = `${siteConfig.domain.replace(/\/$/, '')}/blog/${post.slug}`
+  const imageSrc = resolveImageSrc(post.imageUrl)
+  const imageBlock = imageSrc
+    ? `<img src="${escapeHtml(imageSrc)}" alt="${escapeHtml(post.imageAlt || '')}" />`
+    : ''
+  const body = renderPostBody(post.bodyHtml)
   return `<!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="robots" content="noindex,nofollow" />
-  <title>${post.title} (preview)</title>
+  <title>${escapeHtml(post.title)} (preview)</title>
   <style>
     body { font-family: Georgia, serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #222; line-height: 1.6; }
     .badge { display: inline-block; background: #1f4d3a; color: #fff; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.75rem; margin-bottom: 1rem; }
-    img { max-width: 100%; height: auto; border-radius: 8px; }
+    img { max-width: 100%; height: auto; border-radius: 8px; margin: 1rem 0; }
     h1 { font-size: 1.8rem; line-height: 1.2; }
     .meta { color: #666; font-size: 0.9rem; margin-bottom: 1.5rem; }
+    article h2, article h3 { margin-top: 1.5rem; }
+    article p { margin: 0.75rem 0; }
+    article ul, article ol { padding-left: 1.25rem; }
+    article blockquote { border-left: 3px solid #ccc; margin: 1rem 0; padding-left: 1rem; color: #444; }
   </style>
 </head>
 <body>
-  <div class="badge">Preview borrador · ${post.status}</div>
-  <h1>${post.title}</h1>
-  <p class="meta">${post.authorName} · ${post.datePublished} · ${canonical}</p>
-  ${post.imageUrl ? `<img src="${post.imageUrl}" alt="${post.imageAlt || ''}" />` : ''}
-  <p><strong>${post.excerptEs || ''}</strong></p>
-  <article>${post.bodyHtml || ''}</article>
+  <div class="badge">Preview borrador · ${escapeHtml(post.status)}</div>
+  <h1>${escapeHtml(post.title)}</h1>
+  <p class="meta">${escapeHtml(post.authorName)} · ${escapeHtml(post.datePublished)} · ${escapeHtml(canonical)}</p>
+  ${imageBlock}
+  <p><strong>${escapeHtml(post.excerptEs || '')}</strong></p>
+  <article>${body}</article>
 </body>
 </html>`
+}
+
+function normalizePostForClient(post) {
+  if (!post) return post
+  return { ...post, imageUrl: resolveImageSrc(post.imageUrl) }
+}
+
+function normalizePostsForClient(posts) {
+  return (posts || []).map(normalizePostForClient)
 }
 
 function serveAdmin(res) {
@@ -320,7 +339,7 @@ const server = createServer(async (req, res) => {
       const status = url.searchParams.get('status')
       let posts = db.posts.filter((p) => p.site === site)
       if (status) posts = posts.filter((p) => p.status === status)
-      json(res, 200, { posts })
+      json(res, 200, { posts: normalizePostsForClient(posts) })
       return
     }
 
@@ -333,7 +352,7 @@ const server = createServer(async (req, res) => {
         json(res, 404, { message: 'No encontrado' })
         return
       }
-      json(res, 200, { post })
+      json(res, 200, { post: normalizePostForClient(post) })
       return
     }
 
@@ -591,7 +610,9 @@ mkdirSync(mediaDir, { recursive: true })
 seedAllBrandKits()
 
 const dbBoot = readDb()
-if (repairMediaInDb(dbBoot)) writeDb(dbBoot)
+let dbRepaired = repairMediaInDb(dbBoot)
+if (repairPostsInDb(dbBoot)) dbRepaired = true
+if (dbRepaired) writeDb(dbBoot)
 
 server.listen(PORT, () => {
   console.log(`Escarlet blog CMS en http://localhost:${PORT}/admin`)

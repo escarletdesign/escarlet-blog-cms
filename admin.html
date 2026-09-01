@@ -125,9 +125,10 @@
               <label>SEO description (es)</label><textarea name="metaDescriptionEs" style="min-height:70px"></textarea>
               <label>Extracto</label><textarea name="excerptEs" style="min-height:70px"></textarea>
               <div class="row">
-                <div><label>Imagen URL</label><input name="imageUrl" /></div>
+                <div><label>Imagen URL</label><input name="imageUrl" id="imageUrlInput" /></div>
                 <div><label>Imagen alt</label><input name="imageAlt" /></div>
               </div>
+              <div id="imagePreview" class="image-preview" hidden></div>
               <label>Related slugs (coma)</label><input name="relatedSlugs" />
               <label>Substack title</label><input name="substackTitle" />
               <label>Substack body</label><textarea name="substackBody"></textarea>
@@ -135,7 +136,7 @@
                 <div><label>LinkedIn</label><textarea name="linkedin"></textarea></div>
                 <div><label>X</label><textarea name="x"></textarea></div>
               </div>
-              <label>Cuerpo HTML</label><textarea name="bodyHtml" required class="mono" style="min-height:220px"></textarea>
+              <label>Cuerpo HTML o Markdown</label><textarea name="bodyHtml" required class="mono" style="min-height:220px"></textarea>
               <label>Vista previa del cuerpo</label>
               <div class="body-preview" id="bodyPreview"></div>
               <div class="actions">
@@ -151,7 +152,13 @@
         <section id="panel-preview" class="panel">
           <div class="card">
             <h2 class="card-title">Preview</h2>
-            <p class="card-desc">Vista previa del post seleccionado. URL con token para compartir internamente.</p>
+            <p class="card-desc">Elige cualquier post del sitio y revisa el borrador sin abrir el editor.</p>
+            <label for="previewPostSelect">Post</label>
+            <select id="previewPostSelect"></select>
+            <div class="actions">
+              <button type="button" class="btn btn-primary" id="loadPreview">Ver preview</button>
+              <button type="button" class="btn" id="openPreviewTab">Abrir en nueva pestaña</button>
+            </div>
             <p class="preview-url" id="previewUrl"></p>
             <iframe class="preview" id="previewFrame" title="Preview"></iframe>
           </div>
@@ -241,6 +248,7 @@
 
   <div id="toast" class="toast" hidden></div>
 
+  <script src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/easymde@2.18.0/dist/easymde.min.js"></script>
   <script src="/admin.js"></script>
 </body>
