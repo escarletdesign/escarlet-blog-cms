@@ -27,10 +27,8 @@ import {
   BRAND_FILE_LABELS
 } from './lib/brand-kit.mjs'
 import { validatePostSeo } from './lib/seo-validator.mjs'
-import {
-  notifyRebuild,
-  saveUploadedMedia
-} from './lib/cms-ops.mjs'
+import { notifyRebuild, saveUploadedMedia } from './lib/cms-ops.mjs'
+import { mediaForClient, repairMediaInDb } from './lib/media-url.mjs'
 import { handleMcpHttp, sendMcpCors } from './mcp/http-handler.mjs'
 import {
   buildDraftPost,
@@ -151,6 +149,10 @@ function serveAdmin(res) {
   serveStaticFile(res, join(root, 'admin.html'), 'text/html; charset=utf-8')
 }
 
+function servePublic(res, filePath, contentType) {
+  serveStaticFile(res, join(root, 'public', filePath), contentType)
+}
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://127.0.0.1:${PORT}`)
   const path = url.pathname.replace(/\/+$/, '') || '/'
@@ -195,6 +197,26 @@ const server = createServer(async (req, res) => {
 
   if (req.method === 'GET' && (path === '/admin' || path === '/')) {
     serveAdmin(res)
+    return
+  }
+
+  if (req.method === 'GET' && path === '/favicon.svg') {
+    servePublic(res, 'favicon.svg', 'image/svg+xml')
+    return
+  }
+
+  if (req.method === 'GET' && path === '/favicon.ico') {
+    servePublic(res, 'favicon.svg', 'image/svg+xml')
+    return
+  }
+
+  if (req.method === 'GET' && path === '/admin.css') {
+    servePublic(res, 'admin.css', 'text/css; charset=utf-8')
+    return
+  }
+
+  if (req.method === 'GET' && path === '/admin.js') {
+    servePublic(res, 'admin.js', 'application/javascript; charset=utf-8')
     return
   }
 
@@ -334,7 +356,7 @@ const server = createServer(async (req, res) => {
       const kind = url.searchParams.get('kind')
       let items = (db.media || []).filter((m) => !m.site || m.site === site)
       if (kind) items = items.filter((m) => m.kind === kind)
-      json(res, 200, { media: items })
+      json(res, 200, { media: items.map(mediaForClient) })
       return
     }
 
@@ -417,18 +439,23 @@ const server = createServer(async (req, res) => {
 
     if (req.method === 'POST' && path === '/api/admin/media/upload') {
       const body = await parseBody(req)
-      if (!body.contentBase64 || !body.filename) {
-        json(res, 400, { message: 'Faltan filename y contentBase64' })
+      if (!body.filename || (!body.contentBase64 && !body.imageUrl)) {
+        json(res, 400, { message: 'Faltan filename y contentBase64 o imageUrl' })
         return
       }
-      const item = saveUploadedMedia({
-        site: body.site || DEFAULT_SITE,
-        filename: body.filename,
-        contentBase64: body.contentBase64,
-        alt: body.alt || '',
-        kind: body.kind || 'post'
-      })
-      json(res, 200, { media: item })
+      try {
+        const item = await saveUploadedMedia({
+          site: body.site || DEFAULT_SITE,
+          filename: body.filename,
+          contentBase64: body.contentBase64,
+          imageUrl: body.imageUrl,
+          alt: body.alt || '',
+          kind: body.kind || 'post'
+        })
+        json(res, 200, { media: item })
+      } catch (err) {
+        json(res, err.status || 400, { message: err.message })
+      }
       return
     }
 
@@ -561,6 +588,9 @@ const server = createServer(async (req, res) => {
 mkdirSync(dataDir, { recursive: true })
 mkdirSync(mediaDir, { recursive: true })
 seedAllBrandKits()
+
+const dbBoot = readDb()
+if (repairMediaInDb(dbBoot)) writeDb(dbBoot)
 
 server.listen(PORT, () => {
   console.log(`Escarlet blog CMS en http://localhost:${PORT}/admin`)

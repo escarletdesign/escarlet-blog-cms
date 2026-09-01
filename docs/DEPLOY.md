@@ -56,6 +56,8 @@ CMS_PUBLIC_URL=https://blog-cms.escarlet.cc
 
 Webhook por site. Configúralo en dashboard → **Sitio** (recomendado). Opcional fallback env `REBUILD_WEBHOOK_URL`.
 
+`CMS_PUBLIC_URL` en producción tiene que ser `https://blog-cms.escarlet.cc`. Si queda `localhost`, el dashboard pide las fotos al Mac y se ven rotas.
+
 ### Dominio
 
 `blog-cms.escarlet.cc` — uso interno del equipo. No enlazar desde escarlet.design.

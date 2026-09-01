@@ -5,3 +5,4 @@ data/media/
 data/brand/
 data/site-config/
 .DS_Store
+.cursor/mcp.json

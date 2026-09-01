@@ -183,10 +183,11 @@ export function createMcpServer() {
             site: { type: 'string' },
             filename: { type: 'string' },
             contentBase64: { type: 'string' },
+            imageUrl: { type: 'string', description: 'URL http de la imagen si no envías base64' },
             alt: { type: 'string' },
             kind: { type: 'string', description: 'post o reference' }
           },
-          required: ['site', 'filename', 'contentBase64']
+          required: ['site', 'filename']
         }
       }
     ]
