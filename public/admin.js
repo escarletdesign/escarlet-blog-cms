@@ -36,6 +36,8 @@ const rebuildResult = document.getElementById('rebuildResult')
 const siteHumanApproval = document.getElementById('siteHumanApproval')
 const toastEl = document.getElementById('toast')
 const bodyPreview = document.getElementById('bodyPreview')
+const loginError = document.getElementById('loginError')
+const enterBtn = document.getElementById('enter')
 let brandEditor = null
 let token = localStorage.getItem('escarlet_cms_token') || ''
 
@@ -137,8 +139,6 @@ function switchTab(tab) {
 }
 
 async function afterLogin() {
-  login.hidden = true
-  app.hidden = false
   await loadPosts()
   await loadMedia()
   await loadBrand()
@@ -146,14 +146,64 @@ async function afterLogin() {
   await loadSite()
   ensureBrandEditor()
   updateBodyPreview()
+  login.hidden = true
+  app.hidden = false
 }
 
-document.getElementById('enter').onclick = async () => {
-  token = tokenInput.value.trim()
-  await api('/api/login', { method: 'POST', body: JSON.stringify({ token }) })
-  localStorage.setItem('escarlet_cms_token', token)
-  await afterLogin()
+function showLoginError(message) {
+  if (!message) {
+    loginError.hidden = true
+    loginError.textContent = ''
+    return
+  }
+  loginError.hidden = false
+  loginError.textContent = message
 }
+
+async function doLogin() {
+  const value = tokenInput.value.trim()
+  if (!value) {
+    showLoginError('Escribe el token de administración.')
+    tokenInput.focus()
+    return
+  }
+
+  showLoginError('')
+  enterBtn.disabled = true
+
+  try {
+    token = value
+    await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token })
+    }).then(async (res) => {
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.message || 'Token incorrecto')
+      return data
+    })
+
+    localStorage.setItem('escarlet_cms_token', token)
+    await afterLogin()
+    toast('Sesión iniciada')
+  } catch (err) {
+    token = ''
+    localStorage.removeItem('escarlet_cms_token')
+    login.hidden = false
+    app.hidden = true
+    showLoginError(err.message || 'No se pudo iniciar sesión.')
+  } finally {
+    enterBtn.disabled = false
+  }
+}
+
+enterBtn.addEventListener('click', doLogin)
+tokenInput.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    doLogin()
+  }
+})
 
 document.getElementById('logout').onclick = () => {
   token = ''
@@ -161,11 +211,15 @@ document.getElementById('logout').onclick = () => {
   login.hidden = false
   app.hidden = true
   tokenInput.value = ''
+  showLoginError('')
 }
 
 if (token) {
   tokenInput.value = token
-  afterLogin().catch(() => { login.hidden = false; app.hidden = true })
+  doLogin().catch(() => {
+    login.hidden = false
+    app.hidden = true
+  })
 }
 
 document.querySelectorAll('.nav-btn[data-tab]').forEach((btn) => {
