@@ -30,6 +30,10 @@ function errorResult(err) {
     status: err.status || 500,
     ...(err.extra || {})
   }
+  if (payload.validation && !payload.blockingErrors) {
+    payload.blockingErrors = payload.validation.errors
+    payload.warnings = payload.validation.warnings
+  }
   return {
     isError: true,
     content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }]
@@ -92,7 +96,7 @@ export function createMcpServer() {
       {
         name: 'blog_update_post',
         description:
-          'Actualiza campos de un post (parcial). El cuerpo y el SEO deben seguir el brand kit leído con blog_get_brand_context. Devuelve previewUrl para que el humano revise el borrador antes de publicar.',
+          'Actualiza campos de un post (parcial). Devuelve validation con blockingErrors, warnings, previewUrl y hint para saber si falta SEO antes de publicar.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -115,7 +119,8 @@ export function createMcpServer() {
       },
       {
         name: 'blog_validate_seo',
-        description: 'Valida quality gates SEO antes de publicar.',
+        description:
+          'Valida quality gates SEO. Devuelve blockingErrors (impiden publicar), warnings (recomendaciones) y previewUrl. Con aprobación humana activa, blog_publish puede enviar a revisión aunque haya errores.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -127,7 +132,8 @@ export function createMcpServer() {
       },
       {
         name: 'blog_publish',
-        description: 'Publica un post si pasa validación SEO. Dispara rebuild del sitio.',
+        description:
+          'Publica o envía a revisión. Con aprobación humana activa, un borrador draft pasa a review aunque el SEO no esté perfecto (devuelve previewUrl). La publicación final la hace un humano desde el dashboard cuando el SEO es válido.',
         inputSchema: {
           type: 'object',
           properties: {

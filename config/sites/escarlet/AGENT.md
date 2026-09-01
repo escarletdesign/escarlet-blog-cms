@@ -19,10 +19,13 @@ Un post, un enfoque principal. Si mezcla temas, elige autor por el objetivo del 
 
 1. `blog_get_brand_context`
 2. `blog_create_draft` o `blog_get_post` si editas
-3. Redactar aplicando voz y estilo visual. `blog_update_post`
+3. Redactar aplicando voz y estilo visual. `blog_update_post` (devuelve validation y previewUrl)
 4. Portada. `blog_upload_media` con `kind` `post`. Mira las imágenes `kind` `reference` del kit.
-5. `blog_validate_seo` hasta ok
-6. `blog_publish` solo si SEO ok y no hay aprobación humana pendiente
+5. `blog_validate_seo` para ver blockingErrors y warnings
+6. `blog_publish` con borrador en draft envía el post a **review** y devuelve previewUrl (aunque el SEO no esté perfecto)
+7. Un humano revisa en previewUrl o `/admin`, corrige SEO y publica desde el dashboard
+
+No intentes publicar en vivo si el post sigue en draft y hay errores SEO graves sin pasar por review humana.
 
 Para subir o corregir el kit (voz, estilo, este archivo). `blog_update_brand_file`.
 Para moodboard. `blog_upload_media` con `kind` `reference`.
@@ -53,5 +56,6 @@ Para moodboard. `blog_upload_media` con `kind` `reference`.
 
 ## Publicación
 
-- Hermes deja el post en draft o review.
-- Revisión humana en `/admin` si `requiresHumanApproval` está activo.
+- Hermes termina en **review** con `blog_publish` y comparte previewUrl.
+- Revisión humana en previewUrl o `/admin`.
+- La publicación final en escarlet.design la hace un humano desde el dashboard cuando el SEO es válido.

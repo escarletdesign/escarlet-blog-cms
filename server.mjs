@@ -27,7 +27,7 @@ import {
   BRAND_FILE_LABELS
 } from './lib/brand-kit.mjs'
 import { validatePostSeo } from './lib/seo-validator.mjs'
-import { notifyRebuild, saveUploadedMedia } from './lib/cms-ops.mjs'
+import { notifyRebuild, saveUploadedMedia, publishPost as cmsPublishPost, validateSeo as cmsValidateSeo } from './lib/cms-ops.mjs'
 import { mediaForClient, repairMediaInDb, repairPostsInDb, resolveImageSrc } from './lib/media-url.mjs'
 import { withPostLinks } from './lib/preview-url.mjs'
 import { escapeHtml, renderPostBody } from './lib/content-render.mjs'
@@ -448,12 +448,13 @@ const server = createServer(async (req, res) => {
     if (req.method === 'POST' && path === '/api/admin/validate-seo') {
       const body = await parseBody(req)
       const site = body.site || DEFAULT_SITE
-      const post = body.post || findPost(db, site, body.slug)
-      if (!post) {
-        json(res, 404, { message: 'Post no encontrado' })
-        return
+      try {
+        const result = await cmsValidateSeo(site, body.slug, body.post)
+        json(res, 200, result)
+      } catch (error) {
+        const status = error.status || 500
+        json(res, status, { message: error.message, ...(error.extra || {}) })
       }
-      json(res, 200, validatePostSeo(post, site))
       return
     }
 
@@ -560,32 +561,13 @@ const server = createServer(async (req, res) => {
       const body = await parseBody(req)
       const site = body.site || DEFAULT_SITE
       const slug = body.slug
-      const post = findPost(db, site, slug)
-      if (!post) {
-        json(res, 404, { message: 'Post no encontrado' })
-        return
+      try {
+        const result = await cmsPublishPost(site, slug)
+        json(res, 200, result)
+      } catch (error) {
+        const status = error.status || 500
+        json(res, status, { message: error.message, ...(error.extra || {}) })
       }
-      const validation = validatePostSeo(post, site)
-      if (!validation.ok) {
-        json(res, 422, { message: 'SEO no válido', validation })
-        return
-      }
-      const siteConfig = loadSiteConfig(site)
-      let nextStatus = 'published'
-      if (siteConfig?.requiresHumanApproval && post.status !== 'review') {
-        post.status = 'review'
-        upsertPost(db, post)
-        writeDb(db)
-        json(res, 200, withPostLinks({ post, validation, message: 'En revisión. Publica desde el dashboard.' }, site, slug))
-        return
-      }
-      post.status = nextStatus
-      post.dateModified = todayIso()
-      if (!post.datePublished) post.datePublished = todayIso()
-      upsertPost(db, post)
-      writeDb(db)
-      const rebuild = await notifyRebuild(site)
-      json(res, 200, withPostLinks({ post, validation, rebuild }, site, slug))
       return
     }
 

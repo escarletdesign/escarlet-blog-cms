@@ -3,7 +3,7 @@
   "name": "Escarlet",
   "domain": "https://escarlet.design",
   "adapter": "json-api",
-  "requiresHumanApproval": false,
+  "requiresHumanApproval": true,
   "rebuildWebhookEnv": "REBUILD_WEBHOOK_URL",
   "seo": {
     "minWords": 1500,

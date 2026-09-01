@@ -430,11 +430,14 @@ document.getElementById('publishPost').onclick = async () => {
     const data = await api('/api/admin/posts/publish', { method: 'POST', body: JSON.stringify({ site, slug }) })
     seoResult.textContent = JSON.stringify(data, null, 2)
     await loadPosts()
-    const rebuildMsg = data.rebuild
-      ? (data.rebuild.ok ? 'Publicado. Rebuild OK.' : `Publicado. Rebuild falló. ${data.rebuild.message}`)
-      : (data.message || 'Publicado')
-    toast(rebuildMsg)
+    const msg = data.submittedForReview
+      ? (data.message || 'Enviado a revisión')
+      : data.rebuild
+        ? (data.rebuild.ok ? 'Publicado. Rebuild OK.' : `Publicado. Rebuild falló. ${data.rebuild.message}`)
+        : (data.message || 'Publicado')
+    toast(msg)
   } catch (err) {
+    seoResult.textContent = err.message
     toast(err.message)
   }
 }
