@@ -1,14 +1,21 @@
 {
   "name": "escarlet-blog-cms",
   "private": true,
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
   "scripts": {
     "dev": "node server.mjs",
     "start": "node server.mjs",
-    "import:escarlet": "node scripts/import-escarlet.mjs"
+    "mcp": "node mcp/index.mjs",
+    "test": "node --test lib/**/*.test.mjs",
+    "import:escarlet": "node scripts/import-escarlet.mjs",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down"
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1"
   }
 }

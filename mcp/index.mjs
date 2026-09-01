@@ -1,0 +1,229 @@
+#!/usr/bin/env node
+import { Server } from '@modelcontextprotocol/sdk/server/index.js'
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+import {
+  CallToolRequestSchema,
+  ListResourcesRequestSchema,
+  ListToolsRequestSchema,
+  ReadResourceRequestSchema
+} from '@modelcontextprotocol/sdk/types.js'
+import { readFileSync, existsSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import * as cms from './cms-client.mjs'
+import { listSiteHandles } from '../lib/site-config.mjs'
+import { readBrandFile } from '../lib/brand-kit.mjs'
+
+const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+const DEFAULT_SITE = process.env.DEFAULT_SITE || 'escarlet'
+
+const RESOURCE_MAP = {
+  voice: 'voice.md',
+  keywords: 'keywords.md',
+  'agent-rules': 'agent-rules.md',
+  'image-guide': 'image-guide.md'
+}
+
+const server = new Server(
+  { name: 'escarlet-blog-cms', version: '1.0.0' },
+  { capabilities: { tools: {}, resources: {} } }
+)
+
+function textResult(payload) {
+  return {
+    content: [{ type: 'text', text: typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2) }]
+  }
+}
+
+server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools: [
+    {
+      name: 'blog_list_sites',
+      description: 'Lista sitios configurados en el CMS central.',
+      inputSchema: { type: 'object', properties: {} }
+    },
+    {
+      name: 'blog_list_posts',
+      description: 'Lista posts por site y status opcional (draft, review, published).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          site: { type: 'string', description: 'Handle del site, ej. escarlet' },
+          status: { type: 'string', description: 'draft, review o published' }
+        },
+        required: ['site']
+      }
+    },
+    {
+      name: 'blog_get_post',
+      description: 'Lee un post completo por slug.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          site: { type: 'string' },
+          slug: { type: 'string' }
+        },
+        required: ['site', 'slug']
+      }
+    },
+    {
+      name: 'blog_create_draft',
+      description: 'Crea esqueleto de borrador con slug, fechas, socialPack y relacionados.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          site: { type: 'string' },
+          title: { type: 'string' },
+          author: { type: 'string', description: 'Charly o Silvia' },
+          slug: { type: 'string' },
+          date: { type: 'string', description: 'YYYY-MM-DD' }
+        },
+        required: ['site', 'title']
+      }
+    },
+    {
+      name: 'blog_update_post',
+      description: 'Actualiza campos de un post existente (parcial).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          site: { type: 'string' },
+          slug: { type: 'string' },
+          title: { type: 'string' },
+          excerptEs: { type: 'string' },
+          bodyHtml: { type: 'string' },
+          metaTitle: { type: 'object' },
+          metaDescription: { type: 'object' },
+          imageUrl: { type: 'string' },
+          imageAlt: { type: 'string' },
+          authorName: { type: 'string' },
+          relatedSlugs: { type: 'array', items: { type: 'string' } },
+          socialPack: { type: 'object' },
+          status: { type: 'string' }
+        },
+        required: ['site', 'slug']
+      }
+    },
+    {
+      name: 'blog_validate_seo',
+      description: 'Valida quality gates SEO antes de publicar.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          site: { type: 'string' },
+          slug: { type: 'string' }
+        },
+        required: ['site', 'slug']
+      }
+    },
+    {
+      name: 'blog_publish',
+      description: 'Publica un post si pasa validación SEO. Dispara rebuild del sitio.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          site: { type: 'string' },
+          slug: { type: 'string' }
+        },
+        required: ['site', 'slug']
+      }
+    },
+    {
+      name: 'blog_get_seo_context',
+      description: 'Keywords y reglas SEO del site.',
+      inputSchema: {
+        type: 'object',
+        properties: { site: { type: 'string' } },
+        required: ['site']
+      }
+    },
+    {
+      name: 'blog_get_brand_context',
+      description: 'Voz, keywords, reglas agente e imágenes de referencia. Leer antes de redactar.',
+      inputSchema: {
+        type: 'object',
+        properties: { site: { type: 'string' } },
+        required: ['site']
+      }
+    },
+    {
+      name: 'blog_upload_media',
+      description: 'Sube imagen en base64. Devuelve URL pública.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          site: { type: 'string' },
+          filename: { type: 'string' },
+          contentBase64: { type: 'string' },
+          alt: { type: 'string' },
+          kind: { type: 'string', description: 'post o reference' }
+        },
+        required: ['site', 'filename', 'contentBase64']
+      }
+    }
+  ]
+}))
+
+server.setRequestHandler(ListResourcesRequestSchema, async () => {
+  const sites = listSiteHandles()
+  const resources = []
+  for (const site of sites) {
+    for (const [key, file] of Object.entries(RESOURCE_MAP)) {
+      const path = join(root, 'config', 'sites', site, file)
+      if (existsSync(path)) {
+        resources.push({
+          uri: `brand://${site}/${key}`,
+          name: `${site} ${key}`,
+          mimeType: 'text/markdown'
+        })
+      }
+    }
+  }
+  return { resources }
+})
+
+server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+  const match = request.params.uri.match(/^brand:\/\/([^/]+)\/([^/]+)$/)
+  if (!match) throw new Error(`URI desconocida: ${request.params.uri}`)
+  const [, site, key] = match
+  const file = RESOURCE_MAP[key]
+  if (!file) throw new Error(`Recurso desconocido: ${key}`)
+  const path = join(root, 'config', 'sites', site, file)
+  if (!existsSync(path)) throw new Error(`No existe ${path}`)
+  return {
+    contents: [{ uri: request.params.uri, mimeType: 'text/markdown', text: readFileSync(path, 'utf8') }]
+  }
+})
+
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  const { name, arguments: args = {} } = request.params
+  const site = args.site || DEFAULT_SITE
+
+  switch (name) {
+    case 'blog_list_sites':
+      return textResult(await cms.listSites())
+    case 'blog_list_posts':
+      return textResult(await cms.listPosts(site, args.status))
+    case 'blog_get_post':
+      return textResult(await cms.getPost(site, args.slug))
+    case 'blog_create_draft':
+      return textResult(await cms.createDraft(args))
+    case 'blog_update_post':
+      return textResult(await cms.updatePost(args))
+    case 'blog_validate_seo':
+      return textResult(await cms.validateSeo(site, args.slug))
+    case 'blog_publish':
+      return textResult(await cms.publishPost(site, args.slug))
+    case 'blog_get_seo_context':
+      return textResult(await cms.getSeoContext(site))
+    case 'blog_get_brand_context':
+      return textResult(await cms.getBrandContext(site))
+    case 'blog_upload_media':
+      return textResult(await cms.uploadMedia(args))
+    default:
+      throw new Error(`Tool desconocida: ${name}`)
+  }
+})
+
+const transport = new StdioServerTransport()
+await server.connect(transport)

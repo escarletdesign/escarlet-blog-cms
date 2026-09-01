@@ -1,0 +1,21 @@
+{
+  "handle": "escarlet",
+  "name": "Escarlet",
+  "domain": "https://escarlet.design",
+  "adapter": "json-api",
+  "requiresHumanApproval": false,
+  "rebuildWebhookEnv": "REBUILD_WEBHOOK_URL",
+  "seo": {
+    "minWords": 1500,
+    "metaTitleMin": 30,
+    "metaTitleMax": 60,
+    "metaDescriptionMin": 120,
+    "metaDescriptionMax": 160,
+    "internalLinksMin": 5,
+    "internalLinksMax": 10,
+    "relatedSlugsCount": 3,
+    "canonicalPattern": "{domain}/blog/{slug}"
+  },
+  "authors": ["Charly", "Silvia"],
+  "copyRules": { "noColonsSemicolons": true }
+}

@@ -1,0 +1,17 @@
+{
+  "sites": [
+    {
+      "id": "escarlet",
+      "name": "Escarlet",
+      "handle": "escarlet",
+      "domain": "https://escarlet.design"
+    }
+  ],
+  "authors": [
+    { "id": "charly", "name": "Charly", "url": "https://www.linkedin.com/in/carlos-brugiafredo/" },
+    { "id": "silvia", "name": "Silvia", "url": "" }
+  ],
+  "categories": [],
+  "media": [],
+  "posts": []
+}

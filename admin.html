@@ -3,136 +3,358 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
   <title>Escarlet Blog CMS</title>
   <style>
     :root { font-family: Georgia, serif; color: #222; background: #f4f1ea; }
-    body { max-width: 980px; margin: 0 auto; padding: 1.5rem; }
-    h1 { font-size: 1.6rem; }
+    body { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
+    h1 { font-size: 1.6rem; margin-bottom: 0.2rem; }
+    .tabs { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0; }
+    .tabs button { padding: 0.45rem 0.9rem; border: 1px solid #ccc; background: #fff; border-radius: 6px; cursor: pointer; }
+    .tabs button.active { background: #1f4d3a; color: #fff; border-color: #1f4d3a; }
+    .panel { display: none; }
+    .panel.active { display: block; }
     label { display: block; margin: 0.7rem 0 0.2rem; font-size: 0.85rem; font-weight: 700; }
     input, textarea, select { width: 100%; padding: 0.55rem 0.65rem; border: 1px solid #ccc; border-radius: 6px; font: inherit; box-sizing: border-box; }
-    textarea { min-height: 180px; font-family: ui-monospace, monospace; font-size: 0.85rem; }
-    button { margin-top: 0.8rem; padding: 0.55rem 1rem; background: #1f4d3a; color: #fff; border: 0; border-radius: 6px; cursor: pointer; }
+    textarea { min-height: 120px; font-family: ui-monospace, monospace; font-size: 0.85rem; }
+    button.primary { margin-top: 0.8rem; padding: 0.55rem 1rem; background: #1f4d3a; color: #fff; border: 0; border-radius: 6px; cursor: pointer; }
     .row { display: grid; gap: 0.8rem; grid-template-columns: 1fr 1fr; }
-    .list { margin: 1rem 0 2rem; padding: 0; }
-    .list li { display: flex; justify-content: space-between; gap: 1rem; padding: 0.45rem 0; border-bottom: 1px solid #ddd; list-style: none; }
+    .list { margin: 1rem 0; padding: 0; }
+    .list li { display: flex; justify-content: space-between; gap: 1rem; padding: 0.55rem 0; border-bottom: 1px solid #ddd; list-style: none; align-items: center; }
     .muted { color: #666; font-size: 0.85rem; }
     a { color: #1f4d3a; }
+    .badge { font-size: 0.75rem; padding: 0.15rem 0.45rem; border-radius: 4px; background: #ddd; }
+    .badge.published { background: #cfe8dc; }
+    .badge.draft { background: #f5e6b8; }
+    .badge.review { background: #e8cfcf; }
+    iframe.preview { width: 100%; min-height: 520px; border: 1px solid #ccc; border-radius: 8px; background: #fff; }
+    .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.8rem; }
+    .media-grid img { width: 100%; height: 100px; object-fit: cover; border-radius: 6px; border: 1px solid #ccc; }
+    .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .actions button { font-size: 0.8rem; padding: 0.3rem 0.6rem; }
+    @media (max-width: 760px) { .row { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
   <h1>Blog CMS</h1>
-  <p class="muted">Carga un post, publícalo y la API lo sirve en JSON. Similar a WordPress, sin temas ni plugins.</p>
+  <p class="muted">Borradores, preview, media y brand kit. Publicación vía MCP o desde aquí.</p>
+
   <div id="login">
     <label>Token de administración</label>
     <input id="token" type="password" autocomplete="current-password" />
-    <button type="button" id="enter">Entrar</button>
+    <button type="button" class="primary" id="enter">Entrar</button>
   </div>
+
   <div id="app" hidden>
-    <p><button type="button" id="new">Nuevo post</button></p>
-    <ul class="list" id="list"></ul>
-    <form id="form">
-      <div class="row">
-        <div><label>Título</label><input name="title" required /></div>
-        <div><label>Slug</label><input name="slug" required /></div>
+    <div class="row">
+      <div><label>Sitio</label><input id="siteFilter" value="escarlet" /></div>
+      <div><label>Filtro estado</label>
+        <select id="statusFilter"><option value="">Todos</option><option value="draft">draft</option><option value="review">review</option><option value="published">published</option></select>
       </div>
-      <div class="row">
-        <div><label>Sitio</label><input name="site" value="escarlet" /></div>
-        <div><label>Autor</label><input name="authorName" value="Charly" /></div>
+    </div>
+
+    <div class="tabs">
+      <button type="button" data-tab="posts" class="active">Posts</button>
+      <button type="button" data-tab="editor">Editor</button>
+      <button type="button" data-tab="preview">Preview</button>
+      <button type="button" data-tab="media">Media</button>
+      <button type="button" data-tab="brand">Brand kit</button>
+    </div>
+
+    <section id="panel-posts" class="panel active">
+      <div class="actions">
+        <button type="button" class="primary" id="newPost">Nuevo borrador</button>
+        <button type="button" id="reloadPosts">Recargar</button>
       </div>
-      <div class="row">
-        <div><label>Estado</label>
-          <select name="status"><option value="draft">Borrador</option><option value="published">Publicado</option></select>
+      <ul class="list" id="list"></ul>
+    </section>
+
+    <section id="panel-editor" class="panel">
+      <form id="form">
+        <div class="row">
+          <div><label>Título</label><input name="title" required /></div>
+          <div><label>Slug</label><input name="slug" required /></div>
         </div>
-        <div><label>Publicado</label><input name="datePublished" type="date" /></div>
-      </div>
-      <label>Modificado</label><input name="dateModified" type="date" />
-      <label>SEO title</label><input name="metaTitleEs" />
-      <label>SEO description</label><textarea name="metaDescriptionEs" style="min-height:70px"></textarea>
-      <label>Extracto</label><textarea name="excerptEs" style="min-height:70px"></textarea>
-      <label>Imagen URL</label><input name="imageUrl" />
-      <label>Imagen alt</label><input name="imageAlt" />
-      <label>Related slugs (coma)</label><input name="relatedSlugs" />
-      <label>Cuerpo HTML</label><textarea name="bodyHtml" required></textarea>
-      <button type="submit">Guardar</button>
-    </form>
+        <div class="row">
+          <div><label>Autor</label><input name="authorName" value="Silvia" /></div>
+          <div><label>Estado</label>
+            <select name="status"><option value="draft">draft</option><option value="review">review</option><option value="published">published</option></select>
+          </div>
+        </div>
+        <div class="row">
+          <div><label>Publicado</label><input name="datePublished" type="date" /></div>
+          <div><label>Modificado</label><input name="dateModified" type="date" /></div>
+        </div>
+        <label>SEO title (es)</label><input name="metaTitleEs" />
+        <label>SEO description (es)</label><textarea name="metaDescriptionEs" style="min-height:70px"></textarea>
+        <label>Extracto</label><textarea name="excerptEs" style="min-height:70px"></textarea>
+        <label>Imagen URL</label><input name="imageUrl" />
+        <label>Imagen alt</label><input name="imageAlt" />
+        <label>Related slugs (coma)</label><input name="relatedSlugs" />
+        <label>Substack title</label><input name="substackTitle" />
+        <label>Substack body</label><textarea name="substackBody"></textarea>
+        <label>LinkedIn</label><textarea name="linkedin"></textarea>
+        <label>X</label><textarea name="x"></textarea>
+        <label>Cuerpo HTML</label><textarea name="bodyHtml" required style="min-height:220px"></textarea>
+        <div class="actions">
+          <button type="submit" class="primary">Guardar</button>
+          <button type="button" id="validateSeo">Validar SEO</button>
+          <button type="button" id="publishPost">Publicar</button>
+        </div>
+        <pre id="seoResult" class="muted"></pre>
+      </form>
+    </section>
+
+    <section id="panel-preview" class="panel">
+      <p class="muted">Preview del post seleccionado. URL con token para compartir internamente.</p>
+      <p id="previewUrl"></p>
+      <iframe class="preview" id="previewFrame" title="Preview"></iframe>
+    </section>
+
+    <section id="panel-media" class="panel">
+      <form id="uploadForm">
+        <label>Archivo imagen</label>
+        <input type="file" id="uploadFile" accept="image/*" />
+        <label>Alt</label><input id="uploadAlt" />
+        <label>Tipo</label>
+        <select id="uploadKind"><option value="post">post</option><option value="reference">reference</option></select>
+        <button type="submit" class="primary">Subir</button>
+      </form>
+      <div class="media-grid" id="mediaGrid"></div>
+    </section>
+
+    <section id="panel-brand" class="panel">
+      <label>Archivo brand kit</label>
+      <select id="brandFile">
+        <option value="voice.md">voice.md</option>
+        <option value="keywords.md">keywords.md</option>
+        <option value="image-guide.md">image-guide.md</option>
+        <option value="agent-rules.md">agent-rules.md</option>
+      </select>
+      <label>Contenido</label>
+      <textarea id="brandContent" style="min-height:320px"></textarea>
+      <button type="button" class="primary" id="saveBrand">Guardar brand kit</button>
+    </section>
   </div>
+
   <script>
     const login = document.getElementById('login')
     const app = document.getElementById('app')
+    const tokenInput = document.getElementById('token')
+    const siteFilter = document.getElementById('siteFilter')
+    const statusFilter = document.getElementById('statusFilter')
+    const list = document.getElementById('list')
     const form = document.getElementById('form')
-    let token = ''
+    const seoResult = document.getElementById('seoResult')
+    const previewFrame = document.getElementById('previewFrame')
+    const previewUrl = document.getElementById('previewUrl')
+    const mediaGrid = document.getElementById('mediaGrid')
+    const brandFile = document.getElementById('brandFile')
+    const brandContent = document.getElementById('brandContent')
 
-    const headers = () => ({ Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' })
+    let token = localStorage.getItem('escarlet_cms_token') || ''
 
-    async function loadList() {
-      const res = await fetch('/api/admin/posts', { headers: headers() })
-      if (!res.ok) throw new Error('No autorizado')
-      const data = await res.json()
-      document.getElementById('list').innerHTML = data.posts.map((p) => (
-        '<li><span><strong>' + p.title + '</strong> <span class="muted">/' + p.slug + ' · ' + p.status + '</span></span>' +
-        '<a href="#" data-slug="' + p.slug + '">Editar</a></li>'
-      )).join('') || '<li class="muted">Aún no hay posts.</li>'
-      document.querySelectorAll('[data-slug]').forEach((a) => {
-        a.onclick = (e) => {
-          e.preventDefault()
-          const post = data.posts.find((x) => x.slug === a.dataset.slug)
-          fill(post)
-        }
-      })
+    function authHeaders() {
+      return { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }
     }
 
-    function fill(post) {
-      const f = form.elements
-      f.title.value = post.title || ''
-      f.slug.value = post.slug || ''
-      f.site.value = post.site || 'escarlet'
-      f.authorName.value = post.authorName || ''
-      f.status.value = post.status || 'draft'
-      f.datePublished.value = post.datePublished || ''
-      f.dateModified.value = post.dateModified || ''
-      f.metaTitleEs.value = post.metaTitle?.es || post.metaTitle || ''
-      f.metaDescriptionEs.value = post.metaDescription?.es || post.metaDescription || ''
-      f.excerptEs.value = post.excerptEs || ''
-      f.imageUrl.value = post.imageUrl || ''
-      f.imageAlt.value = post.imageAlt || ''
-      f.relatedSlugs.value = (post.relatedSlugs || []).join(', ')
-      f.bodyHtml.value = post.bodyHtml || ''
+    async function api(path, options = {}) {
+      const res = await fetch(path, { ...options, headers: { ...authHeaders(), ...(options.headers || {}) } })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.message || res.statusText)
+      return data
     }
 
     document.getElementById('enter').onclick = async () => {
-      token = document.getElementById('token').value
-      const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) })
-      if (!res.ok) { alert('Token incorrecto'); return }
+      token = tokenInput.value.trim()
+      await api('/api/login', { method: 'POST', body: JSON.stringify({ token }) })
+      localStorage.setItem('escarlet_cms_token', token)
       login.hidden = true
       app.hidden = false
-      await loadList()
+      await loadPosts()
+      await loadMedia()
+      await loadBrand()
     }
 
-    document.getElementById('new').onclick = () => form.reset()
+    if (token) {
+      tokenInput.value = token
+      login.hidden = true
+      app.hidden = false
+      loadPosts().catch(() => { login.hidden = false; app.hidden = true })
+    }
+
+    document.querySelectorAll('.tabs button').forEach((btn) => {
+      btn.onclick = () => {
+        document.querySelectorAll('.tabs button').forEach((b) => b.classList.remove('active'))
+        document.querySelectorAll('.panel').forEach((p) => p.classList.remove('active'))
+        btn.classList.add('active')
+        document.getElementById('panel-' + btn.dataset.tab).classList.add('active')
+      }
+    })
+
+    async function loadPosts() {
+      const site = siteFilter.value.trim() || 'escarlet'
+      const status = statusFilter.value
+      const q = new URLSearchParams({ site })
+      if (status) q.set('status', status)
+      const data = await api('/api/admin/posts?' + q)
+      list.innerHTML = ''
+      for (const p of data.posts || []) {
+        const li = document.createElement('li')
+        li.innerHTML = `<span><strong>${p.title}</strong> <span class="badge ${p.status}">${p.status}</span><br><span class="muted">${p.slug}</span></span>`
+        const actions = document.createElement('span')
+        actions.className = 'actions'
+        const edit = document.createElement('button')
+        edit.textContent = 'Editar'
+        edit.onclick = () => fillForm(p)
+        const prev = document.createElement('button')
+        prev.textContent = 'Preview'
+        prev.onclick = () => openPreview(p)
+        actions.append(edit, prev)
+        li.appendChild(actions)
+        list.appendChild(li)
+      }
+    }
+
+    function fillForm(p) {
+      form.title.value = p.title || ''
+      form.slug.value = p.slug || ''
+      form.authorName.value = p.authorName || 'Silvia'
+      form.status.value = p.status || 'draft'
+      form.datePublished.value = p.datePublished || ''
+      form.dateModified.value = p.dateModified || ''
+      form.metaTitleEs.value = p.metaTitle?.es || ''
+      form.metaDescriptionEs.value = p.metaDescription?.es || ''
+      form.excerptEs.value = p.excerptEs || ''
+      form.imageUrl.value = p.imageUrl || ''
+      form.imageAlt.value = p.imageAlt || ''
+      form.relatedSlugs.value = (p.relatedSlugs || []).join(', ')
+      form.substackTitle.value = p.socialPack?.substackTitle || ''
+      form.substackBody.value = p.socialPack?.substackBody || ''
+      form.linkedin.value = p.socialPack?.linkedin || ''
+      form.x.value = p.socialPack?.x || ''
+      form.bodyHtml.value = p.bodyHtml || ''
+      document.querySelector('[data-tab="editor"]').click()
+    }
+
+    function openPreview(p) {
+      const site = siteFilter.value.trim() || 'escarlet'
+      const url = `/preview/${site}/${encodeURIComponent(p.slug)}?token=${encodeURIComponent(token)}`
+      previewUrl.innerHTML = `<a href="${url}" target="_blank" rel="noopener">${location.origin}${url}</a>`
+      previewFrame.src = url
+      document.querySelector('[data-tab="preview"]').click()
+    }
+
+    document.getElementById('reloadPosts').onclick = loadPosts
+    statusFilter.onchange = loadPosts
+    siteFilter.onchange = () => { loadPosts(); loadMedia(); loadBrand() }
+
+    document.getElementById('newPost').onclick = () => {
+      form.reset()
+      form.authorName.value = 'Silvia'
+      form.status.value = 'draft'
+      document.querySelector('[data-tab="editor"]').click()
+    }
 
     form.onsubmit = async (e) => {
       e.preventDefault()
-      const f = form.elements
+      const site = siteFilter.value.trim() || 'escarlet'
       const payload = {
-        title: f.title.value,
-        slug: f.slug.value,
-        authorName: f.authorName.value,
-        status: f.status.value,
-        datePublished: f.datePublished.value,
-        dateModified: f.dateModified.value || f.datePublished.value,
-        metaTitle: { es: f.metaTitleEs.value },
-        metaDescription: { es: f.metaDescriptionEs.value },
-        excerptEs: f.excerptEs.value,
-        imageUrl: f.imageUrl.value,
-        imageAlt: f.imageAlt.value,
-        relatedSlugs: f.relatedSlugs.value.split(',').map((s) => s.trim()).filter(Boolean),
-        bodyHtml: f.bodyHtml.value,
-        site: f.site.value || 'escarlet'
+        site,
+        slug: form.slug.value.trim(),
+        title: form.title.value.trim(),
+        authorName: form.authorName.value.trim(),
+        status: form.status.value,
+        datePublished: form.datePublished.value,
+        dateModified: form.dateModified.value,
+        metaTitle: { es: form.metaTitleEs.value.trim(), en: form.metaTitleEs.value.trim() },
+        metaDescription: { es: form.metaDescriptionEs.value.trim(), en: form.metaDescriptionEs.value.trim() },
+        excerptEs: form.excerptEs.value.trim(),
+        imageUrl: form.imageUrl.value.trim(),
+        imageAlt: form.imageAlt.value.trim(),
+        relatedSlugs: form.relatedSlugs.value.split(',').map((s) => s.trim()).filter(Boolean),
+        socialPack: {
+          substackTitle: form.substackTitle.value.trim(),
+          substackBody: form.substackBody.value.trim(),
+          linkedin: form.linkedin.value.trim(),
+          x: form.x.value.trim()
+        },
+        bodyHtml: form.bodyHtml.value
       }
-      const res = await fetch('/api/admin/posts', { method: 'POST', headers: headers(), body: JSON.stringify(payload) })
-      if (!res.ok) { alert('No se pudo guardar'); return }
-      await loadList()
+      await api('/api/admin/posts', { method: 'POST', body: JSON.stringify(payload) })
+      await loadPosts()
       alert('Guardado')
+    }
+
+    document.getElementById('validateSeo').onclick = async () => {
+      const site = siteFilter.value.trim() || 'escarlet'
+      const slug = form.slug.value.trim()
+      const data = await api('/api/admin/validate-seo', { method: 'POST', body: JSON.stringify({ site, slug }) })
+      seoResult.textContent = JSON.stringify(data, null, 2)
+    }
+
+    document.getElementById('publishPost').onclick = async () => {
+      const site = siteFilter.value.trim() || 'escarlet'
+      const slug = form.slug.value.trim()
+      try {
+        const data = await api('/api/admin/posts/publish', { method: 'POST', body: JSON.stringify({ site, slug }) })
+        seoResult.textContent = JSON.stringify(data, null, 2)
+        await loadPosts()
+        alert(data.message || 'Publicado')
+      } catch (err) {
+        alert(err.message)
+      }
+    }
+
+    async function loadMedia() {
+      const site = siteFilter.value.trim() || 'escarlet'
+      const data = await api('/api/admin/media?site=' + site)
+      mediaGrid.innerHTML = ''
+      for (const item of data.media || []) {
+        const div = document.createElement('div')
+        div.innerHTML = `<img src="${item.url}" alt="${item.alt || ''}" /><p class="muted">${item.filename || item.url}</p>`
+        mediaGrid.appendChild(div)
+      }
+    }
+
+    document.getElementById('uploadForm').onsubmit = async (e) => {
+      e.preventDefault()
+      const file = document.getElementById('uploadFile').files[0]
+      if (!file) return
+      const buf = await file.arrayBuffer()
+      const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)))
+      const site = siteFilter.value.trim() || 'escarlet'
+      const data = await api('/api/admin/media/upload', {
+        method: 'POST',
+        body: JSON.stringify({
+          site,
+          filename: file.name,
+          contentBase64: b64,
+          alt: document.getElementById('uploadAlt').value,
+          kind: document.getElementById('uploadKind').value
+        })
+      })
+      if (data.media?.url) form.imageUrl.value = data.media.url
+      await loadMedia()
+      alert('Subido. ' + data.media.url)
+    }
+
+    async function loadBrand() {
+      const site = siteFilter.value.trim() || 'escarlet'
+      const file = brandFile.value
+      const data = await api(`/api/admin/brand-kit/${site}/${file}`)
+      brandContent.value = data.content || ''
+    }
+
+    brandFile.onchange = loadBrand
+    document.getElementById('saveBrand').onclick = async () => {
+      const site = siteFilter.value.trim() || 'escarlet'
+      const file = brandFile.value
+      await api(`/api/admin/brand-kit/${site}/${file}`, {
+        method: 'POST',
+        body: JSON.stringify({ content: brandContent.value })
+      })
+      alert('Brand kit guardado')
     }
   </script>
 </body>

@@ -1,5 +1,26 @@
 services:
+  cms:
+    build: .
+    ports:
+      - '3040:3040'
+    env_file:
+      - .env
+    environment:
+      PORT: 3040
+      CMS_PUBLIC_URL: http://localhost:3040
+    volumes:
+      - cms_data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3040/api/health']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Opcional. Postgres para futura migración a Payload 3
   postgres:
+    profiles:
+      - payload
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: payload
@@ -11,4 +32,6 @@ services:
       - payload_pg:/var/lib/postgresql/data
 
 volumes:
+  cms_data:
+    name: escarlet_blog_cms_data
   payload_pg:

@@ -1,12 +1,36 @@
 import { createServer } from 'node:http'
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, extname, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  readDb,
+  writeDb,
+  publicPost,
+  findPost,
+  upsertPost,
+  mediaDir,
+  dataDir
+} from './lib/db.mjs'
+import { loadSiteConfig, listSiteHandles } from './lib/site-config.mjs'
+import {
+  getBrandContext,
+  getSeoContext,
+  readBrandFile,
+  writeBrandFile,
+  BRAND_FILES
+} from './lib/brand-kit.mjs'
+import { validatePostSeo } from './lib/seo-validator.mjs'
+import {
+  buildDraftPost,
+  normalizeAuthor,
+  pickRelated,
+  toSlug,
+  todayIso,
+  validateSlug
+} from './lib/post-utils.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = __dirname
-const dataDir = join(root, 'data')
-const dbPath = join(dataDir, 'db.json')
 
 function loadEnv() {
   const envPath = join(root, '.env')
@@ -27,31 +51,22 @@ const PORT = Number(process.env.PORT || 3040)
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'cambia-esto'
 const DEFAULT_SITE = process.env.DEFAULT_SITE || 'escarlet'
 const REBUILD_WEBHOOK_URL = process.env.REBUILD_WEBHOOK_URL || ''
+const CMS_PUBLIC_URL = (process.env.CMS_PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/$/, '')
 
-function emptyDb() {
-  return {
-    sites: [{ id: 'escarlet', name: 'Escarlet', handle: 'escarlet', domain: 'https://escarlet.design' }],
-    authors: [
-      { id: 'charly', name: 'Charly', url: 'https://www.linkedin.com/in/carlos-brugiafredo/' },
-      { id: 'silvia', name: 'Silvia', url: '' }
-    ],
-    categories: [],
-    media: [],
-    posts: []
+async function notifyRebuild(site) {
+  const siteConfig = loadSiteConfig(site)
+  const envKey = siteConfig?.rebuildWebhookEnv || 'REBUILD_WEBHOOK_URL'
+  const url = process.env[envKey] || process.env.REBUILD_WEBHOOK_URL || REBUILD_WEBHOOK_URL
+  if (!url) return
+  try {
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: 'escarlet-blog-cms', site })
+    })
+  } catch (error) {
+    console.error('Rebuild webhook failed', error.message)
   }
-}
-
-function readDb() {
-  if (!existsSync(dbPath)) {
-    mkdirSync(dataDir, { recursive: true })
-    writeFileSync(dbPath, JSON.stringify(emptyDb(), null, 2))
-  }
-  return JSON.parse(readFileSync(dbPath, 'utf8'))
-}
-
-function writeDb(db) {
-  mkdirSync(dataDir, { recursive: true })
-  writeFileSync(dbPath, JSON.stringify(db, null, 2))
 }
 
 function json(res, status, payload) {
@@ -65,43 +80,23 @@ function json(res, status, payload) {
   res.end(body)
 }
 
-function publicPost(post) {
-  return {
-    slug: post.slug,
-    title: post.title,
-    metaTitle: post.metaTitle || { es: post.title },
-    metaDescription: post.metaDescription || { es: post.excerptEs || post.title },
-    datePublished: post.datePublished,
-    dateModified: post.dateModified || post.datePublished,
-    imageUrl: post.imageUrl || '',
-    imageAlt: post.imageAlt || post.title,
-    imagePosition: post.imagePosition || '',
-    substackUrl: post.substackUrl || '',
-    authorName: post.authorName || 'Escarlet',
-    excerptEs: post.excerptEs || '',
-    bodyHtml: post.bodyHtml || '',
-    relatedSlugs: post.relatedSlugs || [],
-    status: post.status || 'draft'
-  }
+function html(res, status, body, extraHeaders = {}) {
+  res.writeHead(status, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'X-Robots-Tag': 'noindex, nofollow',
+    ...extraHeaders
+  })
+  res.end(body)
 }
 
-async function notifyRebuild() {
-  const url = process.env.REBUILD_WEBHOOK_URL || REBUILD_WEBHOOK_URL
-  if (!url) return
-  try {
-    await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source: 'escarlet-blog-cms' }) })
-  } catch (error) {
-    console.error('Rebuild webhook failed', error.message)
-  }
-}
-
-function isAdmin(req) {
+function isAdmin(req, url) {
   const header = req.headers.authorization || ''
   const token = header.startsWith('Bearer ') ? header.slice(7) : ''
   const cookie = String(req.headers.cookie || '')
   const cookieToken = cookie.match(/(?:^|;\s*)escarlet_cms=([^;]+)/)?.[1]
+  const queryToken = url.searchParams.get('token') || ''
   const expected = process.env.ADMIN_TOKEN || ADMIN_TOKEN
-  return token === expected || cookieToken === expected
+  return token === expected || cookieToken === expected || queryToken === expected
 }
 
 function parseBody(req) {
@@ -120,10 +115,73 @@ function parseBody(req) {
   })
 }
 
+function serveStaticFile(res, filePath, contentType) {
+  if (!existsSync(filePath)) {
+    json(res, 404, { message: 'No encontrado' })
+    return
+  }
+  res.writeHead(200, { 'Content-Type': contentType })
+  res.end(readFileSync(filePath))
+}
+
+function saveUploadedMedia({ site, filename, contentBase64, alt = '', kind = 'post' }) {
+  const safeName = basename(filename).replace(/[^a-zA-Z0-9._-]/g, '-').toLowerCase()
+  const sub = kind === 'reference' ? join(site, 'reference') : site
+  const dir = join(mediaDir, sub)
+  mkdirSync(dir, { recursive: true })
+  const filePath = join(dir, safeName)
+  writeFileSync(filePath, Buffer.from(contentBase64, 'base64'))
+  const urlPath =
+    kind === 'reference'
+      ? `/media/${site}/reference/${safeName}`
+      : `/media/${site}/${safeName}`
+  const publicUrl = `${CMS_PUBLIC_URL}${urlPath}`
+  const db = readDb()
+  const item = {
+    id: `media-${Date.now()}`,
+    site,
+    url: publicUrl,
+    path: urlPath,
+    alt,
+    kind,
+    filename: safeName
+  }
+  db.media = db.media || []
+  db.media.push(item)
+  writeDb(db)
+  return item
+}
+
+function renderPreview(post, siteConfig) {
+  const canonical = `${siteConfig.domain.replace(/\/$/, '')}/blog/${post.slug}`
+  return `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>${post.title} (preview)</title>
+  <style>
+    body { font-family: Georgia, serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #222; line-height: 1.6; }
+    .badge { display: inline-block; background: #1f4d3a; color: #fff; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.75rem; margin-bottom: 1rem; }
+    img { max-width: 100%; height: auto; border-radius: 8px; }
+    h1 { font-size: 1.8rem; line-height: 1.2; }
+    .meta { color: #666; font-size: 0.9rem; margin-bottom: 1.5rem; }
+  </style>
+</head>
+<body>
+  <div class="badge">Preview borrador · ${post.status}</div>
+  <h1>${post.title}</h1>
+  <p class="meta">${post.authorName} · ${post.datePublished} · ${canonical}</p>
+  ${post.imageUrl ? `<img src="${post.imageUrl}" alt="${post.imageAlt || ''}" />` : ''}
+  <p><strong>${post.excerptEs || ''}</strong></p>
+  <article>${post.bodyHtml || ''}</article>
+</body>
+</html>`
+}
+
 function serveAdmin(res) {
-  const html = readFileSync(join(root, 'admin.html'), 'utf8')
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-  res.end(html)
+  serveStaticFile(res, join(root, 'admin.html'), 'text/html; charset=utf-8')
 }
 
 const server = createServer(async (req, res) => {
@@ -140,8 +198,49 @@ const server = createServer(async (req, res) => {
     return
   }
 
+  if (req.method === 'GET' && path === '/robots.txt') {
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' })
+    res.end('User-agent: *\nDisallow: /\n')
+    return
+  }
+
   if (req.method === 'GET' && (path === '/admin' || path === '/')) {
     serveAdmin(res)
+    return
+  }
+
+  const mediaMatch = path.match(/^\/media\/([^/]+)(?:\/reference)?\/([^/]+)$/)
+  if (req.method === 'GET' && mediaMatch) {
+    const [, site, filename] = mediaMatch
+    const isRef = path.includes('/reference/')
+    const filePath = join(mediaDir, isRef ? join(site, 'reference') : site, filename)
+    const ext = extname(filename).toLowerCase()
+    const types = {
+      '.webp': 'image/webp',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.png': 'image/png',
+      '.gif': 'image/gif'
+    }
+    serveStaticFile(res, filePath, types[ext] || 'application/octet-stream')
+    return
+  }
+
+  const previewMatch = path.match(/^\/preview\/([^/]+)\/([^/]+)$/)
+  if (req.method === 'GET' && previewMatch) {
+    if (!isAdmin(req, url)) {
+      json(res, 401, { message: 'Token requerido para preview' })
+      return
+    }
+    const [, site, slug] = previewMatch
+    const db = readDb()
+    const post = findPost(db, site, decodeURIComponent(slug))
+    if (!post) {
+      json(res, 404, { message: 'Post no encontrado' })
+      return
+    }
+    const siteConfig = loadSiteConfig(site) || { domain: 'https://escarlet.design' }
+    html(res, 200, renderPreview(post, siteConfig))
     return
   }
 
@@ -165,13 +264,15 @@ const server = createServer(async (req, res) => {
   }
 
   if (req.method === 'GET' && path === '/api/health') {
-    json(res, 200, { ok: true })
+    json(res, 200, { ok: true, version: '2.0.0' })
     return
   }
 
   if (req.method === 'GET' && path === '/api/sites') {
     const db = readDb()
-    json(res, 200, { sites: db.sites || [] })
+    const handles = listSiteHandles()
+    const configured = handles.map((h) => loadSiteConfig(h)).filter(Boolean)
+    json(res, 200, { sites: db.sites || [], configured })
     return
   }
 
@@ -195,83 +296,218 @@ const server = createServer(async (req, res) => {
   }
 
   if (path.startsWith('/api/admin')) {
-    if (!isAdmin(req)) {
+    if (!isAdmin(req, url)) {
       json(res, 401, { message: 'No autorizado' })
       return
     }
+
     const db = readDb()
+
     if (req.method === 'GET' && path === '/api/admin/posts') {
       const site = url.searchParams.get('site') || DEFAULT_SITE
-      json(res, 200, { posts: db.posts.filter((p) => p.site === site) })
+      const status = url.searchParams.get('status')
+      let posts = db.posts.filter((p) => p.site === site)
+      if (status) posts = posts.filter((p) => p.status === status)
+      json(res, 200, { posts })
       return
     }
+
+    const adminPostMatch = path.match(/^\/api\/admin\/posts\/([^/]+)$/)
+    if (req.method === 'GET' && adminPostMatch) {
+      const site = url.searchParams.get('site') || DEFAULT_SITE
+      const slug = decodeURIComponent(adminPostMatch[1])
+      const post = findPost(db, site, slug)
+      if (!post) {
+        json(res, 404, { message: 'No encontrado' })
+        return
+      }
+      json(res, 200, { post })
+      return
+    }
+
     if (req.method === 'GET' && path === '/api/admin/sites') {
-      json(res, 200, { sites: db.sites || [] })
+      json(res, 200, { sites: db.sites || [], handles: listSiteHandles() })
       return
     }
+
     if (req.method === 'GET' && path === '/api/admin/authors') {
       json(res, 200, { authors: db.authors || [] })
       return
     }
+
     if (req.method === 'GET' && path === '/api/admin/categories') {
       json(res, 200, { categories: db.categories || [] })
       return
     }
+
     if (req.method === 'GET' && path === '/api/admin/media') {
-      json(res, 200, { media: db.media || [] })
+      const site = url.searchParams.get('site') || DEFAULT_SITE
+      const items = (db.media || []).filter((m) => !m.site || m.site === site)
+      json(res, 200, { media: items })
       return
     }
-    if (req.method === 'POST' && path === '/api/admin/authors') {
+
+    const brandMatch = path.match(/^\/api\/admin\/brand-kit\/([^/]+)(?:\/([^/]+))?$/)
+    if (brandMatch) {
+      const site = brandMatch[1]
+      const file = brandMatch[2]
+      if (req.method === 'GET' && !file) {
+        json(res, 200, getBrandContext(site))
+        return
+      }
+      if (req.method === 'GET' && file && BRAND_FILES.includes(file)) {
+        json(res, 200, { site, file, content: readBrandFile(site, file) })
+        return
+      }
+      if (req.method === 'POST' && file && BRAND_FILES.includes(file)) {
+        const body = await parseBody(req)
+        writeBrandFile(site, file, body.content || '')
+        json(res, 200, { ok: true, file })
+        return
+      }
+    }
+
+    if (req.method === 'POST' && path === '/api/admin/validate-seo') {
       const body = await parseBody(req)
-      const author = { id: body.id || body.name?.toLowerCase().replace(/\s+/g, '-') || `author-${Date.now()}`, ...body }
-      db.authors = db.authors || []
-      const idx = db.authors.findIndex((a) => a.id === author.id)
-      if (idx >= 0) db.authors[idx] = { ...db.authors[idx], ...author }
-      else db.authors.push(author)
-      writeDb(db)
-      json(res, 200, { author })
+      const site = body.site || DEFAULT_SITE
+      const post = body.post || findPost(db, site, body.slug)
+      if (!post) {
+        json(res, 404, { message: 'Post no encontrado' })
+        return
+      }
+      json(res, 200, validatePostSeo(post, site))
       return
     }
-    if (req.method === 'POST' && path === '/api/admin/categories') {
+
+    if (req.method === 'POST' && path === '/api/admin/media/upload') {
       const body = await parseBody(req)
-      const category = { id: body.slug || `cat-${Date.now()}`, ...body }
-      db.categories = db.categories || []
-      const idx = db.categories.findIndex((c) => c.slug === category.slug)
-      if (idx >= 0) db.categories[idx] = { ...db.categories[idx], ...category }
-      else db.categories.push(category)
-      writeDb(db)
-      json(res, 200, { category })
+      if (!body.contentBase64 || !body.filename) {
+        json(res, 400, { message: 'Faltan filename y contentBase64' })
+        return
+      }
+      const item = saveUploadedMedia({
+        site: body.site || DEFAULT_SITE,
+        filename: body.filename,
+        contentBase64: body.contentBase64,
+        alt: body.alt || '',
+        kind: body.kind || 'post'
+      })
+      json(res, 200, { media: item })
       return
     }
+
     if (req.method === 'POST' && path === '/api/admin/media') {
       const body = await parseBody(req)
-      const item = { id: body.id || `media-${Date.now()}`, url: body.url || '', alt: body.alt || '' }
+      const item = {
+        id: body.id || `media-${Date.now()}`,
+        site: body.site || DEFAULT_SITE,
+        url: body.url || '',
+        alt: body.alt || ''
+      }
       db.media = db.media || []
       db.media.push(item)
       writeDb(db)
       json(res, 200, { media: item })
       return
     }
+
+    if (req.method === 'POST' && path === '/api/admin/posts/create-draft') {
+      const body = await parseBody(req)
+      const site = body.site || DEFAULT_SITE
+      const siteConfig = loadSiteConfig(site)
+      const title = String(body.title || '').trim()
+      if (!title) {
+        json(res, 400, { message: 'Falta title' })
+        return
+      }
+      const slug = toSlug(body.slug || title)
+      validateSlug(slug)
+      if (findPost(db, site, slug)) {
+        json(res, 409, { message: `Ya existe slug ${slug}` })
+        return
+      }
+      const author = normalizeAuthor(body.author || body.authorName, siteConfig?.authors)
+      const date = body.date || todayIso()
+      const existingSlugs = db.posts.filter((p) => p.site === site).map((p) => p.slug)
+      const relatedSlugs = pickRelated(existingSlugs, slug, siteConfig?.seo?.relatedSlugsCount || 3)
+      const draft = buildDraftPost({
+        site,
+        slug,
+        title,
+        author,
+        date,
+        domain: siteConfig?.domain || 'https://escarlet.design',
+        relatedSlugs
+      })
+      upsertPost(db, draft)
+      writeDb(db)
+      json(res, 201, { post: draft })
+      return
+    }
+
     if (req.method === 'POST' && path === '/api/admin/posts') {
       const body = await parseBody(req)
+      const site = body.site || DEFAULT_SITE
+      const slug = body.slug
+      if (!slug) {
+        json(res, 400, { message: 'Falta slug' })
+        return
+      }
+      const existing = findPost(db, site, slug)
       const post = {
-        id: body.slug || `post-${Date.now()}`,
-        site: body.site || DEFAULT_SITE,
-        status: body.status || 'draft',
+        id: slug,
+        site,
+        status: body.status || existing?.status || 'draft',
+        dateModified: todayIso(),
+        ...existing,
         ...body
       }
-      const idx = db.posts.findIndex((p) => p.site === post.site && p.slug === post.slug)
-      if (idx >= 0) db.posts[idx] = { ...db.posts[idx], ...post }
-      else db.posts.push(post)
+      upsertPost(db, post)
       writeDb(db)
-      if (post.status === 'published') await notifyRebuild()
+      if (post.status === 'published') await notifyRebuild(site)
       json(res, 200, { post })
       return
     }
+
+    if (req.method === 'POST' && path === '/api/admin/posts/publish') {
+      const body = await parseBody(req)
+      const site = body.site || DEFAULT_SITE
+      const slug = body.slug
+      const post = findPost(db, site, slug)
+      if (!post) {
+        json(res, 404, { message: 'Post no encontrado' })
+        return
+      }
+      const validation = validatePostSeo(post, site)
+      if (!validation.ok) {
+        json(res, 422, { message: 'SEO no válido', validation })
+        return
+      }
+      const siteConfig = loadSiteConfig(site)
+      let nextStatus = 'published'
+      if (siteConfig?.requiresHumanApproval && post.status !== 'review') {
+        post.status = 'review'
+        upsertPost(db, post)
+        writeDb(db)
+        json(res, 200, { post, validation, message: 'En revisión. Publica desde el dashboard.' })
+        return
+      }
+      post.status = nextStatus
+      post.dateModified = todayIso()
+      if (!post.datePublished) post.datePublished = todayIso()
+      upsertPost(db, post)
+      writeDb(db)
+      await notifyRebuild(site)
+      json(res, 200, { post, validation })
+      return
+    }
+
     if (req.method === 'DELETE') {
       const del = path.match(/^\/api\/admin\/posts\/([^/]+)$/)
       if (del) {
-        db.posts = db.posts.filter((p) => p.slug !== decodeURIComponent(del[1]))
+        const site = url.searchParams.get('site') || DEFAULT_SITE
+        const slug = decodeURIComponent(del[1])
+        db.posts = db.posts.filter((p) => !(p.site === site && p.slug === slug))
         writeDb(db)
         json(res, 200, { ok: true })
         return
@@ -282,6 +518,11 @@ const server = createServer(async (req, res) => {
   json(res, 404, { message: 'Ruta no encontrada' })
 })
 
+mkdirSync(dataDir, { recursive: true })
+mkdirSync(mediaDir, { recursive: true })
+
 server.listen(PORT, () => {
   console.log(`Escarlet blog CMS en http://localhost:${PORT}/admin`)
 })
+
+export { ADMIN_TOKEN, DEFAULT_SITE, CMS_PUBLIC_URL }
