@@ -5,6 +5,7 @@ import { mkdirSync, existsSync, copyFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
+import { seedAllBrandKits } from '../lib/brand-kit.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const dataDir = join(root, 'data')
@@ -12,6 +13,7 @@ const dbPath = join(dataDir, 'db.json')
 const seedPath = join(root, 'data-seed', 'db.json')
 
 mkdirSync(join(dataDir, 'media'), { recursive: true })
+seedAllBrandKits()
 
 if (!existsSync(dbPath) && existsSync(seedPath)) {
   copyFileSync(seedPath, dbPath)

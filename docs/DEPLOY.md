@@ -52,8 +52,9 @@ PORT=3040
 ADMIN_TOKEN=<genera-un-secreto-largo>
 DEFAULT_SITE=escarlet
 CMS_PUBLIC_URL=https://blog-cms.escarlet.cc
-REBUILD_WEBHOOK_URL=<ver punto 4>
 ```
+
+Webhook por site. Configúralo en dashboard → **Sitio** (recomendado). Opcional fallback env `REBUILD_WEBHOOK_URL`.
 
 ### Dominio
 
@@ -148,15 +149,18 @@ Objetivo. Cuando publicas en el CMS, escarlet.design se reconstruye solo con los
 4. Copia la URL. Suele ser algo como  
    `https://coolify.tudominio.com/api/v1/deploy?uuid=...&force=false`
 
-### B. Pégala en el CMS
+### B. Pégala en el CMS (dashboard)
 
-En la app **escarlet-blog-cms** en Coolify, variable de entorno:
+1. Abre `https://blog-cms.escarlet.cc/admin` (o local)
+2. Tab **Sitio**
+3. Campo **Deploy webhook** → pega la URL
+4. Campo **Token API Coolify** → pega el token con permiso Deploy
+5. **Probar webhook** para comprobar que Coolify responde OK
+6. Guardar sitio
 
-```
-REBUILD_WEBHOOK_URL=https://coolify.../api/v1/deploy?uuid=...
-```
+La config se guarda en el volumen `/app/data/site-config/` (persiste entre redeploys).
 
-Guarda y redeploy del CMS.
+Fallback opcional por env en la app CMS. `REBUILD_WEBHOOK_URL` y `COOLIFY_API_TOKEN`.
 
 ### C. Variables en escarlet002
 

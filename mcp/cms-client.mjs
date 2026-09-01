@@ -62,7 +62,17 @@ export async function uploadMedia(payload) {
 }
 
 export async function getBrandContext(site) {
-  return request('GET', `/api/admin/brand-kit/${site}`)
+  return request('GET', `/api/admin/brand-kit/${encodeURIComponent(site)}`)
+}
+
+export async function getBrandFile(site, file) {
+  return request('GET', `/api/admin/brand-kit/${encodeURIComponent(site)}/${encodeURIComponent(file)}`)
+}
+
+export async function updateBrandFile(site, file, content) {
+  return request('POST', `/api/admin/brand-kit/${encodeURIComponent(site)}/${encodeURIComponent(file)}`, {
+    content
+  })
 }
 
 export async function getSeoContext(site) {

@@ -12,7 +12,7 @@ Conecta un proyecto web al CMS central de blogs Escarlet.
 ### En escarlet-blog-cms
 
 1. Crear `config/sites/{handle}/site.json`
-2. Copiar brand kit. `voice.md`, `keywords.md`, `image-guide.md`, `agent-rules.md`
+2. Copiar brand kit. `voice.md`, `visual-style.md`, `image-guide.md`, `keywords.md`, `AGENT.md`
 3. Registrar site en DB vía dashboard o editar `data/db.json`
 4. Configurar webhook rebuild del frontend
 

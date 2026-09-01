@@ -33,8 +33,9 @@ Deploy producción. Ver [docs/DEPLOY.md](docs/DEPLOY.md).
 | `blog_validate_seo` | Quality gates |
 | `blog_publish` | Publicar + webhook |
 | `blog_get_seo_context` | Keywords y reglas |
-| `blog_get_brand_context` | Voz, imágenes, reglas agente |
-| `blog_upload_media` | Subir imagen base64 |
+| `blog_get_brand_context` | Voz, estilo visual, AGENT.md e imágenes de referencia |
+| `blog_update_brand_file` | Subir o corregir un archivo del kit |
+| `blog_upload_media` | Portada (`post`) o moodboard (`reference`) |
 
 Resources. `brand://escarlet/voice`, `keywords`, `agent-rules`, `image-guide`
 

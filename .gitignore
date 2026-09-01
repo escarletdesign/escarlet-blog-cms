@@ -2,4 +2,6 @@ node_modules
 .env
 data/db.json
 data/media/
+data/brand/
+data/site-config/
 .DS_Store

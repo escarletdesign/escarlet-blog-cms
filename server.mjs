@@ -11,13 +11,22 @@ import {
   mediaDir,
   dataDir
 } from './lib/db.mjs'
-import { loadSiteConfig, listSiteHandles } from './lib/site-config.mjs'
+import {
+  loadSiteConfig,
+  listSiteHandles,
+  saveSiteConfig,
+  getRebuildWebhookUrl,
+  getCoolifyApiToken,
+  publicSiteConfig
+} from './lib/site-config.mjs'
 import {
   getBrandContext,
   getSeoContext,
   readBrandFile,
   writeBrandFile,
-  BRAND_FILES
+  seedAllBrandKits,
+  BRAND_FILES,
+  BRAND_FILE_LABELS
 } from './lib/brand-kit.mjs'
 import { validatePostSeo } from './lib/seo-validator.mjs'
 import {
@@ -55,17 +64,32 @@ const CMS_PUBLIC_URL = (process.env.CMS_PUBLIC_URL || `http://localhost:${PORT}`
 
 async function notifyRebuild(site) {
   const siteConfig = loadSiteConfig(site)
-  const envKey = siteConfig?.rebuildWebhookEnv || 'REBUILD_WEBHOOK_URL'
-  const url = process.env[envKey] || process.env.REBUILD_WEBHOOK_URL || REBUILD_WEBHOOK_URL
-  if (!url) return
+  const url = getRebuildWebhookUrl(siteConfig)
+  if (!url) {
+    const message = `Sin webhook para site ${site}. Configúralo en dashboard → Sitio.`
+    console.warn(`[rebuild] ${message}`)
+    return { ok: false, status: 0, message }
+  }
+  const token = getCoolifyApiToken(siteConfig)
+  const headers = { 'Content-Type': 'application/json' }
+  if (token) headers.Authorization = `Bearer ${token}`
   try {
-    await fetch(url, {
+    const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ source: 'escarlet-blog-cms', site })
     })
+    const body = await res.text().catch(() => '')
+    if (!res.ok) {
+      const message = `HTTP ${res.status}${body ? `: ${body.slice(0, 200)}` : ''}`
+      console.error(`[rebuild] ${message} (${site})`)
+      return { ok: false, status: res.status, message }
+    }
+    console.log(`[rebuild] OK ${site} → ${res.status}`)
+    return { ok: true, status: res.status, message: 'Rebuild disparado' }
   } catch (error) {
-    console.error('Rebuild webhook failed', error.message)
+    console.error('[rebuild] webhook failed', error.message)
+    return { ok: false, status: 0, message: error.message }
   }
 }
 
@@ -342,27 +366,74 @@ const server = createServer(async (req, res) => {
 
     if (req.method === 'GET' && path === '/api/admin/media') {
       const site = url.searchParams.get('site') || DEFAULT_SITE
-      const items = (db.media || []).filter((m) => !m.site || m.site === site)
+      const kind = url.searchParams.get('kind')
+      let items = (db.media || []).filter((m) => !m.site || m.site === site)
+      if (kind) items = items.filter((m) => m.kind === kind)
       json(res, 200, { media: items })
       return
+    }
+
+    const siteConfigTestMatch = path.match(/^\/api\/admin\/site-config\/([^/]+)\/test-rebuild$/)
+    if (siteConfigTestMatch && req.method === 'POST') {
+      const handle = siteConfigTestMatch[1]
+      if (!loadSiteConfig(handle)) {
+        json(res, 404, { message: 'Site no encontrado' })
+        return
+      }
+      const rebuild = await notifyRebuild(handle)
+      json(res, rebuild.ok ? 200 : 502, { rebuild })
+      return
+    }
+
+    const siteConfigMatch = path.match(/^\/api\/admin\/site-config\/([^/]+)$/)
+    if (siteConfigMatch) {
+      const handle = siteConfigMatch[1]
+      if (req.method === 'GET') {
+        const config = loadSiteConfig(handle)
+        if (!config) {
+          json(res, 404, { message: 'Site no encontrado' })
+          return
+        }
+        json(res, 200, { config: publicSiteConfig(config) })
+        return
+      }
+      if (req.method === 'POST') {
+        const body = await parseBody(req)
+        const partial = {
+          name: body.name,
+          domain: body.domain,
+          rebuildWebhookUrl: body.rebuildWebhookUrl,
+          requiresHumanApproval: body.requiresHumanApproval
+        }
+        if (body.coolifyApiToken) partial.coolifyApiToken = body.coolifyApiToken
+        if (body.clearCoolifyApiToken) partial.clearCoolifyApiToken = true
+        const config = saveSiteConfig(handle, partial)
+        json(res, 200, { config: publicSiteConfig(config) })
+        return
+      }
     }
 
     const brandMatch = path.match(/^\/api\/admin\/brand-kit\/([^/]+)(?:\/([^/]+))?$/)
     if (brandMatch) {
       const site = brandMatch[1]
-      const file = brandMatch[2]
+      const file = brandMatch[2] ? decodeURIComponent(brandMatch[2]) : ''
+      const allowed = !file || BRAND_FILES.includes(file) || file === 'agent-rules.md'
       if (req.method === 'GET' && !file) {
-        json(res, 200, getBrandContext(site))
+        json(res, 200, { ...getBrandContext(site), files: BRAND_FILES, labels: BRAND_FILE_LABELS })
         return
       }
-      if (req.method === 'GET' && file && BRAND_FILES.includes(file)) {
+      if (req.method === 'GET' && file && allowed) {
         json(res, 200, { site, file, content: readBrandFile(site, file) })
         return
       }
-      if (req.method === 'POST' && file && BRAND_FILES.includes(file)) {
-        const body = await parseBody(req)
-        writeBrandFile(site, file, body.content || '')
-        json(res, 200, { ok: true, file })
+      if (req.method === 'POST' && file && allowed) {
+        try {
+          const body = await parseBody(req)
+          writeBrandFile(site, file, body.content || '')
+          json(res, 200, { ok: true, file })
+        } catch (err) {
+          json(res, 400, { message: err.message })
+        }
         return
       }
     }
@@ -441,7 +512,10 @@ const server = createServer(async (req, res) => {
       })
       upsertPost(db, draft)
       writeDb(db)
-      json(res, 201, { post: draft })
+      json(res, 201, {
+        post: draft,
+        reminder: getBrandContext(site).reminder
+      })
       return
     }
 
@@ -464,8 +538,9 @@ const server = createServer(async (req, res) => {
       }
       upsertPost(db, post)
       writeDb(db)
-      if (post.status === 'published') await notifyRebuild(site)
-      json(res, 200, { post })
+      let rebuild = null
+      if (post.status === 'published') rebuild = await notifyRebuild(site)
+      json(res, 200, { post, rebuild })
       return
     }
 
@@ -497,8 +572,8 @@ const server = createServer(async (req, res) => {
       if (!post.datePublished) post.datePublished = todayIso()
       upsertPost(db, post)
       writeDb(db)
-      await notifyRebuild(site)
-      json(res, 200, { post, validation })
+      const rebuild = await notifyRebuild(site)
+      json(res, 200, { post, validation, rebuild })
       return
     }
 
@@ -520,6 +595,7 @@ const server = createServer(async (req, res) => {
 
 mkdirSync(dataDir, { recursive: true })
 mkdirSync(mediaDir, { recursive: true })
+seedAllBrandKits()
 
 server.listen(PORT, () => {
   console.log(`Escarlet blog CMS en http://localhost:${PORT}/admin`)

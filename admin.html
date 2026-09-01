@@ -59,6 +59,7 @@
       <button type="button" data-tab="preview">Preview</button>
       <button type="button" data-tab="media">Media</button>
       <button type="button" data-tab="brand">Brand kit</button>
+      <button type="button" data-tab="site">Sitio</button>
     </div>
 
     <section id="panel-posts" class="panel active">
@@ -124,16 +125,46 @@
     </section>
 
     <section id="panel-brand" class="panel">
-      <label>Archivo brand kit</label>
+      <p class="muted">Hermes lee este kit al crear o editar un post. Puedes corregir el texto o las fotos si no estás de acuerdo.</p>
+      <label>Qué editas</label>
       <select id="brandFile">
-        <option value="voice.md">voice.md</option>
-        <option value="keywords.md">keywords.md</option>
-        <option value="image-guide.md">image-guide.md</option>
-        <option value="agent-rules.md">agent-rules.md</option>
+        <option value="voice.md">Voz de marca</option>
+        <option value="visual-style.md">Estilo de imágenes</option>
+        <option value="image-guide.md">Nombres y alt SEO</option>
+        <option value="keywords.md">Keywords</option>
+        <option value="AGENT.md">Reglas del agente (AGENT.md)</option>
       </select>
       <label>Contenido</label>
       <textarea id="brandContent" style="min-height:320px"></textarea>
-      <button type="button" class="primary" id="saveBrand">Guardar brand kit</button>
+      <button type="button" class="primary" id="saveBrand">Guardar texto</button>
+      <h2 style="font-size:1.1rem;margin-top:1.6rem">Imágenes de referencia</h2>
+      <p class="muted">Moodboard para portadas. El agente las ve en blog_get_brand_context.</p>
+      <form id="refUploadForm">
+        <label>Archivo</label>
+        <input type="file" id="refFile" accept="image/*" />
+        <label>Qué muestra (alt)</label>
+        <input id="refAlt" placeholder="Foto de taller con luz cálida" />
+        <button type="submit" class="primary">Subir referencia</button>
+      </form>
+      <div class="media-grid" id="refGrid"></div>
+    </section>
+
+    <section id="panel-site" class="panel">
+      <p class="muted">Config white-label por sitio. Webhook de rebuild del frontend (Coolify deploy URL).</p>
+      <label>Dominio público</label>
+      <input id="siteDomain" placeholder="https://escarlet.design" />
+      <label>Deploy webhook (Coolify)</label>
+      <input id="siteWebhook" placeholder="https://coolify.../api/v1/deploy?uuid=..." />
+      <p class="muted">Copia la URL de Coolify → app del frontend → Webhooks → Deploy Webhook. Una URL por sitio/cliente.</p>
+      <label>Token API Coolify (Deploy)</label>
+      <input id="siteCoolifyToken" type="password" autocomplete="new-password" placeholder="Bearer token con permiso Deploy" />
+      <p class="muted" id="siteTokenStatus"></p>
+      <div class="actions">
+        <button type="button" class="primary" id="saveSite">Guardar sitio</button>
+        <button type="button" id="testRebuild">Probar webhook</button>
+      </div>
+      <pre id="rebuildResult" class="muted"></pre>
+      <label><input type="checkbox" id="siteHumanApproval" /> Requiere aprobación humana antes de publicar</label>
     </section>
   </div>
 
@@ -151,6 +182,13 @@
     const mediaGrid = document.getElementById('mediaGrid')
     const brandFile = document.getElementById('brandFile')
     const brandContent = document.getElementById('brandContent')
+    const refGrid = document.getElementById('refGrid')
+    const siteDomain = document.getElementById('siteDomain')
+    const siteWebhook = document.getElementById('siteWebhook')
+    const siteCoolifyToken = document.getElementById('siteCoolifyToken')
+    const siteTokenStatus = document.getElementById('siteTokenStatus')
+    const rebuildResult = document.getElementById('rebuildResult')
+    const siteHumanApproval = document.getElementById('siteHumanApproval')
 
     let token = localStorage.getItem('escarlet_cms_token') || ''
 
@@ -174,13 +212,18 @@
       await loadPosts()
       await loadMedia()
       await loadBrand()
+      await loadRefs()
+      await loadSite()
     }
 
     if (token) {
       tokenInput.value = token
       login.hidden = true
       app.hidden = false
-      loadPosts().catch(() => { login.hidden = false; app.hidden = true })
+      Promise.all([loadPosts(), loadMedia(), loadBrand(), loadRefs(), loadSite()]).catch(() => {
+        login.hidden = false
+        app.hidden = true
+      })
     }
 
     document.querySelectorAll('.tabs button').forEach((btn) => {
@@ -247,7 +290,7 @@
 
     document.getElementById('reloadPosts').onclick = loadPosts
     statusFilter.onchange = loadPosts
-    siteFilter.onchange = () => { loadPosts(); loadMedia(); loadBrand() }
+    siteFilter.onchange = () => { loadPosts(); loadMedia(); loadBrand(); loadRefs(); loadSite() }
 
     document.getElementById('newPost').onclick = () => {
       form.reset()
@@ -300,7 +343,10 @@
         const data = await api('/api/admin/posts/publish', { method: 'POST', body: JSON.stringify({ site, slug }) })
         seoResult.textContent = JSON.stringify(data, null, 2)
         await loadPosts()
-        alert(data.message || 'Publicado')
+        const rebuildMsg = data.rebuild
+          ? (data.rebuild.ok ? 'Publicado. Rebuild OK.' : `Publicado. Rebuild falló: ${data.rebuild.message}`)
+          : (data.message || 'Publicado')
+        alert(rebuildMsg)
       } catch (err) {
         alert(err.message)
       }
@@ -350,11 +396,87 @@
     document.getElementById('saveBrand').onclick = async () => {
       const site = siteFilter.value.trim() || 'escarlet'
       const file = brandFile.value
-      await api(`/api/admin/brand-kit/${site}/${file}`, {
+      await api(`/api/admin/brand-kit/${site}/${encodeURIComponent(file)}`, {
         method: 'POST',
         body: JSON.stringify({ content: brandContent.value })
       })
       alert('Brand kit guardado')
+    }
+
+    async function loadRefs() {
+      const site = siteFilter.value.trim() || 'escarlet'
+      const data = await api('/api/admin/media?site=' + site + '&kind=reference')
+      refGrid.innerHTML = ''
+      for (const item of data.media || []) {
+        const div = document.createElement('div')
+        div.innerHTML = `<img src="${item.path || item.url}" alt="${item.alt || ''}" /><p class="muted">${item.alt || item.filename || ''}</p>`
+        refGrid.appendChild(div)
+      }
+    }
+
+    document.getElementById('refUploadForm').onsubmit = async (e) => {
+      e.preventDefault()
+      const file = document.getElementById('refFile').files[0]
+      if (!file) return
+      const buf = await file.arrayBuffer()
+      const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)))
+      const site = siteFilter.value.trim() || 'escarlet'
+      await api('/api/admin/media/upload', {
+        method: 'POST',
+        body: JSON.stringify({
+          site,
+          filename: file.name,
+          contentBase64: b64,
+          alt: document.getElementById('refAlt').value,
+          kind: 'reference'
+        })
+      })
+      document.getElementById('refFile').value = ''
+      await loadRefs()
+      alert('Referencia subida')
+    }
+
+    async function loadSite() {
+      const site = siteFilter.value.trim() || 'escarlet'
+      const data = await api(`/api/admin/site-config/${site}`)
+      siteDomain.value = data.config?.domain || ''
+      siteWebhook.value = data.config?.rebuildWebhookUrl || ''
+      siteHumanApproval.checked = Boolean(data.config?.requiresHumanApproval)
+      siteCoolifyToken.value = ''
+      siteTokenStatus.textContent = data.config?.hasCoolifyApiToken
+        ? `Token guardado (${data.config.coolifyApiTokenHint}). Deja el campo vacío para mantenerlo.`
+        : 'Sin token. Coolify puede rechazar el webhook sin autenticación.'
+      rebuildResult.textContent = ''
+    }
+
+    document.getElementById('saveSite').onclick = async () => {
+      const site = siteFilter.value.trim() || 'escarlet'
+      const payload = {
+        domain: siteDomain.value.trim(),
+        rebuildWebhookUrl: siteWebhook.value.trim(),
+        requiresHumanApproval: siteHumanApproval.checked
+      }
+      if (siteCoolifyToken.value.trim()) payload.coolifyApiToken = siteCoolifyToken.value.trim()
+      const data = await api(`/api/admin/site-config/${site}`, {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      })
+      siteCoolifyToken.value = ''
+      siteTokenStatus.textContent = data.config?.hasCoolifyApiToken
+        ? `Token guardado (${data.config.coolifyApiTokenHint}). Deja el campo vacío para mantenerlo.`
+        : 'Sin token. Coolify puede rechazar el webhook sin autenticación.'
+      alert('Sitio guardado')
+    }
+
+    document.getElementById('testRebuild').onclick = async () => {
+      const site = siteFilter.value.trim() || 'escarlet'
+      rebuildResult.textContent = 'Probando webhook…'
+      try {
+        const data = await api(`/api/admin/site-config/${site}/test-rebuild`, { method: 'POST', body: '{}' })
+        rebuildResult.textContent = JSON.stringify(data.rebuild, null, 2)
+      } catch (err) {
+        rebuildResult.textContent = err.message
+      }
     }
   </script>
 </body>

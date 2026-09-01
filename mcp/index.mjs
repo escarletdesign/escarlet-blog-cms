@@ -7,21 +7,17 @@ import {
   ListToolsRequestSchema,
   ReadResourceRequestSchema
 } from '@modelcontextprotocol/sdk/types.js'
-import { readFileSync, existsSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import * as cms from './cms-client.mjs'
-import { listSiteHandles } from '../lib/site-config.mjs'
-import { readBrandFile } from '../lib/brand-kit.mjs'
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const DEFAULT_SITE = process.env.DEFAULT_SITE || 'escarlet'
 
 const RESOURCE_MAP = {
   voice: 'voice.md',
   keywords: 'keywords.md',
-  'agent-rules': 'agent-rules.md',
-  'image-guide': 'image-guide.md'
+  'agent-rules': 'AGENT.md',
+  agent: 'AGENT.md',
+  'image-guide': 'image-guide.md',
+  'visual-style': 'visual-style.md'
 }
 
 const server = new Server(
@@ -68,7 +64,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'blog_create_draft',
-      description: 'Crea esqueleto de borrador con slug, fechas, socialPack y relacionados.',
+      description:
+        'Crea esqueleto de borrador. Antes, en este mismo turno, llama blog_get_brand_context y aplica voz, AGENT.md y estilo visual.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -83,7 +80,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'blog_update_post',
-      description: 'Actualiza campos de un post existente (parcial).',
+      description:
+        'Actualiza campos de un post (parcial). El cuerpo y el SEO deben seguir el brand kit leído con blog_get_brand_context.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -139,7 +137,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'blog_get_brand_context',
-      description: 'Voz, keywords, reglas agente e imágenes de referencia. Leer antes de redactar.',
+      description:
+        'Obligatorio al crear o editar un post. Devuelve voz, estilo visual, keywords, AGENT.md e imágenes de referencia del site.',
       inputSchema: {
         type: 'object',
         properties: { site: { type: 'string' } },
@@ -147,8 +146,26 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       }
     },
     {
+      name: 'blog_update_brand_file',
+      description:
+        'Crea o corrige un archivo del brand kit (voice.md, visual-style.md, image-guide.md, keywords.md, AGENT.md). El equipo puede editarlo después en el dashboard.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          site: { type: 'string' },
+          file: {
+            type: 'string',
+            description: 'voice.md, visual-style.md, image-guide.md, keywords.md o AGENT.md'
+          },
+          content: { type: 'string', description: 'Markdown completo del archivo' }
+        },
+        required: ['site', 'file', 'content']
+      }
+    },
+    {
       name: 'blog_upload_media',
-      description: 'Sube imagen en base64. Devuelve URL pública.',
+      description:
+        'Sube imagen en base64. kind=reference es moodboard de marca. kind=post es portada o foto del artículo. Devuelve URL pública.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -165,18 +182,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 }))
 
 server.setRequestHandler(ListResourcesRequestSchema, async () => {
-  const sites = listSiteHandles()
+  const listed = await cms.listSites()
+  const sites = listed.handles?.length
+    ? listed.handles
+    : (listed.sites || []).map((s) => s.handle || s.id).filter(Boolean)
   const resources = []
   for (const site of sites) {
-    for (const [key, file] of Object.entries(RESOURCE_MAP)) {
-      const path = join(root, 'config', 'sites', site, file)
-      if (existsSync(path)) {
-        resources.push({
-          uri: `brand://${site}/${key}`,
-          name: `${site} ${key}`,
-          mimeType: 'text/markdown'
-        })
-      }
+    for (const key of Object.keys(RESOURCE_MAP)) {
+      resources.push({
+        uri: `brand://${site}/${key}`,
+        name: `${site} ${key}`,
+        mimeType: 'text/markdown'
+      })
     }
   }
   return { resources }
@@ -188,10 +205,9 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   const [, site, key] = match
   const file = RESOURCE_MAP[key]
   if (!file) throw new Error(`Recurso desconocido: ${key}`)
-  const path = join(root, 'config', 'sites', site, file)
-  if (!existsSync(path)) throw new Error(`No existe ${path}`)
+  const data = await cms.getBrandFile(site, file)
   return {
-    contents: [{ uri: request.params.uri, mimeType: 'text/markdown', text: readFileSync(path, 'utf8') }]
+    contents: [{ uri: request.params.uri, mimeType: 'text/markdown', text: data.content || '' }]
   }
 })
 
@@ -218,6 +234,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return textResult(await cms.getSeoContext(site))
     case 'blog_get_brand_context':
       return textResult(await cms.getBrandContext(site))
+    case 'blog_update_brand_file':
+      return textResult(await cms.updateBrandFile(site, args.file, args.content))
     case 'blog_upload_media':
       return textResult(await cms.uploadMedia(args))
     default:
