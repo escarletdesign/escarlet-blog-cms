@@ -1,12 +1,9 @@
 {
   "mcpServers": {
     "escarlet-blog": {
-      "command": "node",
-      "args": ["/Users/carlosbrugiafredo/Documents/Escarlet/_Landigs/escarlet-blog-cms/mcp/index.mjs"],
-      "env": {
-        "CMS_URL": "http://localhost:3040",
-        "CMS_ADMIN_TOKEN": "cambia-esto",
-        "DEFAULT_SITE": "escarlet"
+      "url": "https://blog-cms.escarlet.cc/mcp",
+      "headers": {
+        "Authorization": "Bearer EL_MISMO_ADMIN_TOKEN_DEL_CMS"
       }
     }
   }

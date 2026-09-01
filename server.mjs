@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
-import { dirname, join, extname, basename } from 'node:path'
+import { dirname, join, extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   readDb,
@@ -15,8 +15,6 @@ import {
   loadSiteConfig,
   listSiteHandles,
   saveSiteConfig,
-  getRebuildWebhookUrl,
-  getCoolifyApiToken,
   publicSiteConfig
 } from './lib/site-config.mjs'
 import {
@@ -29,6 +27,11 @@ import {
   BRAND_FILE_LABELS
 } from './lib/brand-kit.mjs'
 import { validatePostSeo } from './lib/seo-validator.mjs'
+import {
+  notifyRebuild,
+  saveUploadedMedia
+} from './lib/cms-ops.mjs'
+import { handleMcpHttp, sendMcpCors } from './mcp/http-handler.mjs'
 import {
   buildDraftPost,
   normalizeAuthor,
@@ -59,39 +62,7 @@ loadEnv()
 const PORT = Number(process.env.PORT || 3040)
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'cambia-esto'
 const DEFAULT_SITE = process.env.DEFAULT_SITE || 'escarlet'
-const REBUILD_WEBHOOK_URL = process.env.REBUILD_WEBHOOK_URL || ''
 const CMS_PUBLIC_URL = (process.env.CMS_PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/$/, '')
-
-async function notifyRebuild(site) {
-  const siteConfig = loadSiteConfig(site)
-  const url = getRebuildWebhookUrl(siteConfig)
-  if (!url) {
-    const message = `Sin webhook para site ${site}. Configúralo en dashboard → Sitio.`
-    console.warn(`[rebuild] ${message}`)
-    return { ok: false, status: 0, message }
-  }
-  const token = getCoolifyApiToken(siteConfig)
-  const headers = { 'Content-Type': 'application/json' }
-  if (token) headers.Authorization = `Bearer ${token}`
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ source: 'escarlet-blog-cms', site })
-    })
-    const body = await res.text().catch(() => '')
-    if (!res.ok) {
-      const message = `HTTP ${res.status}${body ? `: ${body.slice(0, 200)}` : ''}`
-      console.error(`[rebuild] ${message} (${site})`)
-      return { ok: false, status: res.status, message }
-    }
-    console.log(`[rebuild] OK ${site} → ${res.status}`)
-    return { ok: true, status: res.status, message: 'Rebuild disparado' }
-  } catch (error) {
-    console.error('[rebuild] webhook failed', error.message)
-    return { ok: false, status: 0, message: error.message }
-  }
-}
 
 function json(res, status, payload) {
   const body = JSON.stringify(payload)
@@ -148,34 +119,6 @@ function serveStaticFile(res, filePath, contentType) {
   res.end(readFileSync(filePath))
 }
 
-function saveUploadedMedia({ site, filename, contentBase64, alt = '', kind = 'post' }) {
-  const safeName = basename(filename).replace(/[^a-zA-Z0-9._-]/g, '-').toLowerCase()
-  const sub = kind === 'reference' ? join(site, 'reference') : site
-  const dir = join(mediaDir, sub)
-  mkdirSync(dir, { recursive: true })
-  const filePath = join(dir, safeName)
-  writeFileSync(filePath, Buffer.from(contentBase64, 'base64'))
-  const urlPath =
-    kind === 'reference'
-      ? `/media/${site}/reference/${safeName}`
-      : `/media/${site}/${safeName}`
-  const publicUrl = `${CMS_PUBLIC_URL}${urlPath}`
-  const db = readDb()
-  const item = {
-    id: `media-${Date.now()}`,
-    site,
-    url: publicUrl,
-    path: urlPath,
-    alt,
-    kind,
-    filename: safeName
-  }
-  db.media = db.media || []
-  db.media.push(item)
-  writeDb(db)
-  return item
-}
-
 function renderPreview(post, siteConfig) {
   const canonical = `${siteConfig.domain.replace(/\/$/, '')}/blog/${post.slug}`
   return `<!doctype html>
@@ -213,12 +156,34 @@ const server = createServer(async (req, res) => {
   const path = url.pathname.replace(/\/+$/, '') || '/'
 
   if (req.method === 'OPTIONS') {
+    sendMcpCors(res)
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+      'Access-Control-Allow-Headers':
+        'Authorization, Content-Type, Mcp-Session-Id, MCP-Protocol-Version, Last-Event-Id',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS'
     })
     res.end()
+    return
+  }
+
+  if (path.startsWith('/.well-known/oauth')) {
+    json(res, 404, { message: 'OAuth no usado. Usa Authorization Bearer con ADMIN_TOKEN.' })
+    return
+  }
+
+  if (path === '/mcp') {
+    if (!isAdmin(req, url)) {
+      sendMcpCors(res)
+      json(res, 401, { message: 'No autorizado. Authorization Bearer con ADMIN_TOKEN.' })
+      return
+    }
+    try {
+      const parsedBody = req.method === 'POST' ? await parseBody(req) : undefined
+      await handleMcpHttp(req, res, parsedBody)
+    } catch (error) {
+      if (!res.headersSent) json(res, 400, { message: error.message })
+    }
     return
   }
 
@@ -288,7 +253,7 @@ const server = createServer(async (req, res) => {
   }
 
   if (req.method === 'GET' && path === '/api/health') {
-    json(res, 200, { ok: true, version: '2.0.0' })
+    json(res, 200, { ok: true, version: '2.0.0', mcp: '/mcp' })
     return
   }
 
@@ -599,6 +564,7 @@ seedAllBrandKits()
 
 server.listen(PORT, () => {
   console.log(`Escarlet blog CMS en http://localhost:${PORT}/admin`)
+  console.log(`MCP remoto (Hermes) en http://localhost:${PORT}/mcp`)
 })
 
 export { ADMIN_TOKEN, DEFAULT_SITE, CMS_PUBLIC_URL }

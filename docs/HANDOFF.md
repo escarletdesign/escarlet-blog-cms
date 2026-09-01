@@ -7,7 +7,9 @@ Documento para retomar el proyecto desde otro chat o workspace Cursor.
 CMS headless central + MCP para agentes (Hermes). Los posts **no van a git** de escarlet002. El frontend hace pull en build.
 
 ```
-Hermes → MCP → CMS (data/db.json)
+Hermes → HTTPS /mcp (mismo servicio CMS)
+                    ↓
+              data/db.json + brand kit
                     ↓ publish
               webhook Coolify
                     ↓
@@ -48,7 +50,7 @@ Dashboard. http://localhost:3040/admin
 
 ## MCP Cursor
 
-Ver `docs/mcp.json.example`. El MCP llama a `CMS_URL` (local o producción). Requiere CMS online.
+El MCP es el endpoint `POST https://blog-cms.escarlet.cc/mcp` del mismo servicio. Hermes solo pone `url` + `Authorization` Bearer. Ver `docs/mcp.json.example`.
 
 ## Deploy pendiente (Carlos)
 

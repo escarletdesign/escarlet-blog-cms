@@ -75,65 +75,26 @@ Redeploy. El build ejecutará `sync-blog-cms.mjs` y bajará los posts publicados
 
 ---
 
-## 3. MCP en Cursor (Hermes) — paso a paso
+## 3. MCP en Cursor (Hermes)
 
-Hermes usa el MCP en **tu Mac**, no dentro del contenedor. El MCP llama a la API HTTP del CMS.
-
-### A. Genera un token
-
-Usa el mismo valor que `ADMIN_TOKEN` del CMS (local o producción).
-
-### B. Abre la config MCP de Cursor
-
-**Opción 1 — UI**
-
-1. Cursor → **Settings** → **MCP**
-2. **Add new MCP server** o edita el JSON
-
-**Opción 2 — archivo**
-
-Abre `~/.cursor/mcp.json` en un editor.
-
-Si el archivo no existe, créalo con `{}` y dentro la clave `mcpServers`.
-
-### C. Añade el servidor
-
-Copia desde [`docs/mcp.json.example`](mcp.json.example) y ajusta rutas y token:
+El MCP corre **dentro del CMS**. Hermes no clona el repo. Solo apunta a la URL.
 
 ```json
 {
   "mcpServers": {
     "escarlet-blog": {
-      "command": "node",
-      "args": [
-        "/Users/carlosbrugiafredo/Documents/Escarlet/_Landigs/escarlet-blog-cms/mcp/index.mjs"
-      ],
-      "env": {
-        "CMS_URL": "http://localhost:3040",
-        "CMS_ADMIN_TOKEN": "tu-mismo-ADMIN_TOKEN",
-        "DEFAULT_SITE": "escarlet"
+      "url": "https://blog-cms.escarlet.cc/mcp",
+      "headers": {
+        "Authorization": "Bearer EL_MISMO_ADMIN_TOKEN_DEL_CMS"
       }
     }
   }
 }
 ```
 
-### D. Elige la URL del CMS
+Local. `http://localhost:3040/mcp` con el mismo `ADMIN_TOKEN`.
 
-| Dónde trabajas | CMS_URL |
-|----------------|---------|
-| CMS en local (`npm run dev` o `docker:up`) | `http://localhost:3040` |
-| CMS ya desplegado en Coolify | `https://blog-cms.escarlet.cc` |
-
-El MCP **no** arranca el CMS. El CMS tiene que estar online cuando Hermes escriba posts.
-
-### E. Reinicia MCP en Cursor
-
-Settings → MCP → reinicia el servidor `escarlet-blog` o reinicia Cursor.
-
-### F. Prueba en chat
-
-Pide al agente que use `blog_list_posts` con site `escarlet`. Debería listar posts.
+Reinicia el servidor MCP en Cursor. Prueba `blog_list_posts` con site `escarlet`.
 
 ---
 

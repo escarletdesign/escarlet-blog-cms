@@ -39,6 +39,21 @@ Deploy producción. Ver [docs/DEPLOY.md](docs/DEPLOY.md).
 
 Resources. `brand://escarlet/voice`, `keywords`, `agent-rules`, `image-guide`
 
+Hermes (otro servidor) no clona el CMS. En su `mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "escarlet-blog": {
+      "url": "https://blog-cms.escarlet.cc/mcp",
+      "headers": {
+        "Authorization": "Bearer EL_MISMO_ADMIN_TOKEN_DEL_CMS"
+      }
+    }
+  }
+}
+```
+
 ## Integración escarlet002
 
 ```bash
