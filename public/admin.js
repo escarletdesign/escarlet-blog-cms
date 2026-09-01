@@ -35,13 +35,18 @@ const siteTokenStatus = document.getElementById('siteTokenStatus')
 const rebuildResult = document.getElementById('rebuildResult')
 const siteHumanApproval = document.getElementById('siteHumanApproval')
 const toastEl = document.getElementById('toast')
-const bodyPreview = document.getElementById('bodyPreview')
 const loginError = document.getElementById('loginError')
 const enterBtn = document.getElementById('enter')
 const previewPostSelect = document.getElementById('previewPostSelect')
+const previewStatus = document.getElementById('previewStatus')
 const imagePreview = document.getElementById('imagePreview')
 const imageUrlInput = document.getElementById('imageUrlInput')
+const bodyContent = document.getElementById('bodyContent')
+const menuToggle = document.getElementById('menuToggle')
+const sidebar = document.getElementById('sidebar')
+const sidebarBackdrop = document.getElementById('sidebarBackdrop')
 let brandEditor = null
+let bodyEditor = null
 let cachedPosts = []
 let token = localStorage.getItem('escarlet_cms_token') || ''
 
@@ -60,16 +65,10 @@ function mediaSrc(item) {
   if (url.startsWith('/media/')) return url
   const match = String(url).match(/(\/media\/[^\s?#]+)/)
   if (match) return match[1]
+  const filename = String(url).split('/').pop()?.split('?')[0]
+  if (filename) return `/media/${siteFilter.value.trim() || 'escarlet'}/${filename}`
   if (/^https?:\/\//i.test(url) && !/localhost|127\.0\.0\.1/i.test(url)) return url
   return url
-}
-
-function isProbablyMarkdown(text) {
-  const raw = String(text || '').trim()
-  if (!raw) return false
-  if (/<(?:p|h[1-6]|div|ul|ol|article|section|blockquote)\b/i.test(raw)) return false
-  if (/<[a-z][^>]*>/i.test(raw) && !/^#{1,6}\s/m.test(raw)) return false
-  return /^#{1,6}\s|^\s*[-*+]\s|^\s*\d+\.\s|\*\*[^*]+\*\*|^>\s/m.test(raw)
 }
 
 function fileToBase64(file) {
@@ -116,9 +115,32 @@ function ensureBrandEditor() {
     spellChecker: false,
     status: false,
     minHeight: '280px',
-    toolbar: ['bold', 'italic', 'heading', '|', 'quote', 'unordered-list', 'ordered-list', '|', 'preview', 'side-by-side', 'fullscreen']
+    toolbar: ['heading-2', 'heading-3', 'bold', 'italic', '|', 'quote', 'unordered-list', 'ordered-list', '|', 'preview', 'side-by-side', 'fullscreen']
   })
   return brandEditor
+}
+
+function ensureBodyEditor() {
+  if (bodyEditor || typeof EasyMDE === 'undefined' || !bodyContent) return bodyEditor
+  bodyEditor = new EasyMDE({
+    element: bodyContent,
+    spellChecker: false,
+    status: ['words'],
+    minHeight: '360px',
+    toolbar: ['heading-2', 'heading-3', 'bold', 'italic', '|', 'quote', 'unordered-list', 'ordered-list', 'link', '|', 'preview', 'side-by-side', 'fullscreen'],
+    renderingConfig: { singleLineBreaks: true }
+  })
+  return bodyEditor
+}
+
+function bodyValue() {
+  return bodyEditor ? bodyEditor.value() : bodyContent.value
+}
+
+function setBodyValue(text) {
+  ensureBodyEditor()
+  if (bodyEditor) bodyEditor.value(text || '')
+  else bodyContent.value = text || ''
 }
 
 function brandValue() {
@@ -131,28 +153,27 @@ function setBrandValue(text) {
   else brandContent.value = text || ''
 }
 
-function updateBodyPreview() {
-  const raw = form.bodyHtml.value || ''
-  if (!raw) {
-    bodyPreview.innerHTML = ''
-    return
-  }
-  if (typeof marked !== 'undefined' && isProbablyMarkdown(raw)) {
-    bodyPreview.innerHTML = marked.parse(raw)
-    return
-  }
-  bodyPreview.innerHTML = raw
-}
-
 function updateImagePreview() {
   const src = mediaSrc({ url: imageUrlInput?.value || form.imageUrl?.value || '' })
-  if (!src || src.startsWith('/images/')) {
+  if (!src) {
     imagePreview.hidden = true
     imagePreview.innerHTML = ''
     return
   }
   imagePreview.hidden = false
-  imagePreview.innerHTML = `<img src="${src}" alt="Vista previa de portada" />`
+  imagePreview.innerHTML = `<img src="${src}" alt="Vista previa de portada" onerror="this.closest('.image-preview').hidden=true" />`
+}
+
+function closeSidebar() {
+  sidebar?.classList.remove('open')
+  sidebarBackdrop?.setAttribute('hidden', '')
+  document.body.classList.remove('nav-open')
+}
+
+function openSidebar() {
+  sidebar?.classList.add('open')
+  sidebarBackdrop?.removeAttribute('hidden')
+  document.body.classList.add('nav-open')
 }
 
 function authHeaders() {
@@ -171,11 +192,13 @@ function switchTab(tab) {
   document.querySelectorAll('.panel').forEach((p) => p.classList.remove('active'))
   document.getElementById('panel-' + tab)?.classList.add('active')
   if (tab === 'brand') ensureBrandEditor()
+  if (tab === 'editor') ensureBodyEditor()
   if (tab === 'preview') {
     populatePreviewSelect()
     const slug = previewPostSelect?.value
     if (slug) showPreviewForSlug(slug)
   }
+  closeSidebar()
 }
 
 function populatePreviewSelect(posts = cachedPosts) {
@@ -198,11 +221,20 @@ function buildPreviewUrl(slug) {
   return `/preview/${site}/${encodeURIComponent(slug)}?token=${encodeURIComponent(token)}`
 }
 
+function updatePreviewStatus(slug) {
+  if (!previewStatus) return
+  const post = cachedPosts.find((p) => p.slug === slug)
+  previewStatus.innerHTML = post
+    ? `Estado actual. <span class="badge ${post.status}">${post.status}</span>`
+    : ''
+}
+
 function showPreviewForSlug(slug, { newTab = false } = {}) {
   if (!slug) {
     toast('Elige un post para previsualizar')
     return
   }
+  updatePreviewStatus(slug)
   const url = buildPreviewUrl(slug)
   if (newTab) {
     window.open(url, '_blank', 'noopener')
@@ -219,7 +251,8 @@ async function afterLogin() {
   await loadRefs()
   await loadSite()
   ensureBrandEditor()
-  updateBodyPreview()
+  ensureBodyEditor()
+  updateImagePreview()
   login.hidden = true
   app.hidden = false
 }
@@ -300,6 +333,12 @@ document.querySelectorAll('.nav-btn[data-tab]').forEach((btn) => {
   btn.onclick = () => switchTab(btn.dataset.tab)
 })
 
+menuToggle?.addEventListener('click', () => {
+  if (sidebar?.classList.contains('open')) closeSidebar()
+  else openSidebar()
+})
+sidebarBackdrop?.addEventListener('click', closeSidebar)
+
 async function loadPosts() {
   const site = siteFilter.value.trim() || 'escarlet'
   const status = statusFilter.value
@@ -356,7 +395,7 @@ function fillForm(p) {
   form.linkedin.value = p.socialPack?.linkedin || ''
   form.x.value = p.socialPack?.x || ''
   form.bodyHtml.value = p.bodyHtml || ''
-  updateBodyPreview()
+  setBodyValue(p.bodyHtml || '')
   updateImagePreview()
   switchTab('editor')
 }
@@ -371,17 +410,33 @@ function openPreview(p) {
 document.getElementById('reloadPosts').onclick = loadPosts
 statusFilter.onchange = loadPosts
 siteFilter.onchange = () => { loadPosts(); loadMedia(); loadBrand(); loadRefs(); loadSite() }
-form.bodyHtml.addEventListener('input', updateBodyPreview)
 form.imageUrl.addEventListener('input', updateImagePreview)
 document.getElementById('loadPreview').onclick = () => showPreviewForSlug(previewPostSelect?.value)
 document.getElementById('openPreviewTab').onclick = () => showPreviewForSlug(previewPostSelect?.value, { newTab: true })
 previewPostSelect?.addEventListener('change', () => showPreviewForSlug(previewPostSelect.value))
+document.getElementById('previewEdit').onclick = () => {
+  const post = cachedPosts.find((p) => p.slug === previewPostSelect?.value)
+  if (post) fillForm(post)
+  else toast('Elige un post')
+}
+document.getElementById('previewPublish').onclick = async () => {
+  const slug = previewPostSelect?.value
+  if (!slug) return toast('Elige un post')
+  const site = siteFilter.value.trim() || 'escarlet'
+  try {
+    const data = await api('/api/admin/posts/publish', { method: 'POST', body: JSON.stringify({ site, slug }) })
+    toast(data.message || (data.published ? 'Publicado' : 'Enviado a revisión'))
+    await loadPosts()
+    showPreviewForSlug(slug)
+  } catch (err) {
+    toast(err.message)
+  }
+}
 
 document.getElementById('newPost').onclick = () => {
   form.reset()
   form.authorName.value = 'Silvia'
   form.status.value = 'draft'
-  updateBodyPreview()
   updateImagePreview()
   switchTab('editor')
 }
@@ -409,7 +464,7 @@ form.onsubmit = async (e) => {
       linkedin: form.linkedin.value.trim(),
       x: form.x.value.trim()
     },
-    bodyHtml: form.bodyHtml.value
+    bodyHtml: bodyValue()
   }
   await api('/api/admin/posts', { method: 'POST', body: JSON.stringify(payload) })
   await loadPosts()

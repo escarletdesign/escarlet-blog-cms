@@ -27,7 +27,11 @@
   </div>
 
   <div id="app" class="shell" hidden>
-    <aside class="sidebar">
+    <button type="button" class="menu-toggle" id="menuToggle" aria-label="Abrir menú">
+      <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/></svg>
+    </button>
+    <div class="sidebar-backdrop" id="sidebarBackdrop" hidden></div>
+    <aside class="sidebar" id="sidebar">
       <div class="sidebar-brand">
         <img src="/favicon.svg" alt="" width="28" height="28" />
         <span>Escarlet CMS</span>
@@ -136,9 +140,8 @@
                 <div><label>LinkedIn</label><textarea name="linkedin"></textarea></div>
                 <div><label>X</label><textarea name="x"></textarea></div>
               </div>
-              <label>Cuerpo HTML o Markdown</label><textarea name="bodyHtml" required class="mono" style="min-height:220px"></textarea>
-              <label>Vista previa del cuerpo</label>
-              <div class="body-preview" id="bodyPreview"></div>
+              <label>Cuerpo del artículo</label>
+              <textarea id="bodyContent" name="bodyHtml" required></textarea>
               <div class="actions">
                 <button type="submit" class="btn btn-primary">Guardar</button>
                 <button type="button" class="btn" id="validateSeo">Validar SEO</button>
@@ -155,9 +158,12 @@
             <p class="card-desc">Elige cualquier post del sitio y revisa el borrador sin abrir el editor.</p>
             <label for="previewPostSelect">Post</label>
             <select id="previewPostSelect"></select>
+            <p id="previewStatus" class="preview-status"></p>
             <div class="actions">
               <button type="button" class="btn btn-primary" id="loadPreview">Ver preview</button>
               <button type="button" class="btn" id="openPreviewTab">Abrir en nueva pestaña</button>
+              <button type="button" class="btn btn-primary" id="previewPublish">Publicar</button>
+              <button type="button" class="btn" id="previewEdit">Editar</button>
             </div>
             <p class="preview-url" id="previewUrl"></p>
             <iframe class="preview" id="previewFrame" title="Preview"></iframe>
@@ -248,7 +254,6 @@
 
   <div id="toast" class="toast" hidden></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/easymde@2.18.0/dist/easymde.min.js"></script>
   <script src="/admin.js"></script>
 </body>

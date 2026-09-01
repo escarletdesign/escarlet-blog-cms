@@ -40,7 +40,7 @@ Para moodboard. `blog_upload_media` con `kind` `reference`.
 
 ## SEO por post
 
-- Mínimo 1.500 palabras en bodyHtml.
+- Mínimo 800 palabras en bodyHtml.
 - metaTitle.es 30-60 caracteres.
 - metaDescription.es 120-160 caracteres.
 - imageAlt 10-125 caracteres.

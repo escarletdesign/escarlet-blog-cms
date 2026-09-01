@@ -28,7 +28,7 @@ import {
 } from './lib/brand-kit.mjs'
 import { validatePostSeo } from './lib/seo-validator.mjs'
 import { notifyRebuild, saveUploadedMedia, publishPost as cmsPublishPost, validateSeo as cmsValidateSeo } from './lib/cms-ops.mjs'
-import { mediaForClient, repairMediaInDb, repairPostsInDb, resolveImageSrc } from './lib/media-url.mjs'
+import { mediaForClient, repairMediaInDb, repairPostsInDb, resolveImageSrc, resolvePostImageSrc } from './lib/media-url.mjs'
 import { withPostLinks } from './lib/preview-url.mjs'
 import { escapeHtml, renderPostBody } from './lib/content-render.mjs'
 import { handleMcpHttp, sendMcpCors } from './mcp/http-handler.mjs'
@@ -119,13 +119,14 @@ function serveStaticFile(res, filePath, contentType) {
   res.end(readFileSync(filePath))
 }
 
-function renderPreview(post, siteConfig) {
+function renderPreview(post, siteConfig, site) {
   const canonical = `${siteConfig.domain.replace(/\/$/, '')}/blog/${post.slug}`
-  const imageSrc = resolveImageSrc(post.imageUrl)
+  const imageSrc = resolvePostImageSrc(post.imageUrl, site)
   const imageBlock = imageSrc
     ? `<img src="${escapeHtml(imageSrc)}" alt="${escapeHtml(post.imageAlt || '')}" />`
     : ''
   const body = renderPostBody(post.bodyHtml)
+  const canPublish = post.status !== 'published'
   return `<!doctype html>
 <html lang="es">
 <head>
@@ -134,31 +135,72 @@ function renderPreview(post, siteConfig) {
   <meta name="robots" content="noindex,nofollow" />
   <title>${escapeHtml(post.title)} (preview)</title>
   <style>
-    body { font-family: Georgia, serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #222; line-height: 1.6; }
+    body { font-family: Georgia, serif; max-width: 720px; margin: 0 auto; padding: 1rem; color: #222; line-height: 1.6; }
+    .review-bar { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; justify-content: space-between; background: #15291f; color: #fff; padding: 0.75rem 1rem; margin: -1rem -1rem 1rem; }
+    .review-bar span { font-size: 0.85rem; }
+    .review-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .review-actions a, .review-actions button { border: 0; border-radius: 8px; padding: 0.45rem 0.8rem; font: inherit; font-size: 0.85rem; cursor: pointer; text-decoration: none; }
+    .review-actions button { background: #52b788; color: #15291f; font-weight: 600; }
+    .review-actions a { background: rgba(255,255,255,0.12); color: #fff; }
     .badge { display: inline-block; background: #1f4d3a; color: #fff; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.75rem; margin-bottom: 1rem; }
-    img { max-width: 100%; height: auto; border-radius: 8px; margin: 1rem 0; }
+    img { width: 100%; max-width: 100%; height: auto; border-radius: 8px; margin: 1rem 0; display: block; }
     h1 { font-size: 1.8rem; line-height: 1.2; }
-    .meta { color: #666; font-size: 0.9rem; margin-bottom: 1.5rem; }
-    article h2, article h3 { margin-top: 1.5rem; }
+    .meta { color: #666; font-size: 0.9rem; margin-bottom: 1.5rem; word-break: break-word; }
+    article h1, article h2, article h3 { margin-top: 1.5rem; line-height: 1.25; }
     article p { margin: 0.75rem 0; }
     article ul, article ol { padding-left: 1.25rem; }
     article blockquote { border-left: 3px solid #ccc; margin: 1rem 0; padding-left: 1rem; color: #444; }
+    #publishMsg { width: 100%; font-size: 0.82rem; margin: 0.35rem 0 0; color: #dce8e0; }
   </style>
 </head>
 <body>
-  <div class="badge">Preview borrador · ${escapeHtml(post.status)}</div>
+  <div class="review-bar">
+    <span>Preview · ${escapeHtml(post.status)}</span>
+    <div class="review-actions">
+      ${canPublish ? '<button type="button" id="publishBtn">Publicar</button>' : ''}
+      <a href="/">Dashboard</a>
+    </div>
+    <p id="publishMsg" hidden></p>
+  </div>
   <h1>${escapeHtml(post.title)}</h1>
   <p class="meta">${escapeHtml(post.authorName)} · ${escapeHtml(post.datePublished)} · ${escapeHtml(canonical)}</p>
   ${imageBlock}
   <p><strong>${escapeHtml(post.excerptEs || '')}</strong></p>
   <article>${body}</article>
+  <script>
+    (function () {
+      const token = new URLSearchParams(location.search).get('token') || ''
+      const btn = document.getElementById('publishBtn')
+      const msg = document.getElementById('publishMsg')
+      if (!btn) return
+      btn.addEventListener('click', async () => {
+        btn.disabled = true
+        msg.hidden = false
+        msg.textContent = 'Publicando…'
+        try {
+          const res = await fetch('/api/admin/posts/publish', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ site: ${JSON.stringify(site)}, slug: ${JSON.stringify(post.slug)} })
+          })
+          const data = await res.json().catch(() => ({}))
+          if (!res.ok) throw new Error(data.message || 'No se pudo publicar')
+          msg.textContent = data.message || 'Publicado'
+          setTimeout(() => location.reload(), 700)
+        } catch (error) {
+          msg.textContent = error.message
+          btn.disabled = false
+        }
+      })
+    })()
+  </script>
 </body>
 </html>`
 }
 
 function normalizePostForClient(post) {
   if (!post) return post
-  return { ...post, imageUrl: resolveImageSrc(post.imageUrl) }
+  return { ...post, imageUrl: resolvePostImageSrc(post.imageUrl, post.site || 'escarlet') || resolveImageSrc(post.imageUrl) }
 }
 
 function normalizePostsForClient(posts) {
@@ -271,7 +313,7 @@ const server = createServer(async (req, res) => {
       return
     }
     const siteConfig = loadSiteConfig(site) || { domain: 'https://escarlet.design' }
-    html(res, 200, renderPreview(post, siteConfig))
+    html(res, 200, renderPreview(post, siteConfig, site))
     return
   }
 

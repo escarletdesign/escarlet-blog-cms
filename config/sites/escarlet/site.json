@@ -6,7 +6,7 @@
   "requiresHumanApproval": true,
   "rebuildWebhookEnv": "REBUILD_WEBHOOK_URL",
   "seo": {
-    "minWords": 1500,
+    "minWords": 800,
     "metaTitleMin": 30,
     "metaTitleMax": 60,
     "metaDescriptionMin": 120,
