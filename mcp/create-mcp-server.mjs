@@ -63,7 +63,7 @@ export function createMcpServer() {
       },
       {
         name: 'blog_get_post',
-        description: 'Lee un post completo por slug.',
+        description: 'Lee un post completo por slug. Incluye previewUrl para abrir el borrador en el navegador.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -76,7 +76,7 @@ export function createMcpServer() {
       {
         name: 'blog_create_draft',
         description:
-          'Crea esqueleto de borrador. Antes, en este mismo turno, llama blog_get_brand_context y aplica voz, AGENT.md y estilo visual.',
+          'Crea esqueleto de borrador. Antes, en este mismo turno, llama blog_get_brand_context y aplica voz, AGENT.md y estilo visual. Devuelve previewUrl para revisar el borrador en el navegador.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -92,7 +92,7 @@ export function createMcpServer() {
       {
         name: 'blog_update_post',
         description:
-          'Actualiza campos de un post (parcial). El cuerpo y el SEO deben seguir el brand kit leído con blog_get_brand_context.',
+          'Actualiza campos de un post (parcial). El cuerpo y el SEO deben seguir el brand kit leído con blog_get_brand_context. Devuelve previewUrl para que el humano revise el borrador antes de publicar.',
         inputSchema: {
           type: 'object',
           properties: {

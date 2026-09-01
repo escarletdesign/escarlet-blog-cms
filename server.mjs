@@ -29,6 +29,7 @@ import {
 import { validatePostSeo } from './lib/seo-validator.mjs'
 import { notifyRebuild, saveUploadedMedia } from './lib/cms-ops.mjs'
 import { mediaForClient, repairMediaInDb } from './lib/media-url.mjs'
+import { withPostLinks } from './lib/preview-url.mjs'
 import { handleMcpHttp, sendMcpCors } from './mcp/http-handler.mjs'
 import {
   buildDraftPost,
@@ -504,10 +505,10 @@ const server = createServer(async (req, res) => {
       })
       upsertPost(db, draft)
       writeDb(db)
-      json(res, 201, {
+      json(res, 201, withPostLinks({
         post: draft,
         reminder: getBrandContext(site).reminder
-      })
+      }, site, slug))
       return
     }
 
@@ -532,7 +533,7 @@ const server = createServer(async (req, res) => {
       writeDb(db)
       let rebuild = null
       if (post.status === 'published') rebuild = await notifyRebuild(site)
-      json(res, 200, { post, rebuild })
+      json(res, 200, withPostLinks({ post, rebuild }, site, slug))
       return
     }
 
@@ -556,7 +557,7 @@ const server = createServer(async (req, res) => {
         post.status = 'review'
         upsertPost(db, post)
         writeDb(db)
-        json(res, 200, { post, validation, message: 'En revisión. Publica desde el dashboard.' })
+        json(res, 200, withPostLinks({ post, validation, message: 'En revisión. Publica desde el dashboard.' }, site, slug))
         return
       }
       post.status = nextStatus
@@ -565,7 +566,7 @@ const server = createServer(async (req, res) => {
       upsertPost(db, post)
       writeDb(db)
       const rebuild = await notifyRebuild(site)
-      json(res, 200, { post, validation, rebuild })
+      json(res, 200, withPostLinks({ post, validation, rebuild }, site, slug))
       return
     }
 
