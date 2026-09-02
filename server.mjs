@@ -30,7 +30,7 @@ import {
   BRAND_FILE_LABELS
 } from './lib/brand-kit.mjs'
 import { validatePostSeo } from './lib/seo-validator.mjs'
-import { notifyRebuild, saveUploadedMedia, publishPost as cmsPublishPost, validateSeo as cmsValidateSeo } from './lib/cms-ops.mjs'
+import { notifyRebuild, saveUploadedMedia, publishPost as cmsPublishPost, validateSeo as cmsValidateSeo, deleteMedia as cmsDeleteMedia } from './lib/cms-ops.mjs'
 import { mediaForClient, repairMediaInDb, repairPostsInDb, resolveImageSrc, resolvePostImageSrc } from './lib/media-url.mjs'
 import { withPostLinks } from './lib/preview-url.mjs'
 import { escapeHtml, renderPostBody } from './lib/content-render.mjs'
@@ -168,6 +168,7 @@ function renderPreview(post, siteConfig, site) {
   }
   const body = renderPostBody(post.bodyHtml)
   const canPublish = post.status !== 'published'
+  const publishLabel = post.status === 'review' ? 'Publicar en vivo' : 'Enviar a revisión'
   return `<!doctype html>
 <html lang="es">
 <head>
@@ -191,14 +192,17 @@ function renderPreview(post, siteConfig, site) {
     article p { margin: 0.75rem 0; }
     article ul, article ol { padding-left: 1.25rem; }
     article blockquote { border-left: 3px solid #ccc; margin: 1rem 0; padding-left: 1rem; color: #444; }
-    #publishMsg { width: 100%; font-size: 0.82rem; margin: 0.35rem 0 0; color: #dce8e0; }
+    #publishMsg { width: 100%; font-size: 0.9rem; line-height: 1.45; margin: 0.5rem 0 0; color: #dce8e0; }
+    #publishMsg.is-review { color: #ffe8a3; }
+    #publishMsg.is-ok { color: #b7f0d0; }
+    #publishMsg.is-error { color: #ffb4a8; }
   </style>
 </head>
 <body>
   <div class="review-bar">
-    <span>Preview · ${escapeHtml(post.status)}</span>
+    <span>Preview · ${escapeHtml(post.status)}${post.status === 'review' ? ' · pendiente de publicar en vivo' : ''}</span>
     <div class="review-actions">
-      ${canPublish ? '<button type="button" id="publishBtn">Publicar</button>' : ''}
+      ${canPublish ? `<button type="button" id="publishBtn">${publishLabel}</button>` : ''}
       <a href="/">Dashboard</a>
     </div>
     <p id="publishMsg" hidden></p>
@@ -226,10 +230,21 @@ function renderPreview(post, siteConfig, site) {
           })
           const data = await res.json().catch(() => ({}))
           if (!res.ok) throw new Error(data.message || 'No se pudo publicar')
-          msg.textContent = data.message || 'Publicado'
-          setTimeout(() => location.reload(), 700)
+          const next = data.submittedForReview
+            ? (data.message || 'Enviado a revisión. En el listado aparece como review. Abre Preview otra vez y pulsa Publicar en vivo cuando esté listo.')
+            : (data.message || 'Publicado en el blog')
+          msg.textContent = next
+          msg.className = data.submittedForReview ? 'is-review' : 'is-ok'
+          btn.textContent = data.submittedForReview ? 'Publicar en vivo' : 'Publicado'
+          if (data.published) {
+            btn.disabled = true
+            setTimeout(() => location.reload(), 2500)
+          } else {
+            btn.disabled = false
+          }
         } catch (error) {
           msg.textContent = error.message
+          msg.className = 'is-error'
           btn.disabled = false
         }
       })
@@ -559,7 +574,10 @@ const server = createServer(async (req, res) => {
         return
       }
       const rebuild = await notifyRebuild(handle)
-      json(res, rebuild.ok ? 200 : 502, { rebuild })
+      json(res, rebuild.ok ? 200 : 502, {
+        rebuild,
+        message: rebuild.message || (rebuild.ok ? 'Rebuild disparado' : 'Webhook falló')
+      })
       return
     }
 
@@ -645,6 +663,31 @@ const server = createServer(async (req, res) => {
           kind: body.kind || 'post'
         })
         json(res, 200, { media: item })
+      } catch (err) {
+        json(res, err.status || 400, { message: err.message })
+      }
+      return
+    }
+
+    if (req.method === 'DELETE' && path === '/api/admin/media') {
+      const body = await parseBody(req).catch(() => ({}))
+      const id = body.id || url.searchParams.get('id')
+      const site = body.site || url.searchParams.get('site') || DEFAULT_SITE
+      const mediaPath = body.path || url.searchParams.get('path') || ''
+      try {
+        const result = await cmsDeleteMedia(site, id, mediaPath)
+        json(res, 200, result)
+      } catch (err) {
+        json(res, err.status || 400, { message: err.message })
+      }
+      return
+    }
+
+    if (req.method === 'POST' && path === '/api/admin/media/delete') {
+      const body = await parseBody(req)
+      try {
+        const result = await cmsDeleteMedia(body.site || DEFAULT_SITE, body.id, body.path || '')
+        json(res, 200, result)
       } catch (err) {
         json(res, err.status || 400, { message: err.message })
       }

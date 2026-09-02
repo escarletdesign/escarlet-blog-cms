@@ -10,6 +10,7 @@ const ICONS = {
   save: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.8Z"/><path d="M14 3v4a2 2 0 0 0 2 2h4"/><path d="M10 12v6"/><path d="M14 12v6"/><path d="M8 12v6"/></svg>',
   upload: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>',
   logout: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>',
+  trash: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>',
   check: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
   send: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>'
 }
@@ -35,6 +36,12 @@ const siteTokenStatus = document.getElementById('siteTokenStatus')
 const rebuildResult = document.getElementById('rebuildResult')
 const siteHumanApproval = document.getElementById('siteHumanApproval')
 const toastEl = document.getElementById('toast')
+const toastMessage = document.getElementById('toastMessage')
+const toastClose = document.getElementById('toastClose')
+const siteLabel = document.getElementById('siteLabel')
+const publishBanner = document.getElementById('publishBanner')
+const publishPostBtn = document.getElementById('publishPost')
+const previewPublishBtn = document.getElementById('previewPublish')
 const loginError = document.getElementById('loginError')
 const enterBtn = document.getElementById('enter')
 const previewPostSelect = document.getElementById('previewPostSelect')
@@ -48,13 +55,49 @@ const sidebarBackdrop = document.getElementById('sidebarBackdrop')
 let brandEditor = null
 let bodyEditor = null
 let cachedPosts = []
+let humanApprovalRequired = true
 let token = localStorage.getItem('escarlet_cms_token') || ''
 
-function toast(message) {
+function toast(message, options = {}) {
+  const duration = options.duration ?? (options.sticky ? 0 : 10000)
+  const text = String(message || '').slice(0, 520)
+  if (toastMessage) toastMessage.textContent = text
+  else toastEl.textContent = text
   toastEl.hidden = false
-  toastEl.textContent = String(message || '').slice(0, 420)
+  toastEl.classList.toggle('is-sticky', Boolean(options.sticky || duration === 0))
   clearTimeout(toastEl._t)
-  toastEl._t = setTimeout(() => { toastEl.hidden = true }, 5200)
+  if (duration > 0) {
+    toastEl._t = setTimeout(() => { toastEl.hidden = true }, duration)
+  }
+}
+
+toastClose?.addEventListener('click', () => {
+  clearTimeout(toastEl._t)
+  toastEl.hidden = true
+})
+
+function setPublishLabels(status) {
+  const label =
+    status === 'review'
+      ? 'Publicar en vivo'
+      : humanApprovalRequired
+        ? 'Enviar a revisión'
+        : 'Publicar en vivo'
+  if (publishPostBtn) publishPostBtn.textContent = label
+  if (previewPublishBtn) previewPublishBtn.textContent = label
+}
+
+function showPublishBanner(text, kind = 'info') {
+  if (!publishBanner) return
+  if (!text) {
+    publishBanner.hidden = true
+    publishBanner.textContent = ''
+    publishBanner.className = 'publish-banner'
+    return
+  }
+  publishBanner.hidden = false
+  publishBanner.textContent = text
+  publishBanner.className = `publish-banner is-${kind}`
 }
 
 function mediaSrc(item) {
@@ -101,11 +144,43 @@ function renderMediaGrid(target, items) {
       const fallback = mediaSrc({ url: item.url, path: item.path })
       if (fallback && fallback !== img.src) img.src = fallback
     }
+    const foot = document.createElement('div')
+    foot.className = 'media-card-foot'
     const caption = document.createElement('p')
     const status = item.ok === false ? ' · archivo incompleto' : ''
     caption.textContent = (item.alt || item.filename || src) + status
     if (item.ok === false) caption.style.color = '#b42318'
-    div.append(img, caption)
+    const del = document.createElement('button')
+    del.type = 'button'
+    del.className = 'btn btn-sm media-delete'
+    del.title = 'Eliminar imagen'
+    del.setAttribute('aria-label', 'Eliminar imagen')
+    del.innerHTML = ICONS.trash
+    del.onclick = async () => {
+      if (!item.id && !item.path && !item.url) {
+        toast('No se puede identificar esta imagen.')
+        return
+      }
+      if (!confirm('¿Eliminar esta imagen del CMS?')) return
+      try {
+        const site = siteFilter.value.trim() || 'escarlet'
+        await api('/api/admin/media/delete', {
+          method: 'POST',
+          body: JSON.stringify({
+            site,
+            id: item.id || undefined,
+            path: item.path || item.url || undefined
+          })
+        })
+        toast('Imagen eliminada')
+        if (target === mediaGrid) await loadMedia()
+        else await loadRefs()
+      } catch (err) {
+        toast(err.message)
+      }
+    }
+    foot.append(caption, del)
+    div.append(img, foot)
     target.appendChild(div)
   }
 }
@@ -208,14 +283,31 @@ async function api(path, options = {}) {
   if (!res.ok) {
     const errors = data.blockingErrors || data.validation?.errors || data.errors || []
     const warnings = data.warnings || data.validation?.warnings || []
-    let message = data.message || res.statusText
+    let message =
+      data.message ||
+      data.rebuild?.message ||
+      data.error_description ||
+      data.error ||
+      res.statusText ||
+      `Error HTTP ${res.status}`
     if (errors.length) message += `\nBloquean: ${errors.join(' · ')}`
     if (warnings.length) message += `\nAvisos: ${warnings.slice(0, 4).join(' · ')}`
     const err = new Error(message)
     err.payload = data
+    err.status = res.status
     throw err
   }
   return data
+}
+
+function showRebuildResult(rebuild, fallbackMessage = '') {
+  const payload = rebuild && typeof rebuild === 'object'
+    ? rebuild
+    : { ok: false, message: fallbackMessage || 'Sin respuesta del webhook' }
+  rebuildResult.textContent = JSON.stringify(payload, null, 2)
+  rebuildResult.classList.toggle('is-ok', Boolean(payload.ok))
+  rebuildResult.classList.toggle('is-error', !payload.ok)
+  toast(payload.ok ? (payload.message || 'Webhook OK') : (payload.message || 'Webhook falló'))
 }
 
 function switchTab(tab) {
@@ -269,9 +361,19 @@ function buildPreviewUrl(slug) {
 function updatePreviewStatus(slug) {
   if (!previewStatus) return
   const post = cachedPosts.find((p) => p.slug === slug)
-  previewStatus.innerHTML = post
-    ? `Estado actual. <span class="badge ${post.status}">${post.status}</span>`
-    : ''
+  if (!post) {
+    previewStatus.innerHTML = ''
+    setPublishLabels('draft')
+    return
+  }
+  const hint =
+    post.status === 'review'
+      ? 'Listo para tu OK. Pulsa Publicar en vivo para mandarlo al blog.'
+      : post.status === 'draft'
+        ? 'Borrador. El primer paso lo envía a revisión humana.'
+        : 'Ya está publicado en el blog.'
+  previewStatus.innerHTML = `Estado actual. <span class="badge ${post.status}">${post.status}</span> ${hint}`
+  setPublishLabels(post.status)
 }
 
 function showPreviewForSlug(slug, { newTab = false } = {}) {
@@ -401,7 +503,11 @@ async function loadPosts() {
   for (const p of posts) {
     const li = document.createElement('li')
     li.className = 'post-item'
-    li.innerHTML = `<div><strong>${p.title}</strong><span class="badge ${p.status}">${p.status}</span><div class="post-meta">${p.slug}</div></div>`
+    const statusHint =
+      p.status === 'review'
+        ? '<div class="post-meta">Pendiente de publicar en vivo</div>'
+        : ''
+    li.innerHTML = `<div><strong>${p.title}</strong><span class="badge ${p.status}">${p.status}</span><div class="post-meta">${p.slug}</div>${statusHint}</div>`
     const actions = document.createElement('div')
     actions.className = 'actions'
     const edit = document.createElement('button')
@@ -417,6 +523,13 @@ async function loadPosts() {
     prevTab.innerHTML = ICONS.send + ' Nueva pestaña'
     prevTab.onclick = () => showPreviewForSlug(p.slug, { newTab: true })
     actions.append(edit, prev, prevTab)
+    if (p.status === 'review' || p.status === 'draft') {
+      const pub = document.createElement('button')
+      pub.className = 'btn btn-sm btn-primary'
+      pub.textContent = p.status === 'review' ? 'Publicar en vivo' : 'Enviar a revisión'
+      pub.onclick = () => publishSlug(p.slug)
+      actions.append(pub)
+    }
     li.appendChild(actions)
     list.appendChild(li)
   }
@@ -441,6 +554,7 @@ function fillForm(p) {
   form.x.value = p.socialPack?.x || ''
   form.bodyHtml.value = p.bodyHtml || ''
   setBodyValue(p.bodyHtml || '')
+  setPublishLabels(p.status || 'draft')
   updateImagePreview()
   switchTab('editor')
 }
@@ -451,6 +565,8 @@ function openPreview(p) {
   showPreviewForSlug(p.slug)
   switchTab('preview')
 }
+
+form.status?.addEventListener('change', () => setPublishLabels(form.status.value))
 
 document.getElementById('reloadPosts').onclick = loadPosts
 statusFilter.onchange = loadPosts
@@ -467,15 +583,45 @@ document.getElementById('previewEdit').onclick = () => {
 document.getElementById('previewPublish').onclick = async () => {
   const slug = previewPostSelect?.value
   if (!slug) return toast('Elige un post')
+  await publishSlug(slug, { fromPreview: true })
+}
+
+async function publishSlug(slug, { fromPreview = false } = {}) {
   const site = siteFilter.value.trim() || 'escarlet'
   try {
-    const data = await api('/api/admin/posts/publish', { method: 'POST', body: JSON.stringify({ site, slug }) })
-    toast(data.message || (data.published ? 'Publicado' : 'Enviado a revisión'))
+    const data = await api('/api/admin/posts/publish', {
+      method: 'POST',
+      body: JSON.stringify({ site, slug })
+    })
+    const msg = data.submittedForReview
+      ? (data.message ||
+        'Enviado a revisión. En Posts aparece como review. Cuando esté listo, pulsa Publicar en vivo.')
+      : data.rebuild
+        ? (data.rebuild.ok
+          ? 'Publicado en vivo. Rebuild del sitio disparado.'
+          : `Publicado en vivo. El rebuild falló. ${data.rebuild.message || ''}`)
+        : (data.message || 'Publicado en vivo')
+    toast(msg, { sticky: Boolean(data.submittedForReview), duration: data.submittedForReview ? 0 : 12000 })
+    if (fromPreview) {
+      showPublishBanner(
+        msg,
+        data.submittedForReview ? 'review' : data.published ? 'ok' : 'info'
+      )
+    }
+    if (seoResult && !fromPreview) seoResult.textContent = JSON.stringify(data, null, 2)
     await loadPosts()
-    showPreviewForSlug(slug)
+    const updated = cachedPosts.find((p) => p.slug === slug)
+    if (updated) {
+      setPublishLabels(updated.status)
+      if (form.slug.value === slug) form.status.value = updated.status
+    }
+    if (fromPreview || previewPostSelect?.value === slug) showPreviewForSlug(slug)
+    return data
   } catch (err) {
-    toast(err.message)
+    toast(err.message, { duration: 12000 })
+    if (fromPreview) showPublishBanner(err.message, 'error')
     if (seoResult) seoResult.textContent = err.message
+    throw err
   }
 }
 
@@ -483,6 +629,8 @@ document.getElementById('newPost').onclick = () => {
   form.reset()
   form.authorName.value = 'Silvia'
   form.status.value = 'draft'
+  setPublishLabels('draft')
+  showPublishBanner('')
   updateImagePreview()
   switchTab('editor')
 }
@@ -536,21 +684,12 @@ document.getElementById('validateSeo').onclick = async () => {
 }
 
 document.getElementById('publishPost').onclick = async () => {
-  const site = siteFilter.value.trim() || 'escarlet'
   const slug = form.slug.value.trim()
+  if (!slug) return toast('Guarda el post con un slug antes de publicar')
   try {
-    const data = await api('/api/admin/posts/publish', { method: 'POST', body: JSON.stringify({ site, slug }) })
-    seoResult.textContent = JSON.stringify(data, null, 2)
-    await loadPosts()
-    const msg = data.submittedForReview
-      ? (data.message || 'Enviado a revisión')
-      : data.rebuild
-        ? (data.rebuild.ok ? 'Publicado. Rebuild OK.' : `Publicado. Rebuild falló. ${data.rebuild.message}`)
-        : (data.message || 'Publicado')
-    toast(msg)
-  } catch (err) {
-    seoResult.textContent = err.message
-    toast(err.message)
+    await publishSlug(slug)
+  } catch {
+    /* toast ya mostrado */
   }
 }
 
@@ -629,15 +768,19 @@ document.getElementById('refUploadForm').onsubmit = async (e) => {
 
 async function loadSite() {
   const site = siteFilter.value.trim() || 'escarlet'
+  if (siteLabel) siteLabel.textContent = site
   const data = await api(`/api/admin/site-config/${site}`)
   siteDomain.value = data.config?.domain || ''
   siteWebhook.value = data.config?.rebuildWebhookUrl || ''
-  siteHumanApproval.checked = Boolean(data.config?.requiresHumanApproval)
+  humanApprovalRequired = Boolean(data.config?.requiresHumanApproval)
+  siteHumanApproval.checked = humanApprovalRequired
   siteCoolifyToken.value = ''
   siteTokenStatus.textContent = data.config?.hasCoolifyApiToken
     ? `Token guardado (${data.config.coolifyApiTokenHint}). Deja el campo vacío para mantenerlo.`
     : 'Sin token. Coolify puede rechazar el webhook sin autenticación.'
   rebuildResult.textContent = ''
+  rebuildResult.classList.remove('is-ok', 'is-error')
+  setPublishLabels(form?.status?.value || 'draft')
 }
 
 document.getElementById('saveSite').onclick = async () => {
@@ -657,15 +800,18 @@ document.getElementById('saveSite').onclick = async () => {
     ? `Token guardado (${data.config.coolifyApiTokenHint}). Deja el campo vacío para mantenerlo.`
     : 'Sin token. Coolify puede rechazar el webhook sin autenticación.'
   toast('Sitio guardado')
+  humanApprovalRequired = Boolean(siteHumanApproval.checked)
+  setPublishLabels(form?.status?.value || 'draft')
 }
 
 document.getElementById('testRebuild').onclick = async () => {
   const site = siteFilter.value.trim() || 'escarlet'
+  rebuildResult.classList.remove('is-ok', 'is-error')
   rebuildResult.textContent = 'Probando webhook…'
   try {
     const data = await api(`/api/admin/site-config/${site}/test-rebuild`, { method: 'POST', body: '{}' })
-    rebuildResult.textContent = JSON.stringify(data.rebuild, null, 2)
+    showRebuildResult(data.rebuild, 'Webhook respondió sin detalle')
   } catch (err) {
-    rebuildResult.textContent = err.message
+    showRebuildResult(err.payload?.rebuild, err.message || 'No se pudo probar el webhook')
   }
 }

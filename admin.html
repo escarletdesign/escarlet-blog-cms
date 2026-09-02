@@ -72,27 +72,29 @@
 
     <div class="main">
       <header class="topbar">
-        <div class="topbar-field">
-          <label for="siteFilter">Sitio</label>
-          <input id="siteFilter" value="escarlet" />
+        <div class="topbar-site">
+          <span class="topbar-kicker">Sitio activo</span>
+          <strong id="siteLabel">escarlet</strong>
+          <input id="siteFilter" type="hidden" value="escarlet" />
         </div>
-        <div class="topbar-field">
-          <label for="statusFilter">Estado</label>
-          <select id="statusFilter">
-            <option value="">Todos</option>
-            <option value="draft">draft</option>
-            <option value="review">review</option>
-            <option value="published">published</option>
-          </select>
-        </div>
+        <p class="topbar-hint" id="topbarHint">Este token administra un solo sitio. El filtro de estado está en Posts.</p>
       </header>
 
       <div class="content">
         <section id="panel-posts" class="panel active">
           <div class="card">
             <h2 class="card-title">Posts</h2>
-            <p class="card-desc">Lista de borradores y publicados del sitio seleccionado.</p>
-            <div class="toolbar">
+            <p class="card-desc">Borradores, revisión humana y publicados. <strong>review</strong> significa que espera tu OK final antes de salir al blog.</p>
+            <div class="toolbar posts-toolbar">
+              <div class="topbar-field status-field">
+                <label for="statusFilter">Filtrar por estado</label>
+                <select id="statusFilter">
+                  <option value="">Todos</option>
+                  <option value="draft">draft (borrador)</option>
+                  <option value="review">review (pendiente de publicar)</option>
+                  <option value="published">published (en vivo)</option>
+                </select>
+              </div>
               <button type="button" class="btn btn-primary" id="newPost">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
                 Nuevo borrador
@@ -146,7 +148,7 @@
               <div class="actions">
                 <button type="submit" class="btn btn-primary">Guardar</button>
                 <button type="button" class="btn" id="validateSeo">Validar SEO</button>
-                <button type="button" class="btn btn-primary" id="publishPost">Publicar</button>
+                <button type="button" class="btn btn-primary" id="publishPost">Enviar a revisión</button>
               </div>
               <pre id="seoResult" class="result"></pre>
             </form>
@@ -156,16 +158,17 @@
         <section id="panel-preview" class="panel">
           <div class="card">
             <h2 class="card-title">Preview</h2>
-            <p class="card-desc">Elige cualquier post del sitio y revisa el borrador sin abrir el editor.</p>
+            <p class="card-desc">Elige un post, revisa el borrador y publícalo cuando esté listo. Si está en <strong>review</strong>, el siguiente paso es publicar en vivo.</p>
             <label for="previewPostSelect">Post</label>
             <select id="previewPostSelect"></select>
             <p id="previewStatus" class="preview-status"></p>
             <div class="actions">
               <button type="button" class="btn btn-primary" id="loadPreview">Ver preview</button>
               <button type="button" class="btn" id="openPreviewTab">Abrir en nueva pestaña</button>
-              <button type="button" class="btn btn-primary" id="previewPublish">Publicar</button>
+              <button type="button" class="btn btn-primary" id="previewPublish">Enviar a revisión</button>
               <button type="button" class="btn" id="previewEdit">Editar</button>
             </div>
+            <p class="publish-banner" id="publishBanner" hidden></p>
             <p class="preview-url" id="previewUrl"></p>
             <iframe class="preview" id="previewFrame" title="Preview"></iframe>
           </div>
@@ -174,7 +177,7 @@
         <section id="panel-media" class="panel">
           <div class="card">
             <h2 class="card-title">Media</h2>
-            <p class="card-desc">Imágenes del blog. Al subir una, se copia la URL al editor.</p>
+            <p class="card-desc">Imágenes del blog. Puedes borrar las que ya no uses. Al subir una, se copia la URL al editor.</p>
             <form id="uploadForm" class="upload-zone">
               <label>Archivo imagen</label>
               <input type="file" id="uploadFile" accept="image/*" />
@@ -254,7 +257,10 @@
     </div>
   </div>
 
-  <div id="toast" class="toast" hidden></div>
+  <div id="toast" class="toast" hidden>
+    <p id="toastMessage"></p>
+    <button type="button" class="toast-close" id="toastClose" aria-label="Cerrar aviso">×</button>
+  </div>
 
   <script src="https://uicdn.toast.com/editor/latest/toastui-editor-all.min.js"></script>
   <script src="/admin.js"></script>
