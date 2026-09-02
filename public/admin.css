@@ -490,11 +490,30 @@ pre.result {
   to { opacity: 1; transform: translateY(0); }
 }
 
-.EasyMDEContainer { margin-top: 0.5rem; }
-.EasyMDEContainer .CodeMirror {
+.toast-mount {
+  margin-top: 0.5rem;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  border-color: var(--border) !important;
+  overflow: hidden;
+  background: #fff;
   min-height: 280px;
+}
+
+.toastui-editor-defaultUI {
+  border: 0 !important;
+}
+
+.toastui-editor-contents {
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.toastui-editor-contents h1,
+.toastui-editor-contents h2,
+.toastui-editor-contents h3 {
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 600;
 }
 
 .checkbox-row {

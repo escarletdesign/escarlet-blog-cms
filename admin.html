@@ -7,7 +7,7 @@
   <title>Escarlet Blog CMS</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/admin.css" />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/easymde@2.18.0/dist/easymde.min.css" />
+  <link rel="stylesheet" href="https://uicdn.toast.com/editor/latest/toastui-editor.min.css" />
 </head>
 <body>
   <div id="login" class="login-screen">
@@ -141,7 +141,8 @@
                 <div><label>X</label><textarea name="x"></textarea></div>
               </div>
               <label>Cuerpo del artículo</label>
-              <textarea id="bodyContent" name="bodyHtml" required></textarea>
+              <div id="bodyEditorMount" class="toast-mount"></div>
+              <textarea id="bodyContent" name="bodyHtml" hidden></textarea>
               <div class="actions">
                 <button type="submit" class="btn btn-primary">Guardar</button>
                 <button type="button" class="btn" id="validateSeo">Validar SEO</button>
@@ -204,7 +205,8 @@
               <option value="AGENT.md">Reglas del agente (AGENT.md)</option>
             </select>
             <label>Contenido</label>
-            <textarea id="brandContent"></textarea>
+            <div id="brandEditorMount" class="toast-mount"></div>
+            <textarea id="brandContent" hidden></textarea>
             <div class="actions">
               <button type="button" class="btn btn-primary" id="saveBrand">Guardar texto</button>
             </div>
@@ -254,7 +256,7 @@
 
   <div id="toast" class="toast" hidden></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/easymde@2.18.0/dist/easymde.min.js"></script>
+  <script src="https://uicdn.toast.com/editor/latest/toastui-editor-all.min.js"></script>
   <script src="/admin.js"></script>
 </body>
 </html>

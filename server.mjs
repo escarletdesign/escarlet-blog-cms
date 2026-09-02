@@ -110,21 +110,38 @@ function parseBody(req) {
   })
 }
 
-function serveStaticFile(res, filePath, contentType) {
+function serveStaticFile(res, filePath, contentType, method = 'GET') {
   if (!existsSync(filePath)) {
     json(res, 404, { message: 'No encontrado' })
     return
   }
-  res.writeHead(200, { 'Content-Type': contentType })
-  res.end(readFileSync(filePath))
+  const data = readFileSync(filePath)
+  res.writeHead(200, {
+    'Content-Type': contentType,
+    'Content-Length': data.length,
+    'Cache-Control': 'public, max-age=3600'
+  })
+  if (method === 'HEAD') {
+    res.end()
+    return
+  }
+  res.end(data)
 }
 
 function renderPreview(post, siteConfig, site) {
   const canonical = `${siteConfig.domain.replace(/\/$/, '')}/blog/${post.slug}`
   const imageSrc = resolvePostImageSrc(post.imageUrl, site)
-  const imageBlock = imageSrc
-    ? `<img src="${escapeHtml(imageSrc)}" alt="${escapeHtml(post.imageAlt || '')}" />`
-    : ''
+  let imageBlock = ''
+  if (imageSrc) {
+    const disk = join(mediaDir, imageSrc.replace(/^\/media\//, ''))
+    if (existsSync(disk) && readFileSync(disk).length >= 1024) {
+      imageBlock = `<img src="${escapeHtml(imageSrc)}" alt="${escapeHtml(post.imageAlt || '')}" />`
+    } else {
+      imageBlock = `<p class="meta">Portada no disponible. El archivo falta o está corrupto (${escapeHtml(imageSrc)}). Súbelo de nuevo en Media.</p>`
+    }
+  } else if (post.imageUrl) {
+    imageBlock = `<p class="meta">Portada no encontrada para ${escapeHtml(post.imageUrl)}. Súbela de nuevo en Media.</p>`
+  }
   const body = renderPostBody(post.bodyHtml)
   const canPublish = post.status !== 'published'
   return `<!doctype html>
@@ -283,7 +300,7 @@ const server = createServer(async (req, res) => {
   }
 
   const mediaMatch = path.match(/^\/media\/([^/]+)(?:\/reference)?\/([^/]+)$/)
-  if (req.method === 'GET' && mediaMatch) {
+  if ((req.method === 'GET' || req.method === 'HEAD') && mediaMatch) {
     const [, site, filename] = mediaMatch
     const isRef = path.includes('/reference/')
     const filePath = join(mediaDir, isRef ? join(site, 'reference') : site, filename)
@@ -295,7 +312,7 @@ const server = createServer(async (req, res) => {
       '.png': 'image/png',
       '.gif': 'image/gif'
     }
-    serveStaticFile(res, filePath, types[ext] || 'application/octet-stream')
+    serveStaticFile(res, filePath, types[ext] || 'application/octet-stream', req.method)
     return
   }
 
@@ -418,7 +435,21 @@ const server = createServer(async (req, res) => {
       const kind = url.searchParams.get('kind')
       let items = (db.media || []).filter((m) => !m.site || m.site === site)
       if (kind) items = items.filter((m) => m.kind === kind)
-      json(res, 200, { media: items.map(mediaForClient) })
+      const media = items.map((item) => {
+        const client = mediaForClient(item)
+        const disk = client.path?.startsWith('/media/')
+          ? join(mediaDir, client.path.replace(/^\/media\//, ''))
+          : ''
+        let bytes = 0
+        let ok = false
+        if (disk && existsSync(disk)) {
+          const buf = readFileSync(disk)
+          bytes = buf.length
+          ok = bytes >= 1024
+        }
+        return { ...client, bytes, ok }
+      })
+      json(res, 200, { media })
       return
     }
 

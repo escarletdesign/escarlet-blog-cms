@@ -45,6 +45,8 @@ Coolify crea el volumen solo. El entrypoint (`scripts/docker-entrypoint.mjs`) cr
 
 No copies `data/db.json` dentro de la imagen. Eso va en el volumen.
 
+Si el volumen se montó **después** de haber subido medios, esos archivos se perdieron. Vuelve a subir portadas y referencias desde **Media** o pide a Hermes `blog_upload_media` de nuevo. Una imagen de pocos bytes (PNG truncado) también se ve rota. El CMS ahora rechaza subidas incompletas.
+
 ### Variables de entorno (CMS)
 
 ```

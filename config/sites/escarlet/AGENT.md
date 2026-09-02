@@ -40,13 +40,16 @@ Para moodboard. `blog_upload_media` con `kind` `reference`.
 
 ## SEO por post
 
-- Mínimo 800 palabras en bodyHtml.
-- metaTitle.es 30-60 caracteres.
-- metaDescription.es 120-160 caracteres.
-- imageAlt 10-125 caracteres.
-- 5-10 enlaces internos `<a href="/...">`.
-- 3 relatedSlugs.
-- socialPack completo con backlink `https://escarlet.design/blog/{slug}`.
+Bloquean publicar solo lo grave (texto vacío o muy corto, sin título/slug, autor inválido).
+
+Recomendado (aviso, no bloquea):
+
+- Alrededor de 400-800 palabras. Claro y útil, sin relleno.
+- metaTitle.es 20-70 caracteres.
+- metaDescription.es 70-180 caracteres.
+- imageAlt descriptivo.
+- Al menos 1 enlace interno.
+- socialPack con backlink `https://escarlet.design/blog/{slug}`.
 
 ## Imágenes
 

@@ -52,9 +52,9 @@ let token = localStorage.getItem('escarlet_cms_token') || ''
 
 function toast(message) {
   toastEl.hidden = false
-  toastEl.textContent = message
+  toastEl.textContent = String(message || '').slice(0, 420)
   clearTimeout(toastEl._t)
-  toastEl._t = setTimeout(() => { toastEl.hidden = true }, 3200)
+  toastEl._t = setTimeout(() => { toastEl.hidden = true }, 5200)
 }
 
 function mediaSrc(item) {
@@ -102,55 +102,77 @@ function renderMediaGrid(target, items) {
       if (fallback && fallback !== img.src) img.src = fallback
     }
     const caption = document.createElement('p')
-    caption.textContent = item.alt || item.filename || src
+    const status = item.ok === false ? ' · archivo incompleto' : ''
+    caption.textContent = (item.alt || item.filename || src) + status
+    if (item.ok === false) caption.style.color = '#b42318'
     div.append(img, caption)
     target.appendChild(div)
   }
 }
 
-function ensureBrandEditor() {
-  if (brandEditor || typeof EasyMDE === 'undefined') return brandEditor
-  brandEditor = new EasyMDE({
-    element: brandContent,
-    spellChecker: false,
-    status: false,
-    minHeight: '280px',
-    toolbar: ['heading-2', 'heading-3', 'bold', 'italic', '|', 'quote', 'unordered-list', 'ordered-list', '|', 'preview', 'side-by-side', 'fullscreen']
+function createToastEditor(mountId, height) {
+  const mount = document.getElementById(mountId)
+  if (!mount || typeof toastui === 'undefined') return null
+  mount.innerHTML = ''
+  return new toastui.Editor({
+    el: mount,
+    height: height || '360px',
+    initialEditType: 'wysiwyg',
+    previewStyle: 'vertical',
+    usageStatistics: false,
+    hideModeSwitch: false,
+    toolbarItems: [
+      ['heading', 'bold', 'italic'],
+      ['hr', 'quote'],
+      ['ul', 'ol', 'task'],
+      ['link'],
+      ['scrollSync']
+    ]
   })
+}
+
+function ensureBrandEditor() {
+  if (brandEditor) {
+    requestAnimationFrame(() => brandEditor.focus?.())
+    return brandEditor
+  }
+  brandEditor = createToastEditor('brandEditorMount', '420px')
   return brandEditor
 }
 
 function ensureBodyEditor() {
-  if (bodyEditor || typeof EasyMDE === 'undefined' || !bodyContent) return bodyEditor
-  bodyEditor = new EasyMDE({
-    element: bodyContent,
-    spellChecker: false,
-    status: ['words'],
-    minHeight: '360px',
-    toolbar: ['heading-2', 'heading-3', 'bold', 'italic', '|', 'quote', 'unordered-list', 'ordered-list', 'link', '|', 'preview', 'side-by-side', 'fullscreen'],
-    renderingConfig: { singleLineBreaks: true }
-  })
+  if (bodyEditor) return bodyEditor
+  bodyEditor = createToastEditor('bodyEditorMount', '420px')
   return bodyEditor
 }
 
 function bodyValue() {
-  return bodyEditor ? bodyEditor.value() : bodyContent.value
+  if (bodyEditor) return bodyEditor.getMarkdown()
+  return bodyContent?.value || ''
 }
 
 function setBodyValue(text) {
   ensureBodyEditor()
-  if (bodyEditor) bodyEditor.value(text || '')
-  else bodyContent.value = text || ''
+  if (bodyEditor) bodyEditor.setMarkdown(text || '')
+  else if (bodyContent) bodyContent.value = text || ''
 }
 
 function brandValue() {
-  return brandEditor ? brandEditor.value() : brandContent.value
+  if (brandEditor) return brandEditor.getMarkdown()
+  return brandContent?.value || ''
 }
 
 function setBrandValue(text) {
   ensureBrandEditor()
-  if (brandEditor) brandEditor.value(text || '')
-  else brandContent.value = text || ''
+  if (brandEditor) {
+    brandEditor.setMarkdown(text || '')
+    // Toast UI a veces nace con altura 0 si el panel estaba oculto
+    setTimeout(() => {
+      try {
+        brandEditor.setHeight('420px')
+      } catch {}
+    }, 30)
+  } else if (brandContent) brandContent.value = text || ''
 }
 
 function updateImagePreview() {
@@ -183,7 +205,16 @@ function authHeaders() {
 async function api(path, options = {}) {
   const res = await fetch(path, { ...options, headers: { ...authHeaders(), ...(options.headers || {}) } })
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.message || res.statusText)
+  if (!res.ok) {
+    const errors = data.blockingErrors || data.validation?.errors || data.errors || []
+    const warnings = data.warnings || data.validation?.warnings || []
+    let message = data.message || res.statusText
+    if (errors.length) message += `\nBloquean: ${errors.join(' · ')}`
+    if (warnings.length) message += `\nAvisos: ${warnings.slice(0, 4).join(' · ')}`
+    const err = new Error(message)
+    err.payload = data
+    throw err
+  }
   return data
 }
 
@@ -191,8 +222,22 @@ function switchTab(tab) {
   document.querySelectorAll('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab))
   document.querySelectorAll('.panel').forEach((p) => p.classList.remove('active'))
   document.getElementById('panel-' + tab)?.classList.add('active')
-  if (tab === 'brand') ensureBrandEditor()
-  if (tab === 'editor') ensureBodyEditor()
+  if (tab === 'brand') {
+    ensureBrandEditor()
+    setTimeout(() => {
+      try {
+        brandEditor?.setHeight('420px')
+      } catch {}
+    }, 50)
+  }
+  if (tab === 'editor') {
+    ensureBodyEditor()
+    setTimeout(() => {
+      try {
+        bodyEditor?.setHeight('420px')
+      } catch {}
+    }, 50)
+  }
   if (tab === 'preview') {
     populatePreviewSelect()
     const slug = previewPostSelect?.value
@@ -430,6 +475,7 @@ document.getElementById('previewPublish').onclick = async () => {
     showPreviewForSlug(slug)
   } catch (err) {
     toast(err.message)
+    if (seoResult) seoResult.textContent = err.message
   }
 }
 
@@ -475,7 +521,18 @@ document.getElementById('validateSeo').onclick = async () => {
   const site = siteFilter.value.trim() || 'escarlet'
   const slug = form.slug.value.trim()
   const data = await api('/api/admin/validate-seo', { method: 'POST', body: JSON.stringify({ site, slug }) })
-  seoResult.textContent = JSON.stringify(data, null, 2)
+  const lines = []
+  lines.push(data.ok ? 'Listo para publicar.' : 'Hay bloqueos SEO.')
+  lines.push(`Palabras: ${data.wordCount ?? '?'}`)
+  if (data.errors?.length) {
+    lines.push('Bloquean:')
+    data.errors.forEach((e) => lines.push(`- ${e}`))
+  }
+  if (data.warnings?.length) {
+    lines.push('Avisos (no bloquean):')
+    data.warnings.forEach((w) => lines.push(`- ${w}`))
+  }
+  seoResult.textContent = lines.join('\n')
 }
 
 document.getElementById('publishPost').onclick = async () => {
