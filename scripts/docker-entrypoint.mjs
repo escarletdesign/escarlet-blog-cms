@@ -21,6 +21,7 @@ const seedPath = join(root, 'data-seed', 'db.json')
 mkdirSync(mediaDir, { recursive: true })
 mkdirSync(join(dataDir, 'brand'), { recursive: true })
 mkdirSync(join(dataDir, 'site-config'), { recursive: true })
+mkdirSync(join(dataDir, 'oauth'), { recursive: true })
 
 if (!checkDataWritable()) {
   console.error(`[entrypoint] FATAL: no se puede escribir en ${dataDir}`)

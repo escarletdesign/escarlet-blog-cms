@@ -36,6 +36,17 @@ import { withPostLinks } from './lib/preview-url.mjs'
 import { escapeHtml, renderPostBody } from './lib/content-render.mjs'
 import { handleMcpHttp, sendMcpCors } from './mcp/http-handler.mjs'
 import {
+  authorizationServerMetadata,
+  handleAuthorizeGet,
+  handleAuthorizePost,
+  handleRegister,
+  handleToken,
+  isValidAccessToken,
+  parseFormBody,
+  protectedResourceMetadata,
+  wwwAuthenticateHeader
+} from './lib/oauth-mcp.mjs'
+import {
   buildDraftPost,
   normalizeAuthor,
   pickRelated,
@@ -94,22 +105,32 @@ function isAdmin(req, url) {
   const cookieToken = cookie.match(/(?:^|;\s*)escarlet_cms=([^;]+)/)?.[1]
   const queryToken = url.searchParams.get('token') || ''
   const expected = process.env.ADMIN_TOKEN || ADMIN_TOKEN
-  return token === expected || cookieToken === expected || queryToken === expected
+  if (token === expected || cookieToken === expected || queryToken === expected) return true
+  if (token && isValidAccessToken(token)) return true
+  if (cookieToken && isValidAccessToken(cookieToken)) return true
+  if (queryToken && isValidAccessToken(queryToken)) return true
+  return false
 }
 
-function parseBody(req) {
+function readRawBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = []
     req.on('data', (c) => chunks.push(c))
-    req.on('end', () => {
-      const raw = Buffer.concat(chunks).toString('utf8')
-      if (!raw) return resolve({})
-      try {
-        resolve(JSON.parse(raw))
-      } catch {
-        reject(new Error('JSON inválido'))
-      }
-    })
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
+    req.on('error', reject)
+  })
+}
+
+function parseBody(req) {
+  return readRawBody(req).then((raw) => {
+    if (!raw) return {}
+    const type = String(req.headers['content-type'] || '')
+    if (type.includes('application/x-www-form-urlencoded')) return parseFormBody(raw)
+    try {
+      return JSON.parse(raw)
+    } catch {
+      throw new Error('JSON inválido')
+    }
   })
 }
 
@@ -251,15 +272,83 @@ const server = createServer(async (req, res) => {
     return
   }
 
-  if (path.startsWith('/.well-known/oauth')) {
-    json(res, 404, { message: 'OAuth no usado. Usa Authorization Bearer con ADMIN_TOKEN.' })
+  if (
+    path === '/.well-known/oauth-protected-resource' ||
+    path === '/.well-known/oauth-protected-resource/mcp'
+  ) {
+    json(res, 200, protectedResourceMetadata())
+    return
+  }
+
+  if (
+    path === '/.well-known/oauth-authorization-server' ||
+    path === '/.well-known/openid-configuration'
+  ) {
+    json(res, 200, authorizationServerMetadata())
+    return
+  }
+
+  if (path === '/oauth/authorize') {
+    if (req.method === 'GET') {
+      const result = await handleAuthorizeGet(url)
+      html(res, result.status, result.html)
+      return
+    }
+    if (req.method === 'POST') {
+      try {
+        const body = await parseBody(req)
+        const result = await handleAuthorizePost(body)
+        if (result.location) {
+          res.writeHead(result.status, { Location: result.location })
+          res.end()
+          return
+        }
+        html(res, result.status, result.html)
+      } catch (error) {
+        html(res, 400, `<pre>${error.message}</pre>`)
+      }
+      return
+    }
+  }
+
+  if (req.method === 'POST' && path === '/oauth/token') {
+    try {
+      const body = await parseBody(req)
+      const result = await handleToken(body)
+      json(res, result.status, result.json)
+    } catch (error) {
+      json(res, 400, { error: 'invalid_request', error_description: error.message })
+    }
+    return
+  }
+
+  if (req.method === 'POST' && path === '/oauth/register') {
+    try {
+      const body = await parseBody(req)
+      const result = await handleRegister(body)
+      json(res, result.status, result.json)
+    } catch (error) {
+      json(res, 400, { error: 'invalid_client_metadata', error_description: error.message })
+    }
     return
   }
 
   if (path === '/mcp') {
     if (!isAdmin(req, url)) {
       sendMcpCors(res)
-      json(res, 401, { message: 'No autorizado. Authorization Bearer con ADMIN_TOKEN.' })
+      res.writeHead(401, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'WWW-Authenticate': wwwAuthenticateHeader(),
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers':
+          'Authorization, Content-Type, Mcp-Session-Id, MCP-Protocol-Version, Last-Event-Id',
+        'Access-Control-Expose-Headers': 'Mcp-Session-Id, WWW-Authenticate'
+      })
+      res.end(
+        JSON.stringify({
+          message: 'No autorizado. Usa Bearer ADMIN_TOKEN o completa OAuth (ChatGPT).'
+        })
+      )
       return
     }
     try {

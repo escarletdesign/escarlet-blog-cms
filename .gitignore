@@ -4,5 +4,6 @@ data/db.json
 data/media/
 data/brand/
 data/site-config/
+data/oauth/
 .DS_Store
 .cursor/mcp.json

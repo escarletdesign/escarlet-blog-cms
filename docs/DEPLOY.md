@@ -131,6 +131,18 @@ Local. `http://localhost:3040/mcp` con el mismo `ADMIN_TOKEN`.
 
 Reinicia el servidor MCP en Cursor. Prueba `blog_list_posts` con site `escarlet`.
 
+### ChatGPT (Developer Mode)
+
+ChatGPT solo ofrece OAuth (o sin autenticación). El CMS incluye un OAuth 2.1 mínimo en el mismo host.
+
+1. En ChatGPT. Settings → Connectors → Create
+2. URL. `https://blog-cms.escarlet.cc/mcp`
+3. Autenticación. **OAuth**
+4. Nombre. `escarlet-blog`
+5. Al conectar, ChatGPT abre la pantalla del CMS. Pega el mismo `ADMIN_TOKEN` y autoriza una vez.
+
+Cursor y Hermes siguen con Bearer directo. No hace falta migrarlos a OAuth.
+
 ---
 
 ## 4. Webhook rebuild + activar sync — paso a paso
