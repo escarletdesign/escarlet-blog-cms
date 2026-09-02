@@ -7,10 +7,14 @@ RUN npm ci --omit=dev
 
 COPY . .
 
-RUN mkdir -p /app/data/media
+# Coolify Persistent Storage must mount exactly here
+ENV CMS_DATA_DIR=/app/data
+RUN mkdir -p /app/data/media /app/data/brand /app/data/site-config
 
 ENV PORT=3040
 ENV NODE_ENV=production
+
+VOLUME ["/app/data"]
 
 EXPOSE 3040
 

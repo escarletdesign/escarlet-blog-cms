@@ -8,6 +8,7 @@ services:
     environment:
       PORT: 3040
       CMS_PUBLIC_URL: http://localhost:3040
+      CMS_DATA_DIR: /app/data
     volumes:
       - cms_data:/app/data
     restart: unless-stopped

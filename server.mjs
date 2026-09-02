@@ -9,7 +9,10 @@ import {
   findPost,
   upsertPost,
   mediaDir,
-  dataDir
+  dataDir,
+  getPersistenceStatus,
+  markPersistent,
+  checkDataWritable
 } from './lib/db.mjs'
 import {
   loadSiteConfig,
@@ -354,7 +357,13 @@ const server = createServer(async (req, res) => {
   }
 
   if (req.method === 'GET' && path === '/api/health') {
-    json(res, 200, { ok: true, version: '2.0.0', mcp: '/mcp' })
+    const persistence = getPersistenceStatus()
+    json(res, persistence.writable ? 200 : 503, {
+      ok: persistence.writable,
+      version: '2.0.1',
+      mcp: '/mcp',
+      persistence
+    })
     return
   }
 
@@ -662,12 +671,23 @@ const server = createServer(async (req, res) => {
 
 mkdirSync(dataDir, { recursive: true })
 mkdirSync(mediaDir, { recursive: true })
+if (!checkDataWritable()) {
+  console.error(`[cms] No se puede escribir en ${dataDir}. Revisa Persistent Storage en Coolify.`)
+} else {
+  markPersistent()
+}
 seedAllBrandKits()
 
 const dbBoot = readDb()
 let dbRepaired = repairMediaInDb(dbBoot)
 if (repairPostsInDb(dbBoot)) dbRepaired = true
 if (dbRepaired) writeDb(dbBoot)
+
+const persistence = getPersistenceStatus()
+console.log(`[cms] dataDir=${persistence.dataDir} posts=${persistence.posts} media=${persistence.mediaFiles} volume=${persistence.likelyDockerVolume}`)
+if (process.env.NODE_ENV === 'production' && !persistence.likelyDockerVolume) {
+  console.warn('[cms] AVISO: sin volumen Docker detectado. Los posts pueden borrarse en el próximo deploy.')
+}
 
 server.listen(PORT, () => {
   console.log(`Escarlet blog CMS en http://localhost:${PORT}/admin`)

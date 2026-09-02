@@ -33,19 +33,50 @@ npm run import:escarlet
 
 ### Volumen persistente (importante)
 
-En Coolify → tu app CMS → **Persistent Storage** (o Storages):
+Sin este volumen, **cada redeploy borra posts, media y brand kit**.
 
-| Campo | Valor |
-|-------|-------|
+En Coolify → tu app CMS → **Storages / Persistent Storage** → Add:
+
+| Campo | Valor exacto |
+|-------|----------------|
 | Name | `cms-data` |
-| Mount path | `/app/data` |
+| Destination Path | `/app/data` |
 | Size | 1 GB o más |
 
-Coolify crea el volumen solo. El entrypoint (`scripts/docker-entrypoint.mjs`) crea `data/media/` si no existe. Si el volumen está vacío, copia `data-seed/db.json` como base.
+Comprueba tres veces:
+
+1. Destination Path es exactamente `/app/data` (no `/data`, no `/app/data/db.json`).
+2. El storage está **activo** en la app de `blog-cms.escarlet.cc`.
+3. Tras el deploy, abre `https://blog-cms.escarlet.cc/api/health` y mira `persistence`.
+
+Ejemplo sano:
+
+```json
+{
+  "persistence": {
+    "dataDir": "/app/data",
+    "writable": true,
+    "posts": 1,
+    "mediaFiles": 2,
+    "likelyDockerVolume": true,
+    "ok": true
+  }
+}
+```
+
+Si `likelyDockerVolume` es `false` o `posts` vuelve a `0` tras un redeploy, el volumen no está montado. Corrígelo antes de volver a generar posts con Hermes.
+
+Si montaste el volumen en otra ruta:
+
+```
+CMS_DATA_DIR=/ruta/del/volumen
+```
+
+El entrypoint crea `media/`, `brand/` y `site-config/`. Si el volumen está vacío, copia `data-seed/db.json` como base.
 
 No copies `data/db.json` dentro de la imagen. Eso va en el volumen.
 
-Si el volumen se montó **después** de haber subido medios, esos archivos se perdieron. Vuelve a subir portadas y referencias desde **Media** o pide a Hermes `blog_upload_media` de nuevo. Una imagen de pocos bytes (PNG truncado) también se ve rota. El CMS ahora rechaza subidas incompletas.
+Si el volumen se montó **después** de subir medios, esos archivos se perdieron. Vuelve a subirlos. Una imagen de pocos bytes también se ve rota. El CMS rechaza subidas incompletas.
 
 ### Variables de entorno (CMS)
 
