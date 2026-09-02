@@ -58,7 +58,7 @@ CMS_PUBLIC_URL=https://blog-cms.escarlet.cc
 
 Webhook por site. Configúralo en dashboard → **Sitio** (recomendado). Opcional fallback env `REBUILD_WEBHOOK_URL`.
 
-`CMS_PUBLIC_URL` en producción tiene que ser `https://blog-cms.escarlet.cc`. Si queda `localhost`, el dashboard pide las fotos al Mac y se ven rotas.
+`CMS_PUBLIC_URL` en producción tiene que ser `https://blog-cms.escarlet.cc`. Si queda vacío o en `localhost`, el MCP igual devolverá links absolutos con fallback a `https://blog-cms.escarlet.cc` (preview y media) para que Hermes pueda pegar un enlace clicable.
 
 ### Dominio
 

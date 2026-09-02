@@ -80,7 +80,7 @@ export function createMcpServer() {
       {
         name: 'blog_create_draft',
         description:
-          'Crea esqueleto de borrador. Antes, en este mismo turno, llama blog_get_brand_context y aplica voz, AGENT.md y estilo visual. Devuelve previewUrl para revisar el borrador en el navegador.',
+          'Crea esqueleto de borrador. Antes llama blog_get_brand_context. Devuelve previewUrl ABSOLUTO (https://blog-cms.escarlet.cc/preview/...) listo para compartir con el humano.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -182,7 +182,7 @@ export function createMcpServer() {
       {
         name: 'blog_upload_media',
         description:
-          'Sube imagen en base64. kind=reference es moodboard de marca. kind=post es portada o foto del artículo. Devuelve URL pública.',
+          'Sube imagen (base64 o imageUrl http). kind=reference moodboard. kind=post portada. Devuelve media.url ABSOLUTA https://blog-cms.escarlet.cc/media/... Usa esa URL en imageUrl del post.',
         inputSchema: {
           type: 'object',
           properties: {

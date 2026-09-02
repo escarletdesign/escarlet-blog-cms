@@ -22,10 +22,10 @@ Un post, un enfoque principal. Si mezcla temas, elige autor por el objetivo del 
 3. Redactar aplicando voz y estilo visual. `blog_update_post` (devuelve validation y previewUrl)
 4. Portada. `blog_upload_media` con `kind` `post`. Mira las imágenes `kind` `reference` del kit.
 5. `blog_validate_seo` para ver blockingErrors y warnings
-6. `blog_publish` con borrador en draft envía el post a **review** y devuelve previewUrl (aunque el SEO no esté perfecto)
-7. Un humano revisa en previewUrl o `/admin`, corrige SEO y publica desde el dashboard
+6. `blog_publish` con borrador en draft envía el post a **review** y devuelve previewUrl absoluto
+7. Comparte siempre el `previewUrl` completo (https://...) con el humano. Es un link listo para hacer click.
 
-No intentes publicar en vivo si el post sigue en draft y hay errores SEO graves sin pasar por review humana.
+Al terminar create/update/publish, pega en el chat el valor exacto de `previewUrl` (URL completa).
 
 Para subir o corregir el kit (voz, estilo, este archivo). `blog_update_brand_file`.
 Para moodboard. `blog_upload_media` con `kind` `reference`.
@@ -56,6 +56,8 @@ Recomendado (aviso, no bloquea):
 - Portada en kebab-case. Subida al CMS, no al git del frontend.
 - Alt describe lo que se ve. Palabra clave si encaja.
 - Composición y color según `visual-style.md` y las fotos de referencia.
+- Sube el archivo completo (PNG/JPG/WebP real, no truncado). Tras `blog_upload_media`, usa la `media.url` absoluta en `imageUrl`.
+- Si una portada está rota, vuelve a generar y subir con el mismo filename o uno nuevo y actualiza el post.
 
 ## Publicación
 
