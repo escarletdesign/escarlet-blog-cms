@@ -20,7 +20,7 @@ Un post, un enfoque principal. Si mezcla temas, elige autor por el objetivo del 
 1. `blog_get_brand_context`
 2. `blog_create_draft` o `blog_get_post` si editas
 3. Redactar aplicando voz y estilo visual. `blog_update_post` (devuelve validation y previewUrl)
-4. Portada. `blog_upload_media` con `kind` `post`. Mira las imágenes `kind` `reference` del kit.
+4. Portada. Genera la imagen, obtén una URL http pública temporal y súbela con `blog_upload_media` (`kind` `post`, campo `imageUrl`). Preferir `imageUrl` frente a `contentBase64`. Mira las referencias del kit.
 5. `blog_validate_seo` para ver blockingErrors y warnings
 6. `blog_publish` con borrador en draft envía el post a **review** y devuelve previewUrl absoluto
 7. Comparte siempre el `previewUrl` completo (https://...) con el humano. Es un link listo para hacer click.
@@ -56,8 +56,13 @@ Recomendado (aviso, no bloquea):
 - Portada en kebab-case. Subida al CMS, no al git del frontend.
 - Alt describe lo que se ve. Palabra clave si encaja.
 - Composición y color según `visual-style.md` y las fotos de referencia.
-- Sube el archivo completo (PNG/JPG/WebP real, no truncado). Tras `blog_upload_media`, usa la `media.url` absoluta en `imageUrl`.
-- Si una portada está rota, vuelve a generar y subir con el mismo filename o uno nuevo y actualiza el post.
+- Cómo subir (orden preferido):
+  1. Genera o elige la imagen.
+  2. Consigue una URL http(s) pública temporal del archivo (la que da el generador de imágenes o un CDN).
+  3. Llama `blog_upload_media` con `imageUrl` (esa URL), `filename`, `alt` y `kind`.
+  4. Usa la `media.url` absoluta que devuelve el CMS en el `imageUrl` del post.
+- Evita `contentBase64` en portadas. El base64 grande se trunca o falla y deja un PNG de pocos bytes (imagen rota).
+- Si una portada está rota, vuelve a generar, sube con `imageUrl` http y actualiza el post.
 
 ## Publicación
 

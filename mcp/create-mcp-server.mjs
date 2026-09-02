@@ -182,16 +182,27 @@ export function createMcpServer() {
       {
         name: 'blog_upload_media',
         description:
-          'Sube imagen (base64 o imageUrl http). kind=reference moodboard. kind=post portada. Devuelve media.url ABSOLUTA https://blog-cms.escarlet.cc/media/... Usa esa URL en imageUrl del post.',
+          'Sube una imagen al CMS y devuelve media.url ABSOLUTA (https://blog-cms.escarlet.cc/media/...). Usa esa URL en imageUrl del post. PREFERIDO: pasa imageUrl con una URL http(s) pública temporal de la imagen generada (OpenAI, Gemini, CDN, etc.). El CMS la descarga y guarda. EVITA contentBase64 para fotos grandes: el base64 suele truncarse o fallar por tamaño. contentBase64 solo para archivos pequeños de prueba. kind=post portada del artículo. kind=reference moodboard de marca.',
         inputSchema: {
           type: 'object',
           properties: {
             site: { type: 'string' },
-            filename: { type: 'string' },
-            contentBase64: { type: 'string' },
-            imageUrl: { type: 'string', description: 'URL http de la imagen si no envías base64' },
-            alt: { type: 'string' },
-            kind: { type: 'string', description: 'post o reference' }
+            filename: {
+              type: 'string',
+              description: 'Nombre kebab-case con extensión, ej. que-es-branding.png'
+            },
+            imageUrl: {
+              type: 'string',
+              description:
+                'URL http(s) pública de la imagen (preferido). El CMS descarga el archivo completo desde aquí.'
+            },
+            contentBase64: {
+              type: 'string',
+              description:
+                'Solo si no hay imageUrl y el archivo es pequeño. No uses base64 para portadas grandes.'
+            },
+            alt: { type: 'string', description: 'Texto alt descriptivo (lo que se ve en la foto)' },
+            kind: { type: 'string', description: 'post (portada) o reference (moodboard)' }
           },
           required: ['site', 'filename']
         }
