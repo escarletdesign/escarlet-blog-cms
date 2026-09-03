@@ -169,7 +169,9 @@ Objetivo. Cuando publicas en el CMS, escarlet.design se reconstruye solo con los
 2. Abre la app **escarlet002** (escarlet.design)
 3. Busca **Webhooks** o **Deploy Webhook**
 4. Copia la URL. Suele ser algo como  
-   `https://coolify.tudominio.com/api/v1/deploy?uuid=...&force=false`
+   `https://coolify.tudominio.com/api/v1/deploy?uuid=...`
+
+   No uses `force=false`. En Coolify 4.1 ese string se interpreta como true y el deploy va sin caché de Docker. El CMS lo quita si viene pegado.
 
 ### B. Pégala en el CMS (dashboard)
 

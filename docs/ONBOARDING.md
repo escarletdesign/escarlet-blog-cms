@@ -115,7 +115,7 @@ Son **dos caminos** al mismo sitio.
 
 1. Coolify → app del **frontend** (producción del cliente)
 2. Webhooks → **Deploy Webhook (auth required)** → copia URL  
-   Ejemplo. `https://coolify.escarlet.cc/api/v1/deploy?uuid=...&force=false`
+   Ejemplo. `https://coolify.escarlet.cc/api/v1/deploy?uuid=...`
 3. Copia un API token Coolify con permiso Deploy
 4. CMS `/admin` → tab **Sitio** → Deploy webhook + Token → **Probar webhook** → Guardar
 

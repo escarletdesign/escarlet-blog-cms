@@ -88,7 +88,7 @@ Usa el webhook de la app **escarlet.design en producción**, no la de preview `t
 En Coolify → app producción escarlet002 → Webhooks → **Deploy Webhook (auth required)**.
 
 Ejemplo formato:
-`https://coolify.escarlet.cc/api/v1/deploy?uuid=...&force=false`
+`https://coolify.escarlet.cc/api/v1/deploy?uuid=...`
 
 Pégala en dashboard CMS → tab **Sitio** → Deploy webhook.
 

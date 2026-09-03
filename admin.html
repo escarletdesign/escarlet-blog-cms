@@ -472,7 +472,7 @@
                 <ol class="help-steps">
                   <li>Entra en Coolify y abre la app del <em>frontend</em> (la web pública del cliente). Es distinta de la app del CMS.</li>
                   <li>Busca <em>Webhooks</em> o <em>Deploy Webhook</em>. Elige el de producción con auth required.</li>
-                  <li>Copia la URL. Suele verse así. <code>https://coolify…/api/v1/deploy?uuid=…&amp;force=false</code></li>
+                  <li>Copia la URL. Suele verse así. <code>https://coolify…/api/v1/deploy?uuid=…</code>. Si trae <code>force=false</code>, el CMS lo quita. En Coolify 4.1 ese parámetro lanza un build sin caché y el deploy por API se queda minutos.</li>
                   <li>En Coolify → Keys &amp; Tokens (o Keys), crea o copia un token API con permiso Deploy.</li>
                 </ol>
                 <p>Puedes saltarte este paso y pegar webhook y token más tarde en Configuración del sitio.</p>
