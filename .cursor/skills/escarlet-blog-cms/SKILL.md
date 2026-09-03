@@ -11,6 +11,8 @@ description: >-
 CMS **central** white-label. Un servicio. Muchos handles (`escarlet`, `mares24`, …).
 Los posts viven en el CMS. El frontend solo hace pull en build.
 
+**Headless.** El CMS guarda datos (`bodyHtml`, portada, metas). El look de `/blog/{slug}` lo pinta la landing. El preview del CMS y `templates/post.html` no son la web pública. Para cambiar diseño de ficha. skill global `escarlet-blog-integrate` (sección Headless) y el generador/vista de esa landing.
+
 ## Cuándo usar
 
 - Instalar blog en un proyecto nuevo o existente

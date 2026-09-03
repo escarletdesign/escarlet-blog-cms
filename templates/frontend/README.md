@@ -11,10 +11,28 @@ Copia estos archivos al proyecto web. Fuente única. no uses `escarlet002` como 
 | `blog-via-mcp.mdc` | `.cursor/rules/` (sustituye `{{handle}}` / `{{domain}}`) |
 | `blog-social-packs.mdc` | `.cursor/rules/` (sustituye placeholders) |
 
+## Headless
+
+El CMS entrega datos. El look de listado y ficha lo pinta **esta landing**.
+
+- SPA. vistas `/blog` y `/blog/:slug` en `src/`
+- HTML estático. `scripts/generate-blog-pages.mjs` + CSS (`blog-*`). Engancha `blog:pages` en el build tras el sync.
+- Preview del CMS y `templates/post.html` del repo CMS. solo ejemplo/revisión. no producción.
+
+`bodyHtml` = contenido semántico. Sin nav, footer ni layout de página.
+
 ## Build
+
+SPA:
 
 ```bash
 node scripts/sync-blog-cms.mjs && node scripts/generate-blog-social-packs.mjs && vite build
+```
+
+HTML estático (añade generador de páginas):
+
+```bash
+node scripts/sync-blog-cms.mjs && node scripts/generate-blog-social-packs.mjs && node scripts/generate-blog-pages.mjs && vite build
 ```
 
 ## Env packs

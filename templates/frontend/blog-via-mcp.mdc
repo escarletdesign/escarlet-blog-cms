@@ -7,7 +7,17 @@ alwaysApply: false
 # Blog vía MCP
 
 Contenido editorial del blog. Usa el MCP **escarlet-blog** con `site: {{handle}}`.
-Los posts viven en el CMS. El frontend solo sincroniza en build.
+Los posts viven en el CMS. El frontend solo sincroniza en build y pinta el HTML.
+
+## Headless. No confundas CMS con diseño
+
+- El CMS guarda título, `bodyHtml`, portada, metas y `socialPack`.
+- El **look** de `/blog` y `/blog/{slug}` se define en **esta landing** (vista SPA, o `generate-blog-pages.mjs` + CSS si es HTML estático).
+- El preview de `blog-cms.escarlet.cc` es solo revisión. No es la web pública.
+- En `bodyHtml` manda solo contenido semántico (párrafos, títulos, listas). Sin nav, footer ni layout de página.
+
+Si el humano pide cambiar cómo se ve la ficha del post. edita el generador/vista y el CSS de esta landing, luego rebuild. No edites el CMS para eso.
+Detalle. skill global `escarlet-blog-integrate` (sección Headless).
 
 ## Antes de redactar
 
@@ -35,9 +45,10 @@ socialPack: {
 ```
 
 3. Si Instagram está activo. Genera slides → `blog_import_remote_image` (`kind` `social`) → URLs en `instagramSlides`
-4. `blog_validate_seo`
-5. `blog_publish`
-6. Tras el rebuild. indicar `https://{{domain}}/admin/blog-packs/{slug}`
+4. Portada. `blog_import_remote_image` (`kind` `post`) → URL del CMS en `imageUrl`
+5. `blog_validate_seo`
+6. `blog_publish`
+7. Tras el rebuild. indicar `https://{{domain}}/admin/blog-packs/{slug}`
 
 ## Editar post
 
@@ -58,13 +69,14 @@ Portada. `kind: post`. Carrusel. `kind: social`, filename `{slug}-ig-01.webp` �
 ## Blog-packs (frontend)
 
 El HTML de packs se genera en el **build del frontend** (`npm run blog:packs`), no en el CMS.
-Orden de build. sync CMS → generate-blog-social-packs → build app.
+Orden de build (SPA). sync CMS → generate-blog-social-packs → build app.
+Orden de build (HTML estático). sync → packs → generate-blog-pages → vite.
 Plantilla. `escarlet-blog-cms/templates/frontend/generate-blog-social-packs.mjs`
 
 ## Tras publicar
 
-El CMS dispara el Deploy Webhook de Coolify del frontend. El sync baja posts y regenera packs.
-Comparte el `previewUrl` del CMS y la URL del pack admin.
+El CMS dispara el Deploy Webhook de Coolify del frontend. El sync baja posts y regenera packs (y páginas HTML si aplica).
+Comparte el `previewUrl` del CMS (revisión) y la URL pública del post.
 
 ## Prohibido
 
@@ -72,3 +84,4 @@ Comparte el `previewUrl` del CMS y la URL del pack admin.
 - Inventar brand kit. Complétalo con `blog_update_brand_file` o el dashboard
 - Publicar en redes desde el agente (el pack es copia/descarga manual)
 - Rellenar canales desactivados en `socialPackChannels`
+- Intentar “diseñar” la ficha del post desde el CMS o metiendo layout en `bodyHtml`
