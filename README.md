@@ -55,7 +55,8 @@ Deploy producción. [docs/DEPLOY.md](docs/DEPLOY.md).
 | `blog_get_seo_context` | Keywords y reglas |
 | `blog_get_brand_context` | Voz, estilo visual, AGENT.md e imágenes de referencia |
 | `blog_update_brand_file` | Subir o corregir un archivo del kit |
-| `blog_upload_media` | Portada (`post`) o moodboard (`reference`) |
+| `blog_upload_media` | Sube imagen por base64 o URL pública |
+| `blog_import_remote_image` | Descarga una imagen remota al CMS y devuelve la URL local |
 | `blog_import_brand_zip` | ZIP de brand kit (cualquier estructura). Preferir `zipUrl` |
 
 Resources. `brand://{handle}/voice`, `keywords`, `agent`, `image-guide`, `visual-style`, `image-spec`
@@ -76,6 +77,8 @@ Hermes (otro servidor) no clona el CMS. En su `mcp.json`:
 ```
 
 ChatGPT (Developer Mode / Connectors). URL `https://blog-cms.escarlet.cc/mcp`, autenticación **OAuth**. Al autorizar pega el token de sitio o `ADMIN_TOKEN`. El dashboard genera un PNG del favicon (<10 KB) para el icono del conector al crear el token de cliente.
+
+Claude (Customize / Connectors). URL `https://blog-cms.escarlet.cc/mcp`, autenticación **OAuth**. Al autorizar pega el token de sitio o `ADMIN_TOKEN`. Puede usar el mismo icono PNG.
 
 ## Integración frontend
 

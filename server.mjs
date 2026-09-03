@@ -723,7 +723,9 @@ const server = createServer(async (req, res) => {
         message: 'Copia este token ahora. Solo se muestra una vez.',
         mcpUrl: mcp.mcpUrl,
         mcpChatGptUrl: mcp.chatgpt.url,
+        mcpClaudeUrl: mcp.claude.url,
         mcpAuthHint: mcp.chatgpt.hint,
+        mcpClaudeHint: mcp.claude.hint,
         mcpCursorHint: mcp.cursorHermes.hint,
         agentIcon
       })
@@ -750,7 +752,9 @@ const server = createServer(async (req, res) => {
           agentIcon: readSiteAgentIcon(handle),
           mcpUrl: mcp.mcpUrl,
           mcpChatGptUrl: mcp.chatgpt.url,
-          mcpAuthHint: mcp.chatgpt.hint
+          mcpClaudeUrl: mcp.claude.url,
+          mcpAuthHint: mcp.chatgpt.hint,
+          mcpClaudeHint: mcp.claude.hint
         })
         return
       }

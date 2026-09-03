@@ -144,6 +144,19 @@ ChatGPT solo ofrece OAuth (o sin autenticación). El CMS incluye un OAuth 2.1 m�
 
 Cursor y Hermes siguen con Bearer directo. No hace falta migrarlos a OAuth.
 
+### Claude
+
+Claude también puede usar el mismo endpoint OAuth del CMS.
+
+1. En Claude. `Customize → Connectors → Add custom connector`
+2. URL. `https://blog-cms.escarlet.cc/mcp`
+3. Autenticación. **OAuth**
+4. Nombre. `escarlet-blog` (o el del cliente)
+5. Al conectar, Claude abre la pantalla del CMS. Pega el **token de sitio** o el `ADMIN_TOKEN` y autoriza una vez.
+6. Si quieres un icono, usa el mismo PNG del favicon que genera el panel.
+
+ChatGPT y Claude comparten el mismo OAuth del CMS. Cursor y Hermes siguen con Bearer directo.
+
 ---
 
 ## 4. Webhook rebuild + activar sync — paso a paso

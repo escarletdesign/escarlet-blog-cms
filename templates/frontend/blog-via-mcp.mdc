@@ -34,7 +34,7 @@ socialPack: {
 }
 ```
 
-3. Si Instagram está activo. Genera slides → `blog_upload_media` (`kind` `social`) → URLs en `instagramSlides`
+3. Si Instagram está activo. Genera slides → `blog_import_remote_image` (`kind` `social`) → URLs en `instagramSlides`
 4. `blog_validate_seo`
 5. `blog_publish`
 6. Tras el rebuild. indicar `https://{{domain}}/admin/blog-packs/{slug}`
@@ -46,7 +46,13 @@ socialPack: {
 
 ## Imágenes
 
-`blog_upload_media` con URL http pública (`imageUrl`). Usa la URL absoluta que devuelve el CMS.
+Para agentes, evita `contentBase64` si ya tienes una imagen pública.
+
+1. Usa `blog_import_remote_image` con `imageUrl` pública para que el CMS descargue y guarde la imagen
+2. Pega la URL absoluta que devuelve el CMS en `blog_update_post.imageUrl`
+
+`blog_upload_media` queda para base64 o dashboard. `contentBase64` solo para archivos pequeños o si el cliente no puede pasar una URL.
+
 Portada. `kind: post`. Carrusel. `kind: social`, filename `{slug}-ig-01.webp` …
 
 ## Blog-packs (frontend)

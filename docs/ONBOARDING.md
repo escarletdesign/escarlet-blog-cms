@@ -130,7 +130,7 @@ Detalle de volumen del CMS y variables. [DEPLOY.md](./DEPLOY.md).
 
 ---
 
-## D. Agentes (Cursor / Hermes / ChatGPT)
+## D. Agentes (Cursor / Hermes / ChatGPT / Claude)
 
 1. MCP apuntando al CMS (mismo para todos los sites):
 
@@ -148,6 +148,8 @@ Detalle de volumen del CMS y variables. [DEPLOY.md](./DEPLOY.md).
 ```
 
 ChatGPT. Connectors → Create → URL `https://blog-cms.escarlet.cc/mcp` → OAuth. Al autorizar pega el token de sitio (dashboard → Sitio → Generar token) o `ADMIN_TOKEN`. El panel también ofrece el PNG del favicon (<10 KB) en `/media/{handle}/agent-icon.png`.
+
+Claude. Customize → Connectors → Add custom connector → URL `https://blog-cms.escarlet.cc/mcp` → OAuth. Al autorizar pega el token de sitio o `ADMIN_TOKEN`. Puede usar el mismo icono PNG.
 
 2. Copia `templates/frontend/blog-via-mcp.mdc` al proyecto web y cambia `{{handle}}`
 3. Skill del repo. `.cursor/skills/escarlet-blog-cms/SKILL.md`

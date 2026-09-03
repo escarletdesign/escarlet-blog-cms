@@ -1796,7 +1796,7 @@ function renderAgentIconInfo(agentIcon) {
   if (agentIcon.ok) {
     const kb = ((agentIcon.bytes || 0) / 1024).toFixed(1)
     status.textContent = agentIcon.reused
-      ? `Icono listo (${kb} KB). Puedes usarlo en el conector de ChatGPT.`
+      ? `Icono listo (${kb} KB). Puedes usarlo en el conector de ChatGPT o Claude.`
       : `Icono generado desde el favicon (${kb} KB).`
     if (preview && agentIcon.path) {
       preview.hidden = false
@@ -1825,7 +1825,7 @@ function renderSiteAccessSuccess(data) {
   const mcpEl = document.getElementById('siteMcpUrl')
   if (mcpEl) mcpEl.textContent = mcpUrl
   const hintEl = document.getElementById('siteMcpHint')
-  if (hintEl) hintEl.textContent = data.mcpAuthHint || ''
+  if (hintEl) hintEl.textContent = [data.mcpAuthHint, data.mcpClaudeHint].filter(Boolean).join(' ')
   const staticUrl = document.getElementById('siteMcpStaticUrl')
   if (staticUrl && mcpUrl) staticUrl.textContent = mcpUrl
   renderAgentIconInfo(data.agentIcon)
