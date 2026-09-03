@@ -25,8 +25,8 @@ Un post, un enfoque principal. Si mezcla temas, elige autor por el objetivo del 
 2. Pregunta lo que falte según `postFields`
 3. `blog_create_draft` solo si el slug es nuevo
 4. Redactar. `blog_update_post` (devuelve validation y previewUrl)
-5. Portada. Genera la imagen, URL http pública, `blog_upload_media` (`kind` `post`, campo `imageUrl`)
-6. Si `socialPackChannels.instagramCarousel` está activo. Genera 4–7 slides (1080×1350), súbelas con `blog_upload_media` (`kind` `social`, filename `{slug}-ig-01.webp` …) y guarda `socialPack.instagramSlides` + `instagramCaption` con canónico
+5. Portada. Genera la imagen. `blog_upload_media` (`kind` `post`). Preferido `imageUrl` https pública. Si ChatGPT solo tiene el archivo en sandbox (`/mnt/data/...`), usa `contentBase64`. Nunca pases rutas sandbox como `imageUrl`.
+6. Si `socialPackChannels.instagramCarousel` está activo. Genera 4–7 slides (1080×1350), súbelas todas con `blog_upload_media` (`kind` `social`, filename `{slug}-ig-01.webp` …) y guarda `socialPack.instagramSlides` + `instagramCaption` con canónico. Misma regla de sandbox.
 7. Completa `socialPack` solo para canales activos en `socialPackChannels`
 8. `blog_validate_seo`
 9. `blog_publish` con borrador en draft envía a **review** y devuelve previewUrl absoluto
@@ -76,11 +76,11 @@ Recomendado (aviso, no bloquea):
 - Composición y color según `visual-style.md` y las fotos de referencia.
 - Cómo subir (orden preferido):
   1. Genera o elige la imagen.
-  2. Consigue una URL http(s) pública temporal del archivo.
-  3. Llama `blog_upload_media` con `imageUrl`, `filename`, `alt` y `kind`.
+  2. Si tienes URL http(s) pública temporal, pásala en `imageUrl` a `blog_upload_media`.
+  3. Si solo tienes el archivo en sandbox de ChatGPT (`/mnt/data/...`, `sandbox:`, `file://`), lee el archivo y pasa `contentBase64` completo a `blog_upload_media`. Nunca uses esas rutas como `imageUrl`.
   4. Usa la `media.url` absoluta que devuelve el CMS en el `imageUrl` del post (o en cada slide de Instagram).
-- Carrusel Instagram (`kind` `social`). 4–7 slides. Formato 1080×1350 (o 1080×1080). Filename `{slug}-ig-01.webp` … `{slug}-ig-07.webp`. Guarda el array en `socialPack.instagramSlides`.
-- Evita `contentBase64` en portadas.
+- Carrusel Instagram (`kind` `social`). 4–7 slides. Formato 1080×1350 (o 1080×1080). Filename `{slug}-ig-01.webp` … `{slug}-ig-07.webp`. Sube cada slide al CMS y guarda el array en `socialPack.instagramSlides`.
+- En portadas grandes prefiere `imageUrl` https. Usa `contentBase64` cuando el sandbox sea la única copia del archivo.
 
 ## Publicación
 

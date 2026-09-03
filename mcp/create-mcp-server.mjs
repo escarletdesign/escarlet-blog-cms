@@ -131,7 +131,7 @@ function buildToolList(auth) {
     },
     {
       name: 'blog_update_post',
-      description: 'Actualiza un post EXISTENTE. Para portadas generadas fuera del CMS, primero usa blog_import_remote_image con imageUrl pública y luego pega la URL del CMS en imageUrl.',
+      description: 'Actualiza un post EXISTENTE. Para portadas, primero blog_upload_media (imageUrl http pública o contentBase64 si el archivo está en sandbox) y luego pega la URL del CMS en imageUrl.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -237,16 +237,28 @@ function buildToolList(auth) {
     },
     {
       name: 'blog_upload_media',
-      description: 'Descarga o sube una imagen al CMS. Para conectores, pásale imageUrl pública y usa contentBase64 solo en archivos pequeños o dashboard. kind: post (portada), social (slides Instagram), reference (moodboard).',
+      description:
+        'Sube una imagen al CMS y devuelve media.url ABSOLUTA. Tool principal para ChatGPT/Claude/Hermes. Preferido: imageUrl con https:// pública. Si la imagen solo existe en sandbox (/mnt/data, sandbox:, file://), lee el archivo y pasa contentBase64 (completo, sin truncar). NUNCA pases rutas sandbox como imageUrl. kind: post (portada), social (slides Instagram), reference (moodboard).',
       inputSchema: {
         type: 'object',
         properties: {
           site: { type: 'string' },
-          filename: { type: 'string' },
-          imageUrl: { type: 'string', description: 'URL pública de la imagen. Opción preferida para ChatGPT y Claude.' },
-          contentBase64: { type: 'string', description: 'Imagen en base64. Úsalo solo si no puedes pasar imageUrl o el archivo es pequeño.' },
+          filename: {
+            type: 'string',
+            description: 'Nombre kebab-case con extensión, ej. mi-post.webp o {slug}-ig-01.webp'
+          },
+          imageUrl: {
+            type: 'string',
+            description:
+              'URL http(s) pública de la imagen. El CMS la descarga. Prohibido: /mnt/data, sandbox:, file:// u otras rutas locales.'
+          },
+          contentBase64: {
+            type: 'string',
+            description:
+              'Imagen en base64 completa. Úsalo cuando ChatGPT solo tenga el archivo en sandbox (/mnt/data/...). Preferible a inventar una URL local.'
+          },
           alt: { type: 'string' },
-          kind: { type: 'string' }
+          kind: { type: 'string', description: 'post | social | reference' }
         },
         required: ['site', 'filename']
       },
@@ -254,13 +266,17 @@ function buildToolList(auth) {
     },
     {
       name: 'blog_import_remote_image',
-      description: 'Importa una imagen remota al CMS desde una imageUrl pública. Usa esta tool cuando ChatGPT o Claude te den una URL y quieras guardarla en el CMS antes de actualizar el post.',
+      description:
+        'Solo para imageUrl http(s) pública real. El CMS descarga y guarda. Si tienes /mnt/data o sandbox, usa blog_upload_media con contentBase64 en su lugar.',
       inputSchema: {
         type: 'object',
         properties: {
           site: { type: 'string' },
-          filename: { type: 'string', description: 'Nombre final dentro del CMS, por ejemplo portada.webp o {slug}-ig-01.webp.' },
-          imageUrl: { type: 'string', description: 'URL pública de origen que el CMS descargará y guardará.' },
+          filename: { type: 'string', description: 'Nombre final, ej. portada.webp o {slug}-ig-01.webp.' },
+          imageUrl: {
+            type: 'string',
+            description: 'URL http(s) pública. Prohibido /mnt/data, sandbox:, file://.'
+          },
           alt: { type: 'string' },
           kind: { type: 'string', description: 'post, social o reference' }
         },
@@ -422,7 +438,9 @@ export function createMcpServer(auth = { role: 'admin' }) {
         case 'blog_import_remote_image': {
           const site = resolveToolSite(auth, args)
           if (!args.imageUrl) {
-            throw Object.assign(new Error('Pasa imageUrl pública'), { status: 400 })
+            throw Object.assign(new Error('Pasa imageUrl http(s) pública. Si solo tienes sandbox (/mnt/data), usa blog_upload_media con contentBase64.'), {
+              status: 400
+            })
           }
           return textResult(await cms.uploadMedia({ ...args, site, contentBase64: undefined }))
         }

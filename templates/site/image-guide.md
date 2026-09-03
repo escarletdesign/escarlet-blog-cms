@@ -13,15 +13,16 @@
 ## Subida (preferido)
 
 1. Genera o elige la imagen.
-2. Consigue una URL http(s) pública temporal.
-3. `blog_upload_media` con `imageUrl`, `filename`, `alt`, `kind: post`.
+2. Si tienes URL http(s) pública. `blog_upload_media` con `imageUrl`, `filename`, `alt`, `kind: post`.
+3. Si solo tienes el archivo en sandbox de ChatGPT (`/mnt/data/...`). Lee el archivo y pasa `contentBase64` completo. Nunca uses esas rutas como `imageUrl`.
 4. Usa la `media.url` absoluta en el `imageUrl` del post.
 
 ## Carrusel Instagram (si el canal está activo)
 
 1. Genera 4–7 slides 1080×1350 (o 1080×1080) alineados con visual-style.
 2. Filename `{slug}-ig-01.webp` … `{slug}-ig-07.webp`.
-3. `blog_upload_media` con `kind: social` por cada slide.
+3. `blog_upload_media` con `kind: social` por cada slide (misma regla de sandbox).
 4. Guarda en `socialPack.instagramSlides` `{ imageUrl, alt, headline? }` y un `instagramCaption` con el canónico.
+5. Si el canal está activo, sube las 4–7 slides al CMS antes de review.
 
-Evita `contentBase64` en portadas grandes.
+En portadas grandes prefiere `imageUrl` https. Usa `contentBase64` cuando el sandbox sea la única copia.

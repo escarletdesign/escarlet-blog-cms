@@ -39,7 +39,7 @@ Convención del sitio alineada con el curso de SEO. Aplica a portadas, fotos de 
 
 ## Carrusel Instagram (blog)
 
-Si el site tiene `instagramCarousel` activo, el agente genera 4–7 slides (1080×1350), las sube al CMS con `kind: social` (`{slug}-ig-01.webp` …) y las enlaza en `socialPack.instagramSlides`. El pack admin solo las descarga.
+Si el site tiene `instagramCarousel` activo, el agente genera 4–7 slides (1080×1350), las sube al CMS con `kind: social` (`{slug}-ig-01.webp` …) y las enlaza en `socialPack.instagramSlides`. Si ChatGPT solo tiene archivos en sandbox, usa `contentBase64` en `blog_upload_media`. El pack admin solo descarga las URLs del CMS.
 
 ## Lead magnets
 

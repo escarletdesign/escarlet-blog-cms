@@ -72,7 +72,7 @@ Git push = código. Webhook = solo blog.
 | `blog_get_brand_context` | igual |
 | `blog_create_draft` | `blog_get_post` |
 | `blog_update_post` | `blog_update_post` (mismo slug) |
-| `blog_upload_media` (preferir `imageUrl`; `kind` social para slides IG) | idem |
+| `blog_upload_media` (`imageUrl` https, o `contentBase64` si sandbox `/mnt/data`; `kind` social para IG) | idem |
 | `blog_validate_seo` → `blog_publish` | idem |
 
 Prohibido. Commitear posts al frontend. Usar `create_draft` para editar.

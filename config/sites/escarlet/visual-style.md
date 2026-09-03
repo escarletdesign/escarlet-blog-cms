@@ -34,5 +34,5 @@ Los nombres de archivo y el alt siguen `image-guide.md`. Esta guía manda el asp
 1. Lista las URLs de `referenceImages` en `blog_get_brand_context`.
 2. Describe paleta, encuadre y oficio que ves.
 3. Genera o elige una portada que podría colgarse al lado de esas fotos.
-4. Súbela con `blog_upload_media` (`kind` `post`) pasando `imageUrl` con la URL http pública temporal de la imagen generada. Evita base64. Rellena `imageAlt`.
+4. Súbela con `blog_upload_media` (`kind` `post`). Preferido `imageUrl` https pública. Si ChatGPT solo tiene el archivo en sandbox (`/mnt/data`), usa `contentBase64`. Rellena `imageAlt`.
 5. Copia la `media.url` absoluta del CMS al campo `imageUrl` del post.

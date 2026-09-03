@@ -44,8 +44,8 @@ socialPack: {
 }
 ```
 
-3. Si Instagram está activo. Genera slides → `blog_import_remote_image` (`kind` `social`) → URLs en `instagramSlides`
-4. Portada. `blog_import_remote_image` (`kind` `post`) → URL del CMS en `imageUrl`
+3. Portada. `blog_upload_media` (`kind` `post`) → URL del CMS en `imageUrl`
+4. Si Instagram está activo. Genera slides → `blog_upload_media` (`kind` `social`) → URLs del CMS en `instagramSlides`. Sube todas las slides.
 5. `blog_validate_seo`
 6. `blog_publish`
 7. Tras el rebuild. indicar `https://{{domain}}/admin/blog-packs/{slug}`
@@ -57,12 +57,9 @@ socialPack: {
 
 ## Imágenes
 
-Para agentes, evita `contentBase64` si ya tienes una imagen pública.
-
-1. Usa `blog_import_remote_image` con `imageUrl` pública para que el CMS descargue y guarde la imagen
-2. Pega la URL absoluta que devuelve el CMS en `blog_update_post.imageUrl`
-
-`blog_upload_media` queda para base64 o dashboard. `contentBase64` solo para archivos pequeños o si el cliente no puede pasar una URL.
+1. Preferido. `blog_upload_media` con `imageUrl` http(s) pública. El CMS descarga y guarda.
+2. Si ChatGPT solo tiene el archivo en sandbox (`/mnt/data/...`, `sandbox:`, `file://`). Lee el archivo y pasa `contentBase64` completo a `blog_upload_media`. Nunca pases esas rutas como `imageUrl`.
+3. Pega la URL absoluta que devuelve el CMS en `blog_update_post.imageUrl`
 
 Portada. `kind: post`. Carrusel. `kind: social`, filename `{slug}-ig-01.webp` …
 
