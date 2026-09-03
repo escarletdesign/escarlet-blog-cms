@@ -80,7 +80,7 @@ export function createMcpServer() {
       {
         name: 'blog_create_draft',
         description:
-          'Crea esqueleto de borrador. Antes llama blog_get_brand_context. Devuelve previewUrl ABSOLUTO (https://blog-cms.escarlet.cc/preview/...) listo para compartir con el humano.',
+          'Crea esqueleto de borrador NUEVO. Antes blog_get_brand_context. Nunca uses esto para editar un post existente (duplica). Para editar. blog_get_post + blog_update_post. Devuelve previewUrl ABSOLUTO.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -96,12 +96,16 @@ export function createMcpServer() {
       {
         name: 'blog_update_post',
         description:
-          'Actualiza campos de un post (parcial). Devuelve validation con blockingErrors, warnings, previewUrl y hint para saber si falta SEO antes de publicar.',
+          'Actualiza un post EXISTENTE (404 si no hay slug). Nunca lo uses para crear. Para editar, mismo slug. Si renombras, pasa originalSlug (slug actual) y slug (nuevo). Con aprobación humana, un published baja a review. Devuelve validation, previewUrl y hint.',
         inputSchema: {
           type: 'object',
           properties: {
             site: { type: 'string' },
-            slug: { type: 'string' },
+            slug: { type: 'string', description: 'Slug destino (el mismo si no renombras)' },
+            originalSlug: {
+              type: 'string',
+              description: 'Slug actual si estás renombrando. Si omites, slug debe existir.'
+            },
             title: { type: 'string' },
             excerptEs: { type: 'string' },
             bodyHtml: { type: 'string' },
@@ -112,9 +116,42 @@ export function createMcpServer() {
             authorName: { type: 'string' },
             relatedSlugs: { type: 'array', items: { type: 'string' } },
             socialPack: { type: 'object' },
-            status: { type: 'string' }
+            status: { type: 'string', description: 'draft, review o published' },
+            keepPublished: {
+              type: 'boolean',
+              description: 'Solo dashboard humano. true mantiene published al guardar.'
+            }
           },
           required: ['site', 'slug']
+        }
+      },
+      {
+        name: 'blog_unpublish',
+        description: 'Despublica un post (published → draft) y dispara rebuild si estaba en vivo.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            site: { type: 'string' },
+            slug: { type: 'string' }
+          },
+          required: ['site', 'slug']
+        }
+      },
+      {
+        name: 'blog_delete_post',
+        description:
+          'Elimina un post de forma permanente. Obligatorio confirm=true. Si estaba published, dispara rebuild.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            site: { type: 'string' },
+            slug: { type: 'string' },
+            confirm: {
+              type: 'boolean',
+              description: 'Debe ser true para confirmar el borrado'
+            }
+          },
+          required: ['site', 'slug', 'confirm']
         }
       },
       {
@@ -155,7 +192,7 @@ export function createMcpServer() {
       {
         name: 'blog_get_brand_context',
         description:
-          'Obligatorio al crear o editar un post. Devuelve voz, estilo visual, keywords, AGENT.md e imágenes de referencia del site.',
+          'Obligatorio al crear o editar. Devuelve voz, estilo, keywords, AGENT.md, referenceImages, postFields (qué preguntar al humano), editRules, workflow, authors, seoLimits y missingBrand.',
         inputSchema: {
           type: 'object',
           properties: { site: { type: 'string' } },
@@ -255,6 +292,13 @@ export function createMcpServer() {
           return textResult(await cms.createDraft(args))
         case 'blog_update_post':
           return textResult(await cms.updatePost(args))
+        case 'blog_unpublish':
+          return textResult(await cms.unpublishPost(site, args.slug))
+        case 'blog_delete_post':
+          if (args.confirm !== true) {
+            throw Object.assign(new Error('Para eliminar, pasa confirm: true'), { status: 400 })
+          }
+          return textResult(await cms.deletePost(site, args.slug))
         case 'blog_validate_seo':
           return textResult(await cms.validateSeo(site, args.slug))
         case 'blog_publish':

@@ -30,7 +30,16 @@ import {
   BRAND_FILE_LABELS
 } from './lib/brand-kit.mjs'
 import { validatePostSeo } from './lib/seo-validator.mjs'
-import { notifyRebuild, saveUploadedMedia, publishPost as cmsPublishPost, validateSeo as cmsValidateSeo, deleteMedia as cmsDeleteMedia } from './lib/cms-ops.mjs'
+import {
+  notifyRebuild,
+  saveUploadedMedia,
+  publishPost as cmsPublishPost,
+  validateSeo as cmsValidateSeo,
+  deleteMedia as cmsDeleteMedia,
+  updatePost as cmsUpdatePost,
+  unpublishPost as cmsUnpublishPost,
+  deletePost as cmsDeletePost
+} from './lib/cms-ops.mjs'
 import { mediaForClient, repairMediaInDb, repairPostsInDb, resolveImageSrc, resolvePostImageSrc } from './lib/media-url.mjs'
 import { withPostLinks } from './lib/preview-url.mjs'
 import { escapeHtml, renderPostBody } from './lib/content-render.mjs'
@@ -748,26 +757,13 @@ const server = createServer(async (req, res) => {
 
     if (req.method === 'POST' && path === '/api/admin/posts') {
       const body = await parseBody(req)
-      const site = body.site || DEFAULT_SITE
-      const slug = body.slug
-      if (!slug) {
-        json(res, 400, { message: 'Falta slug' })
-        return
+      try {
+        const result = await cmsUpdatePost(body)
+        json(res, 200, result)
+      } catch (error) {
+        const status = error.status || 500
+        json(res, status, { message: error.message, ...(error.extra || {}) })
       }
-      const existing = findPost(db, site, slug)
-      const post = {
-        id: slug,
-        site,
-        status: body.status || existing?.status || 'draft',
-        dateModified: todayIso(),
-        ...existing,
-        ...body
-      }
-      upsertPost(db, post)
-      writeDb(db)
-      let rebuild = null
-      if (post.status === 'published') rebuild = await notifyRebuild(site)
-      json(res, 200, withPostLinks({ post, rebuild }, site, slug))
       return
     }
 
@@ -785,14 +781,31 @@ const server = createServer(async (req, res) => {
       return
     }
 
+    if (req.method === 'POST' && path === '/api/admin/posts/unpublish') {
+      const body = await parseBody(req)
+      const site = body.site || DEFAULT_SITE
+      try {
+        const result = await cmsUnpublishPost(site, body.slug)
+        json(res, 200, result)
+      } catch (error) {
+        const status = error.status || 500
+        json(res, status, { message: error.message, ...(error.extra || {}) })
+      }
+      return
+    }
+
     if (req.method === 'DELETE') {
       const del = path.match(/^\/api\/admin\/posts\/([^/]+)$/)
       if (del) {
         const site = url.searchParams.get('site') || DEFAULT_SITE
         const slug = decodeURIComponent(del[1])
-        db.posts = db.posts.filter((p) => !(p.site === site && p.slug === slug))
-        writeDb(db)
-        json(res, 200, { ok: true })
+        try {
+          const result = await cmsDeletePost(site, slug)
+          json(res, 200, result)
+        } catch (error) {
+          const status = error.status || 500
+          json(res, status, { message: error.message, ...(error.extra || {}) })
+        }
         return
       }
     }

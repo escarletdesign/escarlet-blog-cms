@@ -56,6 +56,7 @@ let brandEditor = null
 let bodyEditor = null
 let cachedPosts = []
 let humanApprovalRequired = true
+let editingOriginalSlug = ''
 let token = localStorage.getItem('escarlet_cms_token') || ''
 
 function toast(message, options = {}) {
@@ -523,6 +524,13 @@ async function loadPosts() {
     prevTab.innerHTML = ICONS.send + ' Nueva pestaña'
     prevTab.onclick = () => showPreviewForSlug(p.slug, { newTab: true })
     actions.append(edit, prev, prevTab)
+    if (p.status === 'published') {
+      const unpub = document.createElement('button')
+      unpub.className = 'btn btn-sm'
+      unpub.textContent = 'Despublicar'
+      unpub.onclick = () => unpublishSlug(p.slug)
+      actions.append(unpub)
+    }
     if (p.status === 'review' || p.status === 'draft') {
       const pub = document.createElement('button')
       pub.className = 'btn btn-sm btn-primary'
@@ -530,12 +538,30 @@ async function loadPosts() {
       pub.onclick = () => publishSlug(p.slug)
       actions.append(pub)
     }
+    const del = document.createElement('button')
+    del.className = 'btn btn-sm btn-danger'
+    del.innerHTML = ICONS.trash + ' Eliminar'
+    del.onclick = () => deleteSlug(p.slug)
+    actions.append(del)
     li.appendChild(actions)
     list.appendChild(li)
   }
 }
 
+function syncEditorLifecycleButtons(status) {
+  const unpublishBtn = document.getElementById('unpublishPost')
+  const deleteBtn = document.getElementById('deletePost')
+  const hasPost = Boolean(editingOriginalSlug || form.slug.value.trim())
+  if (unpublishBtn) {
+    unpublishBtn.hidden = !(hasPost && status === 'published')
+  }
+  if (deleteBtn) {
+    deleteBtn.hidden = !hasPost
+  }
+}
+
 function fillForm(p) {
+  editingOriginalSlug = p.slug || ''
   form.title.value = p.title || ''
   form.slug.value = p.slug || ''
   form.authorName.value = p.authorName || 'Silvia'
@@ -555,6 +581,7 @@ function fillForm(p) {
   form.bodyHtml.value = p.bodyHtml || ''
   setBodyValue(p.bodyHtml || '')
   setPublishLabels(p.status || 'draft')
+  syncEditorLifecycleButtons(p.status || 'draft')
   updateImagePreview()
   switchTab('editor')
 }
@@ -566,7 +593,20 @@ function openPreview(p) {
   switchTab('preview')
 }
 
-form.status?.addEventListener('change', () => setPublishLabels(form.status.value))
+form.status?.addEventListener('change', () => {
+  setPublishLabels(form.status.value)
+  syncEditorLifecycleButtons(form.status.value)
+})
+
+document.getElementById('unpublishPost')?.addEventListener('click', () => {
+  const slug = editingOriginalSlug || form.slug.value.trim()
+  unpublishSlug(slug)
+})
+
+document.getElementById('deletePost')?.addEventListener('click', () => {
+  const slug = editingOriginalSlug || form.slug.value.trim()
+  deleteSlug(slug)
+})
 
 document.getElementById('reloadPosts').onclick = loadPosts
 statusFilter.onchange = loadPosts
@@ -614,6 +654,9 @@ async function publishSlug(slug, { fromPreview = false } = {}) {
     if (updated) {
       setPublishLabels(updated.status)
       if (form.slug.value === slug) form.status.value = updated.status
+      if (editingOriginalSlug === slug || form.slug.value === slug) {
+        syncEditorLifecycleButtons(updated.status)
+      }
     }
     if (fromPreview || previewPostSelect?.value === slug) showPreviewForSlug(slug)
     return data
@@ -625,12 +668,60 @@ async function publishSlug(slug, { fromPreview = false } = {}) {
   }
 }
 
+async function unpublishSlug(slug) {
+  if (!slug) return toast('Falta slug')
+  if (!confirm(`¿Despublicar «${slug}»? Pasará a draft y saldrá del blog.`)) return
+  const site = siteFilter.value.trim() || 'escarlet'
+  try {
+    const data = await api('/api/admin/posts/unpublish', {
+      method: 'POST',
+      body: JSON.stringify({ site, slug })
+    })
+    toast(data.message || 'Post despublicado')
+    await loadPosts()
+    if (editingOriginalSlug === slug || form.slug.value === slug) {
+      form.status.value = 'draft'
+      setPublishLabels('draft')
+      syncEditorLifecycleButtons('draft')
+    }
+  } catch (err) {
+    toast(err.message)
+  }
+}
+
+async function deleteSlug(slug) {
+  if (!slug) return toast('Falta slug')
+  if (!confirm(`¿Eliminar permanentemente «${slug}»? Esta acción no se puede deshacer.`)) return
+  const site = siteFilter.value.trim() || 'escarlet'
+  try {
+    const data = await api(`/api/admin/posts/${encodeURIComponent(slug)}?site=${encodeURIComponent(site)}`, {
+      method: 'DELETE'
+    })
+    toast(data.message || 'Post eliminado')
+    if (editingOriginalSlug === slug || form.slug.value === slug) {
+      editingOriginalSlug = ''
+      form.reset()
+      form.authorName.value = 'Silvia'
+      form.status.value = 'draft'
+      setBodyValue('')
+      setPublishLabels('draft')
+      syncEditorLifecycleButtons('draft')
+    }
+    await loadPosts()
+  } catch (err) {
+    toast(err.message)
+  }
+}
+
 document.getElementById('newPost').onclick = () => {
+  editingOriginalSlug = ''
   form.reset()
   form.authorName.value = 'Silvia'
   form.status.value = 'draft'
   setPublishLabels('draft')
+  syncEditorLifecycleButtons('draft')
   showPublishBanner('')
+  setBodyValue('')
   updateImagePreview()
   switchTab('editor')
 }
@@ -638,10 +729,38 @@ document.getElementById('newPost').onclick = () => {
 form.onsubmit = async (e) => {
   e.preventDefault()
   const site = siteFilter.value.trim() || 'escarlet'
+  const slug = form.slug.value.trim()
+  const title = form.title.value.trim()
+  if (!slug || !title) return toast('Faltan título y slug')
+
+  if (!editingOriginalSlug) {
+    try {
+      await api('/api/admin/posts/create-draft', {
+        method: 'POST',
+        body: JSON.stringify({
+          site,
+          title,
+          slug,
+          author: form.authorName.value.trim() || 'Silvia',
+          date: form.datePublished.value || undefined
+        })
+      })
+      editingOriginalSlug = slug
+    } catch (err) {
+      if (!/Ya existe slug/i.test(err.message || '')) {
+        toast(err.message)
+        return
+      }
+      editingOriginalSlug = slug
+    }
+  }
+
   const payload = {
     site,
-    slug: form.slug.value.trim(),
-    title: form.title.value.trim(),
+    slug,
+    originalSlug: editingOriginalSlug || slug,
+    keepPublished: form.status.value === 'published',
+    title,
     authorName: form.authorName.value.trim(),
     status: form.status.value,
     datePublished: form.datePublished.value,
@@ -660,9 +779,15 @@ form.onsubmit = async (e) => {
     },
     bodyHtml: bodyValue()
   }
-  await api('/api/admin/posts', { method: 'POST', body: JSON.stringify(payload) })
-  await loadPosts()
-  toast('Post guardado')
+  try {
+    await api('/api/admin/posts', { method: 'POST', body: JSON.stringify(payload) })
+    editingOriginalSlug = slug
+    await loadPosts()
+    syncEditorLifecycleButtons(form.status.value)
+    toast('Post guardado')
+  } catch (err) {
+    toast(err.message)
+  }
 }
 
 document.getElementById('validateSeo').onclick = async () => {

@@ -4,9 +4,13 @@ Este archivo manda sobre el flujo de trabajo. El dashboard puede corregirlo si e
 
 ## Antes de escribir
 
-En este mismo turno llama `blog_get_brand_context` con el `site` pedido. Lee voz, estilo visual, keywords, este archivo y las imágenes de referencia. Si falta alguno, para y dilo.
+En este mismo turno llama `blog_get_brand_context` con el `site` pedido. Lee voz, estilo visual, keywords, este archivo, `postFields`, `editRules`, `workflow` y las imágenes de referencia.
 
-No inventes tono ni paleta. Si el kit está vacío, pide que lo suban al CMS (dashboard Brand kit o `blog_update_brand_file`).
+Si `missingBrand` tiene archivos, para y pide que los suban (dashboard Brand kit o `blog_update_brand_file`).
+
+Lee cada `postFields[].askHuman`. Pregunta al humano lo que aún no sepas antes de redactar.
+
+No inventes tono ni paleta.
 
 ## Autoría
 
@@ -15,20 +19,31 @@ No inventes tono ni paleta. Si el kit está vacío, pide que lo suban al CMS (da
 
 Un post, un enfoque principal. Si mezcla temas, elige autor por el objetivo del artículo.
 
-## Flujo MCP
+## Flujo MCP (crear)
 
 1. `blog_get_brand_context`
-2. `blog_create_draft` o `blog_get_post` si editas
-3. Redactar aplicando voz y estilo visual. `blog_update_post` (devuelve validation y previewUrl)
-4. Portada. Genera la imagen, obtén una URL http pública temporal y súbela con `blog_upload_media` (`kind` `post`, campo `imageUrl`). Preferir `imageUrl` frente a `contentBase64`. Mira las referencias del kit.
-5. `blog_validate_seo` para ver blockingErrors y warnings
-6. `blog_publish` con borrador en draft envía el post a **review** y devuelve previewUrl absoluto
-7. Comparte siempre el `previewUrl` completo (https://...) con el humano. Es un link listo para hacer click.
+2. Pregunta lo que falte según `postFields`
+3. `blog_create_draft` solo si el slug es nuevo
+4. Redactar. `blog_update_post` (devuelve validation y previewUrl)
+5. Portada. Genera la imagen, URL http pública, `blog_upload_media` (`kind` `post`, campo `imageUrl`)
+6. `blog_validate_seo`
+7. `blog_publish` con borrador en draft envía a **review** y devuelve previewUrl absoluto
+8. Comparte siempre el `previewUrl` completo (https://...) con el humano
 
-Al terminar create/update/publish, pega en el chat el valor exacto de `previewUrl` (URL completa).
+## Flujo MCP (editar)
 
-Para subir o corregir el kit (voz, estilo, este archivo). `blog_update_brand_file`.
-Para moodboard. `blog_upload_media` con `kind` `reference`.
+1. `blog_get_brand_context`
+2. `blog_list_posts` y `blog_get_post` con el slug existente
+3. **Nunca** `blog_create_draft` para editar. Eso duplica el post.
+4. `blog_update_post` con el **mismo slug**
+5. Si renombras el slug. pasa `originalSlug` (actual) y `slug` (nuevo)
+6. Con aprobación humana, un post `published` baja a `review` al actualizarlo. Un humano debe volver a publicar en vivo
+7. Comparte el `previewUrl`
+
+## Despublicar y eliminar
+
+- Despublicar (sale del blog, queda el contenido). `blog_unpublish`
+- Eliminar permanente. `blog_delete_post` con `confirm: true`
 
 ## Copy
 
@@ -58,11 +73,10 @@ Recomendado (aviso, no bloquea):
 - Composición y color según `visual-style.md` y las fotos de referencia.
 - Cómo subir (orden preferido):
   1. Genera o elige la imagen.
-  2. Consigue una URL http(s) pública temporal del archivo (la que da el generador de imágenes o un CDN).
-  3. Llama `blog_upload_media` con `imageUrl` (esa URL), `filename`, `alt` y `kind`.
+  2. Consigue una URL http(s) pública temporal del archivo.
+  3. Llama `blog_upload_media` con `imageUrl`, `filename`, `alt` y `kind`.
   4. Usa la `media.url` absoluta que devuelve el CMS en el `imageUrl` del post.
-- Evita `contentBase64` en portadas. El base64 grande se trunca o falla y deja un PNG de pocos bytes (imagen rota).
-- Si una portada está rota, vuelve a generar, sube con `imageUrl` http y actualiza el post.
+- Evita `contentBase64` en portadas.
 
 ## Publicación
 

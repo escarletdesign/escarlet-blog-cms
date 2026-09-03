@@ -57,6 +57,15 @@ export async function publishPost(site, slug) {
   return request('POST', '/api/admin/posts/publish', { site, slug })
 }
 
+export async function unpublishPost(site, slug) {
+  return request('POST', '/api/admin/posts/unpublish', { site, slug })
+}
+
+export async function deletePost(site, slug) {
+  const q = new URLSearchParams({ site })
+  return request('DELETE', `/api/admin/posts/${encodeURIComponent(slug)}?${q}`)
+}
+
 export async function uploadMedia(payload) {
   return request('POST', '/api/admin/media/upload', payload)
 }

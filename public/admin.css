@@ -346,6 +346,18 @@ textarea.mono {
   border-color: var(--accent-hover);
 }
 
+.btn-danger {
+  background: transparent;
+  border-color: #b42318;
+  color: #b42318;
+}
+
+.btn-danger:hover {
+  background: #b42318;
+  border-color: #b42318;
+  color: #fff;
+}
+
 .btn-sm {
   padding: 0.35rem 0.65rem;
   font-size: 0.8rem;
