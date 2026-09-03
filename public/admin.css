@@ -386,14 +386,27 @@ textarea.mono {
 
 .post-item {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.75rem;
   padding: 0.85rem 0;
   border-bottom: 1px solid var(--border);
 }
 
 .post-item:last-child { border-bottom: 0; }
+
+.post-item .actions {
+  margin-top: 0;
+  width: 100%;
+}
+
+.post-item .actions .btn {
+  flex: 0 1 auto;
+}
+
+.post-item .actions .btn-danger {
+  margin-left: auto;
+}
 
 .post-meta {
   font-size: 0.82rem;

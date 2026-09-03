@@ -539,8 +539,10 @@ async function loadPosts() {
       actions.append(pub)
     }
     const del = document.createElement('button')
+    del.type = 'button'
     del.className = 'btn btn-sm btn-danger'
-    del.innerHTML = ICONS.trash + ' Eliminar'
+    del.setAttribute('aria-label', `Eliminar ${p.slug}`)
+    del.innerHTML = `${ICONS.trash} <span>Eliminar</span>`
     del.onclick = () => deleteSlug(p.slug)
     actions.append(del)
     li.appendChild(actions)
@@ -691,13 +693,17 @@ async function unpublishSlug(slug) {
 
 async function deleteSlug(slug) {
   if (!slug) return toast('Falta slug')
-  if (!confirm(`¿Eliminar permanentemente «${slug}»? Esta acción no se puede deshacer.`)) return
+  if (!confirm(`¿Eliminar permanentemente «${slug}»? Si estaba publicado, también se pedirá rebuild del sitio.`)) return
   const site = siteFilter.value.trim() || 'escarlet'
   try {
     const data = await api(`/api/admin/posts/${encodeURIComponent(slug)}?site=${encodeURIComponent(site)}`, {
       method: 'DELETE'
     })
-    toast(data.message || 'Post eliminado')
+    const rebuildFailed = data.rebuild && !data.rebuild.ok
+    toast(data.message || 'Post eliminado', {
+      sticky: Boolean(rebuildFailed),
+      duration: rebuildFailed ? 0 : 12000
+    })
     if (editingOriginalSlug === slug || form.slug.value === slug) {
       editingOriginalSlug = ''
       form.reset()

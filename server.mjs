@@ -38,7 +38,9 @@ import {
   deleteMedia as cmsDeleteMedia,
   updatePost as cmsUpdatePost,
   unpublishPost as cmsUnpublishPost,
-  deletePost as cmsDeletePost
+  deletePost as cmsDeletePost,
+  createSiteRecord,
+  getOnboarding
 } from './lib/cms-ops.mjs'
 import { mediaForClient, repairMediaInDb, repairPostsInDb, resolveImageSrc, resolvePostImageSrc } from './lib/media-url.mjs'
 import { withPostLinks } from './lib/preview-url.mjs'
@@ -143,7 +145,7 @@ function parseBody(req) {
   })
 }
 
-function serveStaticFile(res, filePath, contentType, method = 'GET') {
+function serveStaticFile(res, filePath, contentType, method = 'GET', cacheControl = 'public, max-age=3600') {
   if (!existsSync(filePath)) {
     json(res, 404, { message: 'No encontrado' })
     return
@@ -152,13 +154,27 @@ function serveStaticFile(res, filePath, contentType, method = 'GET') {
   res.writeHead(200, {
     'Content-Type': contentType,
     'Content-Length': data.length,
-    'Cache-Control': 'public, max-age=3600'
+    'Cache-Control': cacheControl
   })
   if (method === 'HEAD') {
     res.end()
     return
   }
   res.end(data)
+}
+
+function serveAdmin(res) {
+  serveStaticFile(
+    res,
+    join(root, 'admin.html'),
+    'text/html; charset=utf-8',
+    'GET',
+    'no-store, no-cache, must-revalidate'
+  )
+}
+
+function servePublic(res, filePath, contentType, cacheControl = 'public, max-age=3600') {
+  serveStaticFile(res, join(root, 'public', filePath), contentType, 'GET', cacheControl)
 }
 
 function renderPreview(post, siteConfig, site) {
@@ -270,14 +286,6 @@ function normalizePostForClient(post) {
 
 function normalizePostsForClient(posts) {
   return (posts || []).map(normalizePostForClient)
-}
-
-function serveAdmin(res) {
-  serveStaticFile(res, join(root, 'admin.html'), 'text/html; charset=utf-8')
-}
-
-function servePublic(res, filePath, contentType) {
-  serveStaticFile(res, join(root, 'public', filePath), contentType)
 }
 
 const server = createServer(async (req, res) => {
@@ -406,12 +414,12 @@ const server = createServer(async (req, res) => {
   }
 
   if (req.method === 'GET' && path === '/admin.css') {
-    servePublic(res, 'admin.css', 'text/css; charset=utf-8')
+    servePublic(res, 'admin.css', 'text/css; charset=utf-8', 'no-store, no-cache, must-revalidate')
     return
   }
 
   if (req.method === 'GET' && path === '/admin.js') {
-    servePublic(res, 'admin.js', 'application/javascript; charset=utf-8')
+    servePublic(res, 'admin.js', 'application/javascript; charset=utf-8', 'no-store, no-cache, must-revalidate')
     return
   }
 
@@ -539,6 +547,23 @@ const server = createServer(async (req, res) => {
 
     if (req.method === 'GET' && path === '/api/admin/sites') {
       json(res, 200, { sites: db.sites || [], handles: listSiteHandles() })
+      return
+    }
+
+    if (req.method === 'GET' && path === '/api/admin/onboarding') {
+      const site = url.searchParams.get('site') || DEFAULT_SITE
+      json(res, 200, await getOnboarding(site))
+      return
+    }
+
+    if (req.method === 'POST' && path === '/api/admin/sites') {
+      try {
+        const body = await parseBody(req)
+        const result = await createSiteRecord(body)
+        json(res, 201, result)
+      } catch (err) {
+        json(res, err.status || 500, { message: err.message, ...(err.extra || {}) })
+      }
       return
     }
 
