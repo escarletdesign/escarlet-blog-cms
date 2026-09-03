@@ -1520,6 +1520,7 @@ ${hasVideo ? recorderStyles() : ''}
 function packPageClientJs(slug, hasVideo) {
   return `
 ${hasVideo ? packClientHelpersJs(slug) : ''}
+${igCarouselClientJs()}
     const toast = document.getElementById('toast')
     function flash(msg) {
       toast.textContent = msg || 'Copiado'
@@ -1609,7 +1610,137 @@ ${hasVideo ? packClientHelpersJs(slug) : ''}
 
     syncVideoPreview()
     initPreviews()
+    initIgCarousel()
 ${hasVideo ? recorderScript(slug) : ''}
+`
+}
+
+function igCarouselClientJs() {
+  return `
+    function initIgCarousel() {
+      const root = document.querySelector('[data-ig-carousel]')
+      if (!root) return
+      const dataEl = document.getElementById('ig-slides-data')
+      if (!dataEl) return
+      let slides = []
+      try { slides = JSON.parse(dataEl.textContent || '[]') } catch (e) { slides = [] }
+      if (!slides.length) return
+
+      let index = 0
+      const photo = root.querySelector('[data-ig-photo]')
+      const counter = root.querySelector('[data-ig-counter]')
+      const headline = root.querySelector('[data-ig-headline]')
+      const body = root.querySelector('[data-ig-body]')
+      const altEl = document.getElementById('ig-alt-current')
+      const openBtn = root.querySelector('[data-ig-open]')
+      const downloadOne = root.querySelector('[data-ig-download-one]')
+      const prevBtn = root.querySelector('[data-ig-prev]')
+      const nextBtn = root.querySelector('[data-ig-next]')
+      const dotsWrap = root.querySelector('[data-ig-dots]')
+      const viewport = root.querySelector('.ig-viewport')
+
+      function render() {
+        const slide = slides[index]
+        if (!slide) return
+        if (photo) {
+          photo.src = slide.src || ''
+          photo.alt = slide.alt || ('Slide ' + slide.n)
+        }
+        if (counter) counter.textContent = (index + 1) + ' / ' + slides.length
+        if (headline) headline.textContent = slide.headline || ''
+        if (body) body.textContent = slide.body || ''
+        if (altEl) altEl.textContent = slide.alt || ''
+        if (openBtn) openBtn.href = slide.src || '#'
+        if (downloadOne) {
+          downloadOne.href = slide.download || slide.src || '#'
+          downloadOne.setAttribute('download', slide.name || ('ig-slide-' + String(slide.n).padStart(2, '0') + '.webp'))
+        }
+        if (prevBtn) prevBtn.disabled = index === 0
+        if (nextBtn) nextBtn.disabled = index === slides.length - 1
+        if (dotsWrap) {
+          dotsWrap.querySelectorAll('[data-ig-dot]').forEach((dot) => {
+            const i = Number(dot.getAttribute('data-ig-dot'))
+            dot.classList.toggle('is-active', i === index)
+          })
+        }
+        const preview = altEl ? altEl.closest('[data-preview]') : null
+        if (preview) applyClamp(preview)
+      }
+
+      function go(next) {
+        index = Math.max(0, Math.min(slides.length - 1, next))
+        render()
+      }
+
+      if (prevBtn) prevBtn.addEventListener('click', () => go(index - 1))
+      if (nextBtn) nextBtn.addEventListener('click', () => go(index + 1))
+      if (dotsWrap) {
+        dotsWrap.querySelectorAll('[data-ig-dot]').forEach((dot) => {
+          dot.addEventListener('click', () => go(Number(dot.getAttribute('data-ig-dot'))))
+        })
+      }
+
+      let touchX = null
+      if (viewport) {
+        viewport.addEventListener('touchstart', (e) => {
+          touchX = e.changedTouches?.[0]?.clientX ?? null
+        }, { passive: true })
+        viewport.addEventListener('touchend', (e) => {
+          if (touchX == null) return
+          const endX = e.changedTouches?.[0]?.clientX ?? touchX
+          const delta = endX - touchX
+          touchX = null
+          if (Math.abs(delta) < 40) return
+          go(delta < 0 ? index + 1 : index - 1)
+        }, { passive: true })
+      }
+
+      async function downloadBlob(url, name) {
+        const res = await fetch(url, { mode: 'cors' })
+        if (!res.ok) throw new Error('HTTP ' + res.status)
+        const blob = await res.blob()
+        const objectUrl = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = objectUrl
+        a.download = name || 'slide.webp'
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 1500)
+      }
+
+      const downloadAllBtn = root.querySelector('[data-ig-download-all]')
+      if (downloadAllBtn) {
+        downloadAllBtn.addEventListener('click', async () => {
+          downloadAllBtn.disabled = true
+          const prev = downloadAllBtn.textContent
+          downloadAllBtn.textContent = 'Descargando…'
+          let ok = 0
+          for (const slide of slides) {
+            try {
+              await downloadBlob(slide.download || slide.src, slide.name)
+              ok += 1
+              await new Promise((r) => setTimeout(r, 280))
+            } catch (e) {
+              const a = document.createElement('a')
+              a.href = slide.download || slide.src
+              a.download = slide.name || 'slide.webp'
+              a.target = '_blank'
+              a.rel = 'noopener'
+              document.body.appendChild(a)
+              a.click()
+              a.remove()
+              await new Promise((r) => setTimeout(r, 280))
+            }
+          }
+          flash(ok ? ('Descargadas ' + ok + ' imágenes') : 'Revisa las descargas del navegador')
+          downloadAllBtn.disabled = false
+          downloadAllBtn.textContent = prev
+        })
+      }
+
+      render()
+    }
 `
 }
 
@@ -1618,39 +1749,24 @@ function instagramSection(pack, slidesResolved) {
   const slides = slidesResolved?.length ? slidesResolved : pack.instagramSlides || []
   if (!slides.length && !pack.instagramCaption) return ''
 
-  const slideCards = slides
-    .map((slide, index) => {
-      const n = index + 1
-      const src = escapeHtml(slide.previewSrc || slide.imageUrl || '')
-      const download = escapeHtml(slide.downloadHref || slide.imageUrl || '')
-      const name = escapeHtml(slide.downloadName || `ig-slide-${String(n).padStart(2, '0')}.webp`)
-      const headline = slide.headline
-        ? `<p class="slide-headline">${escapeHtml(slide.headline)}</p>`
-        : ''
-      const body = slide.body
-        ? `<p class="muted slide-body">${escapeHtml(slide.body)}</p>`
-        : ''
-      const altId = `ig-alt-${n}`
-      return `<article class="ig-slide">
-  <p class="field-label">Slide ${n}</p>
-  ${src ? `<img src="${src}" alt="${escapeHtml(slide.alt || `Slide ${n}`)}" width="1080" height="1350" loading="lazy">` : '<p class="muted">Sin imagen</p>'}
-  ${headline}
-  ${body}
-  <div class="actions">
-    ${download ? `<a class="btn btn--primary" href="${download}" download="${name}">Descargar</a>` : ''}
-    ${src ? `<a class="btn" href="${src}" target="_blank" rel="noopener noreferrer">Abrir</a>` : ''}
-  </div>
-  <p class="field-label">Alt</p>
-  <div class="preview" data-preview data-lines="2">
-    <div class="preview-text" id="${altId}">${escapeHtml(slide.alt || '')}</div>
-    <button type="button" class="preview-more" data-toggle-preview hidden>Leer más</button>
-  </div>
-  <div class="actions">
-    <button type="button" class="btn" data-copy-text="${altId}">Copiar alt</button>
-  </div>
-</article>`
-    })
-    .join('\n')
+  const slidesJson = JSON.stringify(
+    slides.map((slide, index) => ({
+      n: index + 1,
+      src: slide.previewSrc || slide.imageUrl || '',
+      download: slide.downloadHref || slide.imageUrl || '',
+      name: slide.downloadName || `ig-slide-${String(index + 1).padStart(2, '0')}.webp`,
+      alt: slide.alt || `Slide ${index + 1}`,
+      headline: slide.headline || '',
+      body: slide.body || ''
+    }))
+  )
+
+  const dots = slides
+    .map(
+      (_, index) =>
+        `<button type="button" class="ig-dot${index === 0 ? ' is-active' : ''}" data-ig-dot="${index}" aria-label="Ir a slide ${index + 1}"></button>`
+    )
+    .join('')
 
   const captionBlock = pack.instagramCaption
     ? `<p class="field-label">Caption</p>
@@ -1663,15 +1779,43 @@ function instagramSection(pack, slidesResolved) {
   </div>`
     : ''
 
+  const carousel = slides.length
+    ? `<div class="ig-carousel" data-ig-carousel>
+  <script type="application/json" id="ig-slides-data">${slidesJson.replace(/</g, '\\u003c')}</script>
+  <div class="ig-frame" aria-roledescription="carrusel">
+    <button type="button" class="ig-nav ig-nav--prev" data-ig-prev aria-label="Slide anterior">‹</button>
+    <div class="ig-viewport">
+      <img class="ig-photo" data-ig-photo src="${escapeHtml(slides[0].previewSrc || slides[0].imageUrl || '')}" alt="${escapeHtml(slides[0].alt || 'Slide 1')}" width="1080" height="1350">
+      <p class="ig-counter" data-ig-counter>1 / ${slides.length}</p>
+    </div>
+    <button type="button" class="ig-nav ig-nav--next" data-ig-next aria-label="Slide siguiente">›</button>
+  </div>
+  <div class="ig-dots" data-ig-dots>${dots}</div>
+  <p class="slide-headline" data-ig-headline>${escapeHtml(slides[0].headline || '')}</p>
+  <p class="muted slide-body" data-ig-body>${escapeHtml(slides[0].body || '')}</p>
+  <p class="field-label">Alt del slide actual</p>
+  <div class="preview" data-preview data-lines="3">
+    <div class="preview-text" id="ig-alt-current">${escapeHtml(slides[0].alt || '')}</div>
+    <button type="button" class="preview-more" data-toggle-preview hidden>Leer más</button>
+  </div>
+  <div class="actions">
+    <button type="button" class="btn" data-copy-text="ig-alt-current">Copiar alt</button>
+    <a class="btn" data-ig-open href="${escapeHtml(slides[0].previewSrc || slides[0].imageUrl || '')}" target="_blank" rel="noopener noreferrer">Abrir slide</a>
+    <a class="btn btn--primary" data-ig-download-one href="${escapeHtml(slides[0].downloadHref || slides[0].imageUrl || '')}" download="${escapeHtml(slides[0].downloadName || 'ig-slide-01.webp')}">Descargar slide</a>
+  </div>
+  <div class="actions" style="margin-top:.35rem">
+    <button type="button" class="btn btn--primary" data-ig-download-all>Descargar todo el carrusel</button>
+  </div>
+</div>`
+    : '<p class="muted">Aún no hay slides en socialPack.instagramSlides.</p>'
+
   return `<section class="card" id="instagram">
   <header class="card__head">
     <h2>Instagram · carrusel</h2>
-    <p class="muted">Descarga cada slide (1080×1350 recomendado) y publica el carrusel a mano.</p>
+    <p class="muted">Vista tipo Instagram. Desliza, copia el alt del slide activo y descarga las imágenes.</p>
   </header>
   ${captionBlock}
-  <div class="ig-grid">
-    ${slideCards || '<p class="muted">Aún no hay slides en socialPack.instagramSlides.</p>'}
-  </div>
+  ${carousel}
 </section>`
 }
 
@@ -1754,36 +1898,80 @@ ${adminPwaHead({
 })}
   <style>
 ${packPageStyles(hasVideo)}
-    .ig-grid {
+    .ig-carousel { margin-top: 1rem; }
+    .ig-frame {
       display: grid;
-      gap: 1rem;
-      margin-top: 1rem;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: .55rem;
+      align-items: center;
     }
-    .ig-slide {
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      padding: .85rem;
-      background: #faf9f7;
-    }
-    .ig-slide img {
-      width: 100%;
-      height: auto;
-      border-radius: 10px;
-      display: block;
-      margin-bottom: .65rem;
+    .ig-viewport {
+      position: relative;
+      border-radius: 18px;
+      overflow: hidden;
+      background: #111;
       aspect-ratio: 4 / 5;
-      object-fit: cover;
-      background: #eee;
+      max-width: 420px;
+      margin: 0 auto;
+      width: 100%;
+      touch-action: pan-y;
+      user-select: none;
+      box-shadow: 0 14px 40px rgba(0,0,0,.18);
     }
+    .ig-photo {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      background: #222;
+    }
+    .ig-counter {
+      position: absolute;
+      top: .7rem;
+      right: .7rem;
+      margin: 0;
+      padding: .25rem .55rem;
+      border-radius: 999px;
+      background: rgba(0,0,0,.55);
+      color: #fff;
+      font-size: .75rem;
+      font-weight: 700;
+    }
+    .ig-nav {
+      width: 2.4rem;
+      height: 2.4rem;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      font-size: 1.4rem;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .ig-nav:disabled { opacity: .35; cursor: default; }
+    .ig-dots {
+      display: flex;
+      justify-content: center;
+      gap: .4rem;
+      margin: .85rem 0 .65rem;
+    }
+    .ig-dot {
+      width: .55rem;
+      height: .55rem;
+      border-radius: 999px;
+      border: 0;
+      padding: 0;
+      background: rgba(48,48,48,.25);
+      cursor: pointer;
+    }
+    .ig-dot.is-active { background: var(--accent); transform: scale(1.15); }
     .slide-headline {
       margin: 0 0 .35rem;
       font-weight: 800;
       font-size: .95rem;
+      min-height: 1.2em;
     }
-    .slide-body { margin: 0 0 .65rem; font-size: .88rem; }
-    @media (min-width: 720px) {
-      .ig-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    }
+    .slide-body { margin: 0 0 .65rem; font-size: .88rem; min-height: 1.2em; }
   </style>
 </head>
 <body>
@@ -2172,6 +2360,18 @@ function resetOutRoot() {
   mkdirSync(outRoot, { recursive: true })
 }
 
+async function downloadRemoteImage(url, destPath) {
+  if (!url || !/^https?:\/\//i.test(url)) return false
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return false
+    writeFileSync(destPath, Buffer.from(await res.arrayBuffer()))
+    return true
+  } catch {
+    return false
+  }
+}
+
 resetOutRoot()
 
 const posts = getAllBlogPosts().filter(hasSocialPack)
@@ -2200,17 +2400,20 @@ for (const post of posts) {
     downloadHref = `/admin/blog-packs/${post.slug}/${destName}`
     downloadName = destName
     imageSrc = downloadHref
-  } else if (img.localWebp) {
-    const destName = basename(img.localWebp)
-    copyFileSync(img.localWebp, join(packDir, destName))
-    downloadHref = `/admin/blog-packs/${post.slug}/${destName}`
-    downloadName = destName
-    imageSrc = downloadHref
+  } else if (/^https?:\/\//i.test(post.imageUrl || '')) {
+    const destName = basename((post.imageUrl || '').split('?')[0] || 'cover.webp') || 'cover.webp'
+    const destPath = join(packDir, destName)
+    if (await downloadRemoteImage(post.imageUrl, destPath)) {
+      downloadHref = `/admin/blog-packs/${post.slug}/${destName}`
+      downloadName = destName
+      imageSrc = downloadHref
+    }
   }
 
   const slidesResolved = []
   if (PACK_CHANNELS.instagramCarousel && pack.instagramSlides?.length) {
-    pack.instagramSlides.forEach((slide, index) => {
+    for (let index = 0; index < pack.instagramSlides.length; index += 1) {
+      const slide = pack.instagramSlides[index]
       const n = String(index + 1).padStart(2, '0')
       const resolved = resolveImagePaths(slide.imageUrl)
       let previewSrc = resolved.webAbs || slide.imageUrl
@@ -2219,13 +2422,19 @@ for (const post of posts) {
         : slide.imageUrl?.startsWith('/')
           ? slide.imageUrl
           : previewSrc
-      let slideName = `ig-slide-${n}${extname(slide.imageUrl || '') || '.webp'}`
+      let slideName = `ig-slide-${n}${extname(((slide.imageUrl || '').split('?')[0])) || '.webp'}`
       const local = resolved.localJpg || resolved.localWebp
       if (local) {
         slideName = `ig-slide-${n}${extname(local)}`
         copyFileSync(local, join(packDir, slideName))
         slideDownload = `/admin/blog-packs/${post.slug}/${slideName}`
         previewSrc = slideDownload
+      } else if (/^https?:\/\//i.test(slide.imageUrl || '')) {
+        const destPath = join(packDir, slideName)
+        if (await downloadRemoteImage(slide.imageUrl, destPath)) {
+          slideDownload = `/admin/blog-packs/${post.slug}/${slideName}`
+          previewSrc = slideDownload
+        }
       }
       slidesResolved.push({
         ...slide,
@@ -2233,7 +2442,7 @@ for (const post of posts) {
         downloadHref: slideDownload,
         downloadName: slideName
       })
-    })
+    }
   }
 
   writeFileSync(
