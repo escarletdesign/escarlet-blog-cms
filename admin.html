@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex,nofollow" />
   <title>Escarlet Blog CMS</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/admin.css?v=3" />
+  <link rel="stylesheet" href="/admin.css?v=4" />
   <link rel="stylesheet" href="https://uicdn.toast.com/editor/latest/toastui-editor.min.css" />
 </head>
 <body>
@@ -16,7 +16,7 @@
         <img src="/favicon.svg" alt="" width="36" height="36" />
         <h1>Escarlet Blog CMS</h1>
       </div>
-      <p>Borradores, preview, media y brand kit. Publicación vía MCP o desde aquí.</p>
+      <p>Gestiona borradores, revisa el resultado y publica cuando esté listo.</p>
       <label for="token">Token de administración</label>
       <input id="token" type="password" autocomplete="current-password" />
       <p id="loginError" class="login-error" hidden></p>
@@ -27,7 +27,7 @@
   </div>
 
   <div id="app" class="shell" hidden>
-    <button type="button" class="menu-toggle" id="menuToggle" aria-label="Abrir menú">
+    <button type="button" class="menu-toggle" id="menuToggle" aria-label="Abrir menú" aria-expanded="false" aria-controls="sidebar">
       <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/></svg>
     </button>
     <div class="sidebar-backdrop" id="sidebarBackdrop" hidden></div>
@@ -36,28 +36,18 @@
         <img src="/favicon.svg" alt="" width="28" height="28" />
         <span>Escarlet CMS</span>
       </div>
-      <nav class="nav">
-        <button type="button" class="nav-btn active" data-tab="posts">
+      <nav class="nav" aria-label="Principal">
+        <p class="nav-section">Trabajo</p>
+        <button type="button" class="nav-btn active" data-route="entradas">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>
-          <span>Posts</span>
+          <span>Entradas</span>
         </button>
-        <button type="button" class="nav-btn" data-tab="editor">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-          <span>Editor</span>
-        </button>
-        <button type="button" class="nav-btn" data-tab="preview">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
-          <span>Preview</span>
-        </button>
-        <button type="button" class="nav-btn" data-tab="media">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
-          <span>Media</span>
-        </button>
-        <button type="button" class="nav-btn" data-tab="brand">
+        <p class="nav-section">Ajustes</p>
+        <button type="button" class="nav-btn" data-route="marca">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
-          <span>Brand kit</span>
+          <span>Kit de marca</span>
         </button>
-        <button type="button" class="nav-btn" data-tab="site">
+        <button type="button" class="nav-btn" data-route="sitio">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/></svg>
           <span>Sitio</span>
         </button>
@@ -77,22 +67,22 @@
           <strong id="siteLabel">escarlet</strong>
           <input id="siteFilter" type="hidden" value="escarlet" />
         </div>
-        <p class="topbar-hint" id="topbarHint">Este token administra un solo sitio. El filtro de estado está en Posts.</p>
+        <p class="topbar-hint" id="topbarHint">Empieza por Entradas. Abre un borrador y avanza paso a paso hasta publicar.</p>
       </header>
 
       <div class="content">
-        <section id="panel-posts" class="panel active">
+        <section id="panel-entradas" class="panel active" data-panel="entradas">
           <div class="card">
-            <h2 class="card-title">Posts</h2>
-            <p class="card-desc">Borradores, revisión humana y publicados. <strong>review</strong> significa que espera tu OK final antes de salir al blog.</p>
+            <h2 class="card-title">Entradas</h2>
+            <p class="card-desc">Aquí viven tus borradores, los que esperan tu OK y los ya publicados.</p>
             <div class="toolbar posts-toolbar">
               <div class="topbar-field status-field">
                 <label for="statusFilter">Filtrar por estado</label>
                 <select id="statusFilter">
                   <option value="">Todos</option>
-                  <option value="draft">draft (borrador)</option>
-                  <option value="review">review (pendiente de publicar)</option>
-                  <option value="published">published (en vivo)</option>
+                  <option value="draft">Borrador</option>
+                  <option value="review">En revisión</option>
+                  <option value="published">Publicado</option>
                 </select>
               </div>
               <button type="button" class="btn btn-primary" id="newPost">
@@ -104,149 +94,226 @@
                 Recargar
               </button>
             </div>
-            <ul class="post-list" id="list"></ul>
+            <ul class="post-list" id="list" aria-live="polite"></ul>
           </div>
         </section>
 
-        <section id="panel-editor" class="panel">
-          <div class="card">
-            <h2 class="card-title">Editor</h2>
-            <p class="card-desc">Contenido del post, SEO y redes sociales.</p>
-            <form id="form">
-              <div class="row">
-                <div><label>Título</label><input name="title" required /></div>
-                <div><label>Slug</label><input name="slug" required /></div>
-              </div>
-              <div class="row">
-                <div><label>Autor</label><input name="authorName" value="Silvia" /></div>
-                <div><label>Estado</label>
-                  <select name="status"><option value="draft">draft</option><option value="review">review</option><option value="published">published</option></select>
-                </div>
-              </div>
-              <div class="row">
-                <div><label>Publicado</label><input name="datePublished" type="date" /></div>
-                <div><label>Modificado</label><input name="dateModified" type="date" /></div>
-              </div>
-              <label>SEO title (es)</label><input name="metaTitleEs" />
-              <label>SEO description (es)</label><textarea name="metaDescriptionEs" style="min-height:70px"></textarea>
-              <label>Extracto</label><textarea name="excerptEs" style="min-height:70px"></textarea>
-              <div class="row">
-                <div><label>Imagen URL</label><input name="imageUrl" id="imageUrlInput" /></div>
-                <div><label>Imagen alt</label><input name="imageAlt" /></div>
-              </div>
-              <div id="imagePreview" class="image-preview" hidden></div>
-              <label>Related slugs (coma)</label><input name="relatedSlugs" />
-              <label>Substack title</label><input name="substackTitle" />
-              <label>Substack body</label><textarea name="substackBody"></textarea>
-              <div class="row">
-                <div><label>LinkedIn</label><textarea name="linkedin"></textarea></div>
-                <div><label>X</label><textarea name="x"></textarea></div>
-              </div>
-              <label>Cuerpo del artículo</label>
-              <div id="bodyEditorMount" class="toast-mount"></div>
-              <textarea id="bodyContent" name="bodyHtml" hidden></textarea>
-              <div class="actions">
-                <button type="submit" class="btn btn-primary">Guardar</button>
-                <button type="button" class="btn" id="validateSeo">Validar SEO</button>
-                <button type="button" class="btn btn-primary" id="publishPost">Enviar a revisión</button>
-                <button type="button" class="btn" id="unpublishPost" hidden>Despublicar</button>
-                <button type="button" class="btn btn-danger" id="deletePost" hidden>Eliminar</button>
-              </div>
-              <pre id="seoResult" class="result"></pre>
-            </form>
-          </div>
-        </section>
-
-        <section id="panel-preview" class="panel">
-          <div class="card">
-            <h2 class="card-title">Preview</h2>
-            <p class="card-desc">Elige un post, revisa el borrador y publícalo cuando esté listo. Si está en <strong>review</strong>, el siguiente paso es publicar en vivo.</p>
-            <label for="previewPostSelect">Post</label>
-            <select id="previewPostSelect"></select>
-            <p id="previewStatus" class="preview-status"></p>
-            <div class="actions">
-              <button type="button" class="btn btn-primary" id="loadPreview">Ver preview</button>
-              <button type="button" class="btn" id="openPreviewTab">Abrir en nueva pestaña</button>
-              <button type="button" class="btn btn-primary" id="previewPublish">Enviar a revisión</button>
-              <button type="button" class="btn" id="previewEdit">Editar</button>
+        <section id="panel-entrada" class="panel" data-panel="entrada" hidden>
+          <div class="workspace-chrome">
+            <button type="button" class="btn btn-ghost" id="backToList">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
+              Volver a entradas
+            </button>
+            <div class="workspace-title-block">
+              <h2 class="card-title" id="workspaceTitle">Nueva entrada</h2>
+              <span class="badge draft" id="workspaceStatusBadge">Borrador</span>
             </div>
-            <p class="publish-banner" id="publishBanner" hidden></p>
-            <p class="preview-url" id="previewUrl"></p>
-            <iframe class="preview" id="previewFrame" title="Preview"></iframe>
+            <p class="card-desc workspace-hint" id="workspaceHint">Paso 1 de 3. Escribe el contenido y guarda antes de seguir.</p>
+            <nav class="step-nav" aria-label="Pasos de la entrada">
+              <button type="button" class="step-btn active" data-step="escribir" id="stepEscribir">
+                <span class="step-num">1</span>
+                <span class="step-label">Escribir</span>
+              </button>
+              <button type="button" class="step-btn" data-step="portada" id="stepPortada">
+                <span class="step-num">2</span>
+                <span class="step-label">Portada</span>
+              </button>
+              <button type="button" class="step-btn" data-step="revisar" id="stepRevisar">
+                <span class="step-num">3</span>
+                <span class="step-label">Revisar y publicar</span>
+              </button>
+            </nav>
           </div>
-        </section>
 
-        <section id="panel-media" class="panel">
-          <div class="card">
-            <h2 class="card-title">Media</h2>
-            <p class="card-desc">Imágenes del blog. Puedes borrar las que ya no uses. Al subir una, se copia la URL al editor.</p>
-            <form id="uploadForm" class="upload-zone">
-              <label>Archivo imagen</label>
-              <input type="file" id="uploadFile" accept="image/*" />
-              <div class="row">
-                <div><label>Alt</label><input id="uploadAlt" /></div>
-                <div><label>Tipo</label>
-                  <select id="uploadKind"><option value="post">post</option><option value="reference">reference</option></select>
+          <div id="step-escribir" class="step-panel active">
+            <div class="card">
+              <form id="form">
+                <input type="hidden" name="status" id="postStatus" value="draft" />
+                <div class="row">
+                  <div>
+                    <label for="fieldTitle">Título</label>
+                    <input id="fieldTitle" name="title" required />
+                  </div>
+                  <div>
+                    <label for="fieldSlug">Slug (URL)</label>
+                    <input id="fieldSlug" name="slug" required />
+                  </div>
                 </div>
+                <div class="row">
+                  <div>
+                    <label for="fieldAuthor">Autor</label>
+                    <input id="fieldAuthor" name="authorName" value="Silvia" />
+                  </div>
+                  <div class="status-readonly">
+                    <span class="field-label">Estado</span>
+                    <p class="status-readonly-value">
+                      <span class="badge draft" id="editorStatusBadge">Borrador</span>
+                      <span class="muted-inline">Cambia con los botones de publicar.</span>
+                    </p>
+                  </div>
+                </div>
+                <div class="row">
+                  <div>
+                    <label for="fieldDatePublished">Fecha de publicación</label>
+                    <input id="fieldDatePublished" name="datePublished" type="date" />
+                  </div>
+                  <div>
+                    <label for="fieldDateModified">Última modificación</label>
+                    <input id="fieldDateModified" name="dateModified" type="date" />
+                  </div>
+                </div>
+                <label for="fieldMetaTitle">Título SEO</label>
+                <input id="fieldMetaTitle" name="metaTitleEs" />
+                <label for="fieldMetaDesc">Descripción SEO</label>
+                <textarea id="fieldMetaDesc" name="metaDescriptionEs" style="min-height:70px"></textarea>
+                <label for="fieldExcerpt">Extracto</label>
+                <textarea id="fieldExcerpt" name="excerptEs" style="min-height:70px"></textarea>
+                <div class="row">
+                  <div>
+                    <label for="imageUrlInput">URL de la portada</label>
+                    <input id="imageUrlInput" name="imageUrl" />
+                  </div>
+                  <div>
+                    <label for="fieldImageAlt">Texto alternativo de la imagen</label>
+                    <input id="fieldImageAlt" name="imageAlt" />
+                  </div>
+                </div>
+                <div id="imagePreview" class="image-preview" hidden></div>
+                <p class="inline-hint">Para elegir una imagen del archivo, pasa al paso Portada.</p>
+                <label for="fieldRelated">Entradas relacionadas (slugs separados por coma)</label>
+                <input id="fieldRelated" name="relatedSlugs" />
+                <details class="advanced-block">
+                  <summary>Textos para redes (opcional)</summary>
+                  <label for="fieldSubstackTitle">Título Substack</label>
+                  <input id="fieldSubstackTitle" name="substackTitle" />
+                  <label for="fieldSubstackBody">Cuerpo Substack</label>
+                  <textarea id="fieldSubstackBody" name="substackBody"></textarea>
+                  <div class="row">
+                    <div>
+                      <label for="fieldLinkedin">LinkedIn</label>
+                      <textarea id="fieldLinkedin" name="linkedin"></textarea>
+                    </div>
+                    <div>
+                      <label for="fieldX">X</label>
+                      <textarea id="fieldX" name="x"></textarea>
+                    </div>
+                  </div>
+                </details>
+                <label for="bodyEditorMount">Cuerpo del artículo</label>
+                <div id="bodyEditorMount" class="toast-mount" role="textbox" aria-label="Cuerpo del artículo"></div>
+                <textarea id="bodyContent" name="bodyHtml" hidden></textarea>
+                <div class="actions sticky-actions">
+                  <button type="submit" class="btn btn-primary" id="savePost">Guardar</button>
+                  <button type="button" class="btn" id="goToPortada">Siguiente. Portada</button>
+                  <button type="button" class="btn" id="validateSeo">Validar SEO</button>
+                  <button type="button" class="btn" id="unpublishPost" hidden>Despublicar</button>
+                  <button type="button" class="btn btn-danger" id="deletePost" hidden>Eliminar</button>
+                </div>
+                <div id="seoResult" class="seo-result" hidden></div>
+              </form>
+            </div>
+          </div>
+
+          <div id="step-portada" class="step-panel">
+            <div class="card">
+              <h3 class="card-title">Portada de esta entrada</h3>
+              <p class="card-desc">Sube una imagen o elige una del archivo. Quedará enlazada a esta entrada.</p>
+              <form id="uploadForm" class="upload-zone">
+                <label for="uploadFile">Archivo de imagen</label>
+                <input type="file" id="uploadFile" accept="image/*" />
+                <div class="row">
+                  <div>
+                    <label for="uploadAlt">Texto alternativo</label>
+                    <input id="uploadAlt" />
+                  </div>
+                  <div>
+                    <label for="uploadKind">Uso</label>
+                    <select id="uploadKind">
+                      <option value="post">Portada de entrada</option>
+                      <option value="reference">Referencia de marca</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="actions">
+                  <button type="submit" class="btn btn-primary" id="uploadBtn">Subir y usar</button>
+                </div>
+              </form>
+              <div class="media-grid" id="mediaGrid"></div>
+              <div class="actions sticky-actions">
+                <button type="button" class="btn" id="goToEscribir">Anterior. Escribir</button>
+                <button type="button" class="btn btn-primary" id="goToRevisar">Siguiente. Revisar</button>
               </div>
-              <div class="actions">
-                <button type="submit" class="btn btn-primary">Subir</button>
+            </div>
+          </div>
+
+          <div id="step-revisar" class="step-panel">
+            <div class="card">
+              <h3 class="card-title">Revisar y publicar</h3>
+              <p class="card-desc">Mira el resultado final. Cuando esté bien, envíalo a revisión o publícalo en vivo.</p>
+              <p id="previewStatus" class="preview-status"></p>
+              <div class="actions sticky-actions">
+                <button type="button" class="btn" id="goBackPortada">Anterior. Portada</button>
+                <button type="button" class="btn" id="loadPreview">Actualizar vista previa</button>
+                <button type="button" class="btn" id="openPreviewTab">Abrir en nueva pestaña</button>
+                <button type="button" class="btn btn-primary" id="publishPost">Enviar a revisión</button>
               </div>
-            </form>
-            <div class="media-grid" id="mediaGrid"></div>
+              <p class="publish-banner" id="publishBanner" hidden></p>
+              <p class="preview-url" id="previewUrl"></p>
+              <iframe class="preview" id="previewFrame" title="Vista previa de la entrada"></iframe>
+            </div>
           </div>
         </section>
 
-        <section id="panel-brand" class="panel">
+        <section id="panel-marca" class="panel" data-panel="marca">
           <div class="card">
-            <h2 class="card-title">Brand kit</h2>
-            <p class="card-desc">Hermes lee este kit al crear o editar un post. Puedes corregir el texto o las fotos si no estás de acuerdo.</p>
-            <label>Qué editas</label>
+            <h2 class="card-title">Kit de marca</h2>
+            <p class="card-desc">El agente de contenido usa este kit al redactar. Puedes corregir el texto o las fotos de referencia.</p>
+            <label for="brandFile">Qué editas</label>
             <select id="brandFile">
               <option value="voice.md">Voz de marca</option>
               <option value="visual-style.md">Estilo de imágenes</option>
               <option value="image-guide.md">Nombres y alt SEO</option>
               <option value="keywords.md">Keywords</option>
-              <option value="AGENT.md">Reglas del agente (AGENT.md)</option>
+              <option value="AGENT.md">Reglas del agente</option>
             </select>
-            <label>Contenido</label>
-            <div id="brandEditorMount" class="toast-mount"></div>
-            <textarea id="brandContent" hidden></textarea>
+            <label for="brandContent">Contenido</label>
+            <textarea id="brandContent" class="mono brand-textarea" rows="18"></textarea>
+            <div id="brandEditorMount" class="toast-mount" hidden></div>
             <div class="actions">
               <button type="button" class="btn btn-primary" id="saveBrand">Guardar texto</button>
             </div>
           </div>
           <div class="card">
             <h2 class="card-title">Imágenes de referencia</h2>
-            <p class="card-desc">Moodboard para portadas. El agente las ve en blog_get_brand_context.</p>
+            <p class="card-desc">Moodboard para portadas. Sirve de guía visual al crear imágenes nuevas.</p>
             <form id="refUploadForm" class="upload-zone">
-              <label>Archivo</label>
+              <label for="refFile">Archivo</label>
               <input type="file" id="refFile" accept="image/*" />
-              <label>Qué muestra (alt)</label>
+              <label for="refAlt">Qué muestra</label>
               <input id="refAlt" placeholder="Foto de taller con luz cálida" />
               <div class="actions">
-                <button type="submit" class="btn btn-primary">Subir referencia</button>
+                <button type="submit" class="btn btn-primary" id="refUploadBtn">Subir referencia</button>
               </div>
             </form>
             <div class="media-grid" id="refGrid"></div>
           </div>
         </section>
 
-        <section id="panel-site" class="panel">
+        <section id="panel-sitio" class="panel" data-panel="sitio">
           <div class="card">
             <h2 class="card-title">Configuración del sitio</h2>
-            <p class="card-desc">White-label por sitio. Webhook de rebuild del frontend (Coolify deploy URL).</p>
-            <label>Dominio público</label>
+            <p class="card-desc">Dominio público y aviso de rebuild cuando publicas una entrada.</p>
+            <label for="siteDomain">Dominio público</label>
             <input id="siteDomain" placeholder="https://escarlet.design" />
-            <label>Deploy webhook (Coolify)</label>
-            <input id="siteWebhook" placeholder="https://coolify.../api/v1/deploy?uuid=..." />
-            <p class="card-desc">Copia la URL de Coolify → app del frontend → Webhooks → Deploy Webhook. Una URL por sitio/cliente.</p>
-            <label>Token API Coolify (Deploy)</label>
-            <input id="siteCoolifyToken" type="password" autocomplete="new-password" placeholder="Bearer token con permiso Deploy" />
+            <label for="siteWebhook">URL de deploy (webhook)</label>
+            <input id="siteWebhook" placeholder="https://…/api/v1/deploy?uuid=…" />
+            <p class="card-desc">En Coolify abre la app del frontend, Webhooks, Deploy Webhook, y pega esa URL aquí.</p>
+            <label for="siteCoolifyToken">Token API de Coolify</label>
+            <input id="siteCoolifyToken" type="password" autocomplete="new-password" placeholder="Token con permiso Deploy" />
             <p class="card-desc" id="siteTokenStatus"></p>
             <div class="checkbox-row">
               <input type="checkbox" id="siteHumanApproval" />
-              <label for="siteHumanApproval" style="margin:0">Requiere aprobación humana antes de publicar</label>
+              <label for="siteHumanApproval">Pedir aprobación humana antes de publicar en vivo</label>
             </div>
             <div class="actions">
               <button type="button" class="btn btn-primary" id="saveSite">Guardar sitio</button>
@@ -259,12 +326,12 @@
     </div>
   </div>
 
-  <div id="toast" class="toast" hidden>
+  <div id="toast" class="toast" hidden role="status" aria-live="polite" aria-atomic="true">
     <p id="toastMessage"></p>
     <button type="button" class="toast-close" id="toastClose" aria-label="Cerrar aviso">×</button>
   </div>
 
   <script src="https://uicdn.toast.com/editor/latest/toastui-editor-all.min.js"></script>
-  <script src="/admin.js?v=3"></script>
+  <script src="/admin.js?v=4"></script>
 </body>
 </html>
