@@ -687,6 +687,7 @@ a:hover { text-decoration: underline; }
 
 .media-card-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.25rem;
   flex-shrink: 0;
 }
@@ -1101,6 +1102,68 @@ iframe.preview {
 
 .media-card--broken img {
   opacity: 0.35;
+}
+
+.media-card--current {
+  border-color: #1a4d38;
+  box-shadow: 0 0 0 2px #cfe8dc;
+}
+
+.media-card--slide {
+  border-color: #6b4f0a;
+}
+
+.carousel-editor {
+  margin-top: 1.25rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.carousel-editor-title {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+}
+
+.carousel-empty {
+  padding: 0.5rem 0;
+  text-align: left;
+}
+
+.carousel-strip {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  padding: 0.25rem 0 0.75rem;
+}
+
+.carousel-strip-item {
+  flex: 0 0 140px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #faf8f4;
+}
+
+.carousel-strip-item img {
+  width: 100%;
+  height: 160px;
+  object-fit: cover;
+  display: block;
+  cursor: zoom-in;
+}
+
+.carousel-strip-item p {
+  margin: 0;
+  padding: 0.35rem 0.45rem 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.carousel-strip-item .media-delete {
+  margin: 0.25rem 0.35rem 0.4rem;
 }
 
 pre.result {

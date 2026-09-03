@@ -259,7 +259,7 @@
                     <textarea id="fieldInstagramCaption" name="instagramCaption" rows="4"></textarea>
                     <label for="fieldInstagramSlides">Slides Instagram (JSON)</label>
                     <textarea id="fieldInstagramSlides" name="instagramSlides" rows="8" placeholder='[{"imageUrl":"https://…/slide-1.webp","alt":"…","headline":"…"}]'></textarea>
-                    <p class="inline-hint">Array de slides. Cada una con imageUrl (media del CMS), alt y opcionalmente headline. Ideal 4–7.</p>
+                    <p class="inline-hint">Puedes editar el JSON a mano. Lo habitual es usar «Al carrusel» en el paso Portada.</p>
                   </div>
                 </details>
                 <label for="bodyEditorMount">Cuerpo del artículo</label>
@@ -280,7 +280,7 @@
           <div id="step-portada" class="step-panel">
             <div class="card">
               <h3 class="card-title">Portada de esta entrada</h3>
-              <p class="card-desc">Sube una imagen o elige una del archivo. Quedará enlazada a esta entrada.</p>
+              <p class="card-desc">Al elegir una imagen se guarda en el CMS. Si la entrada está publicada, también se pide rebuild de la web.</p>
               <form id="uploadForm" class="upload-zone">
                 <label for="uploadFile">Archivo de imagen</label>
                 <input type="file" id="uploadFile" accept="image/*" />
@@ -293,6 +293,7 @@
                     <label for="uploadKind">Uso</label>
                     <select id="uploadKind">
                       <option value="post">Portada de entrada</option>
+                      <option value="social">Slide Instagram</option>
                       <option value="reference">Referencia de marca</option>
                     </select>
                   </div>
@@ -301,9 +302,25 @@
                   <button type="submit" class="btn btn-primary" id="uploadBtn">Subir y usar</button>
                 </div>
               </form>
+              <section class="carousel-editor" id="carouselEditor" data-channel="instagramCarousel">
+                <h4 class="carousel-editor-title">Carrusel Instagram de esta entrada</h4>
+                <p class="inline-hint">Hasta 7 slides. Pulsa «Al carrusel» en una imagen de abajo. Eso las enlaza al social pack de este post.</p>
+                <div class="carousel-strip" id="carouselStrip"></div>
+              </section>
+              <div class="toolbar posts-toolbar">
+                <div class="topbar-field status-field">
+                  <label for="portadaMediaFilter">Mostrar</label>
+                  <select id="portadaMediaFilter">
+                    <option value="">Todas</option>
+                    <option value="post">Portadas</option>
+                    <option value="social">Slides Instagram</option>
+                  </select>
+                </div>
+              </div>
               <div class="media-grid" id="mediaGrid"></div>
               <div class="actions sticky-actions">
                 <button type="button" class="btn" id="goToEscribir">Anterior. Escribir</button>
+                <button type="button" class="btn" id="savePortada">Guardar y actualizar web</button>
                 <button type="button" class="btn btn-primary" id="goToRevisar">Siguiente. Revisar</button>
               </div>
             </div>

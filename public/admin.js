@@ -15,7 +15,7 @@ const STATUS_LABELS = {
 
 const STEP_HINTS = {
   escribir: 'Paso 1 de 3. Escribe el contenido y guarda antes de seguir.',
-  portada: 'Paso 2 de 3. Elige o sube la imagen de portada.',
+  portada: 'Paso 2 de 3. Elige portada y slides del carrusel. Al pulsar Usar se guarda y se pide rebuild si está publicada.',
   revisar: 'Paso 3 de 3. Revisa el resultado y publica cuando esté listo.'
 }
 
@@ -232,6 +232,75 @@ function formatInstagramSlides(slides) {
   return JSON.stringify(slides, null, 2)
 }
 
+function mediaPathKey(url) {
+  const raw = String(url || '').trim()
+  const match = raw.match(/(\/media\/[^\s?#]+)/)
+  return (match ? match[1] : raw).replace(/\/$/, '')
+}
+
+function currentCoverKey() {
+  return mediaPathKey(form.imageUrl?.value)
+}
+
+function readCarouselSlides() {
+  const slides = parseInstagramSlides(form.instagramSlides?.value)
+  return Array.isArray(slides) ? slides : []
+}
+
+function writeCarouselSlides(slides) {
+  if (form.instagramSlides) form.instagramSlides.value = formatInstagramSlides(slides)
+  renderCarouselStrip()
+}
+
+function renderCarouselStrip() {
+  const el = document.getElementById('carouselStrip')
+  if (!el) return
+  const slides = readCarouselSlides()
+  el.innerHTML = ''
+  if (!slides.length) {
+    el.innerHTML = '<p class="empty carousel-empty">Todavía no hay slides en este post. Pulsa «Al carrusel» en una imagen.</p>'
+    return
+  }
+  slides.forEach((slide, index) => {
+    const item = document.createElement('div')
+    item.className = 'carousel-strip-item'
+    const img = document.createElement('img')
+    img.src = mediaPathKey(slide.imageUrl) || slide.imageUrl
+    img.alt = slide.alt || `Slide ${index + 1}`
+    img.onclick = () => openMediaLightbox(img.src, img.alt)
+    const label = document.createElement('p')
+    label.textContent = slide.headline || slide.alt || `Slide ${index + 1}`
+    const remove = document.createElement('button')
+    remove.type = 'button'
+    remove.className = 'btn btn-sm media-delete'
+    remove.title = 'Quitar del carrusel'
+    remove.setAttribute('aria-label', 'Quitar del carrusel')
+    remove.innerHTML = ICONS.trash
+    remove.onclick = () => {
+      const next = readCarouselSlides().filter((_, i) => i !== index)
+      writeCarouselSlides(next)
+      persistPost().then(() => loadMedia().catch(() => {}))
+    }
+    item.appendChild(img)
+    item.appendChild(label)
+    item.appendChild(remove)
+    el.appendChild(item)
+  })
+}
+
+function rebuildSaveMessage(data, fallback = 'Entrada guardada') {
+  const published = (data?.post?.status || postStatusInput.value) === 'published'
+  if (!published) return { text: fallback, sticky: false }
+  if (data?.rebuild?.ok) {
+    return { text: 'Guardado. Rebuild de la web disparado. La portada pública cambia cuando termine Coolify.', sticky: false }
+  }
+  const detail = data?.rebuild?.message || 'Revisa el webhook de Coolify en Sitio.'
+  return {
+    text: `Guardado en el CMS. La web pública no se actualizó. ${detail}`,
+    sticky: true
+  }
+}
+
 function showPublishBanner(text, kind = 'info') {
   if (!publishBanner) return
   if (!text) {
@@ -280,7 +349,33 @@ function applyImageToPost(item) {
   if (imageUrlInput) imageUrlInput.value = src
   if (form.imageAlt && item.alt) form.imageAlt.value = item.alt
   updateImagePreview()
-  toast('Portada aplicada a la entrada')
+  persistPost().then(() => loadMedia().catch(() => {}))
+}
+
+function addImageToCarousel(item) {
+  const src = mediaSrc(item)
+  if (!src) {
+    toast('Esta imagen no tiene URL usable.')
+    return
+  }
+  const slides = readCarouselSlides()
+  if (slides.length >= 7) {
+    toast('El carrusel admite 7 slides como máximo')
+    return
+  }
+  const key = mediaPathKey(src)
+  if (slides.some((slide) => mediaPathKey(slide.imageUrl) === key)) {
+    toast('Esa imagen ya está en el carrusel')
+    return
+  }
+  slides.push({
+    imageUrl: src,
+    alt: item.alt || '',
+    headline: item.alt || '',
+    body: ''
+  })
+  writeCarouselSlides(slides)
+  persistPost().then(() => loadMedia().catch(() => {}))
 }
 
 function openMediaLightbox(src, alt = '') {
@@ -309,11 +404,18 @@ function renderMediaGrid(target, items, { allowUse = false } = {}) {
     target.innerHTML = '<p class="empty">Todavía no hay imágenes aquí.</p>'
     return
   }
+  const coverKey = currentCoverKey()
+  const slideKeys = new Set(readCarouselSlides().map((slide) => mediaPathKey(slide.imageUrl)))
   for (const item of items) {
     const div = document.createElement('div')
     div.className = 'media-card'
-    if (item.ok === false) div.classList.add('media-card--broken')
     const src = mediaSrc(item)
+    const key = mediaPathKey(src)
+    const isCover = Boolean(coverKey && key && coverKey === key)
+    const inCarousel = Boolean(key && slideKeys.has(key))
+    if (item.ok === false) div.classList.add('media-card--broken')
+    if (isCover) div.classList.add('media-card--current')
+    if (inCarousel) div.classList.add('media-card--slide')
     const img = document.createElement('img')
     img.alt = item.alt || ''
     img.loading = 'lazy'
@@ -323,8 +425,11 @@ function renderMediaGrid(target, items, { allowUse = false } = {}) {
     const foot = document.createElement('div')
     foot.className = 'media-card-foot'
     const caption = document.createElement('p')
-    const status = item.ok === false ? ' · archivo incompleto' : ''
-    caption.textContent = (item.alt || item.filename || src) + status
+    const tags = []
+    if (isCover) tags.push('portada')
+    if (inCarousel) tags.push('carrusel')
+    if (item.ok === false) tags.push('incompleto')
+    caption.textContent = [item.alt || item.filename || src, tags.length ? ` · ${tags.join(', ')}` : ''].join('')
     if (item.ok === false) caption.style.color = '#b42318'
     img.onerror = () => {
       div.classList.add('media-card--broken')
@@ -336,11 +441,22 @@ function renderMediaGrid(target, items, { allowUse = false } = {}) {
     if (allowUse && item.ok !== false) {
       const useBtn = document.createElement('button')
       useBtn.type = 'button'
-      useBtn.className = 'btn btn-sm btn-primary'
-      useBtn.textContent = 'Usar'
-      useBtn.title = 'Usar como portada de esta entrada'
+      useBtn.className = isCover ? 'btn btn-sm' : 'btn btn-sm btn-primary'
+      useBtn.textContent = isCover ? 'Portada actual' : 'Portada'
+      useBtn.disabled = isCover
+      useBtn.title = isCover ? 'Esta es la portada de la entrada' : 'Usar como portada de esta entrada'
       useBtn.onclick = () => applyImageToPost(item)
       actions.appendChild(useBtn)
+      if (socialPackChannels.instagramCarousel) {
+        const slideBtn = document.createElement('button')
+        slideBtn.type = 'button'
+        slideBtn.className = inCarousel ? 'btn btn-sm' : 'btn btn-sm btn-primary'
+        slideBtn.textContent = inCarousel ? 'En carrusel' : 'Al carrusel'
+        slideBtn.disabled = inCarousel
+        slideBtn.title = inCarousel ? 'Ya está en el carrusel de Instagram' : 'Añadir al carrusel Instagram de esta entrada'
+        slideBtn.onclick = () => addImageToCarousel(item)
+        actions.appendChild(slideBtn)
+      }
     }
     const del = document.createElement('button')
     del.type = 'button'
@@ -700,6 +816,7 @@ function fillFormFields(p) {
   form.bodyHtml.value = p.bodyHtml || ''
   setBodyValue(p.bodyHtml || '')
   updateImagePreview()
+  renderCarouselStrip()
   showPublishBanner('')
   applySocialPackChannelUi(socialPackChannels)
   updateWorkspaceChrome()
@@ -712,6 +829,7 @@ function resetFormFields() {
   postStatusInput.value = 'draft'
   setBodyValue('')
   updateImagePreview()
+  renderCarouselStrip()
   showPublishBanner('')
   if (seoResult) {
     seoResult.hidden = true
@@ -1008,8 +1126,12 @@ document.getElementById('backToList')?.addEventListener('click', () => {
 
 document.getElementById('goToPortada')?.addEventListener('click', () => goToStep('portada'))
 document.getElementById('goToEscribir')?.addEventListener('click', () => goToStep('escribir'))
-document.getElementById('goToRevisar')?.addEventListener('click', () => goToStep('revisar'))
+document.getElementById('goToRevisar')?.addEventListener('click', async () => {
+  const saved = await persistPost({ busyBtn: document.getElementById('goToRevisar') })
+  if (saved) goToStep('revisar')
+})
 document.getElementById('goBackPortada')?.addEventListener('click', () => goToStep('portada'))
+document.getElementById('savePortada')?.addEventListener('click', () => persistPost({ busyBtn: document.getElementById('savePortada') }))
 
 menuToggle?.addEventListener('click', () => {
   if (sidebar?.classList.contains('open')) closeSidebar()
@@ -1274,15 +1396,16 @@ async function deleteSlug(slug) {
 
 document.getElementById('newPost').onclick = () => openPostWorkspace(null, 'escribir')
 
-form.onsubmit = async (e) => {
-  e.preventDefault()
+async function persistPost({ busyBtn } = {}) {
   const site = siteFilter.value.trim() || 'escarlet'
   const slug = form.slug.value.trim()
   const title = form.title.value.trim()
-  if (!slug || !title) return toast('Faltan título y slug')
+  if (!slug || !title) {
+    toast('Faltan título y slug. Guarda el paso Escribir primero.')
+    return false
+  }
 
-  const saveBtn = document.getElementById('savePost')
-  await withBusy(saveBtn, 'Guardando…', async () => {
+  const run = async () => {
     if (!editingOriginalSlug) {
       try {
         await api('/api/admin/posts/create-draft', {
@@ -1299,7 +1422,7 @@ form.onsubmit = async (e) => {
       } catch (err) {
         if (!/Ya existe slug/i.test(err.message || '')) {
           toast(err.message)
-          return
+          return false
         }
         editingOriginalSlug = slug
       }
@@ -1308,7 +1431,7 @@ form.onsubmit = async (e) => {
     const slides = parseInstagramSlides(form.instagramSlides?.value)
     if (slides === null) {
       toast('El JSON de slides de Instagram no es válido')
-      return
+      return false
     }
 
     const payload = {
@@ -1338,22 +1461,37 @@ form.onsubmit = async (e) => {
       },
       bodyHtml: bodyValue()
     }
-    try {
-      await api('/api/admin/posts', { method: 'POST', body: JSON.stringify(payload) })
-      editingOriginalSlug = slug
-      await loadPosts()
-      updateWorkspaceChrome()
-      navigate({
-        view: 'entrada',
-        slug,
-        isNew: false,
-        step: currentStep
-      }, { replace: true })
-      toast('Entrada guardada')
-    } catch (err) {
-      toast(err.message)
+    const data = await api('/api/admin/posts', { method: 'POST', body: JSON.stringify(payload) })
+    editingOriginalSlug = slug
+    await loadPosts()
+    updateWorkspaceChrome()
+    renderCarouselStrip()
+    navigate({
+      view: 'entrada',
+      slug,
+      isNew: false,
+      step: currentStep
+    }, { replace: true })
+    const msg = rebuildSaveMessage(data)
+    toast(msg.text, { sticky: msg.sticky, duration: msg.sticky ? 0 : 12000 })
+    if (currentStep === 'revisar') {
+      showPublishBanner(msg.text, data.rebuild?.ok === false ? 'error' : 'ok')
     }
-  })
+    return data
+  }
+
+  try {
+    if (busyBtn) return await withBusy(busyBtn, 'Guardando…', run)
+    return await run()
+  } catch (err) {
+    toast(err.message, { duration: 12000 })
+    return false
+  }
+}
+
+form.onsubmit = async (e) => {
+  e.preventDefault()
+  await persistPost({ busyBtn: document.getElementById('savePost') })
 }
 
 document.getElementById('validateSeo').onclick = async () => {
@@ -1389,8 +1527,12 @@ document.getElementById('publishPost').onclick = async () => {
 
 async function loadMedia() {
   const site = siteFilter.value.trim() || 'escarlet'
-  const data = await api('/api/admin/media?site=' + site)
+  const kind = document.getElementById('portadaMediaFilter')?.value || ''
+  const q = new URLSearchParams({ site })
+  if (kind) q.set('kind', kind)
+  const data = await api('/api/admin/media?' + q)
   renderMediaGrid(mediaGrid, data.media || [], { allowUse: true })
+  renderCarouselStrip()
 }
 
 async function loadLibrary() {
@@ -1410,6 +1552,7 @@ document.getElementById('uploadForm').onsubmit = async (e) => {
   const btn = document.getElementById('uploadBtn')
   await withBusy(btn, 'Subiendo…', async () => {
     const site = siteFilter.value.trim() || 'escarlet'
+    const kind = document.getElementById('uploadKind').value
     const data = await api('/api/admin/media/upload', {
       method: 'POST',
       body: JSON.stringify({
@@ -1417,21 +1560,28 @@ document.getElementById('uploadForm').onsubmit = async (e) => {
         filename: file.name,
         contentBase64: await fileToBase64(file),
         alt: document.getElementById('uploadAlt').value,
-        kind: document.getElementById('uploadKind').value
+        kind
       })
     })
-    if (data.media && document.getElementById('uploadKind').value === 'post') {
-      applyImageToPost(data.media)
-    }
     document.getElementById('uploadFile').value = ''
-    await loadMedia()
+    if (data.media && kind === 'post') {
+      applyImageToPost(data.media)
+    } else if (data.media && kind === 'social') {
+      addImageToCarousel(data.media)
+    } else {
+      toast('Imagen subida')
+      await loadMedia()
+    }
     if (currentRoute?.view === 'media') await loadLibrary()
-    toast('Imagen subida')
   })
 }
 
 libraryKindFilter?.addEventListener('change', () => {
   loadLibrary().catch((e) => toast(e.message))
+})
+
+document.getElementById('portadaMediaFilter')?.addEventListener('change', () => {
+  loadMedia().catch((e) => toast(e.message))
 })
 
 document.getElementById('libraryUploadForm')?.addEventListener('submit', async (e) => {
