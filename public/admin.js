@@ -1837,11 +1837,6 @@ async function loadSiteMcpInfo(site) {
     const mcpUrl = data.mcpChatGptUrl || data.mcpUrl || ''
     const staticUrl = document.getElementById('siteMcpStaticUrl')
     if (staticUrl && mcpUrl) staticUrl.textContent = mcpUrl
-    if (data.agentIcon?.ok) {
-      const preview = document.getElementById('siteAgentIconPreview')
-      // Keep static MCP block only; icon preview appears after token generate
-      void preview
-    }
   } catch {
     const staticUrl = document.getElementById('siteMcpStaticUrl')
     if (staticUrl) staticUrl.textContent = 'https://blog-cms.escarlet.cc/mcp'
