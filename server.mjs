@@ -26,6 +26,7 @@ import {
   readBrandFile,
   writeBrandFile,
   seedAllBrandKits,
+  importBrandKitZip,
   BRAND_FILES,
   BRAND_FILE_LABELS
 } from './lib/brand-kit.mjs'
@@ -42,6 +43,17 @@ import {
   createSiteRecord,
   getOnboarding
 } from './lib/cms-ops.mjs'
+import {
+  resolveRequestAuth,
+  publicAuthSession,
+  assertSiteAccess,
+  assertSuperAdmin,
+  allowedSiteHandles,
+  canAccessSite,
+  isSuperAdmin,
+  generateSiteAccessToken,
+  publicSiteConfigForAuth
+} from './lib/auth.mjs'
 import { mediaForClient, repairMediaInDb, repairPostsInDb, resolveImageSrc, resolvePostImageSrc } from './lib/media-url.mjs'
 import { withPostLinks } from './lib/preview-url.mjs'
 import { escapeHtml, renderPostBody } from './lib/content-render.mjs'
@@ -110,17 +122,21 @@ function html(res, status, body, extraHeaders = {}) {
 }
 
 function isAdmin(req, url) {
-  const header = req.headers.authorization || ''
-  const token = header.startsWith('Bearer ') ? header.slice(7) : ''
-  const cookie = String(req.headers.cookie || '')
-  const cookieToken = cookie.match(/(?:^|;\s*)escarlet_cms=([^;]+)/)?.[1]
-  const queryToken = url.searchParams.get('token') || ''
-  const expected = process.env.ADMIN_TOKEN || ADMIN_TOKEN
-  if (token === expected || cookieToken === expected || queryToken === expected) return true
-  if (token && isValidAccessToken(token)) return true
-  if (cookieToken && isValidAccessToken(cookieToken)) return true
-  if (queryToken && isValidAccessToken(queryToken)) return true
-  return false
+  return Boolean(resolveRequestAuth(req, url))
+}
+
+function requireAuth(req, url, res) {
+  const auth = resolveRequestAuth(req, url)
+  if (!auth) {
+    json(res, 401, { message: 'No autorizado' })
+    return null
+  }
+  return auth
+}
+
+function siteFrom(auth, preferred) {
+  if (auth.role === 'site') return auth.site
+  return preferred || DEFAULT_SITE
 }
 
 function readRawBody(req) {
@@ -366,7 +382,8 @@ const server = createServer(async (req, res) => {
   }
 
   if (path === '/mcp') {
-    if (!isAdmin(req, url)) {
+    const auth = resolveRequestAuth(req, url)
+    if (!auth) {
       sendMcpCors(res)
       res.writeHead(401, {
         'Content-Type': 'application/json; charset=utf-8',
@@ -378,14 +395,14 @@ const server = createServer(async (req, res) => {
       })
       res.end(
         JSON.stringify({
-          message: 'No autorizado. Usa Bearer ADMIN_TOKEN o completa OAuth (ChatGPT).'
+          message: 'No autorizado. Usa Bearer ADMIN_TOKEN, token de sitio o OAuth (ChatGPT).'
         })
       )
       return
     }
     try {
       const parsedBody = req.method === 'POST' ? await parseBody(req) : undefined
-      await handleMcpHttp(req, res, parsedBody)
+      await handleMcpHttp(req, res, parsedBody, auth)
     } catch (error) {
       if (!res.headersSent) json(res, 400, { message: error.message })
     }
@@ -461,16 +478,20 @@ const server = createServer(async (req, res) => {
   if (req.method === 'POST' && path === '/api/login') {
     try {
       const body = await parseBody(req)
-      const expected = process.env.ADMIN_TOKEN || ADMIN_TOKEN
-      if (body.token !== expected) {
+      const auth = resolveRequestAuth(
+        { headers: { authorization: `Bearer ${body.token || ''}` } },
+        new URL('http://local/')
+      )
+      if (!auth) {
         json(res, 401, { message: 'Token incorrecto' })
         return
       }
+      const session = publicAuthSession(auth)
       res.writeHead(200, {
         'Content-Type': 'application/json; charset=utf-8',
-        'Set-Cookie': `escarlet_cms=${expected}; Path=/; HttpOnly; SameSite=Lax`
+        'Set-Cookie': `escarlet_cms=${encodeURIComponent(body.token)}; Path=/; HttpOnly; SameSite=Lax`
       })
-      res.end(JSON.stringify({ ok: true }))
+      res.end(JSON.stringify({ ok: true, ...session }))
     } catch (error) {
       json(res, 400, { message: error.message })
     }
@@ -516,15 +537,24 @@ const server = createServer(async (req, res) => {
   }
 
   if (path.startsWith('/api/admin')) {
-    if (!isAdmin(req, url)) {
-      json(res, 401, { message: 'No autorizado' })
-      return
-    }
+    const auth = requireAuth(req, url, res)
+    if (!auth) return
 
     const db = readDb()
 
+    if (req.method === 'GET' && path === '/api/admin/session') {
+      json(res, 200, publicAuthSession(auth))
+      return
+    }
+
     if (req.method === 'GET' && path === '/api/admin/posts') {
-      const site = url.searchParams.get('site') || DEFAULT_SITE
+      const site = siteFrom(auth, url.searchParams.get('site') || DEFAULT_SITE)
+      try {
+        assertSiteAccess(auth, site)
+      } catch (err) {
+        json(res, err.status || 403, { message: err.message })
+        return
+      }
       const status = url.searchParams.get('status')
       let posts = db.posts.filter((p) => p.site === site)
       if (status) posts = posts.filter((p) => p.status === status)
@@ -534,7 +564,13 @@ const server = createServer(async (req, res) => {
 
     const adminPostMatch = path.match(/^\/api\/admin\/posts\/([^/]+)$/)
     if (req.method === 'GET' && adminPostMatch) {
-      const site = url.searchParams.get('site') || DEFAULT_SITE
+      const site = siteFrom(auth, url.searchParams.get('site') || DEFAULT_SITE)
+      try {
+        assertSiteAccess(auth, site)
+      } catch (err) {
+        json(res, err.status || 403, { message: err.message })
+        return
+      }
       const slug = decodeURIComponent(adminPostMatch[1])
       const post = findPost(db, site, slug)
       if (!post) {
@@ -546,18 +582,32 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && path === '/api/admin/sites') {
-      json(res, 200, { sites: db.sites || [], handles: listSiteHandles() })
+      const handles = allowedSiteHandles(auth)
+      const sites = (db.sites || []).filter((s) => handles.includes(s.handle || s.id))
+      json(res, 200, {
+        sites,
+        handles,
+        role: auth.role,
+        canCreateSites: isSuperAdmin(auth)
+      })
       return
     }
 
     if (req.method === 'GET' && path === '/api/admin/onboarding') {
-      const site = url.searchParams.get('site') || DEFAULT_SITE
+      const site = siteFrom(auth, url.searchParams.get('site') || DEFAULT_SITE)
+      try {
+        assertSiteAccess(auth, site)
+      } catch (err) {
+        json(res, err.status || 403, { message: err.message })
+        return
+      }
       json(res, 200, await getOnboarding(site))
       return
     }
 
     if (req.method === 'POST' && path === '/api/admin/sites') {
       try {
+        assertSuperAdmin(auth)
         const body = await parseBody(req)
         const result = await createSiteRecord(body)
         json(res, 201, result)
@@ -578,7 +628,13 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && path === '/api/admin/media') {
-      const site = url.searchParams.get('site') || DEFAULT_SITE
+      const site = siteFrom(auth, url.searchParams.get('site') || DEFAULT_SITE)
+      try {
+        assertSiteAccess(auth, site)
+      } catch (err) {
+        json(res, err.status || 403, { message: err.message })
+        return
+      }
       const kind = url.searchParams.get('kind')
       let items = (db.media || []).filter((m) => !m.site || m.site === site)
       if (kind) items = items.filter((m) => m.kind === kind)
@@ -603,6 +659,13 @@ const server = createServer(async (req, res) => {
     const siteConfigTestMatch = path.match(/^\/api\/admin\/site-config\/([^/]+)\/test-rebuild$/)
     if (siteConfigTestMatch && req.method === 'POST') {
       const handle = siteConfigTestMatch[1]
+      try {
+        assertSiteAccess(auth, handle)
+        assertSuperAdmin(auth)
+      } catch (err) {
+        json(res, err.status || 403, { message: err.message })
+        return
+      }
       if (!loadSiteConfig(handle)) {
         json(res, 404, { message: 'Site no encontrado' })
         return
@@ -615,19 +678,64 @@ const server = createServer(async (req, res) => {
       return
     }
 
+    const siteTokenMatch = path.match(/^\/api\/admin\/site-config\/([^/]+)\/access-token$/)
+    if (siteTokenMatch && req.method === 'POST') {
+      const handle = siteTokenMatch[1]
+      try {
+        assertSuperAdmin(auth)
+      } catch (err) {
+        json(res, err.status || 403, { message: err.message })
+        return
+      }
+      if (!loadSiteConfig(handle)) {
+        json(res, 404, { message: 'Site no encontrado' })
+        return
+      }
+      const body = await parseBody(req).catch(() => ({}))
+      if (body.clear) {
+        const config = saveSiteConfig(handle, { clearSiteAccessToken: true })
+        json(res, 200, {
+          config: publicSiteConfigForAuth(config, auth),
+          siteAccessToken: null,
+          message: 'Token de sitio eliminado'
+        })
+        return
+      }
+      const token = generateSiteAccessToken()
+      const config = saveSiteConfig(handle, { siteAccessToken: token })
+      json(res, 200, {
+        config: publicSiteConfigForAuth(config, auth),
+        siteAccessToken: token,
+        message: 'Copia este token ahora. Solo se muestra una vez.'
+      })
+      return
+    }
+
     const siteConfigMatch = path.match(/^\/api\/admin\/site-config\/([^/]+)$/)
     if (siteConfigMatch) {
       const handle = siteConfigMatch[1]
+      try {
+        assertSiteAccess(auth, handle)
+      } catch (err) {
+        json(res, err.status || 403, { message: err.message })
+        return
+      }
       if (req.method === 'GET') {
         const config = loadSiteConfig(handle)
         if (!config) {
           json(res, 404, { message: 'Site no encontrado' })
           return
         }
-        json(res, 200, { config: publicSiteConfig(config) })
+        json(res, 200, { config: publicSiteConfigForAuth(config, auth) })
         return
       }
       if (req.method === 'POST') {
+        try {
+          assertSuperAdmin(auth)
+        } catch (err) {
+          json(res, err.status || 403, { message: err.message })
+          return
+        }
         const body = await parseBody(req)
         const partial = {
           name: body.name,
@@ -638,14 +746,38 @@ const server = createServer(async (req, res) => {
         if (body.coolifyApiToken) partial.coolifyApiToken = body.coolifyApiToken
         if (body.clearCoolifyApiToken) partial.clearCoolifyApiToken = true
         const config = saveSiteConfig(handle, partial)
-        json(res, 200, { config: publicSiteConfig(config) })
+        json(res, 200, { config: publicSiteConfigForAuth(config, auth) })
         return
       }
+    }
+
+    const brandZipMatch = path.match(/^\/api\/admin\/brand-kit\/([^/]+)\/import-zip$/)
+    if (brandZipMatch && req.method === 'POST') {
+      const site = brandZipMatch[1]
+      try {
+        assertSiteAccess(auth, site)
+        const body = await parseBody(req)
+        if (!body.contentBase64) {
+          json(res, 400, { message: 'Falta contentBase64 del ZIP' })
+          return
+        }
+        const result = await importBrandKitZip(site, { contentBase64: body.contentBase64 })
+        json(res, 200, result)
+      } catch (err) {
+        json(res, err.status || 400, { message: err.message })
+      }
+      return
     }
 
     const brandMatch = path.match(/^\/api\/admin\/brand-kit\/([^/]+)(?:\/([^/]+))?$/)
     if (brandMatch) {
       const site = brandMatch[1]
+      try {
+        assertSiteAccess(auth, site)
+      } catch (err) {
+        json(res, err.status || 403, { message: err.message })
+        return
+      }
       const file = brandMatch[2] ? decodeURIComponent(brandMatch[2]) : ''
       const allowed = !file || BRAND_FILES.includes(file) || file === 'agent-rules.md'
       if (req.method === 'GET' && !file) {
@@ -670,8 +802,9 @@ const server = createServer(async (req, res) => {
 
     if (req.method === 'POST' && path === '/api/admin/validate-seo') {
       const body = await parseBody(req)
-      const site = body.site || DEFAULT_SITE
+      const site = siteFrom(auth, body.site || DEFAULT_SITE)
       try {
+        assertSiteAccess(auth, site)
         const result = await cmsValidateSeo(site, body.slug, body.post)
         json(res, 200, result)
       } catch (error) {
@@ -688,8 +821,10 @@ const server = createServer(async (req, res) => {
         return
       }
       try {
+        const site = siteFrom(auth, body.site || DEFAULT_SITE)
+        assertSiteAccess(auth, site)
         const item = await saveUploadedMedia({
-          site: body.site || DEFAULT_SITE,
+          site,
           filename: body.filename,
           contentBase64: body.contentBase64,
           imageUrl: body.imageUrl,
@@ -706,9 +841,10 @@ const server = createServer(async (req, res) => {
     if (req.method === 'DELETE' && path === '/api/admin/media') {
       const body = await parseBody(req).catch(() => ({}))
       const id = body.id || url.searchParams.get('id')
-      const site = body.site || url.searchParams.get('site') || DEFAULT_SITE
+      const site = siteFrom(auth, body.site || url.searchParams.get('site') || DEFAULT_SITE)
       const mediaPath = body.path || url.searchParams.get('path') || ''
       try {
+        assertSiteAccess(auth, site)
         const result = await cmsDeleteMedia(site, id, mediaPath)
         json(res, 200, result)
       } catch (err) {
@@ -720,7 +856,9 @@ const server = createServer(async (req, res) => {
     if (req.method === 'POST' && path === '/api/admin/media/delete') {
       const body = await parseBody(req)
       try {
-        const result = await cmsDeleteMedia(body.site || DEFAULT_SITE, body.id, body.path || '')
+        const site = siteFrom(auth, body.site || DEFAULT_SITE)
+        assertSiteAccess(auth, site)
+        const result = await cmsDeleteMedia(site, body.id, body.path || '')
         json(res, 200, result)
       } catch (err) {
         json(res, err.status || 400, { message: err.message })
@@ -730,9 +868,16 @@ const server = createServer(async (req, res) => {
 
     if (req.method === 'POST' && path === '/api/admin/media') {
       const body = await parseBody(req)
+      const site = siteFrom(auth, body.site || DEFAULT_SITE)
+      try {
+        assertSiteAccess(auth, site)
+      } catch (err) {
+        json(res, err.status || 403, { message: err.message })
+        return
+      }
       const item = {
         id: body.id || `media-${Date.now()}`,
-        site: body.site || DEFAULT_SITE,
+        site,
         url: body.url || '',
         alt: body.alt || ''
       }
@@ -745,7 +890,13 @@ const server = createServer(async (req, res) => {
 
     if (req.method === 'POST' && path === '/api/admin/posts/create-draft') {
       const body = await parseBody(req)
-      const site = body.site || DEFAULT_SITE
+      const site = siteFrom(auth, body.site || DEFAULT_SITE)
+      try {
+        assertSiteAccess(auth, site)
+      } catch (err) {
+        json(res, err.status || 403, { message: err.message })
+        return
+      }
       const siteConfig = loadSiteConfig(site)
       const title = String(body.title || '').trim()
       if (!title) {
@@ -783,7 +934,9 @@ const server = createServer(async (req, res) => {
     if (req.method === 'POST' && path === '/api/admin/posts') {
       const body = await parseBody(req)
       try {
-        const result = await cmsUpdatePost(body)
+        const site = siteFrom(auth, body.site || DEFAULT_SITE)
+        assertSiteAccess(auth, site)
+        const result = await cmsUpdatePost({ ...body, site })
         json(res, 200, result)
       } catch (error) {
         const status = error.status || 500
@@ -794,9 +947,10 @@ const server = createServer(async (req, res) => {
 
     if (req.method === 'POST' && path === '/api/admin/posts/publish') {
       const body = await parseBody(req)
-      const site = body.site || DEFAULT_SITE
+      const site = siteFrom(auth, body.site || DEFAULT_SITE)
       const slug = body.slug
       try {
+        assertSiteAccess(auth, site)
         const result = await cmsPublishPost(site, slug)
         json(res, 200, result)
       } catch (error) {
@@ -808,8 +962,9 @@ const server = createServer(async (req, res) => {
 
     if (req.method === 'POST' && path === '/api/admin/posts/unpublish') {
       const body = await parseBody(req)
-      const site = body.site || DEFAULT_SITE
+      const site = siteFrom(auth, body.site || DEFAULT_SITE)
       try {
+        assertSiteAccess(auth, site)
         const result = await cmsUnpublishPost(site, body.slug)
         json(res, 200, result)
       } catch (error) {
@@ -822,9 +977,10 @@ const server = createServer(async (req, res) => {
     if (req.method === 'DELETE') {
       const del = path.match(/^\/api\/admin\/posts\/([^/]+)$/)
       if (del) {
-        const site = url.searchParams.get('site') || DEFAULT_SITE
+        const site = siteFrom(auth, url.searchParams.get('site') || DEFAULT_SITE)
         const slug = decodeURIComponent(del[1])
         try {
+          assertSiteAccess(auth, site)
           const result = await cmsDeletePost(site, slug)
           json(res, 200, result)
         } catch (error) {

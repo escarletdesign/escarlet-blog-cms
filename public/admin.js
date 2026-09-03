@@ -34,11 +34,19 @@ const brandFile = document.getElementById('brandFile')
 const brandContent = document.getElementById('brandContent')
 const refGrid = document.getElementById('refGrid')
 const siteDomain = document.getElementById('siteDomain')
+const siteName = document.getElementById('siteName')
 const siteWebhook = document.getElementById('siteWebhook')
 const siteCoolifyToken = document.getElementById('siteCoolifyToken')
 const siteTokenStatus = document.getElementById('siteTokenStatus')
 const rebuildResult = document.getElementById('rebuildResult')
 const siteHumanApproval = document.getElementById('siteHumanApproval')
+const siteList = document.getElementById('siteList')
+const siteListCard = document.getElementById('siteListCard')
+const siteOnboardCard = document.getElementById('siteOnboardCard')
+const siteConfigCard = document.getElementById('siteConfigCard')
+const onboardHint = document.getElementById('onboardHint')
+const onboardSummary = document.getElementById('onboardSummary')
+const onboardDone = document.getElementById('onboardDone')
 const toastEl = document.getElementById('toast')
 const toastMessage = document.getElementById('toastMessage')
 const toastClose = document.getElementById('toastClose')
@@ -61,14 +69,27 @@ const editorStatusBadge = document.getElementById('editorStatusBadge')
 const postStatusInput = document.getElementById('postStatus')
 const topbarHint = document.getElementById('topbarHint')
 
+const ONBOARD_HINTS = {
+  basics: 'Paso 1 de 3. Datos básicos del proyecto.',
+  coolify: 'Paso 2 de 3. Webhook de Coolify (puedes saltarlo).',
+  review: 'Paso 3 de 3. Revisa y crea el sitio.'
+}
+
 let bodyEditor = null
 let cachedPosts = []
+let cachedSiteHandles = []
+let activeSiteHandle = ''
+let authSession = { role: 'admin', canCreateSites: true, canManageAllSites: true, sites: [] }
 let humanApprovalRequired = true
 let editingOriginalSlug = ''
 let currentStep = 'escribir'
 let currentRoute = { view: 'entradas' }
+let onboardStep = 'basics'
 let token = localStorage.getItem('escarlet_cms_token') || ''
 let navigating = false
+if (siteFilter) {
+  siteFilter.dataset.pending = localStorage.getItem('escarlet_cms_site') || ''
+}
 
 function statusLabel(status) {
   return STATUS_LABELS[status] || status || 'Borrador'
@@ -438,7 +459,7 @@ function applyRoute(route) {
         view === 'marca'
           ? 'Textos y referencias que usa el agente al crear contenido.'
           : view === 'sitio'
-            ? 'Dominio y webhook de rebuild de este sitio.'
+            ? 'Crea un sitio nuevo o ajusta dominio y webhook del activo.'
             : 'Empieza por Entradas. Abre un borrador y avanza paso a paso hasta publicar.'
     }
   }
@@ -447,7 +468,10 @@ function applyRoute(route) {
     loadBrand().catch((e) => toast(e.message))
     loadRefs().catch((e) => toast(e.message))
   }
-  if (view === 'sitio') loadSite().catch((e) => toast(e.message))
+  if (view === 'sitio') {
+    loadSites().catch((e) => toast(e.message))
+    loadSite().catch((e) => toast(e.message))
+  }
   closeSidebar()
 }
 
@@ -592,13 +616,19 @@ function showPreviewForSlug(slug, { newTab = false } = {}) {
 }
 
 async function afterLogin() {
+  try {
+    authSession = await api('/api/admin/session')
+  } catch {
+    authSession = { role: 'admin', canCreateSites: true, sites: [] }
+  }
+  applyAuthUi()
+  await loadSites()
   await loadPosts()
   await loadSite()
   ensureBodyEditor()
   updateImagePreview()
   login.hidden = true
   app.hidden = false
-  // Ancla el historial dentro del CMS para que «atrás» recorra pasos, no la web anterior.
   if (!location.hash || location.hash === '#/' || location.hash === '#') {
     history.replaceState({ view: 'entradas' }, '', '#/entradas')
   }
@@ -617,6 +647,49 @@ async function afterLogin() {
     return
   }
   navigate(route.view === 'entradas' ? { view: 'entradas' } : route, { replace: true })
+}
+
+function applyAuthUi() {
+  const isAdmin = authSession?.role === 'admin'
+  const startBtn = document.getElementById('startNewSite')
+  const accessCard = document.getElementById('siteAccessCard')
+  const adminActions = document.getElementById('siteAdminActions')
+  const webhookLabel = document.querySelector('label[for="siteWebhook"]')
+  if (startBtn) startBtn.hidden = !isAdmin
+  if (accessCard) accessCard.hidden = !isAdmin
+  if (siteFilter) siteFilter.disabled = !isAdmin && (authSession?.sites?.length || 0) <= 1
+  // Config avanzada solo admin
+  ;['siteWebhook', 'siteCoolifyToken', 'siteHumanApproval', 'testRebuild', 'saveSite'].forEach((id) => {
+    const el = document.getElementById(id)
+    if (!el) return
+    if (id === 'saveSite') {
+      el.hidden = !isAdmin
+      return
+    }
+    if (id === 'testRebuild') {
+      el.hidden = !isAdmin
+      return
+    }
+    el.disabled = !isAdmin
+    const wrap = el.closest('.help-callout') || el.parentElement
+  })
+  document.querySelectorAll('#siteConfigCard .help-callout').forEach((el) => {
+    el.hidden = !isAdmin
+  })
+  if (webhookLabel) webhookLabel.hidden = !isAdmin
+  if (siteWebhook) siteWebhook.hidden = !isAdmin
+  if (siteCoolifyToken) {
+    siteCoolifyToken.hidden = !isAdmin
+    const lab = document.querySelector('label[for="siteCoolifyToken"]')
+    if (lab) lab.hidden = !isAdmin
+  }
+  if (siteTokenStatus) siteTokenStatus.hidden = !isAdmin
+  if (siteHumanApproval) {
+    siteHumanApproval.closest('.checkbox-row')?.classList.toggle('is-hidden', !isAdmin)
+  }
+  if (topbarHint && !isAdmin) {
+    topbarHint.textContent = `Token de sitio. Solo gestionas ${authSession.site || 'este proyecto'}.`
+  }
 }
 
 function showLoginError(message) {
@@ -642,19 +715,30 @@ async function doLogin() {
 
   try {
     token = value
-    await fetch('/api/login', {
+    const data = await fetch('/api/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token })
     }).then(async (res) => {
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.message || 'Token incorrecto')
-      return data
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(payload.message || 'Token incorrecto')
+      return payload
     })
 
+    authSession = {
+      role: data.role || 'admin',
+      site: data.site || null,
+      sites: data.sites || [],
+      canCreateSites: Boolean(data.canCreateSites),
+      canManageAllSites: Boolean(data.canManageAllSites)
+    }
+    if (data.role === 'site' && data.site) {
+      localStorage.setItem('escarlet_cms_site', data.site)
+      if (siteFilter) siteFilter.dataset.pending = data.site
+    }
     localStorage.setItem('escarlet_cms_token', token)
     await afterLogin()
-    toast('Sesión iniciada')
+    toast(data.role === 'site' ? `Sesión del sitio ${data.site}` : 'Sesión de administrador')
   } catch (err) {
     token = ''
     localStorage.removeItem('escarlet_cms_token')
@@ -1175,18 +1259,265 @@ document.getElementById('refUploadForm').onsubmit = async (e) => {
   })
 }
 
+async function loadSites() {
+  const data = await api('/api/admin/sites')
+  const fromDb = (data.sites || []).map((s) => s.handle || s.id).filter(Boolean)
+  const handles = [...new Set([...(data.handles || []), ...fromDb])].sort()
+  cachedSiteHandles = handles.length ? handles : ['escarlet']
+
+  const pending = siteFilter.dataset.pending || localStorage.getItem('escarlet_cms_site') || ''
+  const current = siteFilter.value.trim()
+  const preferred =
+    (pending && cachedSiteHandles.includes(pending) && pending) ||
+    (current && cachedSiteHandles.includes(current) && current) ||
+    cachedSiteHandles[0]
+
+  delete siteFilter.dataset.pending
+  siteFilter.innerHTML = ''
+  for (const handle of cachedSiteHandles) {
+    const opt = document.createElement('option')
+    opt.value = handle
+    opt.textContent = handle
+    siteFilter.appendChild(opt)
+  }
+  siteFilter.value = preferred
+  activeSiteHandle = preferred
+  localStorage.setItem('escarlet_cms_site', preferred)
+  if (siteLabel) siteLabel.textContent = preferred
+  renderSiteList()
+}
+
+function renderSiteList() {
+  if (!siteList) return
+  const active = siteFilter.value.trim()
+  if (!cachedSiteHandles.length) {
+    siteList.innerHTML = '<li class="muted">Aún no hay sitios. Crea el primero con Nuevo sitio.</li>'
+    return
+  }
+  siteList.innerHTML = cachedSiteHandles
+    .map((handle) => {
+      const isActive = handle === active
+      return `<li class="site-list-item${isActive ? ' is-active' : ''}">
+        <div class="site-list-meta">
+          <strong>${escapeHtml(handle)}</strong>
+          <span>${isActive ? 'Sitio activo ahora' : 'Clic para activar'}</span>
+        </div>
+        <button type="button" class="btn ${isActive ? '' : 'btn-primary'}" data-activate-site="${escapeHtml(handle)}" ${isActive ? 'disabled' : ''}>
+          ${isActive ? 'Activo' : 'Usar'}
+        </button>
+      </li>`
+    })
+    .join('')
+  siteList.querySelectorAll('[data-activate-site]').forEach((btn) => {
+    btn.onclick = () => switchSite(btn.getAttribute('data-activate-site'))
+  })
+}
+
+async function switchSite(handle) {
+  if (!handle) return
+  const changing = handle !== activeSiteHandle
+  siteFilter.value = handle
+  activeSiteHandle = handle
+  localStorage.setItem('escarlet_cms_site', handle)
+  if (siteLabel) siteLabel.textContent = handle
+  renderSiteList()
+  if (!changing) return
+  hideOnboard()
+  await loadPosts()
+  await loadSite()
+  if (currentRoute?.view === 'marca') {
+    await loadBrand()
+    await loadRefs()
+  }
+  toast(`Sitio activo. ${handle}`)
+}
+
+siteFilter.onchange = () => {
+  switchSite(siteFilter.value.trim()).catch((e) => toast(e.message))
+}
+
+function showOnboard() {
+  if (siteOnboardCard) siteOnboardCard.hidden = false
+  if (siteListCard) siteListCard.hidden = true
+  if (siteConfigCard) siteConfigCard.hidden = true
+  resetOnboardForm()
+  setOnboardStep('basics')
+  if (onboardDone) onboardDone.hidden = true
+  document.getElementById('createSiteBtn').hidden = false
+  document.getElementById('onboardBackCoolify').hidden = false
+}
+
+function hideOnboard() {
+  if (siteOnboardCard) siteOnboardCard.hidden = true
+  if (siteListCard) siteListCard.hidden = false
+  if (siteConfigCard) siteConfigCard.hidden = false
+}
+
+function resetOnboardForm() {
+  const handle = document.getElementById('newSiteHandle')
+  const name = document.getElementById('newSiteName')
+  const domain = document.getElementById('newSiteDomain')
+  const authors = document.getElementById('newSiteAuthors')
+  const webhook = document.getElementById('newSiteWebhook')
+  const tokenEl = document.getElementById('newSiteToken')
+  const approval = document.getElementById('newSiteHumanApproval')
+  if (handle) handle.value = ''
+  if (name) name.value = ''
+  if (domain) domain.value = ''
+  if (authors) authors.value = ''
+  if (webhook) webhook.value = ''
+  if (tokenEl) tokenEl.value = ''
+  if (approval) approval.checked = true
+  if (onboardSummary) onboardSummary.innerHTML = ''
+}
+
+function setOnboardStep(step) {
+  onboardStep = step
+  document.querySelectorAll('[data-onboard-step]').forEach((b) => {
+    b.classList.toggle('active', b.dataset.onboardStep === step)
+  })
+  document.querySelectorAll('.onboard-panel').forEach((p) => {
+    p.classList.toggle('active', p.id === 'onboard-' + step)
+  })
+  if (onboardHint) onboardHint.textContent = ONBOARD_HINTS[step] || ''
+  if (step === 'review') fillOnboardSummary()
+}
+
+function readOnboardPayload() {
+  const handle = document.getElementById('newSiteHandle')?.value.trim().toLowerCase() || ''
+  const name = document.getElementById('newSiteName')?.value.trim() || handle
+  const domain = document.getElementById('newSiteDomain')?.value.trim() || ''
+  const authorsRaw = document.getElementById('newSiteAuthors')?.value.trim() || ''
+  const authors = authorsRaw
+    ? authorsRaw.split(',').map((a) => a.trim()).filter(Boolean)
+    : undefined
+  const rebuildWebhookUrl = document.getElementById('newSiteWebhook')?.value.trim() || ''
+  const coolifyApiToken = document.getElementById('newSiteToken')?.value.trim() || ''
+  const requiresHumanApproval = Boolean(document.getElementById('newSiteHumanApproval')?.checked)
+  return { handle, name, domain, authors, rebuildWebhookUrl, coolifyApiToken, requiresHumanApproval }
+}
+
+function fillOnboardSummary() {
+  if (!onboardSummary) return
+  const p = readOnboardPayload()
+  const rows = [
+    ['Handle', p.handle || '—'],
+    ['Nombre', p.name || '—'],
+    ['Dominio', p.domain || '—'],
+    ['Autores', p.authors?.join(', ') || 'Equipo'],
+    ['Webhook', p.rebuildWebhookUrl || 'Lo configuras después'],
+    ['Token Coolify', p.coolifyApiToken ? 'Se guardará al crear' : 'Lo configuras después'],
+    ['Aprobación humana', p.requiresHumanApproval ? 'Sí' : 'Publicación directa']
+  ]
+  onboardSummary.innerHTML = rows
+    .map(
+      ([k, v]) => `<div><dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd></div>`
+    )
+    .join('')
+}
+
+function validateOnboardBasics() {
+  const p = readOnboardPayload()
+  if (!/^[a-z][a-z0-9-]{1,46}[a-z0-9]$/.test(p.handle)) {
+    toast('Handle inválido. Usa kebab-case corto, por ejemplo mares24.')
+    return false
+  }
+  if (!p.domain || !/^https?:\/\//i.test(p.domain)) {
+    toast('Dominio con https:// o http://')
+    return false
+  }
+  return true
+}
+
+document.getElementById('startNewSite')?.addEventListener('click', () => {
+  showOnboard()
+})
+
+document.getElementById('cancelNewSite')?.addEventListener('click', () => {
+  hideOnboard()
+})
+
+document.getElementById('onboardNextCoolify')?.addEventListener('click', () => {
+  if (!validateOnboardBasics()) return
+  const name = document.getElementById('newSiteName')
+  const handle = document.getElementById('newSiteHandle')
+  if (name && handle && !name.value.trim()) name.value = handle.value.trim()
+  setOnboardStep('coolify')
+})
+
+document.getElementById('onboardBackBasics')?.addEventListener('click', () => setOnboardStep('basics'))
+document.getElementById('onboardNextReview')?.addEventListener('click', () => setOnboardStep('review'))
+document.getElementById('onboardBackCoolify')?.addEventListener('click', () => setOnboardStep('coolify'))
+
+document.querySelectorAll('[data-onboard-step]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const step = btn.dataset.onboardStep
+    if (step === 'coolify' || step === 'review') {
+      if (!validateOnboardBasics()) return
+    }
+    setOnboardStep(step)
+  })
+})
+
+document.getElementById('createSiteBtn')?.addEventListener('click', async () => {
+  if (!validateOnboardBasics()) {
+    setOnboardStep('basics')
+    return
+  }
+  const btn = document.getElementById('createSiteBtn')
+  await withBusy(btn, 'Creando…', async () => {
+    const payload = readOnboardPayload()
+    if (!payload.rebuildWebhookUrl) delete payload.rebuildWebhookUrl
+    if (!payload.coolifyApiToken) delete payload.coolifyApiToken
+    if (!payload.authors?.length) delete payload.authors
+    await api('/api/admin/sites', { method: 'POST', body: JSON.stringify(payload) })
+    await loadSites()
+    await switchSite(payload.handle)
+    if (onboardDone) onboardDone.hidden = false
+    btn.hidden = true
+    document.getElementById('onboardBackCoolify').hidden = true
+    toast(`Sitio ${payload.handle} creado`)
+  })
+})
+
+document.getElementById('onboardGoBrand')?.addEventListener('click', () => {
+  hideOnboard()
+  navigate({ view: 'marca' })
+})
+
+document.getElementById('onboardFinish')?.addEventListener('click', () => {
+  hideOnboard()
+  loadSite().catch((e) => toast(e.message))
+})
+
 async function loadSite() {
   const site = siteFilter.value.trim() || 'escarlet'
   if (siteLabel) siteLabel.textContent = site
+  renderSiteList()
+  applyAuthUi()
   const data = await api(`/api/admin/site-config/${site}`)
+  if (siteName) siteName.value = data.config?.name || site
   siteDomain.value = data.config?.domain || ''
-  siteWebhook.value = data.config?.rebuildWebhookUrl || ''
+  if (siteWebhook) siteWebhook.value = data.config?.rebuildWebhookUrl || ''
   humanApprovalRequired = Boolean(data.config?.requiresHumanApproval)
-  siteHumanApproval.checked = humanApprovalRequired
-  siteCoolifyToken.value = ''
-  siteTokenStatus.textContent = data.config?.hasCoolifyApiToken
-    ? `Token guardado (${data.config.coolifyApiTokenHint}). Deja el campo vacío para mantenerlo.`
-    : 'Sin token. Coolify puede rechazar el webhook sin autenticación.'
+  if (siteHumanApproval) siteHumanApproval.checked = humanApprovalRequired
+  if (siteCoolifyToken) siteCoolifyToken.value = ''
+  if (siteTokenStatus) {
+    siteTokenStatus.textContent = data.config?.hasCoolifyApiToken
+      ? `Token Coolify guardado (${data.config.coolifyApiTokenHint}). Deja el campo vacío para mantenerlo.`
+      : 'Sin token Coolify todavía.'
+  }
+  const accessStatus = document.getElementById('siteAccessStatus')
+  if (accessStatus) {
+    accessStatus.textContent = data.config?.hasSiteAccessToken
+      ? `Token de cliente activo (${data.config.siteAccessTokenHint}).`
+      : 'Sin token de cliente todavía.'
+  }
+  const accessResult = document.getElementById('siteAccessResult')
+  if (accessResult) {
+    accessResult.hidden = true
+    accessResult.textContent = ''
+  }
   rebuildResult.textContent = ''
   rebuildResult.classList.remove('is-ok', 'is-error')
   setPublishLabels(postStatusInput?.value || 'draft')
@@ -1197,6 +1528,7 @@ document.getElementById('saveSite').onclick = async () => {
   await withBusy(btn, 'Guardando…', async () => {
     const site = siteFilter.value.trim() || 'escarlet'
     const payload = {
+      name: siteName?.value.trim() || site,
       domain: siteDomain.value.trim(),
       rebuildWebhookUrl: siteWebhook.value.trim(),
       requiresHumanApproval: siteHumanApproval.checked
@@ -1208,8 +1540,8 @@ document.getElementById('saveSite').onclick = async () => {
     })
     siteCoolifyToken.value = ''
     siteTokenStatus.textContent = data.config?.hasCoolifyApiToken
-      ? `Token guardado (${data.config.coolifyApiTokenHint}). Deja el campo vacío para mantenerlo.`
-      : 'Sin token. Coolify puede rechazar el webhook sin autenticación.'
+      ? `Token Coolify guardado (${data.config.coolifyApiTokenHint}). Deja el campo vacío para mantenerlo.`
+      : 'Sin token Coolify todavía.'
     toast('Sitio guardado')
     humanApprovalRequired = Boolean(siteHumanApproval.checked)
     setPublishLabels(postStatusInput?.value || 'draft')
@@ -1227,3 +1559,84 @@ document.getElementById('testRebuild').onclick = async () => {
     showRebuildResult(err.payload?.rebuild, err.message || 'No se pudo probar el webhook')
   }
 }
+
+document.getElementById('generateSiteToken')?.addEventListener('click', async () => {
+  const btn = document.getElementById('generateSiteToken')
+  const site = siteFilter.value.trim() || 'escarlet'
+  await withBusy(btn, 'Generando…', async () => {
+    const data = await api(`/api/admin/site-config/${site}/access-token`, {
+      method: 'POST',
+      body: '{}'
+    })
+    const out = document.getElementById('siteAccessResult')
+    if (out) {
+      out.hidden = false
+      out.textContent = `${data.message || 'Token generado'}\n\n${data.siteAccessToken || ''}`
+    }
+    const accessStatus = document.getElementById('siteAccessStatus')
+    if (accessStatus) {
+      accessStatus.textContent = data.config?.hasSiteAccessToken
+        ? `Token de cliente activo (${data.config.siteAccessTokenHint}).`
+        : 'Token generado.'
+    }
+    toast('Copia el token ahora. Solo se muestra una vez.')
+  })
+})
+
+document.getElementById('clearSiteToken')?.addEventListener('click', async () => {
+  const btn = document.getElementById('clearSiteToken')
+  const site = siteFilter.value.trim() || 'escarlet'
+  if (!window.confirm('¿Revocar el token de cliente de este sitio?')) return
+  await withBusy(btn, 'Revocando…', async () => {
+    await api(`/api/admin/site-config/${site}/access-token`, {
+      method: 'POST',
+      body: JSON.stringify({ clear: true })
+    })
+    const out = document.getElementById('siteAccessResult')
+    if (out) {
+      out.hidden = true
+      out.textContent = ''
+    }
+    const accessStatus = document.getElementById('siteAccessStatus')
+    if (accessStatus) accessStatus.textContent = 'Sin token de cliente todavía.'
+    toast('Token de cliente revocado')
+  })
+})
+
+document.getElementById('brandZipForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault()
+  const file = document.getElementById('brandZipFile')?.files?.[0]
+  if (!file) {
+    toast('Elige un archivo ZIP')
+    return
+  }
+  const btn = document.getElementById('brandZipBtn')
+  const site = siteFilter.value.trim() || 'escarlet'
+  await withBusy(btn, 'Importando…', async () => {
+    const contentBase64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result || ''))
+      reader.onerror = () => reject(new Error('No se pudo leer el ZIP'))
+      reader.readAsDataURL(file)
+    })
+    const data = await api(`/api/admin/brand-kit/${encodeURIComponent(site)}/import-zip`, {
+      method: 'POST',
+      body: JSON.stringify({ contentBase64 })
+    })
+    const out = document.getElementById('brandZipResult')
+    if (out) {
+      out.hidden = false
+      out.textContent = [
+        `MD importados. ${(data.importedMd || []).join(', ') || 'ninguno'}`,
+        `Imágenes. ${(data.importedImages || []).length}`,
+        data.skipped?.length ? `Omitidos. ${data.skipped.slice(0, 8).join(', ')}` : ''
+      ]
+        .filter(Boolean)
+        .join('\n')
+    }
+    document.getElementById('brandZipFile').value = ''
+    await loadBrand()
+    await loadRefs()
+    toast('Brand kit importado')
+  })
+})

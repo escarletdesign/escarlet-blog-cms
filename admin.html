@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex,nofollow" />
   <title>Escarlet Blog CMS</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/admin.css?v=4" />
+  <link rel="stylesheet" href="/admin.css?v=6" />
   <link rel="stylesheet" href="https://uicdn.toast.com/editor/latest/toastui-editor.min.css" />
 </head>
 <body>
@@ -16,7 +16,7 @@
         <img src="/favicon.svg" alt="" width="36" height="36" />
         <h1>Escarlet Blog CMS</h1>
       </div>
-      <p>Gestiona borradores, revisa el resultado y publica cuando esté listo.</p>
+      <p>Usa el token de administración global o el token de un sitio concreto.</p>
       <label for="token">Token de administración</label>
       <input id="token" type="password" autocomplete="current-password" />
       <p id="loginError" class="login-error" hidden></p>
@@ -63,9 +63,11 @@
     <div class="main">
       <header class="topbar">
         <div class="topbar-site">
-          <span class="topbar-kicker">Sitio activo</span>
-          <strong id="siteLabel">escarlet</strong>
-          <input id="siteFilter" type="hidden" value="escarlet" />
+          <label class="topbar-kicker" for="siteFilter">Sitio activo</label>
+          <div class="topbar-site-row">
+            <select id="siteFilter" aria-label="Sitio activo"></select>
+            <strong id="siteLabel" class="visually-hidden">escarlet</strong>
+          </div>
         </div>
         <p class="topbar-hint" id="topbarHint">Empieza por Entradas. Abre un borrador y avanza paso a paso hasta publicar.</p>
       </header>
@@ -266,6 +268,26 @@
 
         <section id="panel-marca" class="panel" data-panel="marca">
           <div class="card">
+            <h2 class="card-title">Importar kit (ZIP)</h2>
+            <p class="card-desc">Sube un ZIP con los .md del kit y fotos de referencia. El CMS lo descomprime y coloca cada archivo donde corresponde.</p>
+            <div class="help-callout help-callout-compact">
+              <strong>Qué puede ir dentro</strong>
+              <ul class="help-steps">
+                <li><code>voice.md</code>, <code>visual-style.md</code>, <code>image-guide.md</code>, <code>keywords.md</code>, <code>AGENT.md</code></li>
+                <li>Imágenes <code>.webp</code> <code>.jpg</code> <code>.png</code> <code>.gif</code> (van a referencias)</li>
+                <li>Carpetas internas valen. Se ignoran rutas con <code>..</code></li>
+              </ul>
+            </div>
+            <form id="brandZipForm" class="upload-zone">
+              <label for="brandZipFile">Archivo ZIP</label>
+              <input type="file" id="brandZipFile" accept=".zip,application/zip" />
+              <div class="actions">
+                <button type="submit" class="btn btn-primary" id="brandZipBtn">Importar ZIP</button>
+              </div>
+            </form>
+            <pre id="brandZipResult" class="result" hidden></pre>
+          </div>
+          <div class="card">
             <h2 class="card-title">Kit de marca</h2>
             <p class="card-desc">El agente de contenido usa este kit al redactar. Puedes corregir el texto o las fotos de referencia.</p>
             <label for="brandFile">Qué editas</label>
@@ -300,26 +322,163 @@
         </section>
 
         <section id="panel-sitio" class="panel" data-panel="sitio">
-          <div class="card">
-            <h2 class="card-title">Configuración del sitio</h2>
+          <div class="card" id="siteListCard">
+            <div class="card-head-row">
+              <div>
+                <h2 class="card-title">Tus sitios</h2>
+                <p class="card-desc">Cada landing tiene su handle, dominio y webhook de Coolify.</p>
+              </div>
+              <button type="button" class="btn btn-primary" id="startNewSite">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+                Nuevo sitio
+              </button>
+            </div>
+            <ul class="site-list" id="siteList" aria-live="polite"></ul>
+          </div>
+
+          <div class="card" id="siteOnboardCard" hidden>
+            <div class="card-head-row">
+              <div>
+                <h2 class="card-title">Alta de un sitio nuevo</h2>
+                <p class="card-desc" id="onboardHint">Paso 1 de 3. Datos básicos del proyecto.</p>
+              </div>
+              <button type="button" class="btn btn-ghost" id="cancelNewSite">Cancelar</button>
+            </div>
+
+            <nav class="step-nav onboard-steps" aria-label="Pasos del alta">
+              <button type="button" class="step-btn active" data-onboard-step="basics" id="onboardStepBasics">
+                <span class="step-num">1</span>
+                <span class="step-label">Datos</span>
+              </button>
+              <button type="button" class="step-btn" data-onboard-step="coolify" id="onboardStepCoolify">
+                <span class="step-num">2</span>
+                <span class="step-label">Coolify</span>
+              </button>
+              <button type="button" class="step-btn" data-onboard-step="review" id="onboardStepReview">
+                <span class="step-num">3</span>
+                <span class="step-label">Crear</span>
+              </button>
+            </nav>
+
+            <div id="onboard-basics" class="onboard-panel active">
+              <div class="help-callout">
+                <strong>Qué es el handle</strong>
+                <p>Es el id corto del site dentro del CMS. Usa kebab-case. Ejemplos. <code>mares24</code>, <code>umbral</code>, <code>elektia</code>.</p>
+              </div>
+              <div class="row">
+                <div>
+                  <label for="newSiteHandle">Handle</label>
+                  <input id="newSiteHandle" placeholder="mares24" autocomplete="off" />
+                </div>
+                <div>
+                  <label for="newSiteName">Nombre visible</label>
+                  <input id="newSiteName" placeholder="Mares 24" />
+                </div>
+              </div>
+              <label for="newSiteDomain">Dominio público del blog</label>
+              <input id="newSiteDomain" placeholder="https://mares24.com" />
+              <p class="field-help">La URL canónica de los posts será <code>dominio/blog/slug</code>. Cópiala de la web en producción.</p>
+              <label for="newSiteAuthors">Autores (opcional)</label>
+              <input id="newSiteAuthors" placeholder="Alex, María" />
+              <p class="field-help">Separados por coma. Si lo dejas vacío usamos «Equipo».</p>
+              <div class="actions sticky-actions">
+                <button type="button" class="btn btn-primary" id="onboardNextCoolify">Siguiente. Coolify</button>
+              </div>
+            </div>
+
+            <div id="onboard-coolify" class="onboard-panel">
+              <div class="help-callout">
+                <strong>Dónde sacar estos datos</strong>
+                <ol class="help-steps">
+                  <li>Entra en Coolify y abre la app del <em>frontend</em> (la web pública del cliente). Es distinta de la app del CMS.</li>
+                  <li>Busca <em>Webhooks</em> o <em>Deploy Webhook</em>. Elige el de producción con auth required.</li>
+                  <li>Copia la URL. Suele verse así. <code>https://coolify…/api/v1/deploy?uuid=…&amp;force=false</code></li>
+                  <li>En Coolify → Keys &amp; Tokens (o Keys), crea o copia un token API con permiso Deploy.</li>
+                </ol>
+                <p>Puedes saltarte este paso y pegar webhook y token más tarde en Configuración del sitio.</p>
+              </div>
+              <label for="newSiteWebhook">URL de Deploy Webhook</label>
+              <input id="newSiteWebhook" placeholder="https://coolify.escarlet.cc/api/v1/deploy?uuid=…" />
+              <label for="newSiteToken">Token API Coolify</label>
+              <input id="newSiteToken" type="password" autocomplete="new-password" placeholder="Token con permiso Deploy" />
+              <div class="checkbox-row">
+                <input type="checkbox" id="newSiteHumanApproval" checked />
+                <label for="newSiteHumanApproval">Pedir aprobación humana antes de publicar en vivo</label>
+              </div>
+              <div class="actions sticky-actions">
+                <button type="button" class="btn" id="onboardBackBasics">Anterior. Datos</button>
+                <button type="button" class="btn btn-primary" id="onboardNextReview">Siguiente. Revisar</button>
+              </div>
+            </div>
+
+            <div id="onboard-review" class="onboard-panel">
+              <div class="help-callout">
+                <strong>Al crear el sitio</strong>
+                <p>El CMS guarda el handle, el brand kit vacío para que lo rellenes, y el webhook si lo pegaste. Después conectarás el frontend con sync y packs.</p>
+              </div>
+              <dl class="onboard-summary" id="onboardSummary"></dl>
+              <div class="actions sticky-actions">
+                <button type="button" class="btn" id="onboardBackCoolify">Anterior. Coolify</button>
+                <button type="button" class="btn btn-primary" id="createSiteBtn">Crear sitio</button>
+              </div>
+              <div id="onboardDone" class="onboard-done" hidden>
+                <h3 class="card-title">Sitio listo</h3>
+                <p class="card-desc">Sigue estos pasos en orden.</p>
+                <ol class="help-steps" id="onboardNextSteps">
+                  <li>Abre <strong>Kit de marca</strong> y completa voz, estilo, keywords y AGENT.md. Sube 2 a 4 fotos de referencia.</li>
+                  <li>En el repo del frontend, pide al agente. «Integra el blog CMS con este handle» (skill <code>escarlet-blog-integrate</code>).</li>
+                  <li>En Coolify (app del frontend) pon las variables <code>BLOG_CMS_URL</code>, <code>BLOG_CMS_SITE</code> y <code>BLOG_SITE_URL</code>.</li>
+                  <li>Si aún falta el webhook, pégalo abajo en Configuración y pulsa Probar webhook.</li>
+                  <li>Publica un post de prueba y abre <code>/blog/{slug}</code> y <code>/admin/blog-packs/{slug}</code>.</li>
+                </ol>
+                <div class="actions">
+                  <button type="button" class="btn btn-primary" id="onboardGoBrand">Ir al kit de marca</button>
+                  <button type="button" class="btn" id="onboardFinish">Seguir en este sitio</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card" id="siteConfigCard">
+            <h2 class="card-title">Configuración del sitio activo</h2>
             <p class="card-desc">Dominio público y aviso de rebuild cuando publicas una entrada.</p>
+            <label for="siteName">Nombre visible</label>
+            <input id="siteName" placeholder="Escarlet" />
             <label for="siteDomain">Dominio público</label>
             <input id="siteDomain" placeholder="https://escarlet.design" />
             <label for="siteWebhook">URL de deploy (webhook)</label>
             <input id="siteWebhook" placeholder="https://…/api/v1/deploy?uuid=…" />
-            <p class="card-desc">En Coolify abre la app del frontend, Webhooks, Deploy Webhook, y pega esa URL aquí.</p>
+            <div class="help-callout help-callout-compact">
+              <strong>Dónde está el webhook</strong>
+              <p>Coolify → app del <em>frontend</em> en producción → Webhooks → Deploy Webhook (auth required). Pega esa URL aquí.</p>
+            </div>
             <label for="siteCoolifyToken">Token API de Coolify</label>
             <input id="siteCoolifyToken" type="password" autocomplete="new-password" placeholder="Token con permiso Deploy" />
-            <p class="card-desc" id="siteTokenStatus"></p>
+            <p class="field-help" id="siteTokenStatus"></p>
+            <div class="help-callout help-callout-compact">
+              <strong>Dónde está el token</strong>
+              <p>Coolify → Keys &amp; Tokens. Usa un token con permiso Deploy. Si ya hay uno guardado, deja el campo vacío para mantenerlo.</p>
+            </div>
             <div class="checkbox-row">
               <input type="checkbox" id="siteHumanApproval" />
               <label for="siteHumanApproval">Pedir aprobación humana antes de publicar en vivo</label>
             </div>
-            <div class="actions">
+            <div class="actions" id="siteAdminActions">
               <button type="button" class="btn btn-primary" id="saveSite">Guardar sitio</button>
               <button type="button" class="btn" id="testRebuild">Probar webhook</button>
             </div>
             <pre id="rebuildResult" class="result"></pre>
+          </div>
+
+          <div class="card" id="siteAccessCard">
+            <h2 class="card-title">Token de acceso del cliente</h2>
+            <p class="card-desc">Genera un token solo para este sitio. El cliente entra al dashboard o MCP con ese token y solo ve este handle.</p>
+            <p class="field-help" id="siteAccessStatus">Sin token de cliente todavía.</p>
+            <div class="actions">
+              <button type="button" class="btn btn-primary" id="generateSiteToken">Generar token</button>
+              <button type="button" class="btn" id="clearSiteToken">Revocar token</button>
+            </div>
+            <pre id="siteAccessResult" class="result" hidden></pre>
           </div>
         </section>
       </div>
@@ -332,6 +491,6 @@
   </div>
 
   <script src="https://uicdn.toast.com/editor/latest/toastui-editor-all.min.js"></script>
-  <script src="/admin.js?v=4"></script>
+  <script src="/admin.js?v=6"></script>
 </body>
 </html>

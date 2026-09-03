@@ -6,6 +6,7 @@ import {
   ReadResourceRequestSchema
 } from '@modelcontextprotocol/sdk/types.js'
 import * as cms from '../lib/cms-ops.mjs'
+import { assertSiteAccess, assertSuperAdmin, allowedSiteHandles } from '../lib/auth.mjs'
 
 const DEFAULT_SITE = process.env.DEFAULT_SITE || 'escarlet'
 
@@ -40,253 +41,219 @@ function errorResult(err) {
   }
 }
 
-export function createMcpServer() {
+function resolveToolSite(auth, args = {}) {
+  const requested = args.site || (auth?.role === 'site' ? auth.site : DEFAULT_SITE)
+  assertSiteAccess(auth, requested)
+  return requested
+}
+
+function buildToolList(auth) {
+  const tools = [
+    {
+      name: 'blog_list_sites',
+      description: 'Lista sitios visibles con este token.',
+      inputSchema: { type: 'object', properties: {} }
+    },
+    {
+      name: 'blog_get_onboarding',
+      description:
+        'Playbook setup + Coolify + flujo posts. Con token de sitio solo aplica a ese handle.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          site: { type: 'string' },
+          domain: { type: 'string' },
+          name: { type: 'string' }
+        }
+      }
+    },
+    {
+      name: 'blog_create_site',
+      description: 'Alta de un site nuevo. Solo administrador global.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          handle: { type: 'string' },
+          name: { type: 'string' },
+          domain: { type: 'string' },
+          authors: { type: 'array', items: { type: 'string' } },
+          rebuildWebhookUrl: { type: 'string' },
+          coolifyApiToken: { type: 'string' },
+          requiresHumanApproval: { type: 'boolean' },
+          force: { type: 'boolean' }
+        },
+        required: ['handle']
+      },
+      adminOnly: true
+    },
+    {
+      name: 'blog_list_posts',
+      description: 'Lista posts por site y status opcional (draft, review, published).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          site: { type: 'string' },
+          status: { type: 'string' }
+        },
+        required: ['site']
+      }
+    },
+    {
+      name: 'blog_get_post',
+      description: 'Lee un post completo por slug.',
+      inputSchema: {
+        type: 'object',
+        properties: { site: { type: 'string' }, slug: { type: 'string' } },
+        required: ['site', 'slug']
+      }
+    },
+    {
+      name: 'blog_create_draft',
+      description: 'Crea esqueleto de borrador NUEVO. Antes blog_get_brand_context.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          site: { type: 'string' },
+          title: { type: 'string' },
+          author: { type: 'string' },
+          slug: { type: 'string' },
+          date: { type: 'string' }
+        },
+        required: ['site', 'title']
+      }
+    },
+    {
+      name: 'blog_update_post',
+      description: 'Actualiza un post EXISTENTE.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          site: { type: 'string' },
+          slug: { type: 'string' },
+          originalSlug: { type: 'string' },
+          title: { type: 'string' },
+          excerptEs: { type: 'string' },
+          bodyHtml: { type: 'string' },
+          metaTitle: { type: 'object' },
+          metaDescription: { type: 'object' },
+          imageUrl: { type: 'string' },
+          imageAlt: { type: 'string' },
+          authorName: { type: 'string' },
+          relatedSlugs: { type: 'array', items: { type: 'string' } },
+          socialPack: { type: 'object' },
+          status: { type: 'string' },
+          keepPublished: { type: 'boolean' }
+        },
+        required: ['site', 'slug']
+      }
+    },
+    {
+      name: 'blog_unpublish',
+      description: 'Despublica un post (published → draft).',
+      inputSchema: {
+        type: 'object',
+        properties: { site: { type: 'string' }, slug: { type: 'string' } },
+        required: ['site', 'slug']
+      }
+    },
+    {
+      name: 'blog_delete_post',
+      description: 'Elimina un post. Obligatorio confirm=true.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          site: { type: 'string' },
+          slug: { type: 'string' },
+          confirm: { type: 'boolean' }
+        },
+        required: ['site', 'slug', 'confirm']
+      }
+    },
+    {
+      name: 'blog_validate_seo',
+      description: 'Valida quality gates SEO.',
+      inputSchema: {
+        type: 'object',
+        properties: { site: { type: 'string' }, slug: { type: 'string' } },
+        required: ['site', 'slug']
+      }
+    },
+    {
+      name: 'blog_publish',
+      description: 'Publica o envía a revisión.',
+      inputSchema: {
+        type: 'object',
+        properties: { site: { type: 'string' }, slug: { type: 'string' } },
+        required: ['site', 'slug']
+      }
+    },
+    {
+      name: 'blog_get_seo_context',
+      description: 'Keywords y reglas SEO del site.',
+      inputSchema: {
+        type: 'object',
+        properties: { site: { type: 'string' } },
+        required: ['site']
+      }
+    },
+    {
+      name: 'blog_get_brand_context',
+      description: 'Obligatorio al crear o editar. Brand kit + workflow.',
+      inputSchema: {
+        type: 'object',
+        properties: { site: { type: 'string' } },
+        required: ['site']
+      }
+    },
+    {
+      name: 'blog_update_brand_file',
+      description: 'Crea o corrige un archivo del brand kit.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          site: { type: 'string' },
+          file: { type: 'string' },
+          content: { type: 'string' }
+        },
+        required: ['site', 'file', 'content']
+      }
+    },
+    {
+      name: 'blog_upload_media',
+      description: 'Sube una imagen. Preferir imageUrl http pública.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          site: { type: 'string' },
+          filename: { type: 'string' },
+          imageUrl: { type: 'string' },
+          contentBase64: { type: 'string' },
+          alt: { type: 'string' },
+          kind: { type: 'string' }
+        },
+        required: ['site', 'filename']
+      }
+    }
+  ]
+
+  return tools.filter((t) => !(t.adminOnly && auth?.role === 'site')).map(({ adminOnly, ...rest }) => rest)
+}
+
+/**
+ * @param {{ role: 'admin' } | { role: 'site', site: string }} [auth]
+ */
+export function createMcpServer(auth = { role: 'admin' }) {
   const server = new Server(
     { name: 'escarlet-blog-cms', version: '2.0.0' },
     { capabilities: { tools: {}, resources: {} } }
   )
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: [
-      {
-        name: 'blog_list_sites',
-        description: 'Lista sitios configurados en el CMS central.',
-        inputSchema: { type: 'object', properties: {} }
-      },
-      {
-        name: 'blog_get_onboarding',
-        description:
-          'Playbook para crear un site nuevo o conectar un frontend. Incluye sync, env Coolify, Deploy webhook y flujo MCP de crear/editar posts. Llámalo al empezar un proyecto o si el humano pregunta cómo instalar el blog.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            site: { type: 'string', description: 'Handle del site (ej. escarlet, mares24). Opcional.' },
-            domain: { type: 'string', description: 'Dominio público si aún no está en el CMS' },
-            name: { type: 'string', description: 'Nombre legible del site' }
-          }
-        }
-      },
-      {
-        name: 'blog_create_site',
-        description:
-          'Da de alta un site nuevo en el CMS central (handle, brand stubs, registro en DB, webhook opcional). Luego completa brand kit y conecta el frontend. Devuelve nextSteps + playbook.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            handle: { type: 'string', description: 'kebab-case, ej. mares24' },
-            name: { type: 'string' },
-            domain: { type: 'string', description: 'https://dominio.com' },
-            authors: { type: 'array', items: { type: 'string' } },
-            rebuildWebhookUrl: {
-              type: 'string',
-              description: 'Deploy webhook Coolify del frontend (auth required)'
-            },
-            coolifyApiToken: { type: 'string', description: 'Token API Coolify con permiso Deploy' },
-            requiresHumanApproval: { type: 'boolean' },
-            force: { type: 'boolean', description: 'Reescribe stubs si el site ya existe' }
-          },
-          required: ['handle']
-        }
-      },
-      {
-        name: 'blog_list_posts',
-        description: 'Lista posts por site y status opcional (draft, review, published).',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            site: { type: 'string', description: 'Handle del site, ej. escarlet' },
-            status: { type: 'string', description: 'draft, review o published' }
-          },
-          required: ['site']
-        }
-      },
-      {
-        name: 'blog_get_post',
-        description: 'Lee un post completo por slug. Incluye previewUrl para abrir el borrador en el navegador.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            site: { type: 'string' },
-            slug: { type: 'string' }
-          },
-          required: ['site', 'slug']
-        }
-      },
-      {
-        name: 'blog_create_draft',
-        description:
-          'Crea esqueleto de borrador NUEVO. Antes blog_get_brand_context. Nunca uses esto para editar un post existente (duplica). Para editar. blog_get_post + blog_update_post. Devuelve previewUrl ABSOLUTO.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            site: { type: 'string' },
-            title: { type: 'string' },
-            author: { type: 'string', description: 'Charly o Silvia' },
-            slug: { type: 'string' },
-            date: { type: 'string', description: 'YYYY-MM-DD' }
-          },
-          required: ['site', 'title']
-        }
-      },
-      {
-        name: 'blog_update_post',
-        description:
-          'Actualiza un post EXISTENTE (404 si no hay slug). Nunca lo uses para crear. Para editar, mismo slug. Si renombras, pasa originalSlug (slug actual) y slug (nuevo). Con aprobación humana, un published baja a review. Devuelve validation, previewUrl y hint.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            site: { type: 'string' },
-            slug: { type: 'string', description: 'Slug destino (el mismo si no renombras)' },
-            originalSlug: {
-              type: 'string',
-              description: 'Slug actual si estás renombrando. Si omites, slug debe existir.'
-            },
-            title: { type: 'string' },
-            excerptEs: { type: 'string' },
-            bodyHtml: { type: 'string' },
-            metaTitle: { type: 'object' },
-            metaDescription: { type: 'object' },
-            imageUrl: { type: 'string' },
-            imageAlt: { type: 'string' },
-            authorName: { type: 'string' },
-            relatedSlugs: { type: 'array', items: { type: 'string' } },
-            socialPack: { type: 'object' },
-            status: { type: 'string', description: 'draft, review o published' },
-            keepPublished: {
-              type: 'boolean',
-              description: 'Solo dashboard humano. true mantiene published al guardar.'
-            }
-          },
-          required: ['site', 'slug']
-        }
-      },
-      {
-        name: 'blog_unpublish',
-        description: 'Despublica un post (published → draft) y dispara rebuild si estaba en vivo.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            site: { type: 'string' },
-            slug: { type: 'string' }
-          },
-          required: ['site', 'slug']
-        }
-      },
-      {
-        name: 'blog_delete_post',
-        description:
-          'Elimina un post de forma permanente. Obligatorio confirm=true. Si estaba published, dispara rebuild.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            site: { type: 'string' },
-            slug: { type: 'string' },
-            confirm: {
-              type: 'boolean',
-              description: 'Debe ser true para confirmar el borrado'
-            }
-          },
-          required: ['site', 'slug', 'confirm']
-        }
-      },
-      {
-        name: 'blog_validate_seo',
-        description:
-          'Valida quality gates SEO. Devuelve blockingErrors (impiden publicar), warnings (recomendaciones) y previewUrl. Con aprobación humana activa, blog_publish puede enviar a revisión aunque haya errores.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            site: { type: 'string' },
-            slug: { type: 'string' }
-          },
-          required: ['site', 'slug']
-        }
-      },
-      {
-        name: 'blog_publish',
-        description:
-          'Publica o envía a revisión. Con aprobación humana activa, un borrador draft pasa a review aunque el SEO no esté perfecto (devuelve previewUrl). La publicación final la hace un humano desde el dashboard cuando el SEO es válido.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            site: { type: 'string' },
-            slug: { type: 'string' }
-          },
-          required: ['site', 'slug']
-        }
-      },
-      {
-        name: 'blog_get_seo_context',
-        description: 'Keywords y reglas SEO del site.',
-        inputSchema: {
-          type: 'object',
-          properties: { site: { type: 'string' } },
-          required: ['site']
-        }
-      },
-      {
-        name: 'blog_get_brand_context',
-        description:
-          'Obligatorio al crear o editar. Devuelve voz, estilo, keywords, AGENT.md, referenceImages, postFields (qué preguntar al humano), editRules, workflow, authors, seoLimits y missingBrand.',
-        inputSchema: {
-          type: 'object',
-          properties: { site: { type: 'string' } },
-          required: ['site']
-        }
-      },
-      {
-        name: 'blog_update_brand_file',
-        description:
-          'Crea o corrige un archivo del brand kit (voice.md, visual-style.md, image-guide.md, keywords.md, AGENT.md). El equipo puede editarlo después en el dashboard.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            site: { type: 'string' },
-            file: {
-              type: 'string',
-              description: 'voice.md, visual-style.md, image-guide.md, keywords.md o AGENT.md'
-            },
-            content: { type: 'string', description: 'Markdown completo del archivo' }
-          },
-          required: ['site', 'file', 'content']
-        }
-      },
-      {
-        name: 'blog_upload_media',
-        description:
-          'Sube una imagen al CMS y devuelve media.url ABSOLUTA (https://blog-cms.escarlet.cc/media/...). Usa esa URL en imageUrl del post. PREFERIDO: pasa imageUrl con una URL http(s) pública temporal de la imagen generada (OpenAI, Gemini, CDN, etc.). El CMS la descarga y guarda. EVITA contentBase64 para fotos grandes: el base64 suele truncarse o fallar por tamaño. contentBase64 solo para archivos pequeños de prueba. kind=post portada del artículo. kind=reference moodboard de marca.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            site: { type: 'string' },
-            filename: {
-              type: 'string',
-              description: 'Nombre kebab-case con extensión, ej. que-es-branding.png'
-            },
-            imageUrl: {
-              type: 'string',
-              description:
-                'URL http(s) pública de la imagen (preferido). El CMS descarga el archivo completo desde aquí.'
-            },
-            contentBase64: {
-              type: 'string',
-              description:
-                'Solo si no hay imageUrl y el archivo es pequeño. No uses base64 para portadas grandes.'
-            },
-            alt: { type: 'string', description: 'Texto alt descriptivo (lo que se ve en la foto)' },
-            kind: { type: 'string', description: 'post (portada) o reference (moodboard)' }
-          },
-          required: ['site', 'filename']
-        }
-      }
-    ]
+    tools: buildToolList(auth)
   }))
 
   server.setRequestHandler(ListResourcesRequestSchema, async () => {
-    const listed = await cms.listSites()
-    const sites = listed.handles?.length
-      ? listed.handles
-      : (listed.sites || []).map((s) => s.handle || s.id).filter(Boolean)
+    const sites = allowedSiteHandles(auth)
     const resources = []
     for (const site of sites) {
       for (const key of Object.keys(RESOURCE_MAP)) {
@@ -304,6 +271,7 @@ export function createMcpServer() {
     const match = request.params.uri.match(/^brand:\/\/([^/]+)\/([^/]+)$/)
     if (!match) throw new Error(`URI desconocida: ${request.params.uri}`)
     const [, site, key] = match
+    assertSiteAccess(auth, site)
     const file = RESOURCE_MAP[key]
     if (!file) throw new Error(`Recurso desconocido: ${key}`)
     const data = await cms.getBrandFile(site, file)
@@ -314,17 +282,25 @@ export function createMcpServer() {
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args = {} } = request.params
-    const site = args.site || DEFAULT_SITE
     try {
       switch (name) {
-        case 'blog_list_sites':
-          return textResult(await cms.listSites())
+        case 'blog_list_sites': {
+          const all = await cms.listSites()
+          const allowed = new Set(allowedSiteHandles(auth))
+          return textResult({
+            sites: (all.sites || []).filter((s) => allowed.has(s.handle || s.id)),
+            handles: [...allowed].sort(),
+            role: auth.role
+          })
+        }
         case 'blog_get_onboarding': {
           const { getOnboardingPlaybook } = await import('../lib/onboarding.mjs')
-          const base = args.site ? await cms.getOnboarding(args.site) : getOnboardingPlaybook({})
+          const handle = auth.role === 'site' ? auth.site : args.site || DEFAULT_SITE
+          if (auth.role === 'site') assertSiteAccess(auth, handle)
+          const base = await cms.getOnboarding(handle)
           return textResult(
             getOnboardingPlaybook({
-              handle: args.site || base.site?.handle,
+              handle,
               name: args.name || base.site?.name,
               domain: args.domain || base.site?.domain,
               cmsUrl: process.env.CMS_PUBLIC_URL
@@ -332,34 +308,59 @@ export function createMcpServer() {
           )
         }
         case 'blog_create_site':
+          assertSuperAdmin(auth)
           return textResult(await cms.createSiteRecord(args))
-        case 'blog_list_posts':
+        case 'blog_list_posts': {
+          const site = resolveToolSite(auth, args)
           return textResult(await cms.listPosts(site, args.status))
-        case 'blog_get_post':
+        }
+        case 'blog_get_post': {
+          const site = resolveToolSite(auth, args)
           return textResult(await cms.getPost(site, args.slug))
-        case 'blog_create_draft':
-          return textResult(await cms.createDraft(args))
-        case 'blog_update_post':
-          return textResult(await cms.updatePost(args))
-        case 'blog_unpublish':
+        }
+        case 'blog_create_draft': {
+          const site = resolveToolSite(auth, args)
+          return textResult(await cms.createDraft({ ...args, site }))
+        }
+        case 'blog_update_post': {
+          const site = resolveToolSite(auth, args)
+          return textResult(await cms.updatePost({ ...args, site }))
+        }
+        case 'blog_unpublish': {
+          const site = resolveToolSite(auth, args)
           return textResult(await cms.unpublishPost(site, args.slug))
-        case 'blog_delete_post':
+        }
+        case 'blog_delete_post': {
+          const site = resolveToolSite(auth, args)
           if (args.confirm !== true) {
             throw Object.assign(new Error('Para eliminar, pasa confirm: true'), { status: 400 })
           }
           return textResult(await cms.deletePost(site, args.slug))
-        case 'blog_validate_seo':
+        }
+        case 'blog_validate_seo': {
+          const site = resolveToolSite(auth, args)
           return textResult(await cms.validateSeo(site, args.slug))
-        case 'blog_publish':
+        }
+        case 'blog_publish': {
+          const site = resolveToolSite(auth, args)
           return textResult(await cms.publishPost(site, args.slug))
-        case 'blog_get_seo_context':
+        }
+        case 'blog_get_seo_context': {
+          const site = resolveToolSite(auth, args)
           return textResult(await cms.getSeoContext(site))
-        case 'blog_get_brand_context':
+        }
+        case 'blog_get_brand_context': {
+          const site = resolveToolSite(auth, args)
           return textResult(await cms.getBrandContext(site))
-        case 'blog_update_brand_file':
+        }
+        case 'blog_update_brand_file': {
+          const site = resolveToolSite(auth, args)
           return textResult(await cms.updateBrandFile(site, args.file, args.content))
-        case 'blog_upload_media':
-          return textResult(await cms.uploadMedia(args))
+        }
+        case 'blog_upload_media': {
+          const site = resolveToolSite(auth, args)
+          return textResult(await cms.uploadMedia({ ...args, site }))
+        }
         default:
           throw new Error(`Tool desconocida: ${name}`)
       }

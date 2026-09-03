@@ -26,9 +26,19 @@ El agente separa pasos tuyos (webhook, tokens) de lo que hace él (sync, rutas, 
 
 ---
 
+## Acceso por sitio (tokens)
+
+- **Admin global** (`ADMIN_TOKEN`). Ve todos los sitios, crea handles, webhooks y tokens de cliente.
+- **Token de sitio**. En dashboard → Sitio → Token de acceso del cliente → Generar. Ese token solo gestiona ese handle (dashboard + MCP).
+
+Los clientes reciben su token. Tú te quedas con el `ADMIN_TOKEN`.
+
 ## A. Site nuevo en el CMS (5 min)
 
-Desde este repo:
+Desde el dashboard. `https://blog-cms.escarlet.cc/admin` → **Sitio** → **Nuevo sitio**.  
+Asistente en 3 pasos (datos, Coolify, crear) con ayuda de dónde sacar webhook y token.
+
+También por CLI o MCP.
 
 ```bash
 npm run site:init -- \
