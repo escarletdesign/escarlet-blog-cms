@@ -30,6 +30,15 @@ export async function listSites() {
   return request('GET', '/api/admin/sites')
 }
 
+export async function getOnboarding(site) {
+  const q = site ? `?site=${encodeURIComponent(site)}` : ''
+  return request('GET', `/api/admin/onboarding${q}`)
+}
+
+export async function createSite(payload) {
+  return request('POST', '/api/admin/sites', payload)
+}
+
 export async function listPosts(site, status) {
   const q = new URLSearchParams({ site })
   if (status) q.set('status', status)

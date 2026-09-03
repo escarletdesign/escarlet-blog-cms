@@ -1,0 +1,61 @@
+---
+description: Flujo obligatorio para crear o editar posts del blog vía MCP (Escarlet Blog CMS)
+globs:
+alwaysApply: false
+---
+
+# Blog vía MCP
+
+Contenido editorial del blog. Usa el MCP **escarlet-blog** con `site: {{handle}}`.
+Los posts viven en el CMS. El frontend solo sincroniza en build.
+
+## Antes de redactar
+
+1. Si el site es nuevo o dudas del setup. `blog_get_onboarding` con `site: {{handle}}`
+2. `blog_get_brand_context` con `site: {{handle}}`
+3. Lee resources `brand://{{handle}}/voice`, `keywords`, `agent`, `image-guide`
+
+## Crear post
+
+1. `blog_create_draft` (title + author)
+2. `blog_update_post` con bodyHtml, metas, imagen y **socialPack** completo:
+
+```js
+socialPack: {
+  substackTitle: '...',
+  substackBody: '...', // + backlink {{domain}}/blog/{slug}
+  linkedin: '...',
+  x: '...',
+  videoScript: '...'   // guion oral 45–60s en posts nuevos
+}
+```
+
+3. `blog_validate_seo`
+4. `blog_publish`
+5. Tras el rebuild. indicar `https://{{domain}}/admin/blog-packs/{slug}`
+
+## Editar post
+
+1. `blog_get_post` con el slug
+2. `blog_update_post` con el **mismo slug** (nunca `blog_create_draft`)
+
+## Imágenes
+
+`blog_upload_media` con URL http pública (`imageUrl`). Usa la URL absoluta que devuelve el CMS.
+
+## Blog-packs (frontend)
+
+El HTML de packs se genera en el **build del frontend** (`npm run blog:packs`), no en el CMS.
+Orden de build. sync CMS → generate-blog-social-packs → build app.
+Plantilla. `escarlet-blog-cms/templates/frontend/generate-blog-social-packs.mjs`
+
+## Tras publicar
+
+El CMS dispara el Deploy Webhook de Coolify del frontend. El sync baja posts y regenera packs.
+Comparte el `previewUrl` del CMS y la URL del pack admin.
+
+## Prohibido
+
+- Commits de contenido editorial en el repo del frontend
+- Inventar brand kit. Complétalo con `blog_update_brand_file` o el dashboard
+- Publicar en redes desde el agente (el pack es copia manual)

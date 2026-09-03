@@ -1,0 +1,67 @@
+---
+description: Al crear un post de blog, generar pack de redes (Substack, X, LinkedIn, guion) y página admin
+globs: src/data/blog-articles.js,src/data/blog.generated.js,scripts/generate-blog-social-packs.mjs,public/admin/blog-packs/**
+alwaysApply: false
+---
+
+# Packs de publicación del blog
+
+Cuando crees o publiques un post vía MCP/CMS, completa `socialPack` y asegúrate de que el build genera `/admin/blog-packs`.
+
+Plantilla canónica. `escarlet-blog-cms/templates/frontend/generate-blog-social-packs.mjs`
+
+## 1. Datos en el CMS (`socialPack`)
+
+```js
+socialPack: {
+  substackTitle: '...',
+  substackBody: '...',  // + backlink {{domain}}/blog/{slug}
+  linkedin: '...',
+  x: '...',
+  videoScript: '...'    // guion oral 45–60s en posts nuevos
+}
+```
+
+- Cada canal escrito incluye el backlink canónico.
+- Substack. 4–8 párrafos cortos. Distinto del body.
+- LinkedIn. Más comercial, saltos cortos.
+- X. Gancho + idea + enlace.
+- `videoScript`. Oral, ~100–140 palabras. Sin URLs para leer en voz alta.
+
+## 2. Build del frontend
+
+```bash
+# Orden. sync CMS → packs → build app
+node scripts/sync-blog-cms.mjs
+BLOG_SITE_URL={{domain}} BLOG_PACKS_NAME="Packs {{name}}" npm run blog:packs
+```
+
+En `package.json`:
+
+```json
+"blog:packs": "node scripts/generate-blog-social-packs.mjs",
+"build": "node scripts/sync-blog-cms.mjs && node scripts/generate-blog-social-packs.mjs && vite build"
+```
+
+Env útiles. `BLOG_SITE_URL`, `BLOG_PACKS_NAME`, `BLOG_PACKS_THEME`, iconos `BLOG_PACKS_ICON*`.
+
+## 3. URLs admin
+
+- Índice. `{{domain}}/admin/blog-packs`
+- Pack. `{{domain}}/admin/blog-packs/{slug}`
+- Editor guion. `…/{slug}/edit` (si hay `videoScript`)
+
+`robots` Disallow `/admin`. `noindex` en las páginas.
+
+## 4. UX del pack
+
+- Substack / LinkedIn / X / alt. truncado + Copiar + Leer más
+- Solo el guion tiene Editar (override en `localStorage`, no escribe al CMS)
+- Publicación en redes. **manual**
+
+## 5. Checklist
+
+- [ ] `socialPack` completo (con `videoScript` en posts nuevos)
+- [ ] Publicado en CMS → rebuild
+- [ ] Pack en `/admin/blog-packs/{slug}`
+- [ ] Indicar al humano la URL del pack

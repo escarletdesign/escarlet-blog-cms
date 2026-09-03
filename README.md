@@ -19,12 +19,32 @@ npm run docker:up
 
 Dashboard. http://localhost:3040/admin
 
-Deploy producción. Ver [docs/DEPLOY.md](docs/DEPLOY.md).
+## Nuevo sitio / onboarding
+
+Guía completa. [docs/ONBOARDING.md](docs/ONBOARDING.md)
+
+Skill **global** (cualquier workspace Cursor). `~/.cursor/skills/escarlet-blog-integrate/`  
+Pídele. «integra el blog CMS en este proyecto» o «añade la sección blog».
+
+```bash
+# Alta de un handle nuevo + brand stubs
+npm run site:init -- --handle mares24 --name "Mares 24" --domain https://mares24.com
+
+# Copia plantillas sync al frontend
+npm run site:init -- --handle demo --domain https://demo.example \
+  --copy-frontend ../mi-landing/scripts
+```
+
+Por MCP. `blog_get_onboarding` y `blog_create_site`.
+
+Deploy producción. [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## MCP tools
 
 | Tool | Uso |
 |------|-----|
+| `blog_get_onboarding` | Playbook setup + Coolify + flujo posts |
+| `blog_create_site` | Alta de un site (handle + brand stubs) |
 | `blog_list_sites` | Sitios configurados |
 | `blog_list_posts` | Posts por site y status |
 | `blog_get_post` | Leer post |
@@ -37,7 +57,7 @@ Deploy producción. Ver [docs/DEPLOY.md](docs/DEPLOY.md).
 | `blog_update_brand_file` | Subir o corregir un archivo del kit |
 | `blog_upload_media` | Portada (`post`) o moodboard (`reference`) |
 
-Resources. `brand://escarlet/voice`, `keywords`, `agent-rules`, `image-guide`
+Resources. `brand://{handle}/voice`, `keywords`, `agent`, `image-guide`
 
 Hermes (otro servidor) no clona el CMS. En su `mcp.json`:
 
@@ -54,16 +74,16 @@ Hermes (otro servidor) no clona el CMS. En su `mcp.json`:
 }
 ```
 
-## Integración escarlet002
+## Integración frontend
 
 ```bash
-# escarlet002
 BLOG_CMS_URL=http://localhost:3040 BLOG_CMS_SITE=escarlet npm run blog:sync
 ```
 
-Build incluye sync automático. Ver [docs/DEPLOY.md](docs/DEPLOY.md).
+Plantilla genérica. `templates/frontend/sync-blog-cms.mjs`.
+Build incluye sync automático. Ver [docs/ONBOARDING.md](docs/ONBOARDING.md).
 
-## Migración
+## Migración (escarlet)
 
 ```bash
 cd ../escarlet002 && npm run blog:export
@@ -73,12 +93,15 @@ cd ../escarlet-blog-cms && npm run import:escarlet
 ## Estructura
 
 ```
-config/sites/{handle}/   # site.json + brand kit
-lib/                     # SEO, DB, brand kit
-mcp/                     # Servidor MCP
-data/db.json             # Posts (gitignored)
-data/media/              # Imágenes subidas
-docs/DEPLOY.md           # Coolify + mcp.json
+config/sites/{handle}/     # seed site.json + brand kit
+templates/site/            # stubs para site:init
+templates/frontend/        # sync + regla Cursor
+lib/                       # SEO, DB, brand kit, onboarding
+mcp/                       # Servidor MCP
+data/db.json               # Posts (gitignored)
+data/media/                # Imágenes subidas
+docs/ONBOARDING.md         # Multi-sitio + Coolify
+docs/DEPLOY.md             # Coolify CMS + volumen
 ```
 
 ## Tests

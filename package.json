@@ -9,6 +9,7 @@
     "mcp": "node mcp/index.mjs",
     "test": "node --test lib/**/*.test.mjs",
     "import:escarlet": "node scripts/import-escarlet.mjs",
+    "site:init": "node scripts/init-site.mjs",
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down"
   },

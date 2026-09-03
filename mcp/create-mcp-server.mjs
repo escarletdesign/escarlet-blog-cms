@@ -54,6 +54,41 @@ export function createMcpServer() {
         inputSchema: { type: 'object', properties: {} }
       },
       {
+        name: 'blog_get_onboarding',
+        description:
+          'Playbook para crear un site nuevo o conectar un frontend. Incluye sync, env Coolify, Deploy webhook y flujo MCP de crear/editar posts. Llámalo al empezar un proyecto o si el humano pregunta cómo instalar el blog.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            site: { type: 'string', description: 'Handle del site (ej. escarlet, mares24). Opcional.' },
+            domain: { type: 'string', description: 'Dominio público si aún no está en el CMS' },
+            name: { type: 'string', description: 'Nombre legible del site' }
+          }
+        }
+      },
+      {
+        name: 'blog_create_site',
+        description:
+          'Da de alta un site nuevo en el CMS central (handle, brand stubs, registro en DB, webhook opcional). Luego completa brand kit y conecta el frontend. Devuelve nextSteps + playbook.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            handle: { type: 'string', description: 'kebab-case, ej. mares24' },
+            name: { type: 'string' },
+            domain: { type: 'string', description: 'https://dominio.com' },
+            authors: { type: 'array', items: { type: 'string' } },
+            rebuildWebhookUrl: {
+              type: 'string',
+              description: 'Deploy webhook Coolify del frontend (auth required)'
+            },
+            coolifyApiToken: { type: 'string', description: 'Token API Coolify con permiso Deploy' },
+            requiresHumanApproval: { type: 'boolean' },
+            force: { type: 'boolean', description: 'Reescribe stubs si el site ya existe' }
+          },
+          required: ['handle']
+        }
+      },
+      {
         name: 'blog_list_posts',
         description: 'Lista posts por site y status opcional (draft, review, published).',
         inputSchema: {
@@ -284,6 +319,20 @@ export function createMcpServer() {
       switch (name) {
         case 'blog_list_sites':
           return textResult(await cms.listSites())
+        case 'blog_get_onboarding': {
+          const { getOnboardingPlaybook } = await import('../lib/onboarding.mjs')
+          const base = args.site ? await cms.getOnboarding(args.site) : getOnboardingPlaybook({})
+          return textResult(
+            getOnboardingPlaybook({
+              handle: args.site || base.site?.handle,
+              name: args.name || base.site?.name,
+              domain: args.domain || base.site?.domain,
+              cmsUrl: process.env.CMS_PUBLIC_URL
+            })
+          )
+        }
+        case 'blog_create_site':
+          return textResult(await cms.createSiteRecord(args))
         case 'blog_list_posts':
           return textResult(await cms.listPosts(site, args.status))
         case 'blog_get_post':

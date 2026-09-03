@@ -16,6 +16,16 @@ Hermes → HTTPS /mcp (mismo servicio CMS)
          escarlet002 rebuild → sync-blog-cms → escarlet.design/blog
 ```
 
+## Onboarding multi-sitio (sep 2026)
+
+Para dar de alta otro proyecto. [ONBOARDING.md](./ONBOARDING.md)
+
+```bash
+npm run site:init -- --handle CLIENTE --domain https://...
+```
+
+MCP. `blog_get_onboarding` + `blog_create_site`. Plantillas en `templates/`.
+
 ## Repos
 
 | Repo | Ruta local |

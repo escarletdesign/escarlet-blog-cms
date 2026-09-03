@@ -1,0 +1,20 @@
+{
+  "handle": "{{handle}}",
+  "name": "{{name}}",
+  "domain": "{{domain}}",
+  "adapter": "json-api",
+  "requiresHumanApproval": true,
+  "seo": {
+    "minWords": 400,
+    "metaTitleMin": 20,
+    "metaTitleMax": 70,
+    "metaDescriptionMin": 70,
+    "metaDescriptionMax": 180,
+    "internalLinksMin": 1,
+    "internalLinksMax": 8,
+    "relatedSlugsCount": 0,
+    "canonicalPattern": "{domain}/blog/{slug}"
+  },
+  "authors": ["Equipo"],
+  "copyRules": { "noColonsSemicolons": true }
+}
