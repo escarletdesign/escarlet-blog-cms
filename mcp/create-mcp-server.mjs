@@ -220,7 +220,7 @@ function buildToolList(auth) {
     },
     {
       name: 'blog_upload_media',
-      description: 'Sube una imagen. Preferir imageUrl http pública.',
+      description: 'Sube una imagen. Preferir imageUrl http pública. kind: post (portada), social (slides Instagram), reference (moodboard).',
       inputSchema: {
         type: 'object',
         properties: {

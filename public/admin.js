@@ -82,6 +82,13 @@ let cachedSiteHandles = []
 let activeSiteHandle = ''
 let authSession = { role: 'admin', canCreateSites: true, canManageAllSites: true, sites: [] }
 let humanApprovalRequired = true
+let socialPackChannels = {
+  substack: true,
+  linkedin: true,
+  x: true,
+  videoScript: true,
+  instagramCarousel: true
+}
 let editingOriginalSlug = ''
 let currentStep = 'escribir'
 let currentRoute = { view: 'entradas' }
@@ -145,6 +152,82 @@ function setPublishLabels(status) {
         ? 'Enviar a revisión'
         : 'Publicar en vivo'
   if (publishPostBtn) publishPostBtn.textContent = label
+}
+
+function normalizeSocialPackChannels(raw) {
+  return {
+    substack: raw?.substack !== false,
+    linkedin: raw?.linkedin !== false,
+    x: raw?.x !== false,
+    videoScript: raw?.videoScript !== false,
+    instagramCarousel: raw?.instagramCarousel !== false
+  }
+}
+
+function readChannelCheckboxes() {
+  const keys = ['substack', 'linkedin', 'x', 'videoScript', 'instagramCarousel']
+  const next = {}
+  for (const key of keys) {
+    const el = document.querySelector(`[data-channel-key="${key}"]`)
+    next[key] = el ? Boolean(el.checked) : true
+  }
+  return next
+}
+
+function writeChannelCheckboxes(channels) {
+  const normalized = normalizeSocialPackChannels(channels)
+  for (const [key, enabled] of Object.entries(normalized)) {
+    const el = document.querySelector(`[data-channel-key="${key}"]`)
+    if (el) el.checked = Boolean(enabled)
+  }
+}
+
+function applySocialPackChannelUi(channels = socialPackChannels) {
+  socialPackChannels = normalizeSocialPackChannels(channels)
+  const map = {
+    substack: socialPackChannels.substack,
+    linkedin: socialPackChannels.linkedin,
+    x: socialPackChannels.x,
+    videoScript: socialPackChannels.videoScript,
+    instagramCarousel: socialPackChannels.instagramCarousel
+  }
+  for (const [key, enabled] of Object.entries(map)) {
+    document.querySelectorAll(`[data-channel="${key}"]`).forEach((el) => {
+      el.hidden = !enabled
+    })
+  }
+  const any =
+    socialPackChannels.substack ||
+    socialPackChannels.linkedin ||
+    socialPackChannels.x ||
+    socialPackChannels.videoScript ||
+    socialPackChannels.instagramCarousel
+  const block = document.getElementById('socialPackBlock')
+  if (block) block.hidden = !any
+}
+
+function parseInstagramSlides(raw) {
+  const text = String(raw || '').trim()
+  if (!text) return []
+  try {
+    const parsed = JSON.parse(text)
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .map((slide) => ({
+        imageUrl: String(slide?.imageUrl || '').trim(),
+        alt: String(slide?.alt || '').trim(),
+        headline: String(slide?.headline || '').trim(),
+        body: String(slide?.body || '').trim()
+      }))
+      .filter((slide) => slide.imageUrl || slide.alt || slide.headline || slide.body)
+  } catch {
+    return null
+  }
+}
+
+function formatInstagramSlides(slides) {
+  if (!Array.isArray(slides) || !slides.length) return ''
+  return JSON.stringify(slides, null, 2)
 }
 
 function showPublishBanner(text, kind = 'info') {
@@ -559,10 +642,14 @@ function fillFormFields(p) {
   form.substackBody.value = p.socialPack?.substackBody || ''
   form.linkedin.value = p.socialPack?.linkedin || ''
   form.x.value = p.socialPack?.x || ''
+  if (form.videoScript) form.videoScript.value = p.socialPack?.videoScript || ''
+  if (form.instagramCaption) form.instagramCaption.value = p.socialPack?.instagramCaption || ''
+  if (form.instagramSlides) form.instagramSlides.value = formatInstagramSlides(p.socialPack?.instagramSlides)
   form.bodyHtml.value = p.bodyHtml || ''
   setBodyValue(p.bodyHtml || '')
   updateImagePreview()
   showPublishBanner('')
+  applySocialPackChannelUi(socialPackChannels)
   updateWorkspaceChrome()
 }
 
@@ -1163,6 +1250,12 @@ form.onsubmit = async (e) => {
       }
     }
 
+    const slides = parseInstagramSlides(form.instagramSlides?.value)
+    if (slides === null) {
+      toast('El JSON de slides de Instagram no es válido')
+      return
+    }
+
     const payload = {
       site,
       slug,
@@ -1183,7 +1276,10 @@ form.onsubmit = async (e) => {
         substackTitle: form.substackTitle.value.trim(),
         substackBody: form.substackBody.value.trim(),
         linkedin: form.linkedin.value.trim(),
-        x: form.x.value.trim()
+        x: form.x.value.trim(),
+        videoScript: form.videoScript?.value.trim() || '',
+        instagramCaption: form.instagramCaption?.value.trim() || '',
+        instagramSlides: slides
       },
       bodyHtml: bodyValue()
     }
@@ -1571,6 +1667,9 @@ async function loadSite() {
   if (siteWebhook) siteWebhook.value = data.config?.rebuildWebhookUrl || ''
   humanApprovalRequired = Boolean(data.config?.requiresHumanApproval)
   if (siteHumanApproval) siteHumanApproval.checked = humanApprovalRequired
+  socialPackChannels = normalizeSocialPackChannels(data.config?.socialPackChannels)
+  writeChannelCheckboxes(socialPackChannels)
+  applySocialPackChannelUi(socialPackChannels)
   if (siteCoolifyToken) siteCoolifyToken.value = ''
   if (siteTokenStatus) {
     siteTokenStatus.textContent = data.config?.hasCoolifyApiToken
@@ -1583,11 +1682,8 @@ async function loadSite() {
       ? `Token de cliente activo (${data.config.siteAccessTokenHint}).`
       : 'Sin token de cliente todavía.'
   }
-  const accessResult = document.getElementById('siteAccessResult')
-  if (accessResult) {
-    accessResult.hidden = true
-    accessResult.textContent = ''
-  }
+  resetSiteAccessPanel()
+  await loadSiteMcpInfo(site)
   rebuildResult.textContent = ''
   rebuildResult.classList.remove('is-ok', 'is-error')
   setPublishLabels(postStatusInput?.value || 'draft')
@@ -1601,7 +1697,8 @@ document.getElementById('saveSite').onclick = async () => {
       name: siteName?.value.trim() || site,
       domain: siteDomain.value.trim(),
       rebuildWebhookUrl: siteWebhook.value.trim(),
-      requiresHumanApproval: siteHumanApproval.checked
+      requiresHumanApproval: siteHumanApproval.checked,
+      socialPackChannels: readChannelCheckboxes()
     }
     if (siteCoolifyToken.value.trim()) payload.coolifyApiToken = siteCoolifyToken.value.trim()
     const data = await api(`/api/admin/site-config/${site}`, {
@@ -1612,6 +1709,9 @@ document.getElementById('saveSite').onclick = async () => {
     siteTokenStatus.textContent = data.config?.hasCoolifyApiToken
       ? `Token Coolify guardado (${data.config.coolifyApiTokenHint}). Deja el campo vacío para mantenerlo.`
       : 'Sin token Coolify todavía.'
+    socialPackChannels = normalizeSocialPackChannels(data.config?.socialPackChannels)
+    writeChannelCheckboxes(socialPackChannels)
+    applySocialPackChannelUi(socialPackChannels)
     toast('Sitio guardado')
     humanApprovalRequired = Boolean(siteHumanApproval.checked)
     setPublishLabels(postStatusInput?.value || 'draft')
@@ -1638,11 +1738,7 @@ document.getElementById('generateSiteToken')?.addEventListener('click', async ()
       method: 'POST',
       body: '{}'
     })
-    const out = document.getElementById('siteAccessResult')
-    if (out) {
-      out.hidden = false
-      out.textContent = `${data.message || 'Token generado'}\n\n${data.siteAccessToken || ''}`
-    }
+    renderSiteAccessSuccess(data)
     const accessStatus = document.getElementById('siteAccessStatus')
     if (accessStatus) {
       accessStatus.textContent = data.config?.hasSiteAccessToken
@@ -1662,16 +1758,95 @@ document.getElementById('clearSiteToken')?.addEventListener('click', async () =>
       method: 'POST',
       body: JSON.stringify({ clear: true })
     })
-    const out = document.getElementById('siteAccessResult')
-    if (out) {
-      out.hidden = true
-      out.textContent = ''
-    }
+    resetSiteAccessPanel()
     const accessStatus = document.getElementById('siteAccessStatus')
     if (accessStatus) accessStatus.textContent = 'Sin token de cliente todavía.'
     toast('Token de cliente revocado')
   })
 })
+
+function resetSiteAccessPanel() {
+  const panel = document.getElementById('siteAccessResult')
+  if (panel) panel.hidden = true
+  const tokenEl = document.getElementById('siteAccessTokenValue')
+  if (tokenEl) tokenEl.textContent = ''
+  const iconStatus = document.getElementById('siteAgentIconStatus')
+  if (iconStatus) iconStatus.textContent = ''
+  const preview = document.getElementById('siteAgentIconPreview')
+  if (preview) {
+    preview.hidden = true
+    preview.removeAttribute('src')
+  }
+  const link = document.getElementById('siteAgentIconLink')
+  if (link) {
+    link.hidden = true
+    link.removeAttribute('href')
+  }
+}
+
+function renderAgentIconInfo(agentIcon) {
+  const status = document.getElementById('siteAgentIconStatus')
+  const preview = document.getElementById('siteAgentIconPreview')
+  const link = document.getElementById('siteAgentIconLink')
+  if (!status) return
+  if (!agentIcon) {
+    status.textContent = 'Icono no disponible todavía.'
+    return
+  }
+  if (agentIcon.ok) {
+    const kb = ((agentIcon.bytes || 0) / 1024).toFixed(1)
+    status.textContent = agentIcon.reused
+      ? `Icono listo (${kb} KB). Puedes usarlo en el conector de ChatGPT.`
+      : `Icono generado desde el favicon (${kb} KB).`
+    if (preview && agentIcon.path) {
+      preview.hidden = false
+      preview.src = `${agentIcon.path}?t=${Date.now()}`
+    }
+    if (link && (agentIcon.url || agentIcon.path)) {
+      link.hidden = false
+      link.href = agentIcon.url || agentIcon.path
+      link.download = 'agent-icon.png'
+    }
+  } else {
+    status.textContent =
+      agentIcon.message ||
+      'No se pudo obtener el favicon. El token sigue siendo válido. Puedes subir un PNG pequeño a mano.'
+    if (preview) preview.hidden = true
+    if (link) link.hidden = true
+  }
+}
+
+function renderSiteAccessSuccess(data) {
+  const panel = document.getElementById('siteAccessResult')
+  if (panel) panel.hidden = false
+  const tokenEl = document.getElementById('siteAccessTokenValue')
+  if (tokenEl) tokenEl.textContent = data.siteAccessToken || ''
+  const mcpUrl = data.mcpChatGptUrl || data.mcpUrl || ''
+  const mcpEl = document.getElementById('siteMcpUrl')
+  if (mcpEl) mcpEl.textContent = mcpUrl
+  const hintEl = document.getElementById('siteMcpHint')
+  if (hintEl) hintEl.textContent = data.mcpAuthHint || ''
+  const staticUrl = document.getElementById('siteMcpStaticUrl')
+  if (staticUrl && mcpUrl) staticUrl.textContent = mcpUrl
+  renderAgentIconInfo(data.agentIcon)
+}
+
+async function loadSiteMcpInfo(site) {
+  try {
+    const data = await api(`/api/admin/site-config/${encodeURIComponent(site)}/agent-icon`)
+    const mcpUrl = data.mcpChatGptUrl || data.mcpUrl || ''
+    const staticUrl = document.getElementById('siteMcpStaticUrl')
+    if (staticUrl && mcpUrl) staticUrl.textContent = mcpUrl
+    if (data.agentIcon?.ok) {
+      const preview = document.getElementById('siteAgentIconPreview')
+      // Keep static MCP block only; icon preview appears after token generate
+      void preview
+    }
+  } catch {
+    const staticUrl = document.getElementById('siteMcpStaticUrl')
+    if (staticUrl) staticUrl.textContent = 'https://blog-cms.escarlet.cc/mcp'
+  }
+}
 
 document.getElementById('brandZipForm')?.addEventListener('submit', async (e) => {
   e.preventDefault()

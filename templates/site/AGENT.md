@@ -16,9 +16,11 @@ Si `missingBrand` tiene archivos, para y pide que los completen.
 3. `blog_create_draft` solo si el slug es nuevo
 4. Redactar con `blog_update_post`
 5. Portada con `blog_upload_media` (`kind` `post`, preferir `imageUrl`)
-6. `blog_validate_seo`
-7. `blog_publish` (con aprobación humana suele ir a review)
-8. Comparte el `previewUrl` absoluto (https://…)
+6. Si el site tiene Instagram activo. Carrusel 4–7 slides con `blog_upload_media` (`kind` `social`) → `socialPack.instagramSlides` + caption
+7. Completa `socialPack` solo para canales en `socialPackChannels`
+8. `blog_validate_seo`
+9. `blog_publish` (con aprobación humana suele ir a review)
+10. Comparte el `previewUrl` absoluto (https://…)
 
 ## Flujo MCP (editar)
 
@@ -32,7 +34,8 @@ Si `missingBrand` tiene archivos, para y pide que los completen.
 
 - Sigue `voice.md`.
 - Sin dos puntos ni punto y coma en textos visibles.
-- socialPack con backlink `{{domain}}/blog/{slug}`.
+- socialPack con backlink `{{domain}}/blog/{slug}` (canales activos del site).
+- Instagram. Caption + slides con imageUrl del CMS.
 
 ## Prohibido
 

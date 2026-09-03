@@ -28,13 +28,23 @@ function ensureOutDir() {
   mkdirSync(dirname(outFile), { recursive: true })
 }
 
-function emptyModule(reason) {
+function emptyModule(reason, channels = defaultChannels()) {
   ensureOutDir()
   writeFileSync(
     outFile,
-    `/** Generado por sync-blog-cms.mjs (${reason}). Sin posts. */\nexport function getAllBlogPosts() { return [] }\nexport function getPostBySlug() { return null }\nexport function getBlogIndex() { return [] }\nexport const BLOG_SITE_URL = ${JSON.stringify(SITE)}\n`
+    `/** Generado por sync-blog-cms.mjs (${reason}). Sin posts. */\nexport function getAllBlogPosts() { return [] }\nexport function getPostBySlug() { return null }\nexport function getBlogIndex() { return [] }\nexport function getPostCanonicalUrl(slug) { return \`${SITE}/blog/\${slug}\` }\nexport const BLOG_SITE_URL = ${JSON.stringify(SITE)}\nexport const SOCIAL_PACK_CHANNELS = ${JSON.stringify(channels)}\n`
   )
   console.log(`[sync-blog-cms] Vacío (${reason}) → ${OUT_REL}`)
+}
+
+function defaultChannels() {
+  return {
+    substack: true,
+    linkedin: true,
+    x: true,
+    videoScript: true,
+    instagramCarousel: true
+  }
 }
 
 function useFallback(reason) {
@@ -53,6 +63,20 @@ function normalizeCmsImageUrl(imageUrl) {
   if (/^https?:\/\//i.test(raw)) return raw
   if (raw.startsWith('/media/') && CMS_URL) return `${CMS_URL}${raw}`
   return raw
+}
+
+function normalizeSocialPack(socialPack) {
+  if (!socialPack || typeof socialPack !== 'object') return null
+  const slides = Array.isArray(socialPack.instagramSlides)
+    ? socialPack.instagramSlides.map((slide) => ({
+        ...slide,
+        imageUrl: normalizeCmsImageUrl(slide?.imageUrl)
+      }))
+    : socialPack.instagramSlides
+  return {
+    ...socialPack,
+    instagramSlides: slides
+  }
 }
 
 async function loadFallbackPosts() {
@@ -77,7 +101,8 @@ async function mergePosts(cmsPosts) {
     cmsCount += 1
     bySlug.set(post.slug, {
       ...post,
-      imageUrl: normalizeCmsImageUrl(post.imageUrl)
+      imageUrl: normalizeCmsImageUrl(post.imageUrl),
+      socialPack: normalizeSocialPack(post.socialPack) || post.socialPack || null
     })
   }
   const merged = [...bySlug.values()].sort((a, b) =>
@@ -108,7 +133,7 @@ function formatPost(post) {
     .join('\n')
 }
 
-function buildModule(posts, sourceLabel) {
+function buildModule(posts, sourceLabel, channels = defaultChannels()) {
   return `/**
  * Generado por scripts/sync-blog-cms.mjs — no editar a mano.
  * Fuente: ${sourceLabel}
@@ -148,6 +173,7 @@ export function getPostCanonicalUrl(slug) {
 }
 
 export const BLOG_SITE_URL = ${JSON.stringify(SITE)}
+export const SOCIAL_PACK_CHANNELS = ${JSON.stringify(channels)}
 `
 }
 
@@ -164,6 +190,7 @@ async function main() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const data = await res.json()
     const cmsPosts = data.posts || []
+    const channels = data.socialPackChannels || defaultChannels()
     const { merged, cmsCount } = await mergePosts(cmsPosts)
     if (!merged.length) {
       useFallback('CMS y fallback sin posts')
@@ -172,9 +199,19 @@ async function main() {
     ensureOutDir()
     writeFileSync(
       outFile,
-      buildModule(merged, `${CMS_URL}/api/sites/${CMS_SITE}/posts (${cmsCount} CMS, ${merged.length} total)`)
+      buildModule(
+        merged,
+        `${CMS_URL}/api/sites/${CMS_SITE}/posts (${cmsCount} CMS, ${merged.length} total)`,
+        channels
+      )
     )
     console.log(`[sync-blog-cms] ${cmsCount} CMS → ${merged.length} posts → ${OUT_REL}`)
+    console.log(
+      `[sync-blog-cms] canales pack: ${Object.entries(channels)
+        .filter(([, v]) => v)
+        .map(([k]) => k)
+        .join(', ')}`
+    )
   } catch (error) {
     useFallback(error.message)
   }

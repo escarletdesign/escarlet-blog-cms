@@ -11,13 +11,17 @@
  *   BLOG_PACKS_ICON_192 /icons/pwa/icon-192.png
  *   BLOG_PACKS_ICON_512 /icons/pwa/icon-512.png
  *   BLOG_PACKS_ICON_180 /icons/pwa/icon-180.png
+ *   BLOG_PACKS_CHANNELS substack,linkedin,x,videoScript,instagramCarousel
  *
  * Uso: node scripts/generate-blog-social-packs.mjs
  */
 import { mkdirSync, writeFileSync, existsSync, copyFileSync, rmSync, readdirSync } from 'node:fs'
 import { dirname, join, extname, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { getAllBlogPosts, getPostCanonicalUrl } from '../src/data/blog-articles.js'
+import * as blogData from '../src/data/blog-articles.js'
+
+const { getAllBlogPosts, getPostCanonicalUrl } = blogData
+const SYNCED_CHANNELS = blogData.SOCIAL_PACK_CHANNELS
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = join(__dirname, '..')
@@ -125,14 +129,67 @@ function xCharCount(text) {
 function normalizeSocialPack(socialPack, title) {
   const raw = socialPack || {}
   const videoScript = String(raw.videoScript || '').trim()
+  const slides = Array.isArray(raw.instagramSlides)
+    ? raw.instagramSlides
+        .map((slide) => ({
+          imageUrl: String(slide?.imageUrl || '').trim(),
+          alt: String(slide?.alt || '').trim(),
+          headline: String(slide?.headline || '').trim(),
+          body: String(slide?.body || '').trim()
+        }))
+        .filter((slide) => slide.imageUrl || slide.headline || slide.body)
+    : []
   return {
     substackTitle: raw.substackTitle || title,
     substackBody: raw.substackBody || '',
     linkedin: raw.linkedin || '',
     x: raw.x || '',
-    videoScript
+    videoScript,
+    instagramCaption: String(raw.instagramCaption || '').trim(),
+    instagramSlides: slides
   }
 }
+
+function parsePackChannelsEnv() {
+  const raw = String(process.env.BLOG_PACKS_CHANNELS || '').trim()
+  if (!raw) return null
+  const enabled = new Set(
+    raw
+      .split(/[,+\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+  )
+  return {
+    substack: enabled.has('substack'),
+    linkedin: enabled.has('linkedin'),
+    x: enabled.has('x'),
+    videoScript: enabled.has('video') || enabled.has('videoScript'),
+    instagramCarousel: enabled.has('instagram') || enabled.has('instagramCarousel')
+  }
+}
+
+function resolvePackChannels() {
+  const fromEnv = parsePackChannelsEnv()
+  if (fromEnv) return fromEnv
+  if (SYNCED_CHANNELS && typeof SYNCED_CHANNELS === 'object') {
+    return {
+      substack: SYNCED_CHANNELS.substack !== false,
+      linkedin: SYNCED_CHANNELS.linkedin !== false,
+      x: SYNCED_CHANNELS.x !== false,
+      videoScript: SYNCED_CHANNELS.videoScript !== false,
+      instagramCarousel: SYNCED_CHANNELS.instagramCarousel !== false
+    }
+  }
+  return {
+    substack: true,
+    linkedin: true,
+    x: true,
+    videoScript: true,
+    instagramCarousel: true
+  }
+}
+
+const PACK_CHANNELS = resolvePackChannels()
 
 function scriptStorageKey(slug) {
   return `escarlet-pack-edit:${slug}:videoScript`
@@ -1556,33 +1613,100 @@ ${hasVideo ? recorderScript(slug) : ''}
 `
 }
 
-function packPageHtml({ post, pack, articleUrl, imageSrc, downloadHref, downloadName }) {
-  const channels = [
-    {
+function instagramSection(pack, slidesResolved) {
+  if (!PACK_CHANNELS.instagramCarousel) return ''
+  const slides = slidesResolved?.length ? slidesResolved : pack.instagramSlides || []
+  if (!slides.length && !pack.instagramCaption) return ''
+
+  const slideCards = slides
+    .map((slide, index) => {
+      const n = index + 1
+      const src = escapeHtml(slide.previewSrc || slide.imageUrl || '')
+      const download = escapeHtml(slide.downloadHref || slide.imageUrl || '')
+      const name = escapeHtml(slide.downloadName || `ig-slide-${String(n).padStart(2, '0')}.webp`)
+      const headline = slide.headline
+        ? `<p class="slide-headline">${escapeHtml(slide.headline)}</p>`
+        : ''
+      const body = slide.body
+        ? `<p class="muted slide-body">${escapeHtml(slide.body)}</p>`
+        : ''
+      const altId = `ig-alt-${n}`
+      return `<article class="ig-slide">
+  <p class="field-label">Slide ${n}</p>
+  ${src ? `<img src="${src}" alt="${escapeHtml(slide.alt || `Slide ${n}`)}" width="1080" height="1350" loading="lazy">` : '<p class="muted">Sin imagen</p>'}
+  ${headline}
+  ${body}
+  <div class="actions">
+    ${download ? `<a class="btn btn--primary" href="${download}" download="${name}">Descargar</a>` : ''}
+    ${src ? `<a class="btn" href="${src}" target="_blank" rel="noopener noreferrer">Abrir</a>` : ''}
+  </div>
+  <p class="field-label">Alt</p>
+  <div class="preview" data-preview data-lines="2">
+    <div class="preview-text" id="${altId}">${escapeHtml(slide.alt || '')}</div>
+    <button type="button" class="preview-more" data-toggle-preview hidden>Leer más</button>
+  </div>
+  <div class="actions">
+    <button type="button" class="btn" data-copy-text="${altId}">Copiar alt</button>
+  </div>
+</article>`
+    })
+    .join('\n')
+
+  const captionBlock = pack.instagramCaption
+    ? `<p class="field-label">Caption</p>
+  <div class="preview" data-preview data-lines="5">
+    <div class="preview-text" id="instagram-caption">${escapeHtml(pack.instagramCaption)}</div>
+    <button type="button" class="preview-more" data-toggle-preview hidden>Leer más</button>
+  </div>
+  <div class="actions">
+    <button type="button" class="btn btn--primary" data-copy-text="instagram-caption">Copiar caption</button>
+  </div>`
+    : ''
+
+  return `<section class="card" id="instagram">
+  <header class="card__head">
+    <h2>Instagram · carrusel</h2>
+    <p class="muted">Descarga cada slide (1080×1350 recomendado) y publica el carrusel a mano.</p>
+  </header>
+  ${captionBlock}
+  <div class="ig-grid">
+    ${slideCards || '<p class="muted">Aún no hay slides en socialPack.instagramSlides.</p>'}
+  </div>
+</section>`
+}
+
+function packPageHtml({ post, pack, articleUrl, imageSrc, downloadHref, downloadName, slidesResolved }) {
+  const channels = []
+  if (PACK_CHANNELS.substack && (pack.substackBody || pack.substackTitle)) {
+    channels.push({
       id: 'substack',
       label: 'Substack',
       hint: 'Título + cuerpo del newsletter.',
       title: pack.substackTitle,
       body: pack.substackBody,
       lines: 6
-    },
-    {
+    })
+  }
+  if (PACK_CHANNELS.linkedin && pack.linkedin) {
+    channels.push({
       id: 'linkedin',
       label: 'LinkedIn',
       hint: 'Publicación nativa. Adjunta la imagen del pack.',
       title: null,
       body: pack.linkedin,
       lines: 6
-    },
-    {
+    })
+  }
+  if (PACK_CHANNELS.x && pack.x) {
+    channels.push({
       id: 'x',
       label: 'X',
       hint: `Límite práctico 280. Contaje con URL = ${xCharCount(pack.x)}`,
       title: null,
       body: pack.x,
       lines: 5
-    }
-  ]
+    })
+  }
 
   const blocks = channels
     .map((ch) => {
@@ -1614,9 +1738,12 @@ function packPageHtml({ post, pack, articleUrl, imageSrc, downloadHref, download
     })
     .join('\n')
 
-  const videoBlock = videoScriptSection(pack, post.slug)
-  const recorderBlock = pack.videoScript ? recorderMarkup(post.slug) : ''
-  const hasVideo = Boolean(pack.videoScript)
+  const videoBlock =
+    PACK_CHANNELS.videoScript && pack.videoScript ? videoScriptSection(pack, post.slug) : ''
+  const recorderBlock =
+    PACK_CHANNELS.videoScript && pack.videoScript ? recorderMarkup(post.slug) : ''
+  const hasVideo = Boolean(PACK_CHANNELS.videoScript && pack.videoScript)
+  const igBlock = instagramSection(pack, slidesResolved)
 
   return `<!DOCTYPE html>
 <html lang="es">
@@ -1627,6 +1754,36 @@ ${adminPwaHead({
 })}
   <style>
 ${packPageStyles(hasVideo)}
+    .ig-grid {
+      display: grid;
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .ig-slide {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: .85rem;
+      background: #faf9f7;
+    }
+    .ig-slide img {
+      width: 100%;
+      height: auto;
+      border-radius: 10px;
+      display: block;
+      margin-bottom: .65rem;
+      aspect-ratio: 4 / 5;
+      object-fit: cover;
+      background: #eee;
+    }
+    .slide-headline {
+      margin: 0 0 .35rem;
+      font-weight: 800;
+      font-size: .95rem;
+    }
+    .slide-body { margin: 0 0 .65rem; font-size: .88rem; }
+    @media (min-width: 720px) {
+      .ig-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
   </style>
 </head>
 <body>
@@ -1643,7 +1800,7 @@ ${packPageStyles(hasVideo)}
 
     <div class="layout">
       <div class="grid">
-        ${videoBlock ? `${videoBlock}\n        ` : ''}${blocks}
+        ${videoBlock ? `${videoBlock}\n        ` : ''}${blocks}${igBlock ? `\n        ${igBlock}` : ''}
       </div>
       <aside class="card media">
         <h2>Imagen</h2>
@@ -1876,7 +2033,15 @@ ${packClientHelpersJs(post.slug)}
 }
 
 function hasSocialPack(post) {
-  return Boolean(post.socialPack?.substackBody || post.socialPack?.linkedin || post.socialPack?.x)
+  const pack = post.socialPack || {}
+  const slides = Array.isArray(pack.instagramSlides) ? pack.instagramSlides : []
+  return Boolean(
+    (PACK_CHANNELS.substack && (pack.substackBody || pack.substackTitle)) ||
+      (PACK_CHANNELS.linkedin && pack.linkedin) ||
+      (PACK_CHANNELS.x && pack.x) ||
+      (PACK_CHANNELS.videoScript && pack.videoScript) ||
+      (PACK_CHANNELS.instagramCarousel && (pack.instagramCaption || slides.length))
+  )
 }
 
 function indexHtml(items) {
@@ -1888,11 +2053,15 @@ function indexHtml(items) {
           if (item.hasX) chips.push('X')
           if (item.hasLinkedin) chips.push('LinkedIn')
           if (item.hasVideo) chips.push('Vídeo')
+          if (item.hasInstagram) chips.push('Instagram')
           const chipHtml = chips.length
             ? `<div class="chips">${chips.map((c) => `<span class="chip">${escapeHtml(c)}</span>`).join('')}</div>`
             : ''
           const videoLink = item.hasVideo
             ? `<a class="pack-link" href="/admin/blog-packs/${escapeHtml(item.slug)}#video">Guion</a>`
+            : ''
+          const igLink = item.hasInstagram
+            ? `<a class="pack-link" href="/admin/blog-packs/${escapeHtml(item.slug)}#instagram">Carrusel</a>`
             : ''
           return `<li>
   <div class="pack-row">
@@ -1904,6 +2073,7 @@ function indexHtml(items) {
     <div class="pack-actions">
       <a class="pack-link" href="/admin/blog-packs/${escapeHtml(item.slug)}">Abrir</a>
       ${videoLink}
+      ${igLink}
     </div>
   </div>
 </li>`
@@ -1916,7 +2086,7 @@ function indexHtml(items) {
 <head>
 ${adminPwaHead({
   title: 'Packs de redes · Blog Escarlet',
-  description: 'Packs de publicación del blog Escarlet para Substack, X, LinkedIn y vídeo.'
+  description: 'Packs de publicación del blog Escarlet para Substack, X, LinkedIn, Instagram y vídeo.'
 })}
   <style>
     :root {
@@ -1983,7 +2153,7 @@ ${adminPwaHead({
   <div class="wrap">
     <p class="muted" style="font-size:.75rem;letter-spacing:.14em;text-transform:uppercase;font-weight:700;">Admin Escarlet</p>
     <h1>Packs de publicación del blog</h1>
-    <p class="muted">Textos listos para copiar. El guion de vídeo se puede retocar aquí de forma temporal antes de grabar.</p>
+    <p class="muted">Textos e imágenes listos para copiar o descargar. Publicación en redes manual.</p>
     <ul>
 ${rows}
     </ul>
@@ -2038,6 +2208,34 @@ for (const post of posts) {
     imageSrc = downloadHref
   }
 
+  const slidesResolved = []
+  if (PACK_CHANNELS.instagramCarousel && pack.instagramSlides?.length) {
+    pack.instagramSlides.forEach((slide, index) => {
+      const n = String(index + 1).padStart(2, '0')
+      const resolved = resolveImagePaths(slide.imageUrl)
+      let previewSrc = resolved.webAbs || slide.imageUrl
+      let slideDownload = slide.imageUrl?.startsWith('http')
+        ? slide.imageUrl
+        : slide.imageUrl?.startsWith('/')
+          ? slide.imageUrl
+          : previewSrc
+      let slideName = `ig-slide-${n}${extname(slide.imageUrl || '') || '.webp'}`
+      const local = resolved.localJpg || resolved.localWebp
+      if (local) {
+        slideName = `ig-slide-${n}${extname(local)}`
+        copyFileSync(local, join(packDir, slideName))
+        slideDownload = `/admin/blog-packs/${post.slug}/${slideName}`
+        previewSrc = slideDownload
+      }
+      slidesResolved.push({
+        ...slide,
+        previewSrc,
+        downloadHref: slideDownload,
+        downloadName: slideName
+      })
+    })
+  }
+
   writeFileSync(
     join(packDir, 'index.html'),
     packPageHtml({
@@ -2046,12 +2244,13 @@ for (const post of posts) {
       articleUrl,
       imageSrc,
       downloadHref,
-      downloadName
+      downloadName,
+      slidesResolved
     }),
     'utf8'
   )
 
-  if (pack.videoScript) {
+  if (PACK_CHANNELS.videoScript && pack.videoScript) {
     const editDir = join(packDir, 'edit')
     mkdirSync(editDir, { recursive: true })
     writeFileSync(
@@ -2066,10 +2265,14 @@ for (const post of posts) {
     title: post.title,
     datePublished: post.datePublished,
     authorName: post.authorName,
-    hasSubstack: Boolean(pack.substackBody || pack.substackTitle),
-    hasX: Boolean(pack.x),
-    hasLinkedin: Boolean(pack.linkedin),
-    hasVideo: Boolean(pack.videoScript)
+    hasSubstack: Boolean(PACK_CHANNELS.substack && (pack.substackBody || pack.substackTitle)),
+    hasX: Boolean(PACK_CHANNELS.x && pack.x),
+    hasLinkedin: Boolean(PACK_CHANNELS.linkedin && pack.linkedin),
+    hasVideo: Boolean(PACK_CHANNELS.videoScript && pack.videoScript),
+    hasInstagram: Boolean(
+      PACK_CHANNELS.instagramCarousel &&
+        (pack.instagramCaption || pack.instagramSlides?.length)
+    )
   })
 }
 
@@ -2077,4 +2280,5 @@ writeFileSync(join(outRoot, 'index.html'), indexHtml(indexItems), 'utf8')
 writeFileSync(join(outRoot, 'manifest.webmanifest'), adminManifestJson(), 'utf8')
 
 console.log(`blog-social-packs: ${indexItems.length} packs con socialPack → ${outRoot}`)
+console.log(`Canales activos: ${Object.entries(PACK_CHANNELS).filter(([, v]) => v).map(([k]) => k).join(', ') || '(ninguno)'}`)
 console.log(`Índice admin: ${SITE}/admin/blog-packs`)

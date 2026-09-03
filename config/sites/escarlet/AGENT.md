@@ -26,9 +26,11 @@ Un post, un enfoque principal. Si mezcla temas, elige autor por el objetivo del 
 3. `blog_create_draft` solo si el slug es nuevo
 4. Redactar. `blog_update_post` (devuelve validation y previewUrl)
 5. Portada. Genera la imagen, URL http pública, `blog_upload_media` (`kind` `post`, campo `imageUrl`)
-6. `blog_validate_seo`
-7. `blog_publish` con borrador en draft envía a **review** y devuelve previewUrl absoluto
-8. Comparte siempre el `previewUrl` completo (https://...) con el humano
+6. Si `socialPackChannels.instagramCarousel` está activo. Genera 4–7 slides (1080×1350), súbelas con `blog_upload_media` (`kind` `social`, filename `{slug}-ig-01.webp` …) y guarda `socialPack.instagramSlides` + `instagramCaption` con canónico
+7. Completa `socialPack` solo para canales activos en `socialPackChannels`
+8. `blog_validate_seo`
+9. `blog_publish` con borrador en draft envía a **review** y devuelve previewUrl absoluto
+10. Comparte siempre el `previewUrl` completo (https://...) con el humano
 
 ## Flujo MCP (editar)
 
@@ -64,7 +66,8 @@ Recomendado (aviso, no bloquea):
 - metaDescription.es 70-180 caracteres.
 - imageAlt descriptivo.
 - Al menos 1 enlace interno.
-- socialPack con backlink `https://escarlet.design/blog/{slug}`.
+- socialPack con backlink `https://escarlet.design/blog/{slug}` (solo canales activos en `socialPackChannels`).
+- Carrusel Instagram. Caption con canónico. Slides con `imageUrl` absoluta del CMS + alt.
 
 ## Imágenes
 
@@ -75,7 +78,8 @@ Recomendado (aviso, no bloquea):
   1. Genera o elige la imagen.
   2. Consigue una URL http(s) pública temporal del archivo.
   3. Llama `blog_upload_media` con `imageUrl`, `filename`, `alt` y `kind`.
-  4. Usa la `media.url` absoluta que devuelve el CMS en el `imageUrl` del post.
+  4. Usa la `media.url` absoluta que devuelve el CMS en el `imageUrl` del post (o en cada slide de Instagram).
+- Carrusel Instagram (`kind` `social`). 4–7 slides. Formato 1080×1350 (o 1080×1080). Filename `{slug}-ig-01.webp` … `{slug}-ig-07.webp`. Guarda el array en `socialPack.instagramSlides`.
 - Evita `contentBase64` en portadas.
 
 ## Publicación

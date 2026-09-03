@@ -13,12 +13,12 @@ Los posts viven en el CMS. El frontend solo sincroniza en build.
 
 1. Si el site es nuevo o dudas del setup. `blog_get_onboarding` con `site: {{handle}}`
 2. `blog_get_brand_context` con `site: {{handle}}`
-3. Lee resources `brand://{{handle}}/voice`, `keywords`, `agent`, `image-guide`
+3. Lee `socialPackChannels`, resources `brand://{{handle}}/voice`, `keywords`, `agent`, `image-guide`
 
 ## Crear post
 
 1. `blog_create_draft` (title + author)
-2. `blog_update_post` con bodyHtml, metas, imagen y **socialPack** completo:
+2. `blog_update_post` con bodyHtml, metas, imagen y **socialPack** de canales activos:
 
 ```js
 socialPack: {
@@ -26,13 +26,18 @@ socialPack: {
   substackBody: '...', // + backlink {{domain}}/blog/{slug}
   linkedin: '...',
   x: '...',
-  videoScript: '...'   // guion oral 45–60s en posts nuevos
+  videoScript: '...',
+  instagramCaption: '...',
+  instagramSlides: [
+    { imageUrl: 'https://…/{slug}-ig-01.webp', alt: '...', headline: '...' }
+  ]
 }
 ```
 
-3. `blog_validate_seo`
-4. `blog_publish`
-5. Tras el rebuild. indicar `https://{{domain}}/admin/blog-packs/{slug}`
+3. Si Instagram está activo. Genera slides → `blog_upload_media` (`kind` `social`) → URLs en `instagramSlides`
+4. `blog_validate_seo`
+5. `blog_publish`
+6. Tras el rebuild. indicar `https://{{domain}}/admin/blog-packs/{slug}`
 
 ## Editar post
 
@@ -42,6 +47,7 @@ socialPack: {
 ## Imágenes
 
 `blog_upload_media` con URL http pública (`imageUrl`). Usa la URL absoluta que devuelve el CMS.
+Portada. `kind: post`. Carrusel. `kind: social`, filename `{slug}-ig-01.webp` …
 
 ## Blog-packs (frontend)
 
@@ -58,4 +64,5 @@ Comparte el `previewUrl` del CMS y la URL del pack admin.
 
 - Commits de contenido editorial en el repo del frontend
 - Inventar brand kit. Complétalo con `blog_update_brand_file` o el dashboard
-- Publicar en redes desde el agente (el pack es copia manual)
+- Publicar en redes desde el agente (el pack es copia/descarga manual)
+- Rellenar canales desactivados en `socialPackChannels`

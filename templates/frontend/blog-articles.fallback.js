@@ -9,3 +9,11 @@ export function getAllBlogPosts() {
 export function getRelatedSlugsMap() {
   return {}
 }
+
+export const SOCIAL_PACK_CHANNELS = {
+  substack: true,
+  linkedin: true,
+  x: true,
+  videoScript: true,
+  instagramCarousel: true
+}

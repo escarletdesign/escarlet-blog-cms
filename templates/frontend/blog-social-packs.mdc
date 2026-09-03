@@ -1,12 +1,12 @@
 ---
-description: Al crear un post de blog, generar pack de redes (Substack, X, LinkedIn, guion) y página admin
+description: Al crear un post de blog, generar pack de redes (Substack, X, LinkedIn, Instagram, guion) y página admin
 globs: src/data/blog-articles.js,src/data/blog.generated.js,scripts/generate-blog-social-packs.mjs,public/admin/blog-packs/**
 alwaysApply: false
 ---
 
 # Packs de publicación del blog
 
-Cuando crees o publiques un post vía MCP/CMS, completa `socialPack` y asegúrate de que el build genera `/admin/blog-packs`.
+Cuando crees o publiques un post vía MCP/CMS, completa `socialPack` **solo para canales activos** del site (`socialPackChannels` en brand context) y asegúrate de que el build genera `/admin/blog-packs`.
 
 Plantilla canónica. `escarlet-blog-cms/templates/frontend/generate-blog-social-packs.mjs`
 
@@ -18,15 +18,21 @@ socialPack: {
   substackBody: '...',  // + backlink {{domain}}/blog/{slug}
   linkedin: '...',
   x: '...',
-  videoScript: '...'    // guion oral 45–60s en posts nuevos
+  videoScript: '...',   // guion oral 45–60s
+  instagramCaption: '...', // + backlink
+  instagramSlides: [
+    { imageUrl: 'https://…/media/…/{slug}-ig-01.webp', alt: '...', headline: '...' }
+  ]
 }
 ```
 
-- Cada canal escrito incluye el backlink canónico.
+- Omite canales desactivados en `socialPackChannels`.
+- Cada canal escrito incluye el backlink canónico (salvo `videoScript`).
 - Substack. 4–8 párrafos cortos. Distinto del body.
 - LinkedIn. Más comercial, saltos cortos.
 - X. Gancho + idea + enlace.
 - `videoScript`. Oral, ~100–140 palabras. Sin URLs para leer en voz alta.
+- Instagram. El agente genera y sube las slides. El pack solo las descarga.
 
 ## 2. Build del frontend
 
@@ -43,25 +49,29 @@ En `package.json`:
 "build": "node scripts/sync-blog-cms.mjs && node scripts/generate-blog-social-packs.mjs && vite build"
 ```
 
-Env útiles. `BLOG_SITE_URL`, `BLOG_PACKS_NAME`, `BLOG_PACKS_THEME`, iconos `BLOG_PACKS_ICON*`.
+Env útiles. `BLOG_SITE_URL`, `BLOG_PACKS_NAME`, `BLOG_PACKS_THEME`, iconos `BLOG_PACKS_ICON*`, `BLOG_PACKS_CHANNELS` (opcional, override).
+
+El sync exporta `SOCIAL_PACK_CHANNELS` desde el CMS.
 
 ## 3. URLs admin
 
 - Índice. `{{domain}}/admin/blog-packs`
 - Pack. `{{domain}}/admin/blog-packs/{slug}`
 - Editor guion. `…/{slug}/edit` (si hay `videoScript`)
+- Carrusel. ancla `#instagram`
 
 `robots` Disallow `/admin`. `noindex` en las páginas.
 
 ## 4. UX del pack
 
-- Substack / LinkedIn / X / alt. truncado + Copiar + Leer más
+- Canales activos. truncado + Copiar + Leer más
+- Instagram. preview + descargar cada slide + caption
 - Solo el guion tiene Editar (override en `localStorage`, no escribe al CMS)
 - Publicación en redes. **manual**
 
 ## 5. Checklist
 
-- [ ] `socialPack` completo (con `videoScript` en posts nuevos)
+- [ ] `socialPack` según canales del site (con slides IG si aplica)
 - [ ] Publicado en CMS → rebuild
 - [ ] Pack en `/admin/blog-packs/{slug}`
 - [ ] Indicar al humano la URL del pack

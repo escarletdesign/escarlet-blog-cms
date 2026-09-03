@@ -75,6 +75,8 @@ Hermes (otro servidor) no clona el CMS. En su `mcp.json`:
 }
 ```
 
+ChatGPT (Developer Mode / Connectors). URL `https://blog-cms.escarlet.cc/mcp`, autenticación **OAuth**. Al autorizar pega el token de sitio o `ADMIN_TOKEN`. El dashboard genera un PNG del favicon (<10 KB) para el icono del conector al crear el token de cliente.
+
 ## Integración frontend
 
 ```bash

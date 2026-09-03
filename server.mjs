@@ -18,7 +18,8 @@ import {
   loadSiteConfig,
   listSiteHandles,
   saveSiteConfig,
-  publicSiteConfig
+  publicSiteConfig,
+  getSocialPackChannels
 } from './lib/site-config.mjs'
 import {
   getBrandContext,
@@ -58,6 +59,11 @@ import { mediaForClient, repairMediaInDb, repairPostsInDb, resolveImageSrc, reso
 import { withPostLinks } from './lib/preview-url.mjs'
 import { escapeHtml, renderPostBody } from './lib/content-render.mjs'
 import { handleMcpHttp, sendMcpCors } from './mcp/http-handler.mjs'
+import {
+  getMcpConnectionInfo,
+  prepareSiteAgentIcon,
+  readSiteAgentIcon
+} from './lib/favicon.mjs'
 import {
   authorizationServerMetadata,
   handleAuthorizeGet,
@@ -522,6 +528,8 @@ const server = createServer(async (req, res) => {
     const site = siteMatch[1]
     const slug = siteMatch[2]
     const db = readDb()
+    const siteConfig = loadSiteConfig(site)
+    const socialPackChannels = siteConfig ? getSocialPackChannels(siteConfig) : undefined
     const published = db.posts.filter((p) => p.site === site && p.status === 'published')
     if (slug) {
       const post = published.find((p) => p.slug === slug)
@@ -529,10 +537,10 @@ const server = createServer(async (req, res) => {
         json(res, 404, { message: 'No encontrado' })
         return
       }
-      json(res, 200, { site, post: publicPost(post) })
+      json(res, 200, { site, post: publicPost(post), socialPackChannels })
       return
     }
-    json(res, 200, { site, posts: published.map(publicPost) })
+    json(res, 200, { site, posts: published.map(publicPost), socialPackChannels })
     return
   }
 
@@ -687,7 +695,8 @@ const server = createServer(async (req, res) => {
         json(res, err.status || 403, { message: err.message })
         return
       }
-      if (!loadSiteConfig(handle)) {
+      const siteCfg = loadSiteConfig(handle)
+      if (!siteCfg) {
         json(res, 404, { message: 'Site no encontrado' })
         return
       }
@@ -703,11 +712,60 @@ const server = createServer(async (req, res) => {
       }
       const token = generateSiteAccessToken()
       const config = saveSiteConfig(handle, { siteAccessToken: token })
+      const mcp = getMcpConnectionInfo({ cmsUrl: CMS_PUBLIC_URL })
+      const agentIcon = await prepareSiteAgentIcon(handle, siteCfg.domain || '', {
+        soft: true,
+        force: Boolean(body.refreshIcon)
+      })
       json(res, 200, {
         config: publicSiteConfigForAuth(config, auth),
         siteAccessToken: token,
-        message: 'Copia este token ahora. Solo se muestra una vez.'
+        message: 'Copia este token ahora. Solo se muestra una vez.',
+        mcpUrl: mcp.mcpUrl,
+        mcpChatGptUrl: mcp.chatgpt.url,
+        mcpAuthHint: mcp.chatgpt.hint,
+        mcpCursorHint: mcp.cursorHermes.hint,
+        agentIcon
       })
+      return
+    }
+
+    const agentIconMatch = path.match(/^\/api\/admin\/site-config\/([^/]+)\/agent-icon$/)
+    if (agentIconMatch && (req.method === 'GET' || req.method === 'POST')) {
+      const handle = agentIconMatch[1]
+      try {
+        assertSiteAccess(auth, handle)
+      } catch (err) {
+        json(res, err.status || 403, { message: err.message })
+        return
+      }
+      const siteCfg = loadSiteConfig(handle)
+      if (!siteCfg) {
+        json(res, 404, { message: 'Site no encontrado' })
+        return
+      }
+      if (req.method === 'GET') {
+        const mcp = getMcpConnectionInfo({ cmsUrl: CMS_PUBLIC_URL })
+        json(res, 200, {
+          agentIcon: readSiteAgentIcon(handle),
+          mcpUrl: mcp.mcpUrl,
+          mcpChatGptUrl: mcp.chatgpt.url,
+          mcpAuthHint: mcp.chatgpt.hint
+        })
+        return
+      }
+      try {
+        assertSuperAdmin(auth)
+      } catch (err) {
+        json(res, err.status || 403, { message: err.message })
+        return
+      }
+      const body = await parseBody(req).catch(() => ({}))
+      const agentIcon = await prepareSiteAgentIcon(handle, siteCfg.domain || '', {
+        soft: true,
+        force: body.force !== false
+      })
+      json(res, agentIcon.ok ? 200 : 502, { agentIcon })
       return
     }
 
@@ -745,6 +803,9 @@ const server = createServer(async (req, res) => {
         }
         if (body.coolifyApiToken) partial.coolifyApiToken = body.coolifyApiToken
         if (body.clearCoolifyApiToken) partial.clearCoolifyApiToken = true
+        if (body.socialPackChannels && typeof body.socialPackChannels === 'object') {
+          partial.socialPackChannels = body.socialPackChannels
+        }
         const config = saveSiteConfig(handle, partial)
         json(res, 200, { config: publicSiteConfigForAuth(config, auth) })
         return

@@ -23,7 +23,10 @@ node scripts/sync-blog-cms.mjs && node scripts/generate-blog-social-packs.mjs &&
 BLOG_SITE_URL=https://dominio.com
 BLOG_PACKS_NAME=Packs Cliente
 BLOG_PACKS_THEME=#47a4e7
+BLOG_PACKS_CHANNELS=substack,linkedin,x,videoScript,instagramCarousel
 ```
+
+Los canales activos vienen del CMS (`socialPackChannels`) vía sync (`SOCIAL_PACK_CHANNELS`). `BLOG_PACKS_CHANNELS` es un override opcional.
 
 Helper desde el CMS.
 

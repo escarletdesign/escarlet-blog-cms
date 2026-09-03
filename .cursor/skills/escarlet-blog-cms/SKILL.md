@@ -53,7 +53,7 @@ Plantillas en `templates/frontend/`.
 4. `.gitignore` → `blog.generated.js`
 5. Coolify env. `BLOG_CMS_URL`, `BLOG_CMS_SITE={handle}`, `BLOG_SITE_URL`
 6. Regla Cursor. copia `blog-via-mcp.mdc` y sustituye `{{handle}}`
-7. **Blog-packs**. Copia `templates/frontend/generate-blog-social-packs.mjs` (env `BLOG_SITE_URL` / `BLOG_PACKS_*`). Build: sync → packs → vite. Ver skill global `escarlet-blog-integrate`
+7. **Blog-packs**. Copia `templates/frontend/generate-blog-social-packs.mjs` (env `BLOG_SITE_URL` / `BLOG_PACKS_*`). Canales por sitio en CMS (`socialPackChannels`). Instagram. el agente sube slides (`kind` social) y el pack las descarga. Build: sync → packs → vite. Ver skill global `escarlet-blog-integrate`
 
 ## Coolify webhook (contenido → rebuild)
 
@@ -70,7 +70,7 @@ Git push = código. Webhook = solo blog.
 | `blog_get_brand_context` | igual |
 | `blog_create_draft` | `blog_get_post` |
 | `blog_update_post` | `blog_update_post` (mismo slug) |
-| `blog_upload_media` (preferir `imageUrl`) | idem |
+| `blog_upload_media` (preferir `imageUrl`; `kind` social para slides IG) | idem |
 | `blog_validate_seo` → `blog_publish` | idem |
 
 Prohibido. Commitear posts al frontend. Usar `create_draft` para editar.

@@ -17,4 +17,11 @@
 3. `blog_upload_media` con `imageUrl`, `filename`, `alt`, `kind: post`.
 4. Usa la `media.url` absoluta en el `imageUrl` del post.
 
+## Carrusel Instagram (si el canal está activo)
+
+1. Genera 4–7 slides 1080×1350 (o 1080×1080) alineados con visual-style.
+2. Filename `{slug}-ig-01.webp` … `{slug}-ig-07.webp`.
+3. `blog_upload_media` con `kind: social` por cada slide.
+4. Guarda en `socialPack.instagramSlides` `{ imageUrl, alt, headline? }` y un `instagramCaption` con el canónico.
+
 Evita `contentBase64` en portadas grandes.

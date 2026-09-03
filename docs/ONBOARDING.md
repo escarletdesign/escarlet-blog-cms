@@ -84,7 +84,7 @@ Luego completa el brand kit en `/admin` → Brand kit (o `blog_update_brand_file
 
 4. `.gitignore` → `src/data/blog.generated.js`
 5. Monta rutas `/blog` y `/blog/:slug` leyendo `getBlogIndex` / `getPostBySlug` (como en escarlet002)
-6. **Blog-packs**. Copia `templates/frontend/generate-blog-social-packs.mjs` + `blog-social-packs.mdc`. Env `BLOG_SITE_URL` / `BLOG_PACKS_NAME`. Build. sync → packs → app. Salida `public/admin/blog-packs/`.
+6. **Blog-packs**. Copia `templates/frontend/generate-blog-social-packs.mjs` + `blog-social-packs.mdc` + sync actualizado. Env `BLOG_SITE_URL` / `BLOG_PACKS_NAME`. Canales del pack se configuran en el CMS (`socialPackChannels`). Build. sync → packs → app. Salida `public/admin/blog-packs/` (incluye descarga de slides Instagram si el canal está activo).
 
 ### Env en Coolify (app del frontend)
 

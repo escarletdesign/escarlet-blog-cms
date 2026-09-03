@@ -37,6 +37,10 @@ Convención del sitio alineada con el curso de SEO. Aplica a portadas, fotos de 
 3. Actualiza `src` y `alt` en el mismo cambio.
 4. Si sustituyes un archivo, deja el viejo un tiempo para no romper caché.
 
+## Carrusel Instagram (blog)
+
+Si el site tiene `instagramCarousel` activo, el agente genera 4–7 slides (1080×1350), las sube al CMS con `kind: social` (`{slug}-ig-01.webp` …) y las enlaza en `socialPack.instagramSlides`. El pack admin solo las descarga.
+
 ## Lead magnets
 
 Cada guía tiene PDF en `public/leads/` y portada en `public/images/leads/` con el mismo kebab-case.

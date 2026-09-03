@@ -17,5 +17,12 @@
     "canonicalPattern": "{domain}/blog/{slug}"
   },
   "authors": ["Charly", "Silvia"],
-  "copyRules": { "noColonsSemicolons": true }
+  "copyRules": { "noColonsSemicolons": true },
+  "socialPackChannels": {
+    "substack": true,
+    "linkedin": true,
+    "x": true,
+    "videoScript": true,
+    "instagramCarousel": true
+  }
 }

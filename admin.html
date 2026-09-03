@@ -188,21 +188,34 @@
                 <p class="inline-hint">Para elegir una imagen del archivo, pasa al paso Portada.</p>
                 <label for="fieldRelated">Entradas relacionadas (slugs separados por coma)</label>
                 <input id="fieldRelated" name="relatedSlugs" />
-                <details class="advanced-block">
+                <details class="advanced-block" id="socialPackBlock">
                   <summary>Textos para redes (opcional)</summary>
-                  <label for="fieldSubstackTitle">Título Substack</label>
-                  <input id="fieldSubstackTitle" name="substackTitle" />
-                  <label for="fieldSubstackBody">Cuerpo Substack</label>
-                  <textarea id="fieldSubstackBody" name="substackBody"></textarea>
-                  <div class="row">
-                    <div>
+                  <div data-channel="substack">
+                    <label for="fieldSubstackTitle">Título Substack</label>
+                    <input id="fieldSubstackTitle" name="substackTitle" />
+                    <label for="fieldSubstackBody">Cuerpo Substack</label>
+                    <textarea id="fieldSubstackBody" name="substackBody"></textarea>
+                  </div>
+                  <div class="row" data-channel-row="linkedin-x">
+                    <div data-channel="linkedin">
                       <label for="fieldLinkedin">LinkedIn</label>
                       <textarea id="fieldLinkedin" name="linkedin"></textarea>
                     </div>
-                    <div>
+                    <div data-channel="x">
                       <label for="fieldX">X</label>
                       <textarea id="fieldX" name="x"></textarea>
                     </div>
+                  </div>
+                  <div data-channel="videoScript">
+                    <label for="fieldVideoScript">Guion de vídeo (45–60 s)</label>
+                    <textarea id="fieldVideoScript" name="videoScript" rows="5"></textarea>
+                  </div>
+                  <div data-channel="instagramCarousel">
+                    <label for="fieldInstagramCaption">Caption Instagram</label>
+                    <textarea id="fieldInstagramCaption" name="instagramCaption" rows="4"></textarea>
+                    <label for="fieldInstagramSlides">Slides Instagram (JSON)</label>
+                    <textarea id="fieldInstagramSlides" name="instagramSlides" rows="8" placeholder='[{"imageUrl":"https://…/slide-1.webp","alt":"…","headline":"…"}]'></textarea>
+                    <p class="inline-hint">Array de slides. Cada una con imageUrl (media del CMS), alt y opcionalmente headline. Ideal 4–7.</p>
                   </div>
                 </details>
                 <label for="bodyEditorMount">Cuerpo del artículo</label>
@@ -467,6 +480,30 @@
               <input type="checkbox" id="siteHumanApproval" />
               <label for="siteHumanApproval">Pedir aprobación humana antes de publicar en vivo</label>
             </div>
+            <fieldset class="channel-fieldset">
+              <legend>Canales del pack de redes</legend>
+              <p class="field-help">Elige qué piezas genera el agente y muestra el pack admin de cada post.</p>
+              <div class="checkbox-row">
+                <input type="checkbox" id="channelSubstack" data-channel-key="substack" />
+                <label for="channelSubstack">Substack</label>
+              </div>
+              <div class="checkbox-row">
+                <input type="checkbox" id="channelLinkedin" data-channel-key="linkedin" />
+                <label for="channelLinkedin">LinkedIn</label>
+              </div>
+              <div class="checkbox-row">
+                <input type="checkbox" id="channelX" data-channel-key="x" />
+                <label for="channelX">X</label>
+              </div>
+              <div class="checkbox-row">
+                <input type="checkbox" id="channelVideoScript" data-channel-key="videoScript" />
+                <label for="channelVideoScript">Guion de vídeo</label>
+              </div>
+              <div class="checkbox-row">
+                <input type="checkbox" id="channelInstagram" data-channel-key="instagramCarousel" />
+                <label for="channelInstagram">Carrusel Instagram</label>
+              </div>
+            </fieldset>
             <div class="actions" id="siteAdminActions">
               <button type="button" class="btn btn-primary" id="saveSite">Guardar sitio</button>
               <button type="button" class="btn" id="testRebuild">Probar webhook</button>
@@ -482,7 +519,30 @@
               <button type="button" class="btn btn-primary" id="generateSiteToken">Generar token</button>
               <button type="button" class="btn" id="clearSiteToken">Revocar token</button>
             </div>
-            <pre id="siteAccessResult" class="result" hidden></pre>
+            <div id="siteAccessResult" class="access-token-panel" hidden>
+              <p class="access-token-label">Token (cópialo ahora, solo se muestra una vez)</p>
+              <pre id="siteAccessTokenValue" class="result"></pre>
+              <div class="access-mcp-block">
+                <p class="access-token-label">URL MCP para ChatGPT</p>
+                <p class="field-help" id="siteMcpUrl"></p>
+                <p class="field-help" id="siteMcpHint"></p>
+              </div>
+              <div class="access-icon-block" id="siteAgentIconBlock">
+                <p class="access-token-label">Icono del agente (PNG &lt; 10 KB)</p>
+                <div class="access-icon-row">
+                  <img id="siteAgentIconPreview" class="access-icon-preview" alt="Icono del sitio" hidden width="64" height="64" />
+                  <div>
+                    <p class="field-help" id="siteAgentIconStatus"></p>
+                    <a id="siteAgentIconLink" class="btn btn-sm" href="#" download="agent-icon.png" hidden>Descargar icono PNG</a>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="access-mcp-static" id="siteMcpStatic">
+              <p class="access-token-label">Conexión MCP (ChatGPT)</p>
+              <p class="field-help" id="siteMcpStaticUrl">Se completa al cargar el sitio.</p>
+              <p class="field-help">Autenticación OAuth. Al conectar pega el token de este sitio o el token de administración global.</p>
+            </div>
           </div>
         </section>
       </div>
@@ -495,6 +555,6 @@
   </div>
 
   <script src="https://uicdn.toast.com/editor/latest/toastui-editor-all.min.js"></script>
-  <script src="/admin.js?v=7"></script>
+  <script src="/admin.js?v=9"></script>
 </body>
 </html>

@@ -138,8 +138,9 @@ ChatGPT solo ofrece OAuth (o sin autenticación). El CMS incluye un OAuth 2.1 m�
 1. En ChatGPT. Settings → Connectors → Create
 2. URL. `https://blog-cms.escarlet.cc/mcp`
 3. Autenticación. **OAuth**
-4. Nombre. `escarlet-blog`
-5. Al conectar, ChatGPT abre la pantalla del CMS. Pega el mismo `ADMIN_TOKEN` y autoriza una vez.
+4. Nombre. `escarlet-blog` (o el del cliente)
+5. Al conectar, ChatGPT abre la pantalla del CMS. Pega el **token de sitio** (dashboard → Sitio → Generar token) o el `ADMIN_TOKEN` y autoriza una vez.
+6. Icono. Descarga el PNG del favicon (<10 KB) que muestra el panel al generar el token. Ruta pública típica. `https://blog-cms.escarlet.cc/media/{handle}/agent-icon.png`
 
 Cursor y Hermes siguen con Bearer directo. No hace falta migrarlos a OAuth.
 
