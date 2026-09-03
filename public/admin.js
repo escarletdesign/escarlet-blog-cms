@@ -30,6 +30,8 @@ const seoResult = document.getElementById('seoResult')
 const previewFrame = document.getElementById('previewFrame')
 const previewUrl = document.getElementById('previewUrl')
 const mediaGrid = document.getElementById('mediaGrid')
+const libraryGrid = document.getElementById('libraryGrid')
+const libraryKindFilter = document.getElementById('libraryKindFilter')
 const brandFile = document.getElementById('brandFile')
 const brandContent = document.getElementById('brandContent')
 const refGrid = document.getElementById('refGrid')
@@ -281,6 +283,26 @@ function applyImageToPost(item) {
   toast('Portada aplicada a la entrada')
 }
 
+function openMediaLightbox(src, alt = '') {
+  const box = document.getElementById('mediaLightbox')
+  const img = document.getElementById('mediaLightboxImg')
+  const caption = document.getElementById('mediaLightboxCaption')
+  if (!box || !img || !src) return
+  img.src = src
+  img.alt = alt || ''
+  if (caption) caption.textContent = alt || src
+  box.hidden = false
+  document.body.classList.add('lightbox-open')
+}
+
+function closeMediaLightbox() {
+  const box = document.getElementById('mediaLightbox')
+  const img = document.getElementById('mediaLightboxImg')
+  if (box) box.hidden = true
+  if (img) img.removeAttribute('src')
+  document.body.classList.remove('lightbox-open')
+}
+
 function renderMediaGrid(target, items, { allowUse = false } = {}) {
   target.innerHTML = ''
   if (!items.length) {
@@ -295,6 +317,8 @@ function renderMediaGrid(target, items, { allowUse = false } = {}) {
     img.alt = item.alt || ''
     img.loading = 'lazy'
     img.src = src
+    img.title = 'Ver a tamaño real'
+    img.onclick = () => openMediaLightbox(src, item.alt || item.filename || '')
     img.onerror = () => {
       const fallback = mediaSrc({ url: item.url, path: item.path })
       if (fallback && fallback !== img.src) img.src = fallback
@@ -340,6 +364,7 @@ function renderMediaGrid(target, items, { allowUse = false } = {}) {
         })
         toast('Imagen eliminada')
         if (target === mediaGrid) await loadMedia()
+        else if (target === libraryGrid) await loadLibrary()
         else await loadRefs()
       } catch (err) {
         toast(err.message)
@@ -406,7 +431,9 @@ function updateImagePreview() {
     return
   }
   imagePreview.hidden = false
-  imagePreview.innerHTML = `<img src="${src}" alt="Vista previa de portada" onerror="this.closest('.image-preview').hidden=true" />`
+  imagePreview.innerHTML = `<img src="${src}" alt="Vista previa de portada" title="Ver a tamaño real" onerror="this.closest('.image-preview').hidden=true" />`
+  const previewImg = imagePreview.querySelector('img')
+  if (previewImg) previewImg.onclick = () => openMediaLightbox(src, 'Portada')
 }
 
 function closeSidebar() {
@@ -472,6 +499,7 @@ function parseHash() {
   const raw = (location.hash || '').replace(/^#\/?/, '').trim()
   if (!raw || raw === 'entradas') return { view: 'entradas' }
   if (raw === 'marca') return { view: 'marca' }
+  if (raw === 'media') return { view: 'media' }
   if (raw === 'sitio') return { view: 'sitio' }
   const mNew = raw.match(/^entrada\/nueva(?:\/(escribir|portada|revisar))?$/)
   if (mNew) return { view: 'entrada', slug: null, isNew: true, step: mNew[1] || 'escribir' }
@@ -483,6 +511,7 @@ function parseHash() {
 function routeToHash(route) {
   if (!route || route.view === 'entradas') return '#/entradas'
   if (route.view === 'marca') return '#/marca'
+  if (route.view === 'media') return '#/media'
   if (route.view === 'sitio') return '#/sitio'
   if (route.view === 'entrada') {
     const step = route.step || 'escribir'
@@ -541,6 +570,8 @@ function applyRoute(route) {
     if (topbarHint) {
       if (view === 'marca') {
         topbarHint.textContent = 'Textos y referencias que usa el agente al crear contenido.'
+      } else if (view === 'media') {
+        topbarHint.textContent = 'Pulsa una foto para verla a tamaño real. El archivo guarda el original, no la miniatura.'
       } else if (view === 'sitio') {
         topbarHint.textContent = canCreateSites()
           ? 'Crea un sitio nuevo o ajusta dominio y webhook del activo.'
@@ -555,6 +586,9 @@ function applyRoute(route) {
   if (view === 'marca') {
     loadBrand().catch((e) => toast(e.message))
     loadRefs().catch((e) => toast(e.message))
+  }
+  if (view === 'media') {
+    loadLibrary().catch((e) => toast(e.message))
   }
   if (view === 'sitio') {
     loadSites().catch((e) => toast(e.message))
@@ -969,6 +1003,9 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && sidebar?.classList.contains('open')) {
     closeSidebar()
   }
+  if (e.key === 'Escape' && !document.getElementById('mediaLightbox')?.hidden) {
+    closeMediaLightbox()
+  }
 })
 
 async function loadPosts() {
@@ -1338,6 +1375,16 @@ async function loadMedia() {
   renderMediaGrid(mediaGrid, data.media || [], { allowUse: true })
 }
 
+async function loadLibrary() {
+  if (!libraryGrid) return
+  const site = siteFilter.value.trim() || 'escarlet'
+  const kind = libraryKindFilter?.value || ''
+  const q = new URLSearchParams({ site })
+  if (kind) q.set('kind', kind)
+  const data = await api('/api/admin/media?' + q)
+  renderMediaGrid(libraryGrid, data.media || [], { allowUse: false })
+}
+
 document.getElementById('uploadForm').onsubmit = async (e) => {
   e.preventDefault()
   const file = document.getElementById('uploadFile').files[0]
@@ -1360,9 +1407,42 @@ document.getElementById('uploadForm').onsubmit = async (e) => {
     }
     document.getElementById('uploadFile').value = ''
     await loadMedia()
+    if (currentRoute?.view === 'media') await loadLibrary()
     toast('Imagen subida')
   })
 }
+
+libraryKindFilter?.addEventListener('change', () => {
+  loadLibrary().catch((e) => toast(e.message))
+})
+
+document.getElementById('libraryUploadForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault()
+  const file = document.getElementById('libraryFile')?.files?.[0]
+  if (!file) return toast('Elige un archivo de imagen')
+  const btn = document.getElementById('libraryUploadBtn')
+  await withBusy(btn, 'Subiendo…', async () => {
+    const site = siteFilter.value.trim() || 'escarlet'
+    await api('/api/admin/media/upload', {
+      method: 'POST',
+      body: JSON.stringify({
+        site,
+        filename: file.name,
+        contentBase64: await fileToBase64(file),
+        alt: document.getElementById('libraryAlt')?.value || '',
+        kind: document.getElementById('libraryKind')?.value || 'post'
+      })
+    })
+    document.getElementById('libraryFile').value = ''
+    await loadLibrary()
+    toast('Imagen subida al archivo')
+  })
+})
+
+document.getElementById('mediaLightboxClose')?.addEventListener('click', closeMediaLightbox)
+document.getElementById('mediaLightbox')?.addEventListener('click', (event) => {
+  if (event.target.id === 'mediaLightbox') closeMediaLightbox()
+})
 
 async function loadBrand() {
   const site = siteFilter.value.trim() || 'escarlet'
@@ -1494,6 +1574,9 @@ async function switchSite(handle) {
   if (currentRoute?.view === 'marca') {
     await loadBrand()
     await loadRefs()
+  }
+  if (currentRoute?.view === 'media') {
+    await loadLibrary()
   }
   toast(`Sitio activo. ${handle}`)
 }

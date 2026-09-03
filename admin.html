@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex,nofollow" />
   <title>Escarlet Blog CMS</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/admin.css?v=7" />
+  <link rel="stylesheet" href="/admin.css?v=8" />
   <link rel="stylesheet" href="https://uicdn.toast.com/editor/latest/toastui-editor.min.css" />
 </head>
 <body>
@@ -41,6 +41,10 @@
         <button type="button" class="nav-btn active" data-route="entradas">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>
           <span>Entradas</span>
+        </button>
+        <button type="button" class="nav-btn" data-route="media">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+          <span>Archivo</span>
         </button>
         <p class="nav-section">Ajustes</p>
         <button type="button" class="nav-btn" data-route="marca">
@@ -101,6 +105,46 @@
               </button>
             </div>
             <ul class="post-list" id="list" aria-live="polite"></ul>
+          </div>
+        </section>
+
+        <section id="panel-media" class="panel" data-panel="media" hidden>
+          <div class="card">
+            <h2 class="card-title">Archivo de imágenes</h2>
+            <p class="card-desc">Todas las fotos de este sitio. Pulsa una miniatura para verla a tamaño real.</p>
+            <form id="libraryUploadForm" class="upload-zone">
+              <label for="libraryFile">Archivo de imagen</label>
+              <input type="file" id="libraryFile" accept="image/*" />
+              <div class="row">
+                <div>
+                  <label for="libraryAlt">Texto alternativo</label>
+                  <input id="libraryAlt" />
+                </div>
+                <div>
+                  <label for="libraryKind">Uso</label>
+                  <select id="libraryKind">
+                    <option value="post">Portada de entrada</option>
+                    <option value="social">Slide Instagram</option>
+                    <option value="reference">Referencia de marca</option>
+                  </select>
+                </div>
+              </div>
+              <div class="actions">
+                <button type="submit" class="btn btn-primary" id="libraryUploadBtn">Subir al archivo</button>
+              </div>
+            </form>
+            <div class="toolbar posts-toolbar">
+              <div class="topbar-field status-field">
+                <label for="libraryKindFilter">Filtrar por uso</label>
+                <select id="libraryKindFilter">
+                  <option value="">Todas</option>
+                  <option value="post">Portadas</option>
+                  <option value="social">Instagram</option>
+                  <option value="reference">Referencias</option>
+                </select>
+              </div>
+            </div>
+            <div class="media-grid media-grid--library" id="libraryGrid"></div>
           </div>
         </section>
 
@@ -557,6 +601,12 @@
   </div>
 
   <script src="https://uicdn.toast.com/editor/latest/toastui-editor-all.min.js"></script>
-  <script src="/admin.js?v=9"></script>
+  <div id="mediaLightbox" class="media-lightbox" hidden>
+    <button type="button" class="media-lightbox-close" id="mediaLightboxClose" aria-label="Cerrar imagen">×</button>
+    <img id="mediaLightboxImg" alt="" />
+    <p class="media-lightbox-caption" id="mediaLightboxCaption"></p>
+  </div>
+
+  <script src="/admin.js?v=10"></script>
 </body>
 </html>
