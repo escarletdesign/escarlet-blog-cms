@@ -230,6 +230,38 @@ a:hover { text-decoration: underline; }
   gap: 0.5rem;
 }
 
+.topbar-auth {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex-shrink: 0;
+}
+
+.auth-role-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 0.28rem 0.65rem;
+  border-radius: 999px;
+  line-height: 1.2;
+  border: 1px solid transparent;
+}
+
+.auth-role-badge[data-role="admin"] {
+  background: #dceee4;
+  color: #1a4d38;
+  border-color: #b7d8c6;
+}
+
+.auth-role-badge[data-role="site"] {
+  background: #f3ece0;
+  color: #5c4a28;
+  border-color: #e2d4b8;
+}
+
 .topbar-site-row select {
   min-width: 10rem;
   max-width: 16rem;

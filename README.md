@@ -56,6 +56,7 @@ Deploy producción. [docs/DEPLOY.md](docs/DEPLOY.md).
 | `blog_get_brand_context` | Voz, estilo visual, AGENT.md e imágenes de referencia |
 | `blog_update_brand_file` | Subir o corregir un archivo del kit |
 | `blog_upload_media` | Portada (`post`) o moodboard (`reference`) |
+| `blog_import_brand_zip` | ZIP de brand kit (cualquier estructura). Preferir `zipUrl` |
 
 Resources. `brand://{handle}/voice`, `keywords`, `agent`, `image-guide`
 

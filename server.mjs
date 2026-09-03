@@ -757,11 +757,14 @@ const server = createServer(async (req, res) => {
       try {
         assertSiteAccess(auth, site)
         const body = await parseBody(req)
-        if (!body.contentBase64) {
-          json(res, 400, { message: 'Falta contentBase64 del ZIP' })
+        if (!body.contentBase64 && !body.zipUrl) {
+          json(res, 400, { message: 'Falta zipUrl o contentBase64 del ZIP' })
           return
         }
-        const result = await importBrandKitZip(site, { contentBase64: body.contentBase64 })
+        const result = await importBrandKitZip(site, {
+          contentBase64: body.contentBase64,
+          zipUrl: body.zipUrl
+        })
         json(res, 200, result)
       } catch (err) {
         json(res, err.status || 400, { message: err.message })

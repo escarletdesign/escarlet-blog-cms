@@ -233,6 +233,26 @@ function buildToolList(auth) {
         },
         required: ['site', 'filename']
       }
+    },
+    {
+      name: 'blog_import_brand_zip',
+      description:
+        'Importa un ZIP de brand kit y lo organiza solo. Acepta cualquier estructura de carpetas. Clasifica .md (voice, visual-style, image-guide, keywords, AGENT) por nombre o pistas e imágenes como referencias. PREFERIDO: zipUrl http(s) pública. Evita contentBase64 en ZIPs grandes.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          site: { type: 'string' },
+          zipUrl: {
+            type: 'string',
+            description: 'URL http(s) pública del ZIP (preferido)'
+          },
+          contentBase64: {
+            type: 'string',
+            description: 'Solo si no hay zipUrl y el archivo es pequeño'
+          }
+        },
+        required: ['site']
+      }
     }
   ]
 
@@ -360,6 +380,13 @@ export function createMcpServer(auth = { role: 'admin' }) {
         case 'blog_upload_media': {
           const site = resolveToolSite(auth, args)
           return textResult(await cms.uploadMedia({ ...args, site }))
+        }
+        case 'blog_import_brand_zip': {
+          const site = resolveToolSite(auth, args)
+          if (!args.zipUrl && !args.contentBase64) {
+            throw Object.assign(new Error('Pasa zipUrl (preferido) o contentBase64'), { status: 400 })
+          }
+          return textResult(await cms.importBrandZip(site, args))
         }
         default:
           throw new Error(`Tool desconocida: ${name}`)

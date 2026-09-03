@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex,nofollow" />
   <title>Escarlet Blog CMS</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/admin.css?v=6" />
+  <link rel="stylesheet" href="/admin.css?v=7" />
   <link rel="stylesheet" href="https://uicdn.toast.com/editor/latest/toastui-editor.min.css" />
 </head>
 <body>
@@ -68,6 +68,10 @@
             <select id="siteFilter" aria-label="Sitio activo"></select>
             <strong id="siteLabel" class="visually-hidden">escarlet</strong>
           </div>
+        </div>
+        <div class="topbar-auth" id="topbarAuth">
+          <span class="topbar-kicker">Tu acceso</span>
+          <span class="auth-role-badge" id="authRoleBadge" data-role="admin">Super-admin</span>
         </div>
         <p class="topbar-hint" id="topbarHint">Empieza por Entradas. Abre un borrador y avanza paso a paso hasta publicar.</p>
       </header>
@@ -269,13 +273,13 @@
         <section id="panel-marca" class="panel" data-panel="marca">
           <div class="card">
             <h2 class="card-title">Importar kit (ZIP)</h2>
-            <p class="card-desc">Sube un ZIP con los .md del kit y fotos de referencia. El CMS lo descomprime y coloca cada archivo donde corresponde.</p>
+            <p class="card-desc">Sube un ZIP con los .md del kit y fotos de referencia. Da igual cómo estén las carpetas. El CMS clasifica por nombre o pistas y organiza solo.</p>
             <div class="help-callout help-callout-compact">
               <strong>Qué puede ir dentro</strong>
               <ul class="help-steps">
-                <li><code>voice.md</code>, <code>visual-style.md</code>, <code>image-guide.md</code>, <code>keywords.md</code>, <code>AGENT.md</code></li>
+                <li>Markdown. voz, estilo visual, guía de imágenes, keywords, AGENT (por nombre o pista en la ruta)</li>
                 <li>Imágenes <code>.webp</code> <code>.jpg</code> <code>.png</code> <code>.gif</code> (van a referencias)</li>
-                <li>Carpetas internas valen. Se ignoran rutas con <code>..</code></li>
+                <li>Cualquier estructura de carpetas vale. También se puede importar por MCP con <code>blog_import_brand_zip</code> y una <code>zipUrl</code></li>
               </ul>
             </div>
             <form id="brandZipForm" class="upload-zone">
@@ -491,6 +495,6 @@
   </div>
 
   <script src="https://uicdn.toast.com/editor/latest/toastui-editor-all.min.js"></script>
-  <script src="/admin.js?v=6"></script>
+  <script src="/admin.js?v=7"></script>
 </body>
 </html>

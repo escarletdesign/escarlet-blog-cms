@@ -68,6 +68,7 @@ const workspaceHint = document.getElementById('workspaceHint')
 const editorStatusBadge = document.getElementById('editorStatusBadge')
 const postStatusInput = document.getElementById('postStatus')
 const topbarHint = document.getElementById('topbarHint')
+const authRoleBadge = document.getElementById('authRoleBadge')
 
 const ONBOARD_HINTS = {
   basics: 'Paso 1 de 3. Datos básicos del proyecto.',
@@ -455,12 +456,16 @@ function applyRoute(route) {
       panel.setAttribute('aria-hidden', 'false')
     }
     if (topbarHint) {
-      topbarHint.textContent =
-        view === 'marca'
-          ? 'Textos y referencias que usa el agente al crear contenido.'
-          : view === 'sitio'
-            ? 'Crea un sitio nuevo o ajusta dominio y webhook del activo.'
-            : 'Empieza por Entradas. Abre un borrador y avanza paso a paso hasta publicar.'
+      if (view === 'marca') {
+        topbarHint.textContent = 'Textos y referencias que usa el agente al crear contenido.'
+      } else if (view === 'sitio') {
+        topbarHint.textContent = canCreateSites()
+          ? 'Crea un sitio nuevo o ajusta dominio y webhook del activo.'
+          : `Ajusta el sitio ${authSession?.site || 'activo'}. Crear sitios pide token de super-admin.`
+      } else {
+        topbarHint.textContent =
+          'Empieza por Entradas. Abre un borrador y avanza paso a paso hasta publicar.'
+      }
     }
   }
 
@@ -615,11 +620,48 @@ function showPreviewForSlug(slug, { newTab = false } = {}) {
   previewFrame.src = url
 }
 
+function mergeAuthSession(partial = {}) {
+  const nextRole = partial.role || authSession?.role || 'admin'
+  authSession = {
+    role: nextRole,
+    site:
+      Object.prototype.hasOwnProperty.call(partial, 'site')
+        ? partial.site
+        : (authSession?.site ?? null),
+    sites: Array.isArray(partial.sites) ? partial.sites : (authSession?.sites || []),
+    canCreateSites:
+      typeof partial.canCreateSites === 'boolean'
+        ? partial.canCreateSites
+        : Boolean(authSession?.canCreateSites),
+    canManageAllSites:
+      typeof partial.canManageAllSites === 'boolean'
+        ? partial.canManageAllSites
+        : Boolean(authSession?.canManageAllSites)
+  }
+  if (authSession.role === 'admin') {
+    authSession.canCreateSites = true
+    authSession.canManageAllSites = true
+    authSession.site = null
+  }
+  return authSession
+}
+
+function canCreateSites() {
+  return authSession?.role === 'admin' || Boolean(authSession?.canCreateSites)
+}
+
+function isSuperAdminSession() {
+  return authSession?.role === 'admin'
+}
+
 async function afterLogin() {
   try {
-    authSession = await api('/api/admin/session')
+    mergeAuthSession(await api('/api/admin/session'))
   } catch {
-    authSession = { role: 'admin', canCreateSites: true, sites: [] }
+    // Conserva el rol del login si ya lo tenemos. Solo asume admin si aún no hay sesión.
+    if (!authSession?.role) {
+      mergeAuthSession({ role: 'admin', canCreateSites: true, canManageAllSites: true, sites: [] })
+    }
   }
   applyAuthUi()
   await loadSites()
@@ -650,13 +692,33 @@ async function afterLogin() {
 }
 
 function applyAuthUi() {
-  const isAdmin = authSession?.role === 'admin'
+  const isAdmin = isSuperAdminSession()
+  const allowCreate = canCreateSites()
   const startBtn = document.getElementById('startNewSite')
   const accessCard = document.getElementById('siteAccessCard')
-  const adminActions = document.getElementById('siteAdminActions')
   const webhookLabel = document.querySelector('label[for="siteWebhook"]')
-  if (startBtn) startBtn.hidden = !isAdmin
+  const siteListDesc = document.querySelector('#siteListCard .card-desc')
+
+  if (authRoleBadge) {
+    if (isAdmin) {
+      authRoleBadge.dataset.role = 'admin'
+      authRoleBadge.textContent = 'Super-admin'
+    } else {
+      const handle = authSession?.site || authSession?.sites?.[0] || 'este proyecto'
+      authRoleBadge.dataset.role = 'site'
+      authRoleBadge.textContent = `Acceso al sitio ${handle}`
+    }
+  }
+
+  if (startBtn) {
+    startBtn.hidden = !allowCreate
+  }
   if (accessCard) accessCard.hidden = !isAdmin
+  if (siteListDesc) {
+    siteListDesc.textContent = allowCreate
+      ? 'Cada landing tiene su handle, dominio y webhook de Coolify.'
+      : `Tu token solo gestiona ${authSession?.site || 'este sitio'}. Para crear sitios nuevos usa el token de super-admin.`
+  }
   if (siteFilter) siteFilter.disabled = !isAdmin && (authSession?.sites?.length || 0) <= 1
   // Config avanzada solo admin
   ;['siteWebhook', 'siteCoolifyToken', 'siteHumanApproval', 'testRebuild', 'saveSite'].forEach((id) => {
@@ -671,7 +733,6 @@ function applyAuthUi() {
       return
     }
     el.disabled = !isAdmin
-    const wrap = el.closest('.help-callout') || el.parentElement
   })
   document.querySelectorAll('#siteConfigCard .help-callout').forEach((el) => {
     el.hidden = !isAdmin
@@ -686,9 +747,6 @@ function applyAuthUi() {
   if (siteTokenStatus) siteTokenStatus.hidden = !isAdmin
   if (siteHumanApproval) {
     siteHumanApproval.closest('.checkbox-row')?.classList.toggle('is-hidden', !isAdmin)
-  }
-  if (topbarHint && !isAdmin) {
-    topbarHint.textContent = `Token de sitio. Solo gestionas ${authSession.site || 'este proyecto'}.`
   }
 }
 
@@ -725,20 +783,20 @@ async function doLogin() {
       return payload
     })
 
-    authSession = {
+    mergeAuthSession({
       role: data.role || 'admin',
       site: data.site || null,
       sites: data.sites || [],
       canCreateSites: Boolean(data.canCreateSites),
       canManageAllSites: Boolean(data.canManageAllSites)
-    }
+    })
     if (data.role === 'site' && data.site) {
       localStorage.setItem('escarlet_cms_site', data.site)
       if (siteFilter) siteFilter.dataset.pending = data.site
     }
     localStorage.setItem('escarlet_cms_token', token)
     await afterLogin()
-    toast(data.role === 'site' ? `Sesión del sitio ${data.site}` : 'Sesión de administrador')
+    toast(data.role === 'site' ? `Sesión del sitio ${data.site}` : 'Sesión de super-admin')
   } catch (err) {
     token = ''
     localStorage.removeItem('escarlet_cms_token')
@@ -760,6 +818,7 @@ tokenInput.addEventListener('keydown', (event) => {
 
 document.getElementById('logout').onclick = () => {
   token = ''
+  authSession = { role: 'admin', canCreateSites: true, canManageAllSites: true, sites: [] }
   localStorage.removeItem('escarlet_cms_token')
   login.hidden = false
   app.hidden = true
@@ -1261,6 +1320,17 @@ document.getElementById('refUploadForm').onsubmit = async (e) => {
 
 async function loadSites() {
   const data = await api('/api/admin/sites')
+  if (data.role || typeof data.canCreateSites === 'boolean') {
+    mergeAuthSession({
+      role: data.role || authSession.role,
+      site: authSession.site,
+      sites: data.handles || authSession.sites,
+      canCreateSites:
+        typeof data.canCreateSites === 'boolean' ? data.canCreateSites : authSession.canCreateSites,
+      canManageAllSites: data.role === 'admin' ? true : authSession.canManageAllSites
+    })
+    applyAuthUi()
+  }
   const fromDb = (data.sites || []).map((s) => s.handle || s.id).filter(Boolean)
   const handles = [...new Set([...(data.handles || []), ...fromDb])].sort()
   cachedSiteHandles = handles.length ? handles : ['escarlet']
