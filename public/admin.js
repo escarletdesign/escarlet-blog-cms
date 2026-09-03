@@ -404,15 +404,25 @@ function ensureBodyEditor() {
   return bodyEditor
 }
 
+function looksLikeBodyHtml(text = '') {
+  return /<(?:p|h[1-6]|div|ul|ol|li|article|blockquote|br|figure|section)\b/i.test(String(text).trim())
+}
+
 function bodyValue() {
-  if (bodyEditor) return bodyEditor.getMarkdown()
+  // La web pública inyecta bodyHtml como HTML. Guardar Markdown deja ## ** visibles.
+  if (bodyEditor) return bodyEditor.getHTML() || ''
   return bodyContent?.value || ''
 }
 
 function setBodyValue(text) {
   ensureBodyEditor()
-  if (bodyEditor) bodyEditor.setMarkdown(text || '')
-  else if (bodyContent) bodyContent.value = text || ''
+  const raw = text || ''
+  if (bodyEditor) {
+    if (looksLikeBodyHtml(raw)) bodyEditor.setHTML(raw)
+    else bodyEditor.setMarkdown(raw)
+  } else if (bodyContent) {
+    bodyContent.value = raw
+  }
 }
 
 function brandValue() {
