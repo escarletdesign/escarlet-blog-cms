@@ -58,7 +58,7 @@ Deploy producción. [docs/DEPLOY.md](docs/DEPLOY.md).
 | `blog_upload_media` | Portada (`post`) o moodboard (`reference`) |
 | `blog_import_brand_zip` | ZIP de brand kit (cualquier estructura). Preferir `zipUrl` |
 
-Resources. `brand://{handle}/voice`, `keywords`, `agent`, `image-guide`
+Resources. `brand://{handle}/voice`, `keywords`, `agent`, `image-guide`, `visual-style`, `image-spec`
 
 Hermes (otro servidor) no clona el CMS. En su `mcp.json`:
 

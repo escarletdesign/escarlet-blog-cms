@@ -286,12 +286,13 @@
         <section id="panel-marca" class="panel" data-panel="marca">
           <div class="card">
             <h2 class="card-title">Importar kit (ZIP)</h2>
-            <p class="card-desc">Sube un ZIP con los .md del kit y fotos de referencia. Da igual cómo estén las carpetas. El CMS clasifica por nombre o pistas y organiza solo.</p>
+            <p class="card-desc">Sube un ZIP con los .md del kit, el JSON de specs de imágenes y fotos de referencia. Da igual cómo estén las carpetas. El CMS clasifica por nombre o pistas y organiza solo.</p>
             <div class="help-callout help-callout-compact">
               <strong>Qué puede ir dentro</strong>
               <ul class="help-steps">
                 <li>Markdown. voz, estilo visual, guía de imágenes, keywords, AGENT (por nombre o pista en la ruta)</li>
-                <li>Imágenes <code>.webp</code> <code>.jpg</code> <code>.png</code> <code>.gif</code> (van a referencias)</li>
+                <li>JSON de specs. <code>image-spec.json</code>, <code>*brand-spec*.json</code> o <code>*imagenes*spec*.json</code> (va a image-spec.json para el agente)</li>
+                <li>Imágenes <code>.webp</code> <code>.jpg</code> <code>.png</code> <code>.gif</code> (van a referencias). Los SVG se omiten</li>
                 <li>Cualquier estructura de carpetas vale. También se puede importar por MCP con <code>blog_import_brand_zip</code> y una <code>zipUrl</code></li>
               </ul>
             </div>
@@ -312,6 +313,7 @@
               <option value="voice.md">Voz de marca</option>
               <option value="visual-style.md">Estilo de imágenes</option>
               <option value="image-guide.md">Nombres y alt SEO</option>
+              <option value="image-spec.json">Spec de imágenes (JSON)</option>
               <option value="keywords.md">Keywords</option>
               <option value="AGENT.md">Reglas del agente</option>
             </select>

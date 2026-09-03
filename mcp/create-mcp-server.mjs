@@ -16,7 +16,8 @@ export const RESOURCE_MAP = {
   'agent-rules': 'AGENT.md',
   agent: 'AGENT.md',
   'image-guide': 'image-guide.md',
-  'visual-style': 'visual-style.md'
+  'visual-style': 'visual-style.md',
+  'image-spec': 'image-spec.json'
 }
 
 function textResult(payload) {
@@ -198,7 +199,8 @@ function buildToolList(auth) {
     },
     {
       name: 'blog_get_brand_context',
-      description: 'Obligatorio al crear o editar. Brand kit + workflow.',
+      description:
+        'Obligatorio al crear o editar. Brand kit + workflow. Incluye imageSpec (JSON) cuando el kit trae brand-spec de imágenes.',
       inputSchema: {
         type: 'object',
         properties: { site: { type: 'string' } },
@@ -207,7 +209,8 @@ function buildToolList(auth) {
     },
     {
       name: 'blog_update_brand_file',
-      description: 'Crea o corrige un archivo del brand kit.',
+      description:
+        'Crea o corrige un archivo del brand kit (voice.md, visual-style.md, image-guide.md, keywords.md, AGENT.md, image-spec.json).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -237,7 +240,7 @@ function buildToolList(auth) {
     {
       name: 'blog_import_brand_zip',
       description:
-        'Importa un ZIP de brand kit y lo organiza solo. Acepta cualquier estructura de carpetas. Clasifica .md (voice, visual-style, image-guide, keywords, AGENT) por nombre o pistas e imágenes como referencias. PREFERIDO: zipUrl http(s) pública. Evita contentBase64 en ZIPs grandes.',
+        'Importa un ZIP de brand kit y lo organiza solo. Acepta cualquier estructura de carpetas. Clasifica .md (voice, visual-style, image-guide, keywords, AGENT) por nombre o pistas, JSON brand-spec → image-spec.json, e imágenes raster como referencias. PREFERIDO: zipUrl http(s) pública. Evita contentBase64 en ZIPs grandes.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -277,10 +280,12 @@ export function createMcpServer(auth = { role: 'admin' }) {
     const resources = []
     for (const site of sites) {
       for (const key of Object.keys(RESOURCE_MAP)) {
+        const file = RESOURCE_MAP[key]
+        const mimeType = file.endsWith('.json') ? 'application/json' : 'text/markdown'
         resources.push({
           uri: `brand://${site}/${key}`,
           name: `${site} ${key}`,
-          mimeType: 'text/markdown'
+          mimeType
         })
       }
     }
@@ -295,8 +300,9 @@ export function createMcpServer(auth = { role: 'admin' }) {
     const file = RESOURCE_MAP[key]
     if (!file) throw new Error(`Recurso desconocido: ${key}`)
     const data = await cms.getBrandFile(site, file)
+    const mimeType = file.endsWith('.json') ? 'application/json' : 'text/markdown'
     return {
-      contents: [{ uri: request.params.uri, mimeType: 'text/markdown', text: data.content || '' }]
+      contents: [{ uri: request.params.uri, mimeType, text: data.content || '' }]
     }
   })
 

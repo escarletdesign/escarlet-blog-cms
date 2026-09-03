@@ -28,7 +28,7 @@ import {
   writeBrandFile,
   seedAllBrandKits,
   importBrandKitZip,
-  BRAND_FILES,
+  BRAND_ALL_FILES,
   BRAND_FILE_LABELS
 } from './lib/brand-kit.mjs'
 import { validatePostSeo } from './lib/seo-validator.mjs'
@@ -843,9 +843,9 @@ const server = createServer(async (req, res) => {
         return
       }
       const file = brandMatch[2] ? decodeURIComponent(brandMatch[2]) : ''
-      const allowed = !file || BRAND_FILES.includes(file) || file === 'agent-rules.md'
+      const allowed = !file || BRAND_ALL_FILES.includes(file) || file === 'agent-rules.md'
       if (req.method === 'GET' && !file) {
-        json(res, 200, { ...getBrandContext(site), files: BRAND_FILES, labels: BRAND_FILE_LABELS })
+        json(res, 200, { ...getBrandContext(site), files: BRAND_ALL_FILES, labels: BRAND_FILE_LABELS })
         return
       }
       if (req.method === 'GET' && file && allowed) {

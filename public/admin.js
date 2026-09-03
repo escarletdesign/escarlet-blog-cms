@@ -1868,6 +1868,7 @@ document.getElementById('brandZipForm')?.addEventListener('submit', async (e) =>
       out.hidden = false
       out.textContent = [
         `MD importados. ${(data.importedMd || []).join(', ') || 'ninguno'}`,
+        data.importedData?.length ? `JSON. ${data.importedData.join(', ')}` : '',
         `Imágenes. ${(data.importedImages || []).length}`,
         data.skipped?.length ? `Omitidos. ${data.skipped.slice(0, 8).join(', ')}` : ''
       ]
