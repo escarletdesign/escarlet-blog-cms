@@ -111,7 +111,7 @@
         <section id="panel-media" class="panel" data-panel="media" hidden>
           <div class="card">
             <h2 class="card-title">Archivo de imágenes</h2>
-            <p class="card-desc">Todas las fotos de este sitio. Pulsa una miniatura para verla a tamaño real.</p>
+            <p class="card-desc">Todas las fotos de este sitio. Pulsa una para verla grande. Pasa el ratón y la papelera la borra.</p>
             <form id="libraryUploadForm" class="upload-zone">
               <label for="libraryFile">Archivo de imagen</label>
               <input type="file" id="libraryFile" accept="image/*" />
@@ -259,7 +259,7 @@
                     <textarea id="fieldInstagramCaption" name="instagramCaption" rows="4"></textarea>
                     <label for="fieldInstagramSlides">Slides Instagram (JSON)</label>
                     <textarea id="fieldInstagramSlides" name="instagramSlides" rows="8" placeholder='[{"imageUrl":"https://…/slide-1.webp","alt":"…","headline":"…"}]'></textarea>
-                    <p class="inline-hint">Puedes editar el JSON a mano. Lo habitual es usar «Al carrusel» en el paso Portada.</p>
+                    <p class="inline-hint">Puedes editar el JSON a mano. Lo habitual es el más en el paso Portada.</p>
                   </div>
                 </details>
                 <label for="bodyEditorMount">Cuerpo del artículo</label>
@@ -267,7 +267,7 @@
                 <textarea id="bodyContent" name="bodyHtml" hidden></textarea>
                 <div class="actions sticky-actions">
                   <button type="submit" class="btn btn-primary" id="savePost">Guardar</button>
-                  <button type="button" class="btn" id="goToPortada">Siguiente. Portada</button>
+                  <button type="button" class="btn" id="goToPortada">Siguiente</button>
                   <button type="button" class="btn" id="validateSeo">Validar SEO</button>
                   <button type="button" class="btn" id="unpublishPost" hidden>Despublicar</button>
                   <button type="button" class="btn btn-danger" id="deletePost" hidden>Eliminar</button>
@@ -280,7 +280,7 @@
           <div id="step-portada" class="step-panel">
             <div class="card">
               <h3 class="card-title">Portada de esta entrada</h3>
-              <p class="card-desc">Al elegir una imagen se guarda en el CMS. Si la entrada está publicada, también se pide rebuild de la web.</p>
+              <p class="card-desc">La foto grande es lo que importa. Pasa el ratón. El recuadro pone portada. El más la mete en el carrusel.</p>
               <form id="uploadForm" class="upload-zone">
                 <label for="uploadFile">Archivo de imagen</label>
                 <input type="file" id="uploadFile" accept="image/*" />
@@ -304,7 +304,7 @@
               </form>
               <section class="carousel-editor" id="carouselEditor" data-channel="instagramCarousel">
                 <h4 class="carousel-editor-title">Carrusel Instagram de esta entrada</h4>
-                <p class="inline-hint">Hasta 7 slides. Pulsa «Al carrusel» en una imagen de abajo. Eso las enlaza al social pack de este post.</p>
+                <p class="inline-hint">Hasta 7 slides. El más en una foto de la parrilla la añade aquí. La cruz la quita.</p>
                 <div class="carousel-strip" id="carouselStrip"></div>
               </section>
               <div class="toolbar posts-toolbar">
@@ -319,9 +319,9 @@
               </div>
               <div class="media-grid" id="mediaGrid"></div>
               <div class="actions sticky-actions">
-                <button type="button" class="btn" id="goToEscribir">Anterior. Escribir</button>
+                <button type="button" class="btn btn-ghost" id="goToEscribir">Anterior</button>
                 <button type="button" class="btn" id="savePortada">Guardar y actualizar web</button>
-                <button type="button" class="btn btn-primary" id="goToRevisar">Siguiente. Revisar</button>
+                <button type="button" class="btn btn-primary" id="goToRevisar">Siguiente</button>
               </div>
             </div>
           </div>
@@ -332,7 +332,7 @@
               <p class="card-desc">Mira el resultado final. Cuando esté bien, envíalo a revisión o publícalo en vivo.</p>
               <p id="previewStatus" class="preview-status"></p>
               <div class="actions sticky-actions">
-                <button type="button" class="btn" id="goBackPortada">Anterior. Portada</button>
+                <button type="button" class="btn btn-ghost" id="goBackPortada">Anterior</button>
                 <button type="button" class="btn" id="loadPreview">Actualizar vista previa</button>
                 <button type="button" class="btn" id="openPreviewTab">Abrir en nueva pestaña</button>
                 <button type="button" class="btn btn-primary" id="publishPost">Enviar a revisión</button>
@@ -387,7 +387,7 @@
           </div>
           <div class="card">
             <h2 class="card-title">Imágenes de referencia</h2>
-            <p class="card-desc">Moodboard para portadas. Sirve de guía visual al crear imágenes nuevas.</p>
+            <p class="card-desc">Moodboard para portadas. Pulsa una para verla grande. Pasa el ratón y la papelera la borra.</p>
             <form id="refUploadForm" class="upload-zone">
               <label for="refFile">Archivo</label>
               <input type="file" id="refFile" accept="image/*" />
@@ -462,7 +462,7 @@
               <input id="newSiteAuthors" placeholder="Alex, María" />
               <p class="field-help">Separados por coma. Si lo dejas vacío usamos «Equipo».</p>
               <div class="actions sticky-actions">
-                <button type="button" class="btn btn-primary" id="onboardNextCoolify">Siguiente. Coolify</button>
+                <button type="button" class="btn btn-primary" id="onboardNextCoolify">Siguiente</button>
               </div>
             </div>
 
@@ -486,8 +486,8 @@
                 <label for="newSiteHumanApproval">Pedir aprobación humana antes de publicar en vivo</label>
               </div>
               <div class="actions sticky-actions">
-                <button type="button" class="btn" id="onboardBackBasics">Anterior. Datos</button>
-                <button type="button" class="btn btn-primary" id="onboardNextReview">Siguiente. Revisar</button>
+                <button type="button" class="btn btn-ghost" id="onboardBackBasics">Anterior</button>
+                <button type="button" class="btn btn-primary" id="onboardNextReview">Siguiente</button>
               </div>
             </div>
 
@@ -498,7 +498,7 @@
               </div>
               <dl class="onboard-summary" id="onboardSummary"></dl>
               <div class="actions sticky-actions">
-                <button type="button" class="btn" id="onboardBackCoolify">Anterior. Coolify</button>
+                <button type="button" class="btn btn-ghost" id="onboardBackCoolify">Anterior</button>
                 <button type="button" class="btn btn-primary" id="createSiteBtn">Crear sitio</button>
               </div>
               <div id="onboardDone" class="onboard-done" hidden>

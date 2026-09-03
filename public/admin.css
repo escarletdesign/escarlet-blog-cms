@@ -601,9 +601,14 @@ a:hover { text-decoration: underline; }
 .sticky-actions {
   position: sticky;
   bottom: 0;
-  background: linear-gradient(to top, #fff 70%, rgba(255, 255, 255, 0));
-  padding-top: 1rem;
-  padding-bottom: 0.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  background: #fff;
+  border-top: 1px solid var(--border);
+  margin: 1.25rem -1.25rem -1.25rem;
+  padding: 0.75rem 1.25rem;
   z-index: 2;
 }
 
@@ -685,11 +690,46 @@ a:hover { text-decoration: underline; }
 
 .more-item-danger { color: var(--danger); }
 
-.media-card-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
+.icon-btn {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--sidebar);
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(12, 18, 14, 0.22);
+}
+
+.icon-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.icon-btn:hover {
+  background: #fff;
+}
+
+.icon-btn.is-on {
+  background: var(--accent);
+  color: #fff;
+}
+
+.icon-btn:disabled {
+  cursor: default;
+  opacity: 0.92;
+}
+
+.icon-btn--danger {
+  color: var(--danger);
+}
+
+.icon-btn--danger:hover {
+  background: #fdecec;
 }
 
 .checkbox-row label {
@@ -791,7 +831,8 @@ textarea.mono {
 .menu-toggle:focus-visible,
 .toast-close:focus-visible,
 .step-btn:focus-visible,
-.more-item:focus-visible {
+.more-item:focus-visible,
+.icon-btn:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -841,6 +882,10 @@ textarea.mono {
   flex-wrap: wrap;
   gap: 0.5rem;
   margin-top: 1rem;
+}
+
+.actions.sticky-actions {
+  margin: 1.25rem -1.25rem -1.25rem;
 }
 
 .toolbar {
@@ -917,14 +962,14 @@ textarea.mono {
 /* Media */
 .media-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 0.75rem;
   margin-top: 1rem;
 }
 
 .media-card {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
   overflow: hidden;
   background: #faf8f4;
   position: relative;
@@ -932,7 +977,7 @@ textarea.mono {
 
 .media-card img {
   width: 100%;
-  height: 110px;
+  height: 168px;
   object-fit: cover;
   display: block;
   background: #e8e4dc;
@@ -940,11 +985,76 @@ textarea.mono {
 }
 
 .media-grid--library {
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
 }
 
 .media-grid--library .media-card img {
-  height: 160px;
+  height: 188px;
+}
+
+.media-card-badges {
+  position: absolute;
+  top: 0.4rem;
+  left: 0.4rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.media-badge {
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  background: rgba(21, 41, 31, 0.88);
+  color: #fff;
+}
+
+.media-badge--cover {
+  background: rgba(45, 106, 79, 0.95);
+}
+
+.media-badge--slide {
+  background: rgba(107, 79, 10, 0.92);
+}
+
+.media-badge--broken {
+  background: rgba(180, 35, 24, 0.92);
+}
+
+.media-card-overlay {
+  position: absolute;
+  inset: auto 0 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.3rem;
+  padding: 1.75rem 0.4rem 0.4rem;
+  background: linear-gradient(to top, rgba(12, 18, 14, 0.7), transparent);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.media-card:hover .media-card-overlay,
+.media-card:focus-within .media-card-overlay {
+  opacity: 1;
+}
+
+.media-card:hover .media-card-overlay .icon-btn,
+.media-card:focus-within .media-card-overlay .icon-btn {
+  pointer-events: auto;
+}
+
+@media (hover: none) {
+  .media-card-overlay {
+    opacity: 1;
+  }
+
+  .media-card-overlay .icon-btn {
+    pointer-events: auto;
+  }
 }
 
 .image-preview img {
@@ -1001,25 +1111,6 @@ body.lightbox-open {
   overflow: hidden;
 }
 
-.media-card-foot {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.35rem 0.4rem 0.45rem;
-}
-
-.media-card-foot p {
-  margin: 0;
-  flex: 1;
-  min-width: 0;
-  padding: 0;
-  font-size: 0.75rem;
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .media-card p {
   margin: 0;
   padding: 0.45rem 0.55rem;
@@ -1028,17 +1119,6 @@ body.lightbox-open {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.media-delete {
-  flex-shrink: 0;
-  padding: 0.25rem 0.4rem;
-  color: #8a2f24;
-  border-color: #e2c4bf;
-}
-
-.media-delete:hover {
-  background: #f8e8e5;
 }
 
 .upload-zone {
@@ -1137,33 +1217,58 @@ iframe.preview {
 }
 
 .carousel-strip-item {
-  flex: 0 0 140px;
+  position: relative;
+  flex: 0 0 108px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
   overflow: hidden;
   background: #faf8f4;
 }
 
 .carousel-strip-item img {
   width: 100%;
-  height: 160px;
+  height: 136px;
   object-fit: cover;
   display: block;
   cursor: zoom-in;
 }
 
-.carousel-strip-item p {
-  margin: 0;
-  padding: 0.35rem 0.45rem 0;
-  font-size: 0.75rem;
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.carousel-strip-index {
+  position: absolute;
+  top: 0.35rem;
+  left: 0.35rem;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  padding: 0 0.3rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(21, 41, 31, 0.88);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 600;
+  pointer-events: none;
 }
 
-.carousel-strip-item .media-delete {
-  margin: 0.25rem 0.35rem 0.4rem;
+.carousel-strip-remove {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.carousel-strip-item:hover .carousel-strip-remove,
+.carousel-strip-item:focus-within .carousel-strip-remove {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (hover: none) {
+  .carousel-strip-remove {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 pre.result {
@@ -1233,7 +1338,7 @@ pre.result.is-error {
   background: #fff;
 }
 
-.btn-sm {
+.access-icon-row .btn-sm {
   display: inline-flex;
   align-items: center;
   margin-top: 0.35rem;

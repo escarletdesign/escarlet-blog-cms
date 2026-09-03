@@ -4,7 +4,9 @@ const ICONS = {
   plus: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>',
   trash: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>',
   more: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>',
-  image: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>'
+  image: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>',
+  check: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  x: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>'
 }
 
 const STATUS_LABELS = {
@@ -15,7 +17,7 @@ const STATUS_LABELS = {
 
 const STEP_HINTS = {
   escribir: 'Paso 1 de 3. Escribe el contenido y guarda antes de seguir.',
-  portada: 'Paso 2 de 3. Elige portada y slides del carrusel. Al pulsar Usar se guarda y se pide rebuild si está publicada.',
+  portada: 'Paso 2 de 3. Pasa el ratón por una foto. El recuadro es portada. El más la mete en el carrusel.',
   revisar: 'Paso 3 de 3. Revisa el resultado y publica cuando esté listo.'
 }
 
@@ -258,32 +260,33 @@ function renderCarouselStrip() {
   const slides = readCarouselSlides()
   el.innerHTML = ''
   if (!slides.length) {
-    el.innerHTML = '<p class="empty carousel-empty">Todavía no hay slides en este post. Pulsa «Al carrusel» en una imagen.</p>'
+    el.innerHTML = '<p class="empty carousel-empty">El carrusel está vacío. En una foto de abajo, pulsa el más.</p>'
     return
   }
   slides.forEach((slide, index) => {
     const item = document.createElement('div')
     item.className = 'carousel-strip-item'
+    const indexBadge = document.createElement('span')
+    indexBadge.className = 'carousel-strip-index'
+    indexBadge.textContent = String(index + 1)
     const img = document.createElement('img')
     img.src = mediaPathKey(slide.imageUrl) || slide.imageUrl
     img.alt = slide.alt || `Slide ${index + 1}`
+    img.title = slide.headline || slide.alt || `Slide ${index + 1}`
     img.onclick = () => openMediaLightbox(img.src, img.alt)
-    const label = document.createElement('p')
-    label.textContent = slide.headline || slide.alt || `Slide ${index + 1}`
     const remove = document.createElement('button')
     remove.type = 'button'
-    remove.className = 'btn btn-sm media-delete'
+    remove.className = 'icon-btn icon-btn--danger carousel-strip-remove'
     remove.title = 'Quitar del carrusel'
     remove.setAttribute('aria-label', 'Quitar del carrusel')
-    remove.innerHTML = ICONS.trash
-    remove.onclick = () => {
+    remove.innerHTML = ICONS.x
+    remove.onclick = (event) => {
+      event.stopPropagation()
       const next = readCarouselSlides().filter((_, i) => i !== index)
       writeCarouselSlides(next)
       persistPost().then(() => loadMedia().catch(() => {}))
     }
-    item.appendChild(img)
-    item.appendChild(label)
-    item.appendChild(remove)
+    item.append(img, indexBadge, remove)
     el.appendChild(item)
   })
 }
@@ -365,7 +368,8 @@ function addImageToCarousel(item) {
   }
   const key = mediaPathKey(src)
   if (slides.some((slide) => mediaPathKey(slide.imageUrl) === key)) {
-    toast('Esa imagen ya está en el carrusel')
+    writeCarouselSlides(slides.filter((slide) => mediaPathKey(slide.imageUrl) !== key))
+    persistPost().then(() => loadMedia().catch(() => {}))
     return
   }
   slides.push({
@@ -398,10 +402,26 @@ function closeMediaLightbox() {
   document.body.classList.remove('lightbox-open')
 }
 
+function createIconBtn({ className, title, icon, onClick, pressed = false, disabled = false }) {
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = className
+  btn.title = title
+  btn.setAttribute('aria-label', title)
+  if (pressed) btn.setAttribute('aria-pressed', 'true')
+  btn.disabled = disabled
+  btn.innerHTML = icon
+  btn.onclick = (event) => {
+    event.stopPropagation()
+    if (!disabled) onClick()
+  }
+  return btn
+}
+
 function renderMediaGrid(target, items, { allowUse = false } = {}) {
   target.innerHTML = ''
   if (!items.length) {
-    target.innerHTML = '<p class="empty">Todavía no hay imágenes aquí.</p>'
+    target.innerHTML = '<p class="empty">Esta parrilla está vacía.</p>'
     return
   }
   const coverKey = currentCoverKey()
@@ -413,6 +433,7 @@ function renderMediaGrid(target, items, { allowUse = false } = {}) {
     const key = mediaPathKey(src)
     const isCover = Boolean(coverKey && key && coverKey === key)
     const inCarousel = Boolean(key && slideKeys.has(key))
+    const label = item.alt || item.filename || src
     if (item.ok === false) div.classList.add('media-card--broken')
     if (isCover) div.classList.add('media-card--current')
     if (inCarousel) div.classList.add('media-card--slide')
@@ -420,77 +441,82 @@ function renderMediaGrid(target, items, { allowUse = false } = {}) {
     img.alt = item.alt || ''
     img.loading = 'lazy'
     img.src = src
-    img.title = 'Ver a tamaño real'
+    img.title = label
     img.onclick = () => openMediaLightbox(src, item.alt || item.filename || '')
-    const foot = document.createElement('div')
-    foot.className = 'media-card-foot'
-    const caption = document.createElement('p')
-    const tags = []
-    if (isCover) tags.push('portada')
-    if (inCarousel) tags.push('carrusel')
-    if (item.ok === false) tags.push('incompleto')
-    caption.textContent = [item.alt || item.filename || src, tags.length ? ` · ${tags.join(', ')}` : ''].join('')
-    if (item.ok === false) caption.style.color = '#b42318'
     img.onerror = () => {
       div.classList.add('media-card--broken')
-      caption.textContent = (item.alt || item.filename || src) + ' · archivo incompleto'
-      caption.style.color = '#b42318'
     }
-    const actions = document.createElement('div')
-    actions.className = 'media-card-actions'
+    const badges = document.createElement('div')
+    badges.className = 'media-card-badges'
+    if (isCover) {
+      const coverBadge = document.createElement('span')
+      coverBadge.className = 'media-badge media-badge--cover'
+      coverBadge.textContent = 'Portada'
+      badges.appendChild(coverBadge)
+    }
+    if (inCarousel) {
+      const slideBadge = document.createElement('span')
+      slideBadge.className = 'media-badge media-badge--slide'
+      slideBadge.textContent = 'Carrusel'
+      badges.appendChild(slideBadge)
+    }
+    if (item.ok === false) {
+      const brokenBadge = document.createElement('span')
+      brokenBadge.className = 'media-badge media-badge--broken'
+      brokenBadge.textContent = 'Rota'
+      badges.appendChild(brokenBadge)
+    }
+    const overlay = document.createElement('div')
+    overlay.className = 'media-card-overlay'
     if (allowUse && item.ok !== false) {
-      const useBtn = document.createElement('button')
-      useBtn.type = 'button'
-      useBtn.className = isCover ? 'btn btn-sm' : 'btn btn-sm btn-primary'
-      useBtn.textContent = isCover ? 'Portada actual' : 'Portada'
-      useBtn.disabled = isCover
-      useBtn.title = isCover ? 'Esta es la portada de la entrada' : 'Usar como portada de esta entrada'
-      useBtn.onclick = () => applyImageToPost(item)
-      actions.appendChild(useBtn)
+      overlay.appendChild(createIconBtn({
+        className: `icon-btn${isCover ? ' is-on' : ''}`,
+        title: isCover ? 'Ya es la portada' : 'Usar como portada',
+        icon: isCover ? ICONS.check : ICONS.image,
+        pressed: isCover,
+        disabled: isCover,
+        onClick: () => applyImageToPost(item)
+      }))
       if (socialPackChannels.instagramCarousel) {
-        const slideBtn = document.createElement('button')
-        slideBtn.type = 'button'
-        slideBtn.className = inCarousel ? 'btn btn-sm' : 'btn btn-sm btn-primary'
-        slideBtn.textContent = inCarousel ? 'En carrusel' : 'Al carrusel'
-        slideBtn.disabled = inCarousel
-        slideBtn.title = inCarousel ? 'Ya está en el carrusel de Instagram' : 'Añadir al carrusel Instagram de esta entrada'
-        slideBtn.onclick = () => addImageToCarousel(item)
-        actions.appendChild(slideBtn)
+        overlay.appendChild(createIconBtn({
+          className: `icon-btn${inCarousel ? ' is-on' : ''}`,
+          title: inCarousel ? 'Quitar del carrusel' : 'Añadir al carrusel',
+          icon: inCarousel ? ICONS.check : ICONS.plus,
+          pressed: inCarousel,
+          onClick: () => addImageToCarousel(item)
+        }))
       }
     }
-    const del = document.createElement('button')
-    del.type = 'button'
-    del.className = 'btn btn-sm media-delete'
-    del.title = 'Eliminar imagen'
-    del.setAttribute('aria-label', 'Eliminar imagen')
-    del.innerHTML = ICONS.trash
-    del.onclick = async () => {
-      if (!item.id && !item.path && !item.url) {
-        toast('Falta identificar esta imagen.')
-        return
-      }
-      if (!confirm('¿Eliminar esta imagen del CMS?')) return
-      try {
-        const site = siteFilter.value.trim() || 'escarlet'
-        await api('/api/admin/media/delete', {
-          method: 'POST',
-          body: JSON.stringify({
-            site,
-            id: item.id || undefined,
-            path: item.path || item.url || undefined
+    overlay.appendChild(createIconBtn({
+      className: 'icon-btn icon-btn--danger',
+      title: 'Eliminar del archivo',
+      icon: ICONS.trash,
+      onClick: async () => {
+        if (!item.id && !item.path && !item.url) {
+          toast('Falta identificar esta imagen.')
+          return
+        }
+        if (!confirm('¿Eliminar esta imagen del CMS?')) return
+        try {
+          const site = siteFilter.value.trim() || 'escarlet'
+          await api('/api/admin/media/delete', {
+            method: 'POST',
+            body: JSON.stringify({
+              site,
+              id: item.id || undefined,
+              path: item.path || item.url || undefined
+            })
           })
-        })
-        toast('Imagen eliminada')
-        if (target === mediaGrid) await loadMedia()
-        else if (target === libraryGrid) await loadLibrary()
-        else await loadRefs()
-      } catch (err) {
-        toast(err.message)
+          toast('Imagen eliminada')
+          if (target === mediaGrid) await loadMedia()
+          else if (target === libraryGrid) await loadLibrary()
+          else await loadRefs()
+        } catch (err) {
+          toast(err.message)
+        }
       }
-    }
-    actions.appendChild(del)
-    foot.append(caption, actions)
-    div.append(img, foot)
+    }))
+    div.append(img, badges, overlay)
     target.appendChild(div)
   }
 }
@@ -1191,7 +1217,7 @@ async function loadPosts() {
     const actions = document.createElement('div')
     actions.className = 'actions post-actions'
     const edit = document.createElement('button')
-    edit.className = 'btn btn-sm btn-primary'
+    edit.className = 'btn btn-sm btn-ghost'
     edit.innerHTML = ICONS.editor + ' Abrir'
     edit.onclick = (e) => { e.stopPropagation(); openPostWorkspace(p, 'escribir') }
 
