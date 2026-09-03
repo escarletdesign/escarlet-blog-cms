@@ -16,6 +16,7 @@
 2. Si tienes URL http(s) pública. `blog_upload_media` con `imageUrl`, `filename`, `alt`, `kind: post`.
 3. Si solo tienes el archivo en sandbox de ChatGPT (`/mnt/data/...`). Lee el archivo y pasa `contentBase64` completo. Nunca uses esas rutas como `imageUrl`.
 4. Usa la `media.url` absoluta en el `imageUrl` del post.
+5. Prefiere JPG o PNG de menos de 1,5 MB. Un WebP recortado en el base64 se guarda a medias y el navegador muestra un recuadro vacío o el icono de imagen rota. Si el CMS rechaza por archivo incompleto, vuelve a subir el archivo entero.
 
 ## Carrusel Instagram (si el canal está activo)
 

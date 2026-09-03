@@ -238,7 +238,7 @@ function buildToolList(auth) {
     {
       name: 'blog_upload_media',
       description:
-        'Sube una imagen al CMS y devuelve media.url ABSOLUTA. Tool principal para ChatGPT/Claude/Hermes. Preferido: imageUrl con https:// pública. Si la imagen solo existe en sandbox (/mnt/data, sandbox:, file://), lee el archivo y pasa contentBase64 (completo, sin truncar). NUNCA pases rutas sandbox como imageUrl. kind: post (portada), social (slides Instagram), reference (moodboard).',
+        'Sube una imagen al CMS y devuelve media.url ABSOLUTA. Tool principal para ChatGPT/Claude/Hermes. Preferido: imageUrl con https:// pública. Si la imagen solo existe en sandbox (/mnt/data, sandbox:, file://), lee el archivo y pasa contentBase64 COMPLETO (sin recortar). Un WebP/PNG truncado se guarda con cabecera válida y el navegador muestra un recuadro vacío o el icono roto. Si el CMS rechaza por archivo incompleto, reintenta con un JPG o PNG de menos de 1,5 MB. NUNCA pases rutas sandbox como imageUrl. kind: post (portada), social (slides Instagram), reference (moodboard).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -255,7 +255,7 @@ function buildToolList(auth) {
           contentBase64: {
             type: 'string',
             description:
-              'Imagen en base64 completa. Úsalo cuando ChatGPT solo tenga el archivo en sandbox (/mnt/data/...). Preferible a inventar una URL local.'
+              'Imagen en base64 completa. Si el CMS dice que el archivo está incompleto, el base64 se cortó. Reintenta con un JPG o PNG de menos de 1,5 MB y envía el base64 entero.'
           },
           alt: { type: 'string' },
           kind: { type: 'string', description: 'post | social | reference' }

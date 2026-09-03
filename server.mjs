@@ -55,7 +55,7 @@ import {
   generateSiteAccessToken,
   publicSiteConfigForAuth
 } from './lib/auth.mjs'
-import { mediaForClient, repairMediaInDb, repairPostsInDb, resolveImageSrc, resolvePostImageSrc } from './lib/media-url.mjs'
+import { mediaForClient, repairMediaInDb, repairPostsInDb, resolveImageSrc, resolvePostImageSrc, inspectImageBuffer } from './lib/media-url.mjs'
 import { withPostLinks } from './lib/preview-url.mjs'
 import { escapeHtml, renderPostBody } from './lib/content-render.mjs'
 import { handleMcpHttp, sendMcpCors } from './mcp/http-handler.mjs'
@@ -653,12 +653,14 @@ const server = createServer(async (req, res) => {
           : ''
         let bytes = 0
         let ok = false
+        let integrity = { reason: 'missing' }
         if (disk && existsSync(disk)) {
           const buf = readFileSync(disk)
           bytes = buf.length
-          ok = bytes >= 1024
+          integrity = inspectImageBuffer(buf)
+          ok = integrity.ok
         }
-        return { ...client, bytes, ok }
+        return { ...client, bytes, ok, integrity }
       })
       json(res, 200, { media })
       return

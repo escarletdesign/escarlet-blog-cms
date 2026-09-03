@@ -1090,6 +1090,19 @@ iframe.preview {
   border: 1px solid var(--border);
 }
 
+.image-preview-error {
+  margin: 0.5rem 0 0;
+  padding: 0.65rem 0.8rem;
+  border-radius: 8px;
+  background: #fdecec;
+  color: #b42318;
+  font-size: 0.85rem;
+}
+
+.media-card--broken img {
+  opacity: 0.35;
+}
+
 pre.result {
   background: #1c1c1a;
   color: #e8e4dc;

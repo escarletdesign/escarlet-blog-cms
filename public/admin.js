@@ -312,6 +312,7 @@ function renderMediaGrid(target, items, { allowUse = false } = {}) {
   for (const item of items) {
     const div = document.createElement('div')
     div.className = 'media-card'
+    if (item.ok === false) div.classList.add('media-card--broken')
     const src = mediaSrc(item)
     const img = document.createElement('img')
     img.alt = item.alt || ''
@@ -319,19 +320,20 @@ function renderMediaGrid(target, items, { allowUse = false } = {}) {
     img.src = src
     img.title = 'Ver a tamaño real'
     img.onclick = () => openMediaLightbox(src, item.alt || item.filename || '')
-    img.onerror = () => {
-      const fallback = mediaSrc({ url: item.url, path: item.path })
-      if (fallback && fallback !== img.src) img.src = fallback
-    }
     const foot = document.createElement('div')
     foot.className = 'media-card-foot'
     const caption = document.createElement('p')
     const status = item.ok === false ? ' · archivo incompleto' : ''
     caption.textContent = (item.alt || item.filename || src) + status
     if (item.ok === false) caption.style.color = '#b42318'
+    img.onerror = () => {
+      div.classList.add('media-card--broken')
+      caption.textContent = (item.alt || item.filename || src) + ' · archivo incompleto'
+      caption.style.color = '#b42318'
+    }
     const actions = document.createElement('div')
     actions.className = 'media-card-actions'
-    if (allowUse) {
+    if (allowUse && item.ok !== false) {
       const useBtn = document.createElement('button')
       useBtn.type = 'button'
       useBtn.className = 'btn btn-sm btn-primary'
@@ -441,9 +443,15 @@ function updateImagePreview() {
     return
   }
   imagePreview.hidden = false
-  imagePreview.innerHTML = `<img src="${src}" alt="Vista previa de portada" title="Ver a tamaño real" onerror="this.closest('.image-preview').hidden=true" />`
+  imagePreview.innerHTML = `<img src="${src}" alt="Vista previa de portada" title="Ver a tamaño real" />`
   const previewImg = imagePreview.querySelector('img')
-  if (previewImg) previewImg.onclick = () => openMediaLightbox(src, 'Portada')
+  if (previewImg) {
+    previewImg.onclick = () => openMediaLightbox(src, 'Portada')
+    previewImg.onerror = () => {
+      imagePreview.innerHTML =
+        '<p class="image-preview-error">Esta portada no se puede mostrar. El archivo está incompleto o roto. Súbelo otra vez desde Media.</p>'
+    }
+  }
 }
 
 function closeSidebar() {

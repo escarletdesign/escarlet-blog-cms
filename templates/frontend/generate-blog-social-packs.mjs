@@ -2360,12 +2360,30 @@ function resetOutRoot() {
   mkdirSync(outRoot, { recursive: true })
 }
 
+function isCompleteImageBuffer(buf) {
+  if (!buf || buf.length < 1024) return false
+  if (buf.slice(0, 4).toString('ascii') === 'RIFF' && buf.slice(8, 12).toString('ascii') === 'WEBP') {
+    return buf.length >= buf.readUInt32LE(4) + 8
+  }
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+    return buf.includes(Buffer.from([0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82]))
+  }
+  if (buf[0] === 0xff && buf[1] === 0xd8) return buf.includes(Buffer.from([0xff, 0xd9]))
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return buf.includes(0x3b)
+  return buf.length >= 32
+}
+
 async function downloadRemoteImage(url, destPath) {
   if (!url || !/^https?:\/\//i.test(url)) return false
   try {
     const res = await fetch(url)
     if (!res.ok) return false
-    writeFileSync(destPath, Buffer.from(await res.arrayBuffer()))
+    const buf = Buffer.from(await res.arrayBuffer())
+    if (!isCompleteImageBuffer(buf)) {
+      console.warn(`[blog-packs] Imagen incompleta, se omite ${url}`)
+      return false
+    }
+    writeFileSync(destPath, buf)
     return true
   } catch {
     return false
