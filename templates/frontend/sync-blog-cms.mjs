@@ -7,7 +7,6 @@
  *   BLOG_CMS_URL   https://blog-cms.escarlet.cc
  *   BLOG_CMS_SITE  handle del site (ej. escarlet, mares24)
  *   BLOG_SITE_URL  https://tu-dominio.com
- *   BLOG_ENABLED   false fuerza apagado local. El interruptor del CMS manda en producción.
  *   BLOG_OUT_FILE  ruta relativa al root (default src/data/blog.generated.js)
  *   BLOG_FALLBACK  ruta relativa opcional a un módulo fallback
  *
@@ -28,11 +27,6 @@ const OUT_REL = process.env.BLOG_OUT_FILE || 'src/data/blog.generated.js'
 const FALLBACK_REL = process.env.BLOG_FALLBACK || 'src/data/blog-articles.fallback.js'
 const outFile = join(root, OUT_REL)
 const fallbackFile = join(root, FALLBACK_REL)
-
-function isBlogEnabled(raw = process.env.BLOG_ENABLED) {
-  if (raw == null || String(raw).trim() === '') return true
-  return !['0', 'false', 'no', 'off', 'disabled'].includes(String(raw).trim().toLowerCase())
-}
 
 function ensureOutDir() {
   mkdirSync(dirname(outFile), { recursive: true })
@@ -320,11 +314,6 @@ async function fetchPublishedPosts() {
 }
 
 async function main() {
-  if (!isBlogEnabled()) {
-    emptyModule('BLOG_ENABLED=false local')
-    console.log('[sync-blog-cms] omitido (BLOG_ENABLED=false)')
-    return
-  }
   if (!CMS_URL) {
     useFallback('BLOG_CMS_URL no definido')
     return

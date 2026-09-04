@@ -12,7 +12,6 @@
  *   BLOG_CMS_SITE            handle
  *   BLOG_SITE_URL            https://dominio.com
  *   BLOG_RUNTIME_CHANNEL     v1
- *   BLOG_ENABLED             false fuerza apagado local. El interruptor del CMS manda en producción.
  */
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
