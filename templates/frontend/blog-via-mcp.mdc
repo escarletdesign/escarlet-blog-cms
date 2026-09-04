@@ -64,12 +64,12 @@ socialPack: {
 
 Portada. `kind` `post`. Carrusel. `kind` `social`, filename `{slug}-ig-01.jpg` …
 
-## Blog-packs (frontend)
+## Blog-packs (runtime del CMS)
 
-El HTML de packs se genera en el **build del frontend** (`npm run blog:packs`), no en el CMS.
-Orden de build (SPA). sync CMS → generate-blog-social-packs → build app.
-Orden de build (HTML estático). sync → packs → generate-blog-pages → vite.
-Plantilla. `escarlet-blog-cms/templates/frontend/generate-blog-social-packs.mjs`
+El HTML de packs se genera en el **build del frontend** con el runtime que baja `scripts/escarlet-blog.mjs` desde `{CMS}/runtime/v1/`.
+Orden de build (SPA). hook CMS (sync + packs) → build app.
+Orden de build (HTML estático). hook CMS → generate-blog-pages → vite.
+El look de `/blog` sigue en esta landing.
 
 ## Tras publicar
 

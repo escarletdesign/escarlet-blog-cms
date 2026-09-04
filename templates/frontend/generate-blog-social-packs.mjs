@@ -1,7 +1,7 @@
 /**
  * Genera packs admin para publicar manualmente en Substack, X y LinkedIn.
- * Plantilla canónica. vive en escarlet-blog-cms/templates/frontend/
- * Copia a scripts/ del frontend. Salida. public/admin/blog-packs/
+ * Plantilla canónica. El CMS la sirve en /runtime/v1/generate-blog-social-packs.mjs.
+ * Las landings la bajan con scripts/escarlet-blog.mjs. Salida. public/admin/blog-packs/
  *
  * Env (opcionales).
  *   BLOG_SITE_URL       https://tu-dominio.com

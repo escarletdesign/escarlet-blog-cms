@@ -106,7 +106,7 @@ BLOG_CMS_URL=https://blog-cms.escarlet.cc
 BLOG_CMS_SITE=escarlet
 ```
 
-Redeploy. El build ejecutará `sync-blog-cms.mjs` y bajará los posts publicados del CMS.
+Redeploy. El build ejecutará `escarlet-blog.mjs`, bajará el runtime del CMS y sincronizará los posts publicados.
 
 ---
 
@@ -202,7 +202,7 @@ Redeploy de escarlet002.
 1. Publica un post en el CMS (dashboard `/admin` o MCP `blog_publish`)
 2. El CMS hace `POST` al webhook
 3. Coolify reconstruye escarlet002
-4. En build, `sync-blog-cms.mjs` descarga posts del CMS
+4. En build, `escarlet-blog.mjs` baja el runtime del CMS y descarga posts
 5. El post aparece en `https://escarlet.design/blog/{slug}`
 
 ### E. Si el webhook falla

@@ -47,15 +47,16 @@ Luego brand kit. Dashboard `/admin` o `blog_update_brand_file` + fotos `kind=ref
 
 ## Frontend
 
-Plantillas en `templates/frontend/`.
+Runtime en `{CMS}/runtime/v1/`. Cada landing guarda `scripts/escarlet-blog.mjs`.
 
-1. `sync-blog-cms.mjs` → `scripts/` + hook en `prebuild`/`build`
-2. `blog-articles.js` reexporta `blog.generated.js`
-3. Fallback vacío opcional
-4. `.gitignore` → `blog.generated.js`
-5. Coolify env. `BLOG_CMS_URL`, `BLOG_CMS_SITE={handle}`, `BLOG_SITE_URL`
-6. Regla Cursor. copia `blog-via-mcp.mdc` y sustituye `{{handle}}`
-7. **Blog-packs**. Copia `templates/frontend/generate-blog-social-packs.mjs` (env `BLOG_SITE_URL` / `BLOG_PACKS_*`). Canales por sitio en CMS (`socialPackChannels`). Instagram. el agente sube slides (`kind` social) y el pack las descarga. Build: sync → packs → vite. Ver skill global `escarlet-blog-integrate`
+1. `escarlet-blog.mjs` → `scripts/` + hook en `prebuild`/`build`
+2. Wrappers `sync-blog-cms.mjs` / `generate-blog-social-packs.mjs` o un solo `node scripts/escarlet-blog.mjs`
+3. `blog-articles.js` reexporta `blog.generated.js`
+4. Fallback vacío opcional
+5. `.gitignore` → `blog.generated.js` y `.escarlet-blog-runtime/`
+6. Coolify env. `BLOG_CMS_URL`, `BLOG_CMS_SITE={handle}`, `BLOG_SITE_URL`
+7. Regla Cursor. copia `blog-via-mcp.mdc` y sustituye `{{handle}}`
+8. **Blog-packs**. El runtime los genera. Canales por sitio en CMS (`socialPackChannels`). El look de `/blog` sigue en la landing. Ver skill global `escarlet-blog-integrate`
 
 ## Coolify webhook (contenido → rebuild)
 

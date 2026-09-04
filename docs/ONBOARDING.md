@@ -10,7 +10,7 @@ Agente (MCP) → CMS (posts + media)
                     ↓ publish
               Deploy Webhook Coolify (frontend)
                     ↓
-         Build → sync-blog-cms.mjs → /blog en tu dominio
+         Build → escarlet-blog.mjs (runtime CMS) → /blog en tu dominio
 ```
 
 Los posts **no van a git** del frontend. El sync los baja en cada build.
@@ -73,18 +73,19 @@ Luego completa el brand kit en `/admin` → Brand kit (o `blog_update_brand_file
 
 ## B. Frontend (Vue/Vite u otro)
 
-1. Copia `templates/frontend/sync-blog-cms.mjs` → `scripts/sync-blog-cms.mjs`
+1. Copia `templates/frontend/escarlet-blog.mjs` → `scripts/escarlet-blog.mjs` y los wrappers de sync/packs
 2. Copia `blog-articles.fallback.js` y `blog-articles.js` a `src/data/` (o adapta rutas)
 3. En `package.json`:
 
 ```json
-"prebuild": "node scripts/sync-blog-cms.mjs",
-"predev": "node scripts/sync-blog-cms.mjs"
+"prebuild": "node scripts/escarlet-blog.mjs",
+"predev": "node scripts/escarlet-blog.mjs",
+"build": "node scripts/escarlet-blog.mjs && vite build"
 ```
 
-4. `.gitignore` → `src/data/blog.generated.js`
+4. `.gitignore` → `src/data/blog.generated.js` y `.escarlet-blog-runtime/`
 5. Monta rutas `/blog` y `/blog/:slug` leyendo `getBlogIndex` / `getPostBySlug` (como en escarlet002)
-6. **Blog-packs**. Copia `templates/frontend/generate-blog-social-packs.mjs` + `blog-social-packs.mdc` + sync actualizado. Env `BLOG_SITE_URL` / `BLOG_PACKS_NAME`. Canales del pack se configuran en el CMS (`socialPackChannels`). Build. sync → packs → app. Salida `public/admin/blog-packs/` (incluye descarga de slides Instagram si el canal está activo).
+6. **Blog-packs**. El runtime los genera en `public/admin/blog-packs/` al hacer build. Env `BLOG_SITE_URL` / `BLOG_PACKS_NAME`. Canales del pack se configuran en el CMS (`socialPackChannels`). El look de `/blog` sigue en esta landing.
 
 ### Env en Coolify (app del frontend)
 

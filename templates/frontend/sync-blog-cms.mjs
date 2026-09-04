@@ -1,13 +1,18 @@
 /**
- * Sync genérico. Posts published del CMS → archivo JS del frontend.
+ * Sync. Posts published del CMS → archivo JS del frontend.
+ * El CMS sirve este archivo en /runtime/v1/sync-blog-cms.mjs.
+ * Las landings lo bajan con scripts/escarlet-blog.mjs. No lo copies a mano.
  *
- * Copia este archivo a scripts/sync-blog-cms.mjs de tu proyecto web.
  * Env.
  *   BLOG_CMS_URL   https://blog-cms.escarlet.cc
  *   BLOG_CMS_SITE  handle del site (ej. escarlet, mares24)
  *   BLOG_SITE_URL  https://tu-dominio.com
+ *   BLOG_ENABLED   false omite el pull
  *   BLOG_OUT_FILE  ruta relativa al root (default src/data/blog.generated.js)
  *   BLOG_FALLBACK  ruta relativa opcional a un módulo fallback
+ *
+ * Este archivo vive en .escarlet-blog-runtime/ o en scripts/.
+ * El root del proyecto es siempre el directorio padre.
  */
 import { writeFileSync, copyFileSync, existsSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -24,17 +29,13 @@ const FALLBACK_REL = process.env.BLOG_FALLBACK || 'src/data/blog-articles.fallba
 const outFile = join(root, OUT_REL)
 const fallbackFile = join(root, FALLBACK_REL)
 
-function ensureOutDir() {
-  mkdirSync(dirname(outFile), { recursive: true })
+function isBlogEnabled(raw = process.env.BLOG_ENABLED) {
+  if (raw == null || String(raw).trim() === '') return true
+  return !['0', 'false', 'no', 'off', 'disabled'].includes(String(raw).trim().toLowerCase())
 }
 
-function emptyModule(reason, channels = defaultChannels()) {
-  ensureOutDir()
-  writeFileSync(
-    outFile,
-    `/** Generado por sync-blog-cms.mjs (${reason}). Sin posts. */\nexport function getAllBlogPosts() { return [] }\nexport function getPostBySlug() { return null }\nexport function getBlogIndex() { return [] }\nexport function getPostCanonicalUrl(slug) { return \`${SITE}/blog/\${slug}\` }\nexport const BLOG_SITE_URL = ${JSON.stringify(SITE)}\nexport const SOCIAL_PACK_CHANNELS = ${JSON.stringify(channels)}\n`
-  )
-  console.log(`[sync-blog-cms] Vacío (${reason}) → ${OUT_REL}`)
+function ensureOutDir() {
+  mkdirSync(dirname(outFile), { recursive: true })
 }
 
 function defaultChannels() {
@@ -45,6 +46,31 @@ function defaultChannels() {
     videoScript: true,
     instagramCarousel: true
   }
+}
+
+function emptyModule(reason, channels = defaultChannels()) {
+  ensureOutDir()
+  writeFileSync(
+    outFile,
+    `/** Generado por sync-blog-cms.mjs (${reason}). Sin posts. */
+export function getAllBlogPosts() { return [] }
+export function getPostBySlug() { return null }
+export function getBlogIndex() { return [] }
+export function getBlogPagination() {
+  return { posts: [], page: 1, totalPages: 1, totalPosts: 0, perPage: 10 }
+}
+export function getBlogPagePath(page) {
+  const n = Math.max(1, Number.parseInt(String(page), 10) || 1)
+  return n <= 1 ? '/blog' : '/blog/page/' + n
+}
+export function getPostCanonicalUrl(slug) { return \`${SITE}/blog/\${slug}\` }
+export function getRelatedSlugsMap() { return {} }
+export const BLOG_POSTS_PER_PAGE = 10
+export const BLOG_SITE_URL = ${JSON.stringify(SITE)}
+export const SOCIAL_PACK_CHANNELS = ${JSON.stringify(channels)}
+`
+  )
+  console.log(`[sync-blog-cms] Vacío (${reason}) → ${OUT_REL}`)
 }
 
 function useFallback(reason) {
@@ -90,10 +116,26 @@ async function loadFallbackPosts() {
   return []
 }
 
+async function loadRelatedMap() {
+  if (!existsSync(fallbackFile)) return {}
+  try {
+    const mod = await import(pathToFileURL(fallbackFile).href)
+    if (typeof mod.getRelatedSlugsMap === 'function') return mod.getRelatedSlugsMap() || {}
+  } catch {
+    /* mapa opcional */
+  }
+  return {}
+}
+
 async function mergePosts(cmsPosts) {
+  const relatedMap = await loadRelatedMap()
   const bySlug = new Map()
   for (const post of await loadFallbackPosts()) {
-    if (post?.slug) bySlug.set(post.slug, post)
+    if (!post?.slug) continue
+    bySlug.set(post.slug, {
+      ...post,
+      relatedSlugs: relatedMap[post.slug] || post.relatedSlugs || []
+    })
   }
   let cmsCount = 0
   for (const post of cmsPosts) {
@@ -102,7 +144,8 @@ async function mergePosts(cmsPosts) {
     bySlug.set(post.slug, {
       ...post,
       imageUrl: normalizeCmsImageUrl(post.imageUrl),
-      socialPack: normalizeSocialPack(post.socialPack) || post.socialPack || null
+      socialPack: normalizeSocialPack(post.socialPack) || post.socialPack || null,
+      relatedSlugs: Array.isArray(post.relatedSlugs) ? post.relatedSlugs : relatedMap[post.slug] || []
     })
   }
   const merged = [...bySlug.values()].sort((a, b) =>
@@ -112,7 +155,7 @@ async function mergePosts(cmsPosts) {
 }
 
 function formatPost(post) {
-  return [
+  const lines = [
     '  {',
     `    slug: ${JSON.stringify(post.slug)},`,
     `    title: ${JSON.stringify(post.title)},`,
@@ -121,32 +164,74 @@ function formatPost(post) {
     `    datePublished: ${JSON.stringify(post.datePublished)},`,
     `    dateModified: ${JSON.stringify(post.dateModified || post.datePublished)},`,
     `    imageUrl: ${JSON.stringify(post.imageUrl || '')},`,
-    `    imageAlt: ${JSON.stringify(post.imageAlt || post.title)},`,
-    `    authorName: ${JSON.stringify(post.authorName || '')},`,
-    `    excerptEs: ${JSON.stringify(post.excerptEs || '')},`,
-    post.socialPack ? `    socialPack: ${JSON.stringify(post.socialPack)},` : null,
-    `    relatedSlugs: ${JSON.stringify(post.relatedSlugs || [])},`,
-    `    bodyHtml: ${JSON.stringify(post.bodyHtml || '')}`,
-    '  }'
+    `    imageAlt: ${JSON.stringify(post.imageAlt || post.title)},`
   ]
-    .filter(Boolean)
-    .join('\n')
+  if (post.imagePosition) lines.push(`    imagePosition: ${JSON.stringify(post.imagePosition)},`)
+  if (post.substackUrl) lines.push(`    substackUrl: ${JSON.stringify(post.substackUrl)},`)
+  lines.push(
+    `    authorName: ${JSON.stringify(post.authorName || '')},`,
+    `    excerptEs: ${JSON.stringify(post.excerptEs || '')},`
+  )
+  if (post.socialPack) {
+    lines.push(`    socialPack: ${JSON.stringify(post.socialPack)},`)
+  }
+  lines.push(`    relatedSlugs: ${JSON.stringify(post.relatedSlugs || [])},`)
+  lines.push(`    bodyHtml: ${JSON.stringify(post.bodyHtml || '')}`, '  }')
+  return lines.join('\n')
+}
+
+function buildRelatedMap(posts) {
+  const entries = posts
+    .filter((p) => Array.isArray(p.relatedSlugs) && p.relatedSlugs.length)
+    .map((p) => `  ${JSON.stringify(p.slug)}: ${JSON.stringify(p.relatedSlugs)}`)
+  return entries.join(',\n')
 }
 
 function buildModule(posts, sourceLabel, channels = defaultChannels()) {
+  const postBlocks = posts.map(formatPost).join(',\n')
+  const relatedBlock = buildRelatedMap(posts)
   return `/**
- * Generado por scripts/sync-blog-cms.mjs — no editar a mano.
+ * Generado por sync-blog-cms.mjs — no editar a mano.
  * Fuente: ${sourceLabel}
  */
+const SITE = ${JSON.stringify(SITE)}
+
 const posts = [
-${posts.map(formatPost).join(',\n')}
+${postBlocks}
 ]
 
 const bySlug = new Map(posts.map((p) => [p.slug, p]))
 
+const relatedPostSlugs = {
+${relatedBlock}
+}
+
+function withRelatedLinks(post) {
+  const related = relatedPostSlugs[post.slug]
+  if (!related?.length) return post
+
+  const links = related
+    .map((slug) => bySlug.get(slug))
+    .filter(Boolean)
+    .map((p) => \`<li><a href="/blog/\${p.slug}">\${p.title}</a></li>\`)
+    .join('')
+
+  if (!links) return post
+
+  return {
+    ...post,
+    bodyHtml: \`\${post.bodyHtml}
+<h2>Lecturas relacionadas</h2>
+<ul>\${links}</ul>\`
+  }
+}
+
 export function getPostBySlug(slug) {
   if (!slug) return null
-  return bySlug.get(String(slug).replace(/\\/$/, '')) || null
+  const key = String(slug).replace(/\\/$/, '')
+  const post = bySlug.get(key)
+  if (!post) return null
+  return withRelatedLinks(post)
 }
 
 export function getAllBlogPosts() {
@@ -154,6 +239,8 @@ export function getAllBlogPosts() {
     String(b.datePublished).localeCompare(String(a.datePublished))
   )
 }
+
+export const BLOG_POSTS_PER_PAGE = 10
 
 export function getBlogIndex() {
   return getAllBlogPosts().map((p) => ({
@@ -164,15 +251,43 @@ export function getBlogIndex() {
     dateModified: p.dateModified,
     authorName: p.authorName,
     imageUrl: p.imageUrl,
-    imageAlt: p.imageAlt
+    imageAlt: p.imageAlt,
+    imagePosition: p.imagePosition,
+    substackUrl: p.substackUrl
   }))
 }
 
-export function getPostCanonicalUrl(slug) {
-  return \`${SITE}/blog/\${slug}\`
+export function getBlogPagePath(page) {
+  const n = Math.max(1, Number.parseInt(String(page), 10) || 1)
+  return n <= 1 ? '/blog' : \`/blog/page/\${n}\`
 }
 
-export const BLOG_SITE_URL = ${JSON.stringify(SITE)}
+export function getBlogPagination(page = 1) {
+  const all = getBlogIndex()
+  const totalPosts = all.length
+  const totalPages = Math.max(1, Math.ceil(totalPosts / BLOG_POSTS_PER_PAGE))
+  const requested = Math.max(1, Number.parseInt(String(page), 10) || 1)
+  const safePage = Math.min(requested, totalPages)
+  const start = (safePage - 1) * BLOG_POSTS_PER_PAGE
+
+  return {
+    posts: all.slice(start, start + BLOG_POSTS_PER_PAGE),
+    page: safePage,
+    totalPages,
+    totalPosts,
+    perPage: BLOG_POSTS_PER_PAGE
+  }
+}
+
+export function getPostCanonicalUrl(slug) {
+  return \`\${SITE}/blog/\${slug}\`
+}
+
+export function getRelatedSlugsMap() {
+  return { ...relatedPostSlugs }
+}
+
+export { SITE as BLOG_SITE_URL }
 export const SOCIAL_PACK_CHANNELS = ${JSON.stringify(channels)}
 `
 }
@@ -202,6 +317,11 @@ async function fetchPublishedPosts() {
 }
 
 async function main() {
+  if (!isBlogEnabled()) {
+    useFallback('BLOG_ENABLED=false')
+    console.log('[sync-blog-cms] omitido (BLOG_ENABLED=false)')
+    return
+  }
   if (!CMS_URL) {
     useFallback('BLOG_CMS_URL no definido')
     return

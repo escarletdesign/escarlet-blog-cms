@@ -63,6 +63,11 @@ import { escapeHtml, renderPostBody } from './lib/content-render.mjs'
 import { handleMcpHttp, sendMcpCors } from './mcp/http-handler.mjs'
 import { MCP_SERVER_VERSION, MEDIA_UPLOAD_TOOL } from './lib/media-upload-contract.mjs'
 import {
+  RUNTIME_CHANNEL,
+  getRuntimeManifest,
+  getRuntimeFile
+} from './lib/frontend-runtime.mjs'
+import {
   getMcpConnectionInfo,
   prepareSiteAgentIcon,
   readSiteAgentIcon
@@ -441,6 +446,37 @@ const server = createServer(async (req, res) => {
   if (req.method === 'GET' && path === '/robots.txt') {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' })
     res.end('User-agent: *\nDisallow: /\n')
+    return
+  }
+
+  if (req.method === 'GET' && (path === '/runtime' || path === `/runtime/${RUNTIME_CHANNEL}`)) {
+    json(res, 200, getRuntimeManifest())
+    return
+  }
+
+  const runtimeMatch = path.match(/^\/runtime\/(v\d+)\/(.+)$/)
+  if (req.method === 'GET' && runtimeMatch) {
+    const [, channel, fileName] = runtimeMatch
+    if (channel !== RUNTIME_CHANNEL) {
+      json(res, 404, { message: `Canal runtime ${channel} no disponible. Usa ${RUNTIME_CHANNEL}.` })
+      return
+    }
+    if (fileName === 'manifest.json') {
+      json(res, 200, getRuntimeManifest())
+      return
+    }
+    const file = getRuntimeFile(fileName)
+    if (!file) {
+      json(res, 404, { message: 'Archivo runtime no encontrado' })
+      return
+    }
+    res.writeHead(200, {
+      'Content-Type': file.contentType,
+      'Content-Length': file.body.length,
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      'Access-Control-Allow-Origin': '*'
+    })
+    res.end(file.body)
     return
   }
 

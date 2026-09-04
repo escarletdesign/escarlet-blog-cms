@@ -39,7 +39,7 @@ Opciones.
   --token TOKEN     API token Coolify (Deploy)
   --author Nombre   Repetible
   --force           Reescribe stubs
-  --copy-frontend DIR  Copia templates/frontend a DIR
+  --copy-frontend DIR  Copia el hook escarlet-blog.mjs y wrappers a DIR
 `)
   process.exit(args.help ? 0 : 1)
 }

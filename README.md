@@ -86,7 +86,7 @@ Claude (Customize / Connectors). URL `https://blog-cms.escarlet.cc/mcp`, autenti
 BLOG_CMS_URL=http://localhost:3040 BLOG_CMS_SITE=escarlet npm run blog:sync
 ```
 
-Plantilla genérica. `templates/frontend/sync-blog-cms.mjs`.
+Plantilla genérica. `templates/frontend/escarlet-blog.mjs` baja sync y packs desde `/runtime/v1/`.
 Build incluye sync automático. Ver [docs/ONBOARDING.md](docs/ONBOARDING.md).
 
 ## Migración (escarlet)
@@ -101,7 +101,7 @@ cd ../escarlet-blog-cms && npm run import:escarlet
 ```
 config/sites/{handle}/     # seed site.json + brand kit
 templates/site/            # stubs para site:init
-templates/frontend/        # sync + regla Cursor
+templates/frontend/        # hook escarlet-blog + runtime sync/packs
 lib/                       # SEO, DB, brand kit, onboarding
 mcp/                       # Servidor MCP
 data/db.json               # Posts (gitignored)
