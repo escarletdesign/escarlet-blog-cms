@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex,nofollow" />
   <title>Escarlet Blog CMS</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/admin.css?v=8" />
+  <link rel="stylesheet" href="/admin.css?v=12" />
   <link rel="stylesheet" href="https://uicdn.toast.com/editor/latest/toastui-editor.min.css" />
 </head>
 <body>
@@ -84,7 +84,9 @@
         <section id="panel-entradas" class="panel active" data-panel="entradas">
           <div class="card">
             <h2 class="card-title">Entradas</h2>
-            <p class="card-desc">Aquí viven tus borradores, los que esperan tu OK y los ya publicados.</p>
+            <p class="card-desc">Borradores, en revisión y publicados. El verde publica. El lápiz abre. El ojo revisa.</p>
+            <div class="review-inbox" id="reviewInbox" hidden></div>
+            <div class="local-inbox" id="localInbox" hidden></div>
             <div class="toolbar posts-toolbar">
               <div class="topbar-field status-field">
                 <label for="statusFilter">Filtrar por estado</label>
@@ -102,6 +104,9 @@
               <button type="button" class="btn" id="reloadPosts">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
                 Recargar
+              </button>
+              <button type="button" class="btn" id="flushLocalDrafts" hidden>
+                Enviar cambios de este navegador
               </button>
             </div>
             <ul class="post-list" id="list" aria-live="polite"></ul>
@@ -158,19 +163,19 @@
               <h2 class="card-title" id="workspaceTitle">Nueva entrada</h2>
               <span class="badge draft" id="workspaceStatusBadge">Borrador</span>
             </div>
-            <p class="card-desc workspace-hint" id="workspaceHint">Paso 1 de 3. Escribe el contenido y guarda antes de seguir.</p>
+            <p class="card-desc workspace-hint" id="workspaceHint">Paso 1 de 3. Escribe. El navegador guarda solo. Al final, un Guardar envía todo al CMS.</p>
             <nav class="step-nav" aria-label="Pasos de la entrada">
               <button type="button" class="step-btn active" data-step="escribir" id="stepEscribir">
                 <span class="step-num">1</span>
-                <span class="step-label">Escribir</span>
+                <span class="step-label">Texto</span>
               </button>
               <button type="button" class="step-btn" data-step="portada" id="stepPortada">
                 <span class="step-num">2</span>
-                <span class="step-label">Portada</span>
+                <span class="step-label">Fotos y redes</span>
               </button>
               <button type="button" class="step-btn" data-step="revisar" id="stepRevisar">
                 <span class="step-num">3</span>
-                <span class="step-label">Revisar y publicar</span>
+                <span class="step-label">Revisar</span>
               </button>
             </nav>
           </div>
@@ -228,12 +233,11 @@
                     <input id="fieldImageAlt" name="imageAlt" />
                   </div>
                 </div>
-                <div id="imagePreview" class="image-preview" hidden></div>
-                <p class="inline-hint">Para elegir una imagen del archivo, pasa al paso Portada.</p>
+                <p class="inline-hint">La foto se elige en el paso Fotos y redes. Aquí solo queda la URL si ya la tienes.</p>
                 <label for="fieldRelated">Entradas relacionadas (slugs separados por coma)</label>
                 <input id="fieldRelated" name="relatedSlugs" />
                 <details class="advanced-block" id="socialPackBlock">
-                  <summary>Textos para redes (opcional)</summary>
+                  <summary>Textos para Substack, LinkedIn y X</summary>
                   <div data-channel="substack">
                     <label for="fieldSubstackTitle">Título Substack</label>
                     <input id="fieldSubstackTitle" name="substackTitle" />
@@ -254,24 +258,14 @@
                     <label for="fieldVideoScript">Guion de vídeo (45–60 s)</label>
                     <textarea id="fieldVideoScript" name="videoScript" rows="5"></textarea>
                   </div>
-                  <div data-channel="instagramCarousel">
-                    <label for="fieldInstagramCaption">Caption Instagram</label>
-                    <textarea id="fieldInstagramCaption" name="instagramCaption" rows="4"></textarea>
+                  <div data-channel="instagramCarousel" hidden>
                     <label for="fieldInstagramSlides">Slides Instagram (JSON)</label>
-                    <textarea id="fieldInstagramSlides" name="instagramSlides" rows="8" placeholder='[{"imageUrl":"https://…/slide-1.webp","alt":"…","headline":"…"}]'></textarea>
-                    <p class="inline-hint">Puedes editar el JSON a mano. Lo habitual es el más en el paso Portada.</p>
+                    <textarea id="fieldInstagramSlides" name="instagramSlides" rows="8" placeholder='[{"imageUrl":"https://cms/slide-1.jpg","alt":"Foto","headline":"Frase"}]'></textarea>
                   </div>
                 </details>
                 <label for="bodyEditorMount">Cuerpo del artículo</label>
                 <div id="bodyEditorMount" class="toast-mount" role="textbox" aria-label="Cuerpo del artículo"></div>
                 <textarea id="bodyContent" name="bodyHtml" hidden></textarea>
-                <div class="actions sticky-actions">
-                  <button type="submit" class="btn btn-primary" id="savePost">Guardar</button>
-                  <button type="button" class="btn" id="goToPortada">Siguiente</button>
-                  <button type="button" class="btn" id="validateSeo">Validar SEO</button>
-                  <button type="button" class="btn" id="unpublishPost" hidden>Despublicar</button>
-                  <button type="button" class="btn btn-danger" id="deletePost" hidden>Eliminar</button>
-                </div>
                 <div id="seoResult" class="seo-result" hidden></div>
               </form>
             </div>
@@ -279,10 +273,24 @@
 
           <div id="step-portada" class="step-panel">
             <div class="card">
-              <h3 class="card-title">Portada de esta entrada</h3>
-              <p class="card-desc">La foto grande es lo que importa. Pasa el ratón. El recuadro pone portada. El más la mete en el carrusel.</p>
+              <h3 class="card-title">Fotos y redes</h3>
+              <p class="card-desc">Dos usos distintos. La portada es la foto del artículo. El carrusel es Instagram. Cada uno tiene su sitio.</p>
+              <div class="visual-split">
+                <section class="visual-block">
+                  <h4 class="visual-block-title">Foto de portada</h4>
+                  <p class="inline-hint">Sale en el listado del blog y arriba del artículo. En la parrilla, el recuadro la elige.</p>
+                  <div id="imagePreview" class="image-preview" hidden></div>
+                </section>
+                <section class="visual-block" id="carouselEditor" data-channel="instagramCarousel">
+                  <h4 class="visual-block-title">Carrusel de Instagram</h4>
+                  <p class="inline-hint">Hasta 7 fotos para el pack de redes. En la parrilla, el más la añade. La cruz la quita.</p>
+                  <label for="fieldInstagramCaptionVisible">Texto del carrusel</label>
+                  <textarea id="fieldInstagramCaptionVisible" name="instagramCaption" rows="3" form="form"></textarea>
+                  <div class="carousel-strip" id="carouselStrip"></div>
+                </section>
+              </div>
               <form id="uploadForm" class="upload-zone">
-                <label for="uploadFile">Archivo de imagen</label>
+                <label for="uploadFile">Subir una foto nueva</label>
                 <input type="file" id="uploadFile" accept="image/*" />
                 <div class="row">
                   <div>
@@ -290,7 +298,7 @@
                     <input id="uploadAlt" />
                   </div>
                   <div>
-                    <label for="uploadKind">Uso</label>
+                    <label for="uploadKind">Uso al subir</label>
                     <select id="uploadKind">
                       <option value="post">Portada de entrada</option>
                       <option value="social">Slide Instagram</option>
@@ -302,14 +310,9 @@
                   <button type="submit" class="btn btn-primary" id="uploadBtn">Subir y usar</button>
                 </div>
               </form>
-              <section class="carousel-editor" id="carouselEditor" data-channel="instagramCarousel">
-                <h4 class="carousel-editor-title">Carrusel Instagram de esta entrada</h4>
-                <p class="inline-hint">Hasta 7 slides. El más en una foto de la parrilla la añade aquí. La cruz la quita.</p>
-                <div class="carousel-strip" id="carouselStrip"></div>
-              </section>
               <div class="toolbar posts-toolbar">
                 <div class="topbar-field status-field">
-                  <label for="portadaMediaFilter">Mostrar</label>
+                  <label for="portadaMediaFilter">Mostrar en la parrilla</label>
                   <select id="portadaMediaFilter">
                     <option value="">Todas</option>
                     <option value="post">Portadas</option>
@@ -318,26 +321,21 @@
                 </div>
               </div>
               <div class="media-grid" id="mediaGrid"></div>
-              <div class="actions sticky-actions">
-                <button type="button" class="btn btn-ghost" id="goToEscribir">Anterior</button>
-                <button type="button" class="btn" id="savePortada">Guardar y actualizar web</button>
-                <button type="button" class="btn btn-primary" id="goToRevisar">Siguiente</button>
-              </div>
             </div>
           </div>
 
           <div id="step-revisar" class="step-panel">
             <div class="card">
-              <h3 class="card-title">Revisar y publicar</h3>
-              <p class="card-desc">Mira el resultado final. Cuando esté bien, envíalo a revisión o publícalo en vivo.</p>
+              <h3 class="card-title">Revisar</h3>
+              <p class="card-desc">Mira el resultado. La vista previa lee el CMS. Guardar envía los cambios de este navegador. Publicar es lo único que actualiza la web.</p>
+              <div class="status-callout" id="reviewStatusCallout" hidden></div>
               <p id="previewStatus" class="preview-status"></p>
-              <div class="actions sticky-actions">
-                <button type="button" class="btn btn-ghost" id="goBackPortada">Anterior</button>
-                <button type="button" class="btn" id="loadPreview">Actualizar vista previa</button>
-                <button type="button" class="btn" id="openPreviewTab">Abrir en nueva pestaña</button>
-                <button type="button" class="btn btn-primary" id="publishPost">Enviar a revisión</button>
-              </div>
               <p class="publish-banner" id="publishBanner" hidden></p>
+              <div class="preview-toolbar">
+                <button type="button" class="btn" id="loadPreview">Actualizar vista previa</button>
+                <button type="button" class="btn" id="openPreviewTab">Abrir en pestaña</button>
+                <button type="button" class="btn" id="validateSeo">Validar SEO</button>
+              </div>
               <p class="preview-url" id="previewUrl"></p>
               <iframe class="preview" id="previewFrame" title="Vista previa de la entrada"></iframe>
             </div>
@@ -609,6 +607,19 @@
           </div>
         </section>
       </div>
+      <div class="editor-dock" id="editorDock" hidden>
+        <p class="editor-dock-status" id="editorDockStatus">El navegador guarda solo. Guardar envía todo al CMS. Publicar actualiza la web.</p>
+        <div class="editor-dock-actions">
+          <button type="button" class="btn btn-ghost" id="dockPrev">Anterior</button>
+          <button type="submit" class="btn btn-primary" id="dockSave" form="form">Guardar en el CMS</button>
+          <button type="button" class="btn" id="dockNext">Siguiente</button>
+          <button type="button" class="btn btn-primary" id="publishPost">Enviar a revisión</button>
+        </div>
+        <div class="editor-dock-more">
+          <button type="button" class="btn btn-ghost" id="unpublishPost" hidden>Despublicar</button>
+          <button type="button" class="btn btn-danger" id="deletePost" hidden>Eliminar</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -624,6 +635,6 @@
     <p class="media-lightbox-caption" id="mediaLightboxCaption"></p>
   </div>
 
-  <script src="/admin.js?v=10"></script>
+  <script src="/admin.js?v=12"></script>
 </body>
 </html>

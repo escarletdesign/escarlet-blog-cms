@@ -16,9 +16,9 @@ const STATUS_LABELS = {
 }
 
 const STEP_HINTS = {
-  escribir: 'Paso 1 de 3. Escribe el contenido y guarda antes de seguir.',
-  portada: 'Paso 2 de 3. Pasa el ratón por una foto. El recuadro es portada. El más la mete en el carrusel.',
-  revisar: 'Paso 3 de 3. Revisa el resultado y publica cuando esté listo.'
+  escribir: 'Paso 1 de 3. Escribe. El navegador guarda solo. Un Guardar envía todo al CMS.',
+  portada: 'Paso 2 de 3. La portada es el artículo. El carrusel es Instagram. El recuadro elige portada. El más mete la slide.',
+  revisar: 'Paso 3 de 3. La vista previa lee el CMS. Guardar primero. Publicar actualiza la web.'
 }
 
 const login = document.getElementById('login')
@@ -99,6 +99,10 @@ let currentRoute = { view: 'entradas' }
 let onboardStep = 'basics'
 let token = localStorage.getItem('escarlet_cms_token') || ''
 let navigating = false
+let skipLocalSave = false
+let localDirty = false
+let localSaveTimer = null
+const LOCAL_DRAFT_PREFIX = 'escarlet_cms_local_draft:'
 if (siteFilter) {
   siteFilter.dataset.pending = localStorage.getItem('escarlet_cms_site') || ''
 }
@@ -156,6 +160,187 @@ function setPublishLabels(status) {
         ? 'Enviar a revisión'
         : 'Publicar en vivo'
   if (publishPostBtn) publishPostBtn.textContent = label
+}
+
+function currentSite() {
+  return siteFilter?.value.trim() || 'escarlet'
+}
+
+function localDraftStorageKey(site, slug) {
+  return `${LOCAL_DRAFT_PREFIX}${site}:${slug || '__new__'}`
+}
+
+function listLocalDrafts(site = currentSite()) {
+  const prefix = `${LOCAL_DRAFT_PREFIX}${site}:`
+  const out = []
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i)
+    if (!key || !key.startsWith(prefix)) continue
+    try {
+      const draft = JSON.parse(localStorage.getItem(key) || '')
+      if (!draft || typeof draft !== 'object') continue
+      out.push({ key, slug: key.slice(prefix.length), draft })
+    } catch {
+      /* clave rota */
+    }
+  }
+  return out.sort((a, b) => (b.draft.savedAt || 0) - (a.draft.savedAt || 0))
+}
+
+function readLocalDraft(site, slug) {
+  try {
+    const raw = localStorage.getItem(localDraftStorageKey(site, slug))
+    if (!raw) return null
+    const draft = JSON.parse(raw)
+    return draft && typeof draft === 'object' ? draft : null
+  } catch {
+    return null
+  }
+}
+
+function clearLocalDraft(site, slug) {
+  localStorage.removeItem(localDraftStorageKey(site, slug))
+  if (slug && slug !== '__new__') localStorage.removeItem(localDraftStorageKey(site, '__new__'))
+}
+
+function collectFormState() {
+  const visibleCaption = document.getElementById('fieldInstagramCaptionVisible')
+  return {
+    title: form.title.value,
+    slug: form.slug.value,
+    originalSlug: editingOriginalSlug || '',
+    authorName: form.authorName.value,
+    status: postStatusInput.value,
+    datePublished: form.datePublished.value,
+    dateModified: form.dateModified.value,
+    metaTitleEs: form.metaTitleEs.value,
+    metaDescriptionEs: form.metaDescriptionEs.value,
+    excerptEs: form.excerptEs.value,
+    imageUrl: form.imageUrl.value,
+    imageAlt: form.imageAlt.value,
+    relatedSlugs: form.relatedSlugs.value,
+    substackTitle: form.substackTitle.value,
+    substackBody: form.substackBody.value,
+    linkedin: form.linkedin.value,
+    x: form.x.value,
+    videoScript: form.videoScript?.value || '',
+    instagramCaption: form.instagramCaption?.value || visibleCaption?.value || '',
+    instagramSlides: form.instagramSlides?.value || '',
+    bodyHtml: bodyValue()
+  }
+}
+
+function applyFormState(state) {
+  skipLocalSave = true
+  try {
+    form.title.value = state.title || ''
+    form.slug.value = state.slug || ''
+    form.authorName.value = state.authorName || 'Silvia'
+    postStatusInput.value = state.status || 'draft'
+    form.datePublished.value = state.datePublished || ''
+    form.dateModified.value = state.dateModified || ''
+    form.metaTitleEs.value = state.metaTitleEs || ''
+    form.metaDescriptionEs.value = state.metaDescriptionEs || ''
+    form.excerptEs.value = state.excerptEs || ''
+    form.imageUrl.value = state.imageUrl || ''
+    form.imageAlt.value = state.imageAlt || ''
+    form.relatedSlugs.value = state.relatedSlugs || ''
+    form.substackTitle.value = state.substackTitle || ''
+    form.substackBody.value = state.substackBody || ''
+    form.linkedin.value = state.linkedin || ''
+    form.x.value = state.x || ''
+    if (form.videoScript) form.videoScript.value = state.videoScript || ''
+    if (form.instagramCaption) form.instagramCaption.value = state.instagramCaption || ''
+    const visibleCaption = document.getElementById('fieldInstagramCaptionVisible')
+    if (visibleCaption && visibleCaption !== form.instagramCaption) {
+      visibleCaption.value = state.instagramCaption || ''
+    }
+    if (form.instagramSlides) form.instagramSlides.value = state.instagramSlides || ''
+    form.bodyHtml.value = state.bodyHtml || ''
+    setBodyValue(state.bodyHtml || '')
+    updateImagePreview()
+    renderCarouselStrip()
+    updateWorkspaceChrome()
+  } finally {
+    skipLocalSave = false
+  }
+}
+
+function updateDockStatus() {
+  const el = document.getElementById('editorDockStatus')
+  if (!el) return
+  el.textContent = localDirty
+    ? 'Hay cambios en este navegador. Guardar los envía al CMS. Publicar actualiza la web.'
+    : 'Todo está en el CMS. Publicar actualiza la web.'
+}
+
+function updateDockNav() {
+  const prev = document.getElementById('dockPrev')
+  const next = document.getElementById('dockNext')
+  if (currentStep === 'escribir') {
+    if (prev) prev.hidden = true
+    if (next) {
+      next.hidden = false
+      next.textContent = 'Fotos y redes'
+    }
+    if (publishPostBtn) publishPostBtn.hidden = true
+  } else if (currentStep === 'portada') {
+    if (prev) {
+      prev.hidden = false
+      prev.textContent = 'Texto'
+    }
+    if (next) {
+      next.hidden = false
+      next.textContent = 'Revisar'
+    }
+    if (publishPostBtn) publishPostBtn.hidden = true
+  } else {
+    if (prev) {
+      prev.hidden = false
+      prev.textContent = 'Fotos y redes'
+    }
+    if (next) next.hidden = true
+    if (publishPostBtn) publishPostBtn.hidden = false
+  }
+  updateDockStatus()
+  syncEditorLifecycleButtons(postStatusInput.value || 'draft')
+}
+
+function markLocalDirty(dirty) {
+  localDirty = Boolean(dirty)
+  updateDockStatus()
+}
+
+function saveLocalDraftNow() {
+  if (currentRoute?.view !== 'entrada') return
+  const site = currentSite()
+  const state = collectFormState()
+  const slug = (state.slug || editingOriginalSlug || '__new__').trim() || '__new__'
+  const payload = { ...state, savedAt: Date.now() }
+  localStorage.setItem(localDraftStorageKey(site, slug), JSON.stringify(payload))
+  if (slug !== '__new__') localStorage.removeItem(localDraftStorageKey(site, '__new__'))
+  markLocalDirty(true)
+}
+
+function scheduleLocalSave() {
+  if (skipLocalSave || currentRoute?.view !== 'entrada') return
+  markLocalDirty(true)
+  clearTimeout(localSaveTimer)
+  localSaveTimer = setTimeout(saveLocalDraftNow, 400)
+}
+
+function updateReviewCallout(status) {
+  const el = document.getElementById('reviewStatusCallout')
+  if (!el) return
+  if (status === 'review') {
+    el.hidden = false
+    el.className = 'status-callout status-callout--review'
+    el.textContent = 'Esta entrada espera tu OK. Publicar en vivo la manda al blog.'
+  } else {
+    el.hidden = true
+    el.textContent = ''
+    el.className = 'status-callout'
+  }
 }
 
 function normalizeSocialPackChannels(raw) {
@@ -252,6 +437,7 @@ function readCarouselSlides() {
 function writeCarouselSlides(slides) {
   if (form.instagramSlides) form.instagramSlides.value = formatInstagramSlides(slides)
   renderCarouselStrip()
+  scheduleLocalSave()
 }
 
 function renderCarouselStrip() {
@@ -284,22 +470,26 @@ function renderCarouselStrip() {
       event.stopPropagation()
       const next = readCarouselSlides().filter((_, i) => i !== index)
       writeCarouselSlides(next)
-      persistPost().then(() => loadMedia().catch(() => {}))
+      loadMedia().catch(() => {})
     }
     item.append(img, indexBadge, remove)
     el.appendChild(item)
   })
 }
 
-function rebuildSaveMessage(data, fallback = 'Entrada guardada') {
+function rebuildSaveMessage(data, fallback = 'Entrada guardada en el CMS') {
+  if (data?.hint) return { text: data.hint, sticky: Boolean(data.demotedToReview) }
+  if (data?.savedOnly) {
+    return { text: 'Guardado en el CMS. La web pública cambia cuando publiques en vivo.', sticky: false }
+  }
   const published = (data?.post?.status || postStatusInput.value) === 'published'
   if (!published) return { text: fallback, sticky: false }
   if (data?.rebuild?.ok) {
-    return { text: 'Guardado. Rebuild de la web disparado. La portada pública cambia cuando termine Coolify.', sticky: false }
+    return { text: 'Publicado. Rebuild de la web disparado. La portada pública cambia cuando termine Coolify.', sticky: false }
   }
   const detail = data?.rebuild?.message || 'Revisa el webhook de Coolify en Sitio.'
   return {
-    text: `Guardado en el CMS. La web pública no se actualizó. ${detail}`,
+    text: `Guardado en el CMS. La web pública sigue igual. ${detail}`,
     sticky: true
   }
 }
@@ -350,7 +540,8 @@ function applyImageToPost(item) {
   if (imageUrlInput) imageUrlInput.value = src
   if (form.imageAlt && item.alt) form.imageAlt.value = item.alt
   updateImagePreview()
-  persistPost().then(() => loadMedia().catch(() => {}))
+  scheduleLocalSave()
+  loadMedia().catch(() => {})
 }
 
 function addImageToCarousel(item) {
@@ -367,7 +558,7 @@ function addImageToCarousel(item) {
   const key = mediaPathKey(src)
   if (slides.some((slide) => mediaPathKey(slide.imageUrl) === key)) {
     writeCarouselSlides(slides.filter((slide) => mediaPathKey(slide.imageUrl) !== key))
-    persistPost().then(() => loadMedia().catch(() => {}))
+    loadMedia().catch(() => {})
     return
   }
   slides.push({
@@ -377,7 +568,7 @@ function addImageToCarousel(item) {
     body: ''
   })
   writeCarouselSlides(slides)
-  persistPost().then(() => loadMedia().catch(() => {}))
+  loadMedia().catch(() => {})
 }
 
 function openMediaLightbox(src, alt = '') {
@@ -543,6 +734,11 @@ function createToastEditor(mountId, height) {
 function ensureBodyEditor() {
   if (bodyEditor) return bodyEditor
   bodyEditor = createToastEditor('bodyEditorMount', '420px')
+  try {
+    bodyEditor.on('change', () => scheduleLocalSave())
+  } catch {
+    /* editor sin eventos */
+  }
   return bodyEditor
 }
 
@@ -577,9 +773,10 @@ function setBrandValue(text) {
 
 function updateImagePreview() {
   const src = mediaSrc({ url: imageUrlInput?.value || form.imageUrl?.value || '' })
+  if (!imagePreview) return
   if (!src) {
-    imagePreview.hidden = true
-    imagePreview.innerHTML = ''
+    imagePreview.hidden = false
+    imagePreview.innerHTML = '<p class="empty">Elige la portada en la parrilla. El recuadro la marca.</p>'
     return
   }
   imagePreview.hidden = false
@@ -721,7 +918,7 @@ function applyRoute(route) {
     panel.setAttribute('aria-hidden', 'false')
     showStep(currentRoute.step || 'escribir')
     if (topbarHint) {
-      topbarHint.textContent = 'Usa el botón atrás del navegador para volver al paso anterior o a la lista.'
+      topbarHint.textContent = 'El navegador guarda solo. Un Guardar envía todo al CMS. Publicar actualiza la web.'
     }
   } else {
     const panel = document.getElementById('panel-' + view)
@@ -744,6 +941,15 @@ function applyRoute(route) {
           'Empieza por Entradas. Abre un borrador y avanza paso a paso hasta publicar.'
       }
     }
+  }
+
+  const dock = document.getElementById('editorDock')
+  if (dock) dock.hidden = view !== 'entrada'
+  document.body.classList.toggle('has-editor-dock', view === 'entrada')
+  if (view === 'entrada') updateDockNav()
+  if (view === 'entradas') {
+    renderReviewInbox(cachedPosts)
+    renderLocalInbox()
   }
 
   if (view === 'marca') {
@@ -769,6 +975,7 @@ function showStep(step) {
     p.classList.toggle('active', p.id === 'step-' + currentStep)
   })
   if (workspaceHint) workspaceHint.textContent = STEP_HINTS[currentStep] || ''
+  updateDockNav()
 
   if (currentStep === 'escribir') {
     ensureBodyEditor()
@@ -781,9 +988,13 @@ function showStep(step) {
   }
   if (currentStep === 'revisar') {
     const slug = editingOriginalSlug || form.slug.value.trim()
+    updateReviewCallout(postStatusInput.value)
+    if (localDirty) {
+      previewStatus.textContent = 'La vista previa lee el CMS. Guardar primero para ver estos cambios.'
+    }
     if (slug) showPreviewForSlug(slug)
     else {
-      previewStatus.textContent = 'Guarda la entrada con un slug para ver la vista previa.'
+      previewStatus.textContent = 'Pon título y slug. Luego Guardar. Así sale la vista previa.'
       previewFrame.src = 'about:blank'
       previewUrl.textContent = ''
     }
@@ -791,11 +1002,10 @@ function showStep(step) {
 }
 
 function goToStep(step, { replace = false } = {}) {
-  const slug = editingOriginalSlug || form.slug.value.trim() || null
   navigate({
     view: 'entrada',
-    slug,
-    isNew: !slug,
+    slug: editingOriginalSlug || null,
+    isNew: !editingOriginalSlug,
     step
   }, { replace })
 }
@@ -822,6 +1032,7 @@ function updateWorkspaceChrome() {
 }
 
 function fillFormFields(p) {
+  skipLocalSave = true
   editingOriginalSlug = p.slug || ''
   form.title.value = p.title || ''
   form.slug.value = p.slug || ''
@@ -841,6 +1052,10 @@ function fillFormFields(p) {
   form.x.value = p.socialPack?.x || ''
   if (form.videoScript) form.videoScript.value = p.socialPack?.videoScript || ''
   if (form.instagramCaption) form.instagramCaption.value = p.socialPack?.instagramCaption || ''
+  const visibleCaption = document.getElementById('fieldInstagramCaptionVisible')
+  if (visibleCaption && visibleCaption !== form.instagramCaption) {
+    visibleCaption.value = p.socialPack?.instagramCaption || ''
+  }
   if (form.instagramSlides) form.instagramSlides.value = formatInstagramSlides(p.socialPack?.instagramSlides)
   form.bodyHtml.value = p.bodyHtml || ''
   setBodyValue(p.bodyHtml || '')
@@ -849,13 +1064,27 @@ function fillFormFields(p) {
   showPublishBanner('')
   applySocialPackChannelUi(socialPackChannels)
   updateWorkspaceChrome()
+  skipLocalSave = false
+
+  const local = readLocalDraft(currentSite(), p.slug)
+  if (local) {
+    applyFormState({ ...local, status: local.status || p.status || 'draft' })
+    markLocalDirty(true)
+    toast('Hay cambios de este navegador. Guardar los envía al CMS.')
+  } else {
+    markLocalDirty(false)
+  }
+  updateReviewCallout(postStatusInput.value)
 }
 
 function resetFormFields() {
+  skipLocalSave = true
   editingOriginalSlug = ''
   form.reset()
   form.authorName.value = 'Silvia'
   postStatusInput.value = 'draft'
+  const visibleCaption = document.getElementById('fieldInstagramCaptionVisible')
+  if (visibleCaption) visibleCaption.value = ''
   setBodyValue('')
   updateImagePreview()
   renderCarouselStrip()
@@ -865,6 +1094,17 @@ function resetFormFields() {
     seoResult.innerHTML = ''
   }
   updateWorkspaceChrome()
+  skipLocalSave = false
+
+  const local = readLocalDraft(currentSite(), '__new__')
+  if (local) {
+    applyFormState(local)
+    markLocalDirty(true)
+    toast('Recuperé el borrador de este navegador.')
+  } else {
+    markLocalDirty(false)
+  }
+  updateReviewCallout('draft')
 }
 
 function buildPreviewUrl(slug) {
@@ -893,8 +1133,11 @@ function updatePreviewStatus(slug) {
 
 function showPreviewForSlug(slug, { newTab = false } = {}) {
   if (!slug) {
-    toast('Guarda la entrada con un slug para previsualizar')
+    toast('Pon un slug y pulsa Guardar para previsualizar')
     return
+  }
+  if (localDirty) {
+    toast('La vista previa lee el CMS. Guardar primero para ver estos cambios.')
   }
   updatePreviewStatus(slug)
   const url = buildPreviewUrl(slug)
@@ -1142,7 +1385,10 @@ window.addEventListener('hashchange', () => {
 })
 
 document.querySelectorAll('.nav-btn[data-route]').forEach((btn) => {
-  btn.onclick = () => navigate({ view: btn.dataset.route })
+  btn.onclick = () => {
+    if (currentRoute?.view === 'entrada') saveLocalDraftNow()
+    navigate({ view: btn.dataset.route })
+  }
 })
 
 document.querySelectorAll('.step-btn').forEach((btn) => {
@@ -1150,15 +1396,23 @@ document.querySelectorAll('.step-btn').forEach((btn) => {
 })
 
 document.getElementById('backToList')?.addEventListener('click', () => {
+  saveLocalDraftNow()
   navigate({ view: 'entradas' })
+})
+
+document.getElementById('dockPrev')?.addEventListener('click', () => {
+  if (currentStep === 'portada') goToStep('escribir')
+  else if (currentStep === 'revisar') goToStep('portada')
+})
+
+document.getElementById('dockNext')?.addEventListener('click', () => {
+  if (currentStep === 'escribir') goToStep('portada')
+  else if (currentStep === 'portada') goToStep('revisar')
 })
 
 document.getElementById('goToPortada')?.addEventListener('click', () => goToStep('portada'))
 document.getElementById('goToEscribir')?.addEventListener('click', () => goToStep('escribir'))
-document.getElementById('goToRevisar')?.addEventListener('click', async () => {
-  const saved = await persistPost({ busyBtn: document.getElementById('goToRevisar') })
-  if (saved) goToStep('revisar')
-})
+document.getElementById('goToRevisar')?.addEventListener('click', () => goToStep('revisar'))
 document.getElementById('goBackPortada')?.addEventListener('click', () => goToStep('portada'))
 document.getElementById('savePortada')?.addEventListener('click', () => persistPost({ busyBtn: document.getElementById('savePortada') }))
 
@@ -1177,16 +1431,89 @@ document.addEventListener('keydown', (e) => {
   }
 })
 
+function renderReviewInbox(posts) {
+  const el = document.getElementById('reviewInbox')
+  if (!el) return
+  const review = (posts || []).filter((p) => p.status === 'review')
+  if (!review.length) {
+    el.hidden = true
+    el.innerHTML = ''
+    return
+  }
+  el.hidden = false
+  el.innerHTML = ''
+  const intro = document.createElement('p')
+  intro.textContent = review.length === 1
+    ? 'Hay 1 entrada esperando tu OK. Publicar en vivo la manda al blog.'
+    : `Hay ${review.length} entradas esperando tu OK. Publicar en vivo las manda al blog.`
+  const ul = document.createElement('ul')
+  review.forEach((p) => {
+    const li = document.createElement('li')
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'inbox-link'
+    btn.textContent = p.title || p.slug
+    btn.onclick = () => openPostWorkspace(p, 'revisar')
+    li.appendChild(btn)
+    ul.appendChild(li)
+  })
+  el.append(intro, ul)
+}
+
+function renderLocalInbox() {
+  const el = document.getElementById('localInbox')
+  const btn = document.getElementById('flushLocalDrafts')
+  const drafts = listLocalDrafts()
+  if (!el) return
+  if (!drafts.length) {
+    el.hidden = true
+    el.innerHTML = ''
+    if (btn) btn.hidden = true
+    return
+  }
+  el.hidden = false
+  if (btn) btn.hidden = false
+  el.innerHTML = ''
+  const intro = document.createElement('p')
+  intro.textContent = drafts.length === 1
+    ? 'Hay cambios de 1 entrada en este navegador. Enviar los guarda en el CMS sin tocar la web.'
+    : `Hay cambios de ${drafts.length} entradas en este navegador. Enviar los guarda en el CMS sin tocar la web.`
+  const ul = document.createElement('ul')
+  drafts.forEach(({ slug, draft }) => {
+    const li = document.createElement('li')
+    const label = document.createElement('button')
+    label.type = 'button'
+    label.className = 'inbox-link'
+    label.textContent = draft.title || slug
+    label.onclick = () => {
+      if (slug === '__new__') openPostWorkspace(null, 'escribir')
+      else {
+        const post = cachedPosts.find((p) => p.slug === slug)
+        if (post) openPostWorkspace(post, 'escribir')
+        else {
+          applyFormState(draft)
+          editingOriginalSlug = slug === '__new__' ? '' : slug
+          navigate({ view: 'entrada', slug: slug === '__new__' ? null : slug, isNew: slug === '__new__', step: 'escribir' })
+        }
+      }
+    }
+    li.appendChild(label)
+    ul.appendChild(li)
+  })
+  el.append(intro, ul)
+}
+
 async function loadPosts() {
-  const site = siteFilter.value.trim() || 'escarlet'
+  const site = currentSite()
   const status = statusFilter.value
-  const q = new URLSearchParams({ site })
-  if (status) q.set('status', status)
   list.innerHTML = '<li class="empty">Cargando entradas…</li>'
-  const data = await api('/api/admin/posts?' + q)
+  const data = await api('/api/admin/posts?' + new URLSearchParams({ site }))
   list.innerHTML = ''
-  const posts = data.posts || []
-  cachedPosts = posts
+  cachedPosts = data.posts || []
+  renderReviewInbox(cachedPosts)
+  renderLocalInbox()
+  const posts = status ? cachedPosts.filter((p) => p.status === status) : cachedPosts
+  const localSlugs = new Set(listLocalDrafts(site).map((item) => item.slug))
   if (!posts.length) {
     const empty = document.createElement('li')
     empty.className = 'empty empty-cta'
@@ -1211,50 +1538,49 @@ async function loadPosts() {
       p.status === 'review'
         ? '<div class="post-meta">Pendiente de publicar en vivo</div>'
         : ''
+    const localHint = localSlugs.has(p.slug)
+      ? '<span class="post-local-badge">En este navegador</span>'
+      : ''
     const main = document.createElement('div')
     main.className = 'post-item-main'
-    main.innerHTML = `<div><strong>${escapeHtml(p.title)}</strong><span class="badge ${p.status}">${statusLabel(p.status)}</span><div class="post-meta">${escapeHtml(p.slug)}</div>${statusHint}</div>`
+    main.innerHTML = `<div><strong>${escapeHtml(p.title)}</strong><span class="badge ${p.status}">${statusLabel(p.status)}</span>${localHint}<div class="post-meta">${escapeHtml(p.slug)}</div>${statusHint}</div>`
     main.style.cursor = 'pointer'
     main.onclick = () => openPostWorkspace(p, 'escribir')
 
     const actions = document.createElement('div')
     actions.className = 'actions post-actions'
-    const edit = document.createElement('button')
-    edit.className = 'btn btn-sm btn-ghost'
-    edit.innerHTML = ICONS.editor + ' Abrir'
-    edit.onclick = (e) => { e.stopPropagation(); openPostWorkspace(p, 'escribir') }
-
+    actions.appendChild(createIconBtn({
+      className: 'icon-btn icon-btn--accent',
+      title: 'Abrir',
+      icon: ICONS.editor,
+      onClick: () => openPostWorkspace(p, 'escribir')
+    }))
+    actions.appendChild(createIconBtn({
+      className: 'icon-btn icon-btn--accent',
+      title: 'Revisar',
+      icon: ICONS.preview,
+      onClick: () => openPostWorkspace(p, 'revisar')
+    }))
     if (p.status === 'review' || p.status === 'draft') {
-      const pub = document.createElement('button')
-      pub.className = 'btn btn-sm'
-      pub.textContent = p.status === 'review' ? 'Publicar' : 'A revisión'
-      pub.onclick = (e) => { e.stopPropagation(); publishSlug(p.slug) }
-      actions.append(edit, pub)
-    } else {
-      actions.append(edit)
+      actions.appendChild(createIconBtn({
+        className: 'icon-btn icon-btn--accent',
+        title: p.status === 'review' ? 'Publicar en vivo' : 'Enviar a revisión',
+        icon: ICONS.check,
+        onClick: () => publishSlug(p.slug)
+      }))
     }
 
     const moreWrap = document.createElement('div')
     moreWrap.className = 'more-menu'
     const moreBtn = document.createElement('button')
     moreBtn.type = 'button'
-    moreBtn.className = 'btn btn-sm'
+    moreBtn.className = 'icon-btn icon-btn--accent'
     moreBtn.setAttribute('aria-label', 'Más acciones')
+    moreBtn.title = 'Más acciones'
     moreBtn.innerHTML = ICONS.more
     const menu = document.createElement('div')
     menu.className = 'more-menu-panel'
     menu.hidden = true
-
-    const prevItem = document.createElement('button')
-    prevItem.type = 'button'
-    prevItem.className = 'more-item'
-    prevItem.textContent = 'Revisar'
-    prevItem.onclick = (e) => {
-      e.stopPropagation()
-      menu.hidden = true
-      openPostWorkspace(p, 'revisar')
-    }
-    menu.appendChild(prevItem)
 
     if (p.status === 'published') {
       const unpub = document.createElement('button')
@@ -1309,9 +1635,8 @@ document.addEventListener('click', () => {
 function syncEditorLifecycleButtons(status) {
   const unpublishBtn = document.getElementById('unpublishPost')
   const deleteBtn = document.getElementById('deletePost')
-  const hasPost = Boolean(editingOriginalSlug || form.slug.value.trim())
-  if (unpublishBtn) unpublishBtn.hidden = !(hasPost && status === 'published')
-  if (deleteBtn) deleteBtn.hidden = !hasPost
+  if (unpublishBtn) unpublishBtn.hidden = !(editingOriginalSlug && status === 'published')
+  if (deleteBtn) deleteBtn.hidden = !editingOriginalSlug
 }
 
 document.getElementById('unpublishPost')?.addEventListener('click', () => {
@@ -1425,17 +1750,21 @@ async function deleteSlug(slug) {
 
 document.getElementById('newPost').onclick = () => openPostWorkspace(null, 'escribir')
 
-async function persistPost({ busyBtn } = {}) {
-  const site = siteFilter.value.trim() || 'escarlet'
-  const slug = form.slug.value.trim()
-  const title = form.title.value.trim()
+async function persistPost({ busyBtn, state, silent = false } = {}) {
+  const site = currentSite()
+  const formState = state || collectFormState()
+  const isCurrentEditor = !state
+  const slug = (formState.slug || '').trim()
+  const title = (formState.title || '').trim()
   if (!slug || !title) {
-    toast('Faltan título y slug. Guarda el paso Escribir primero.')
+    toast('Faltan título y slug. Complétalos en Texto y pulsa Guardar.')
     return false
   }
 
   const run = async () => {
-    if (!editingOriginalSlug) {
+    const lookupSlug = String(formState.originalSlug || (isCurrentEditor ? editingOriginalSlug : '') || '').trim()
+    const needsCreate = !lookupSlug || lookupSlug === '__new__'
+    if (needsCreate) {
       try {
         await api('/api/admin/posts/create-draft', {
           method: 'POST',
@@ -1443,21 +1772,19 @@ async function persistPost({ busyBtn } = {}) {
             site,
             title,
             slug,
-            author: form.authorName.value.trim() || 'Silvia',
-            date: form.datePublished.value || undefined
+            author: (formState.authorName || '').trim() || 'Silvia',
+            date: formState.datePublished || undefined
           })
         })
-        editingOriginalSlug = slug
       } catch (err) {
         if (!/Ya existe slug/i.test(err.message || '')) {
           toast(err.message)
           return false
         }
-        editingOriginalSlug = slug
       }
     }
 
-    const slides = parseInstagramSlides(form.instagramSlides?.value)
+    const slides = parseInstagramSlides(formState.instagramSlides)
     if (slides === null) {
       toast('El JSON de slides de Instagram no es válido')
       return false
@@ -1466,45 +1793,54 @@ async function persistPost({ busyBtn } = {}) {
     const payload = {
       site,
       slug,
-      originalSlug: editingOriginalSlug || slug,
-      keepPublished: postStatusInput.value === 'published',
+      originalSlug: needsCreate ? slug : lookupSlug,
+      keepPublished: formState.status === 'published',
       title,
-      authorName: form.authorName.value.trim(),
-      status: postStatusInput.value,
-      datePublished: form.datePublished.value,
-      dateModified: form.dateModified.value,
-      metaTitle: { es: form.metaTitleEs.value.trim(), en: form.metaTitleEs.value.trim() },
-      metaDescription: { es: form.metaDescriptionEs.value.trim(), en: form.metaDescriptionEs.value.trim() },
-      excerptEs: form.excerptEs.value.trim(),
-      imageUrl: form.imageUrl.value.trim(),
-      imageAlt: form.imageAlt.value.trim(),
-      relatedSlugs: form.relatedSlugs.value.split(',').map((s) => s.trim()).filter(Boolean),
+      authorName: (formState.authorName || '').trim(),
+      status: formState.status,
+      datePublished: formState.datePublished,
+      dateModified: formState.dateModified,
+      metaTitle: { es: (formState.metaTitleEs || '').trim(), en: (formState.metaTitleEs || '').trim() },
+      metaDescription: { es: (formState.metaDescriptionEs || '').trim(), en: (formState.metaDescriptionEs || '').trim() },
+      excerptEs: (formState.excerptEs || '').trim(),
+      imageUrl: (formState.imageUrl || '').trim(),
+      imageAlt: (formState.imageAlt || '').trim(),
+      relatedSlugs: String(formState.relatedSlugs || '').split(',').map((s) => s.trim()).filter(Boolean),
       socialPack: {
-        substackTitle: form.substackTitle.value.trim(),
-        substackBody: form.substackBody.value.trim(),
-        linkedin: form.linkedin.value.trim(),
-        x: form.x.value.trim(),
-        videoScript: form.videoScript?.value.trim() || '',
-        instagramCaption: form.instagramCaption?.value.trim() || '',
+        substackTitle: (formState.substackTitle || '').trim(),
+        substackBody: (formState.substackBody || '').trim(),
+        linkedin: (formState.linkedin || '').trim(),
+        x: (formState.x || '').trim(),
+        videoScript: (formState.videoScript || '').trim(),
+        instagramCaption: (formState.instagramCaption || '').trim(),
         instagramSlides: slides
       },
-      bodyHtml: bodyValue()
+      bodyHtml: formState.bodyHtml
     }
     const data = await api('/api/admin/posts', { method: 'POST', body: JSON.stringify(payload) })
-    editingOriginalSlug = slug
-    await loadPosts()
-    updateWorkspaceChrome()
-    renderCarouselStrip()
-    navigate({
-      view: 'entrada',
-      slug,
-      isNew: false,
-      step: currentStep
-    }, { replace: true })
-    const msg = rebuildSaveMessage(data)
-    toast(msg.text, { sticky: msg.sticky, duration: msg.sticky ? 0 : 12000 })
-    if (currentStep === 'revisar') {
-      showPublishBanner(msg.text, data.rebuild?.ok === false ? 'error' : 'ok')
+    clearLocalDraft(site, slug)
+    if (lookupSlug && lookupSlug !== slug) clearLocalDraft(site, lookupSlug)
+    if (needsCreate) clearLocalDraft(site, '__new__')
+    if (isCurrentEditor) {
+      editingOriginalSlug = slug
+      markLocalDirty(false)
+      updateWorkspaceChrome()
+      renderCarouselStrip()
+      navigate({
+        view: 'entrada',
+        slug,
+        isNew: false,
+        step: currentStep
+      }, { replace: true })
+      if (currentStep === 'revisar') {
+        showPublishBanner((data.hint || 'Guardado en el CMS.'), data.demotedToReview ? 'review' : 'ok')
+        showPreviewForSlug(slug)
+      }
+    }
+    if (!silent) {
+      await loadPosts()
+      const msg = rebuildSaveMessage(data)
+      toast(msg.text, { sticky: msg.sticky, duration: msg.sticky ? 0 : 12000 })
     }
     return data
   }
@@ -1518,15 +1854,66 @@ async function persistPost({ busyBtn } = {}) {
   }
 }
 
+async function flushAllLocalDrafts() {
+  const btn = document.getElementById('flushLocalDrafts')
+  const drafts = listLocalDrafts()
+  if (!drafts.length) {
+    toast('Este navegador no tiene cambios pendientes.')
+    return
+  }
+  const run = async () => {
+    let ok = 0
+    let failed = 0
+    if (currentRoute?.view === 'entrada' && localDirty) {
+      const saved = await persistPost({ silent: true })
+      if (saved) ok += 1
+      else failed += 1
+    }
+    for (const item of listLocalDrafts()) {
+      const draftSlug = item.slug === '__new__' ? (item.draft.slug || '').trim() : item.slug
+      if (!draftSlug || !(item.draft.title || '').trim()) {
+        failed += 1
+        continue
+      }
+      const saved = await persistPost({
+        state: { ...item.draft, slug: draftSlug, originalSlug: item.slug === '__new__' ? '' : item.slug },
+        silent: true
+      })
+      if (saved) {
+        ok += 1
+        clearLocalDraft(currentSite(), item.slug)
+      } else failed += 1
+    }
+    await loadPosts()
+    if (failed) toast(`Guardé ${ok} en el CMS. ${failed} se quedaron en este navegador.`)
+    else toast(ok === 1 ? 'Cambios enviados al CMS.' : `${ok} entradas enviadas al CMS.`)
+  }
+  if (btn) await withBusy(btn, 'Enviando…', run)
+  else await run()
+}
+
 form.onsubmit = async (e) => {
   e.preventDefault()
-  await persistPost({ busyBtn: document.getElementById('savePost') })
+  await persistPost({ busyBtn: document.getElementById('dockSave') })
 }
+
+document.getElementById('flushLocalDrafts')?.addEventListener('click', () => {
+  flushAllLocalDrafts().catch((err) => toast(err.message))
+})
+
+form.addEventListener('input', () => scheduleLocalSave())
+form.addEventListener('change', () => scheduleLocalSave())
+document.getElementById('fieldInstagramCaptionVisible')?.addEventListener('input', () => {
+  if (form.instagramCaption && form.instagramCaption !== document.getElementById('fieldInstagramCaptionVisible')) {
+    form.instagramCaption.value = document.getElementById('fieldInstagramCaptionVisible').value
+  }
+  scheduleLocalSave()
+})
 
 document.getElementById('validateSeo').onclick = async () => {
   const site = siteFilter.value.trim() || 'escarlet'
   const slug = form.slug.value.trim()
-  if (!slug) return toast('Guarda la entrada con un slug antes de validar SEO')
+  if (!slug) return toast('Pon un slug. Luego Guardar. Así puedes validar SEO')
   const data = await api('/api/admin/validate-seo', { method: 'POST', body: JSON.stringify({ site, slug }) })
   seoResult.hidden = false
   const parts = []
@@ -1546,8 +1933,12 @@ document.getElementById('validateSeo').onclick = async () => {
 
 document.getElementById('publishPost').onclick = async () => {
   const slug = form.slug.value.trim() || editingOriginalSlug
-  if (!slug) return toast('Guarda la entrada con un slug antes de publicar')
+  if (!slug) return toast('Pon título y slug. Luego Guardar. Después publica.')
   try {
+    if (localDirty) {
+      const saved = await persistPost({ busyBtn: publishPostBtn })
+      if (!saved) return
+    }
     await publishSlug(slug)
   } catch {
     /* toast ya mostrado */

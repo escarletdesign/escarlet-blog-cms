@@ -137,7 +137,7 @@ export function buildToolList(auth) {
     },
     {
       name: 'blog_update_post',
-      description: 'Actualiza un post EXISTENTE. Si ya está publicado y solo cambias portada o texto, pasa keepPublished true o status published para que siga en vivo. Sin eso, en sitios con aprobación humana baja a review y sale del blog hasta que un humano pulse Publicar en vivo.',
+      description: 'Actualiza un post EXISTENTE. Guarda en el CMS y no dispara rebuild. Para que salga en la web llama blog_publish. Si ya está publicado, pasa keepPublished true o status published. Portada. blog_upload_media_file kind post y pega media.url en imageUrl.',
       inputSchema: {
         type: 'object',
         properties: {
