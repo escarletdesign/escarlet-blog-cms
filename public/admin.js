@@ -331,16 +331,14 @@ function mediaSrc(item) {
   return url
 }
 
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const text = String(reader.result || '')
-      resolve(text.includes(',') ? text.split(',')[1] : text)
-    }
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
+function uploadMediaForm({ file, filename, alt, kind, site }) {
+  const form = new FormData()
+  form.append('file', file, filename || file.name)
+  form.append('site', site)
+  form.append('filename', filename || file.name)
+  form.append('alt', alt || '')
+  form.append('kind', kind || 'post')
+  return api('/api/admin/media/upload', { method: 'POST', body: form })
 }
 
 function applyImageToPost(item) {
@@ -617,11 +615,16 @@ function openSidebar() {
 }
 
 function authHeaders() {
-  return { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }
+  return { Authorization: 'Bearer ' + token }
 }
 
 async function api(path, options = {}) {
-  const res = await fetch(path, { ...options, headers: { ...authHeaders(), ...(options.headers || {}) } })
+  const headers = { ...authHeaders(), ...(options.headers || {}) }
+  const isForm = typeof FormData !== 'undefined' && options.body instanceof FormData
+  if (!isForm && options.body && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json'
+  }
+  const res = await fetch(path, { ...options, headers })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
     const errors = data.blockingErrors || data.validation?.errors || data.errors || []
@@ -1579,15 +1582,12 @@ document.getElementById('uploadForm').onsubmit = async (e) => {
   await withBusy(btn, 'Subiendo…', async () => {
     const site = siteFilter.value.trim() || 'escarlet'
     const kind = document.getElementById('uploadKind').value
-    const data = await api('/api/admin/media/upload', {
-      method: 'POST',
-      body: JSON.stringify({
-        site,
-        filename: file.name,
-        contentBase64: await fileToBase64(file),
-        alt: document.getElementById('uploadAlt').value,
-        kind
-      })
+    const data = await uploadMediaForm({
+      file,
+      filename: file.name,
+      alt: document.getElementById('uploadAlt').value,
+      kind,
+      site
     })
     document.getElementById('uploadFile').value = ''
     if (data.media && kind === 'post') {
@@ -1617,15 +1617,12 @@ document.getElementById('libraryUploadForm')?.addEventListener('submit', async (
   const btn = document.getElementById('libraryUploadBtn')
   await withBusy(btn, 'Subiendo…', async () => {
     const site = siteFilter.value.trim() || 'escarlet'
-    await api('/api/admin/media/upload', {
-      method: 'POST',
-      body: JSON.stringify({
-        site,
-        filename: file.name,
-        contentBase64: await fileToBase64(file),
-        alt: document.getElementById('libraryAlt')?.value || '',
-        kind: document.getElementById('libraryKind')?.value || 'post'
-      })
+    await uploadMediaForm({
+      file,
+      filename: file.name,
+      alt: document.getElementById('libraryAlt')?.value || '',
+      kind: document.getElementById('libraryKind')?.value || 'post',
+      site
     })
     document.getElementById('libraryFile').value = ''
     await loadLibrary()
@@ -1672,15 +1669,12 @@ document.getElementById('refUploadForm').onsubmit = async (e) => {
   const btn = document.getElementById('refUploadBtn')
   await withBusy(btn, 'Subiendo…', async () => {
     const site = siteFilter.value.trim() || 'escarlet'
-    await api('/api/admin/media/upload', {
-      method: 'POST',
-      body: JSON.stringify({
-        site,
-        filename: file.name,
-        contentBase64: await fileToBase64(file),
-        alt: document.getElementById('refAlt').value,
-        kind: 'reference'
-      })
+    await uploadMediaForm({
+      file,
+      filename: file.name,
+      alt: document.getElementById('refAlt').value,
+      kind: 'reference',
+      site
     })
     document.getElementById('refFile').value = ''
     await loadRefs()

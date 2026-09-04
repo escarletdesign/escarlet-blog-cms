@@ -57,11 +57,12 @@ socialPack: {
 
 ## Imágenes
 
-1. Preferido. `blog_upload_media` con `imageUrl` http(s) pública. El CMS descarga y guarda.
-2. Si ChatGPT solo tiene el archivo en sandbox (`/mnt/data/...`, `sandbox:`, `file://`). Lee el archivo y pasa `contentBase64` completo a `blog_upload_media`. Nunca pases esas rutas como `imageUrl`.
-3. Pega la URL absoluta que devuelve el CMS en `blog_update_post.imageUrl`
+1. Preferido. `blog_upload_media` con `contentBase64` o `blob` (PNG de 2–3 MB valen). El CMS comprime a JPEG y devuelve `media.url`.
+2. Si el host recorta el argumento. `uploadId` + `chunkIndex` + `chunkCount`.
+3. URL https pública en `imageUrl`. Nunca pases `/mnt/data` como `imageUrl`.
+4. Pega la URL absoluta del CMS en `blog_update_post.imageUrl` o en `instagramSlides`
 
-Portada. `kind: post`. Carrusel. `kind: social`, filename `{slug}-ig-01.webp` …
+Portada. `kind` `post`. Carrusel. `kind` `social`, filename `{slug}-ig-01.jpg` …
 
 ## Blog-packs (frontend)
 

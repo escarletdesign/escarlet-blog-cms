@@ -12,18 +12,16 @@
 
 ## Subida (preferido)
 
-1. Genera o elige la imagen.
-2. Si tienes URL http(s) pública. `blog_upload_media` con `imageUrl`, `filename`, `alt`, `kind: post`.
-3. Si solo tienes el archivo en sandbox de ChatGPT (`/mnt/data/...`). Lee el archivo y pasa `contentBase64` completo. Nunca uses esas rutas como `imageUrl`.
-4. Usa la `media.url` absoluta en el `imageUrl` del post.
-5. Prefiere JPG o PNG de menos de 1,5 MB. Un WebP recortado en el base64 se guarda a medias y el navegador muestra un recuadro vacío o el icono de imagen rota. Si el CMS rechaza por archivo incompleto, vuelve a subir el archivo entero.
+1. Genera o elige la imagen. Un PNG de 2–3 MB vale.
+2. `blog_upload_media` con `contentBase64` o `blob`, `filename`, `alt` y `kind` (`post` o `social`). El CMS comprime a JPEG y devuelve `media.url`.
+3. Si el host recorta el base64. Usa el mismo `uploadId` con `chunkIndex` y `chunkCount`. Trozos de hasta 120000 caracteres.
+4. Si tienes URL https pública. También vale `imageUrl`. Nunca uses `/mnt/data` como `imageUrl`.
+5. Usa la `media.url` absoluta en el `imageUrl` del post o en cada slide.
 
 ## Carrusel Instagram (si el canal está activo)
 
 1. Genera 4–7 slides 1080×1350 (o 1080×1080) alineados con visual-style.
-2. Filename `{slug}-ig-01.webp` … `{slug}-ig-07.webp`.
-3. `blog_upload_media` con `kind: social` por cada slide (misma regla de sandbox).
+2. Filename `{slug}-ig-01.jpg` … `{slug}-ig-07.jpg`.
+3. `blog_upload_media` con `kind` `social` por cada slide.
 4. Guarda en `socialPack.instagramSlides` `{ imageUrl, alt, headline? }` y un `instagramCaption` con el canónico.
 5. Si el canal está activo, sube las 4–7 slides al CMS antes de review.
-
-En portadas grandes prefiere `imageUrl` https. Usa `contentBase64` cuando el sandbox sea la única copia.

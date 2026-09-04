@@ -131,7 +131,7 @@ function buildToolList(auth) {
     },
     {
       name: 'blog_update_post',
-      description: 'Actualiza un post EXISTENTE. Para portadas, primero blog_upload_media (imageUrl http pública o contentBase64 si el archivo está en sandbox) y luego pega la URL del CMS en imageUrl.',
+      description: 'Actualiza un post EXISTENTE. Para portadas, primero blog_upload_media (kind post) y pega media.url en imageUrl. Para carrusel Instagram, blog_upload_media (kind social) y pega media.url en socialPack.instagramSlides.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -238,27 +238,53 @@ function buildToolList(auth) {
     {
       name: 'blog_upload_media',
       description:
-        'Sube una imagen al CMS y devuelve media.url ABSOLUTA. Tool principal para ChatGPT/Claude/Hermes. Preferido: imageUrl con https:// pública. Si la imagen solo existe en sandbox (/mnt/data, sandbox:, file://), lee el archivo y pasa contentBase64 COMPLETO (sin recortar). Un WebP/PNG truncado se guarda con cabecera válida y el navegador muestra un recuadro vacío o el icono roto. Si el CMS rechaza por archivo incompleto, reintenta con un JPG o PNG de menos de 1,5 MB. NUNCA pases rutas sandbox como imageUrl. kind: post (portada), social (slides Instagram), reference (moodboard).',
+        'Sube una imagen al CMS, la comprime a JPEG en servidor y devuelve media.url pública. Acepta PNG/JPG de 2–3 MB. Orden de preferencia: 1) contentBase64 o blob con el archivo completo 2) si el host recorta, uploadId + chunkIndex + chunkCount (trozos ≤ 120000 caracteres) 3) imageUrl https pública 4) filePath solo si el MCP ve el archivo en disco. kind oficial: post (portada), social (carrusel Instagram), reference (moodboard). NUNCA pases /mnt/data como imageUrl. ChatGPT debe leer el PNG de /mnt/data y enviarlo en contentBase64 o a trozos.',
       inputSchema: {
         type: 'object',
         properties: {
           site: { type: 'string' },
           filename: {
             type: 'string',
-            description: 'Nombre kebab-case con extensión, ej. mi-post.webp o {slug}-ig-01.webp'
+            description:
+              'Nombre kebab-case. El CMS lo guardará como .jpg tras comprimir. Ej. mi-post.jpg o {slug}-ig-01.jpg'
           },
           imageUrl: {
             type: 'string',
             description:
-              'URL http(s) pública de la imagen. El CMS la descarga. Prohibido: /mnt/data, sandbox:, file:// u otras rutas locales.'
+              'URL https pública. El CMS la descarga y comprime. Prohibido /mnt/data, sandbox:, file://.'
           },
           contentBase64: {
             type: 'string',
             description:
-              'Imagen en base64 completa. Si el CMS dice que el archivo está incompleto, el base64 se cortó. Reintenta con un JPG o PNG de menos de 1,5 MB y envía el base64 entero.'
+              'PNG o JPG completo en base64. 2–3 MB valen. El CMS comprime a JPEG y devuelve media.url. Si el host recorta el argumento, usa uploadId + chunkIndex + chunkCount.'
+          },
+          blob: {
+            type: 'string',
+            description: 'Alias de contentBase64 para clientes que envían blob.'
+          },
+          filePath: {
+            type: 'string',
+            description:
+              'Ruta absoluta solo si este MCP corre en la misma máquina y el archivo existe (p. ej. /mnt/data/foo.png). En ChatGPT remoto esa ruta no existe. Usa contentBase64.'
+          },
+          uploadId: {
+            type: 'string',
+            description: 'Id estable para subir a trozos cuando el base64 no cabe de una vez.'
+          },
+          chunkIndex: {
+            type: 'integer',
+            description: 'Índice del trozo, desde 0.'
+          },
+          chunkCount: {
+            type: 'integer',
+            description: 'Número total de trozos. Cada contentBase64 ≤ 120000 caracteres.'
           },
           alt: { type: 'string' },
-          kind: { type: 'string', description: 'post | social | reference' }
+          kind: {
+            type: 'string',
+            enum: ['post', 'social', 'reference'],
+            description: 'post = portada, social = slide Instagram, reference = moodboard'
+          }
         },
         required: ['site', 'filename']
       },
@@ -278,7 +304,11 @@ function buildToolList(auth) {
             description: 'URL http(s) pública. Prohibido /mnt/data, sandbox:, file://.'
           },
           alt: { type: 'string' },
-          kind: { type: 'string', description: 'post, social o reference' }
+          kind: {
+            type: 'string',
+            enum: ['post', 'social', 'reference'],
+            description: 'post, social o reference'
+          }
         },
         required: ['site', 'filename', 'imageUrl']
       },

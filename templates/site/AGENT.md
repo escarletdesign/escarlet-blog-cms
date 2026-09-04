@@ -15,7 +15,7 @@ Si `missingBrand` tiene archivos, para y pide que los completen.
 2. Pregunta lo que falte según `postFields`
 3. `blog_create_draft` solo si el slug es nuevo
 4. Redactar con `blog_update_post`
-5. Portada con `blog_upload_media` (`kind` `post`). Preferir `imageUrl` https. Si solo hay archivo en sandbox (`/mnt/data`), usar `contentBase64` completo (JPG o PNG de menos de 1,5 MB, sin recortar).
+5. Portada con `blog_upload_media` (`kind` `post`). Envía el PNG o JPG en `contentBase64` o `blob` (2–3 MB valen). El CMS comprime a JPEG y devuelve `media.url`. Si el host recorta el base64, usa `uploadId` + `chunkIndex` + `chunkCount`.
 6. Si el site tiene Instagram activo. Carrusel 4–7 slides con `blog_upload_media` (`kind` `social`) → `socialPack.instagramSlides` + caption. Sube cada slide al CMS.
 7. Completa `socialPack` solo para canales en `socialPackChannels`
 8. `blog_validate_seo`

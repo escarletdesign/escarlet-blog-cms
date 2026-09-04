@@ -55,8 +55,8 @@ Deploy producción. [docs/DEPLOY.md](docs/DEPLOY.md).
 | `blog_get_seo_context` | Keywords y reglas |
 | `blog_get_brand_context` | Voz, estilo visual, AGENT.md e imágenes de referencia |
 | `blog_update_brand_file` | Subir o corregir un archivo del kit |
-| `blog_upload_media` | Tool principal. `imageUrl` https pública, o `contentBase64` si el archivo está en sandbox (`/mnt/data`) |
-| `blog_import_remote_image` | Solo URL http(s) pública (atajo). Si hay sandbox, usa `blog_upload_media` + base64 |
+| `blog_upload_media` | PNG/JPG en `contentBase64` o `blob` (2–3 MB valen). `kind` `post` o `social`. El CMS comprime a JPEG. Si recorta, `uploadId` a trozos |
+| `blog_import_remote_image` | Solo URL https pública (atajo) |
 | `blog_import_brand_zip` | ZIP de brand kit (cualquier estructura). Preferir `zipUrl` |
 
 Resources. `brand://{handle}/voice`, `keywords`, `agent`, `image-guide`, `visual-style`, `image-spec`

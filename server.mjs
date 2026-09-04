@@ -34,7 +34,7 @@ import {
 import { validatePostSeo } from './lib/seo-validator.mjs'
 import {
   notifyRebuild,
-  saveUploadedMedia,
+  uploadMedia,
   publishPost as cmsPublishPost,
   validateSeo as cmsValidateSeo,
   deleteMedia as cmsDeleteMedia,
@@ -56,6 +56,7 @@ import {
   publicSiteConfigForAuth
 } from './lib/auth.mjs'
 import { mediaForClient, repairMediaInDb, repairPostsInDb, resolveImageSrc, resolvePostImageSrc, inspectImageBuffer } from './lib/media-url.mjs'
+import { parseMultipart, isMultipartRequest } from './lib/multipart.mjs'
 import { withPostLinks } from './lib/preview-url.mjs'
 import { escapeHtml, renderPostBody } from './lib/content-render.mjs'
 import { handleMcpHttp, sendMcpCors } from './mcp/http-handler.mjs'
@@ -145,18 +146,38 @@ function siteFrom(auth, preferred) {
   return preferred || DEFAULT_SITE
 }
 
-function readRawBody(req) {
+const MAX_BODY_BYTES = 15 * 1024 * 1024
+
+function readRawBuffer(req, maxBytes = MAX_BODY_BYTES) {
   return new Promise((resolve, reject) => {
     const chunks = []
-    req.on('data', (c) => chunks.push(c))
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
+    let size = 0
+    req.on('data', (c) => {
+      size += c.length
+      if (size > maxBytes) {
+        req.destroy()
+        reject(Object.assign(new Error('La subida supera 15 MB'), { status: 413 }))
+        return
+      }
+      chunks.push(c)
+    })
+    req.on('end', () => resolve(Buffer.concat(chunks)))
     req.on('error', reject)
   })
 }
 
 function parseBody(req) {
-  return readRawBody(req).then((raw) => {
-    if (!raw) return {}
+  return readRawBuffer(req).then((buf) => {
+    if (!buf.length) return {}
+    if (isMultipartRequest(req)) {
+      const parsed = parseMultipart(buf, req.headers['content-type'])
+      return {
+        ...parsed.fields,
+        filename: parsed.fields.filename || parsed.file?.filename,
+        buffer: parsed.file?.buffer
+      }
+    }
+    const raw = buf.toString('utf8')
     const type = String(req.headers['content-type'] || '')
     if (type.includes('application/x-www-form-urlencoded')) return parseFormBody(raw)
     try {
@@ -886,24 +907,13 @@ const server = createServer(async (req, res) => {
 
     if (req.method === 'POST' && path === '/api/admin/media/upload') {
       const body = await parseBody(req)
-      if (!body.filename || (!body.contentBase64 && !body.imageUrl)) {
-        json(res, 400, { message: 'Faltan filename y contentBase64 o imageUrl' })
-        return
-      }
       try {
         const site = siteFrom(auth, body.site || DEFAULT_SITE)
         assertSiteAccess(auth, site)
-        const item = await saveUploadedMedia({
-          site,
-          filename: body.filename,
-          contentBase64: body.contentBase64,
-          imageUrl: body.imageUrl,
-          alt: body.alt || '',
-          kind: body.kind || 'post'
-        })
-        json(res, 200, { media: item })
+        const result = await uploadMedia({ ...body, site })
+        json(res, 200, result.media ? { media: result.media, ...result } : result)
       } catch (err) {
-        json(res, err.status || 400, { message: err.message })
+        json(res, err.status || 400, { message: err.message, ...(err.extra || {}) })
       }
       return
     }
