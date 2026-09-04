@@ -35,6 +35,7 @@ import { validatePostSeo } from './lib/seo-validator.mjs'
 import {
   notifyRebuild,
   uploadMedia,
+  receiveImageDrop,
   publishPost as cmsPublishPost,
   validateSeo as cmsValidateSeo,
   deleteMedia as cmsDeleteMedia,
@@ -529,10 +530,40 @@ const server = createServer(async (req, res) => {
     const persistence = getPersistenceStatus()
     json(res, persistence.writable ? 200 : 503, {
       ok: persistence.writable,
-      version: '2.0.1',
+      version: '2.2.0',
       mcp: '/mcp',
+      mcpUpload: 'blog_open_image_drop',
       persistence
     })
+    return
+  }
+
+  const inboxMatch = path.match(/^\/api\/media-inbox\/([a-f0-9]+)$/i)
+  if (inboxMatch) {
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Access-Control-Allow-Methods', 'PUT, POST, OPTIONS')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204)
+      res.end()
+      return
+    }
+    if (req.method === 'PUT' || req.method === 'POST') {
+      try {
+        const buf = await readRawBuffer(req)
+        let buffer = buf
+        if (isMultipartRequest(req)) {
+          const parsed = parseMultipart(buf, req.headers['content-type'])
+          buffer = parsed.file?.buffer || buf
+        }
+        const result = await receiveImageDrop(inboxMatch[1], buffer)
+        json(res, 200, result)
+      } catch (err) {
+        json(res, err.status || 400, { message: err.message, ...(err.extra || {}) })
+      }
+      return
+    }
+    json(res, 405, { message: 'Usa PUT con el PNG en el cuerpo' })
     return
   }
 

@@ -213,7 +213,7 @@ function buildToolList(auth) {
     {
       name: 'blog_get_brand_context',
       description:
-        'Obligatorio al crear o editar. Brand kit + workflow. Incluye imageSpec (JSON) cuando el kit trae brand-spec de imágenes.',
+        'Obligatorio al crear o editar. Incluye mediaUpload. Para fotos de ChatGPT usa blog_open_image_drop, no imageUrl.',
       inputSchema: {
         type: 'object',
         properties: { site: { type: 'string' } },
@@ -237,9 +237,31 @@ function buildToolList(auth) {
       annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false }
     },
     {
+      name: 'blog_open_image_drop',
+      description:
+        'CAMINO PARA CHATGPT. Abre un buzón y devuelve putUrl. En el sandbox haz PUT del PNG de /mnt/data a esa URL. La respuesta del PUT trae media.url. No uses imageUrl pública ni contentBase64. kind: post (portada), social (Instagram), reference (moodboard).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          site: { type: 'string' },
+          filename: {
+            type: 'string',
+            description: 'Nombre kebab-case. Portada mi-post.png. Slide {slug}-ig-01.png'
+          },
+          kind: {
+            type: 'string',
+            description: 'post = portada. social = carrusel Instagram. reference = moodboard.'
+          },
+          alt: { type: 'string' }
+        },
+        required: ['site', 'filename']
+      },
+      annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false }
+    },
+    {
       name: 'blog_upload_media',
       description:
-        'SUBE UNA FOTO AL CMS. Camino normal para ChatGPT: contentBase64 con el PNG de /mnt/data (2-3 MB vale). kind post, social o reference. El servidor comprime a JPEG y devuelve media.url. NO busques una URL https temporal. PROHIBIDO poner /mnt/data en imageUrl. Si el base64 se corta, usa uploadId, chunkIndex y chunkCount como texto.',
+        'NO uses esta tool desde el sandbox de ChatGPT. ChatGPT debe llamar blog_open_image_drop y hacer PUT del PNG. Esta tool queda para contentBase64 si el cliente MCP sí puede enviarlo. imageUrl solo si ya hay un https público real. kind: post, social o reference. PROHIBIDO /mnt/data en imageUrl.',
       inputSchema: {
         type: 'object',
         additionalProperties: true,
@@ -333,7 +355,7 @@ function buildToolList(auth) {
  */
 export function createMcpServer(auth = { role: 'admin' }) {
   const server = new Server(
-    { name: 'escarlet-blog-cms', version: '2.1.0' },
+    { name: 'escarlet-blog-cms', version: '2.2.0' },
     { capabilities: { tools: {}, resources: {} } }
   )
 
@@ -453,6 +475,10 @@ export function createMcpServer(auth = { role: 'admin' }) {
           const site = resolveToolSite(auth, args)
           return textResult(await cms.updateBrandFile(site, args.file, args.content))
         }
+        case 'blog_open_image_drop': {
+          const site = resolveToolSite(auth, args)
+          return textResult(cms.openImageDrop({ ...args, site }))
+        }
         case 'blog_upload_media': {
           const site = resolveToolSite(auth, args)
           return textResult(await cms.uploadMedia({ ...args, site }))
@@ -460,7 +486,7 @@ export function createMcpServer(auth = { role: 'admin' }) {
         case 'blog_import_remote_image': {
           const site = resolveToolSite(auth, args)
           if (!args.imageUrl) {
-            throw Object.assign(new Error('Pasa imageUrl http(s) pública. Si solo tienes sandbox (/mnt/data), usa blog_upload_media con contentBase64.'), {
+            throw Object.assign(new Error('Esta tool no sirve para /mnt/data. Usa blog_open_image_drop y haz PUT del PNG.'), {
               status: 400
             })
           }
