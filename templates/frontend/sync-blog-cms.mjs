@@ -177,6 +177,30 @@ export const SOCIAL_PACK_CHANNELS = ${JSON.stringify(channels)}
 `
 }
 
+async function fetchPublishedPosts() {
+  const url = `${CMS_URL}/api/sites/${CMS_SITE}/posts`
+  let lastError = null
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    try {
+      const res = await fetch(url, {
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(20000)
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      return {
+        posts: data.posts || [],
+        channels: data.socialPackChannels || null
+      }
+    } catch (error) {
+      lastError = error
+      console.warn(`[sync-blog-cms] Intento ${attempt}/4 falló: ${error.message}`)
+      if (attempt < 4) await new Promise((resolve) => setTimeout(resolve, 1500 * attempt))
+    }
+  }
+  throw lastError
+}
+
 async function main() {
   if (!CMS_URL) {
     useFallback('BLOG_CMS_URL no definido')
@@ -184,13 +208,8 @@ async function main() {
   }
 
   try {
-    const res = await fetch(`${CMS_URL}/api/sites/${CMS_SITE}/posts`, {
-      headers: { Accept: 'application/json' }
-    })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const data = await res.json()
-    const cmsPosts = data.posts || []
-    const channels = data.socialPackChannels || defaultChannels()
+    const { posts: cmsPosts, channels: fetchedChannels } = await fetchPublishedPosts()
+    const channels = fetchedChannels || defaultChannels()
     const { merged, cmsCount } = await mergePosts(cmsPosts)
     if (!merged.length) {
       useFallback('CMS y fallback sin posts')
@@ -206,6 +225,7 @@ async function main() {
       )
     )
     console.log(`[sync-blog-cms] ${cmsCount} CMS → ${merged.length} posts → ${OUT_REL}`)
+    console.log(`[sync-blog-cms] CMS slugs: ${cmsPosts.map((p) => p.slug).filter(Boolean).join(', ')}`)
     console.log(
       `[sync-blog-cms] canales pack: ${Object.entries(channels)
         .filter(([, v]) => v)
@@ -213,7 +233,8 @@ async function main() {
         .join(', ')}`
     )
   } catch (error) {
-    useFallback(error.message)
+    console.error(`[sync-blog-cms] CMS no disponible. El build se detiene. ${error.message}`)
+    process.exit(1)
   }
 }
 

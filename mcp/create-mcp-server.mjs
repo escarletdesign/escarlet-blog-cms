@@ -137,7 +137,7 @@ export function buildToolList(auth) {
     },
     {
       name: 'blog_update_post',
-      description: 'Actualiza un post EXISTENTE. Para portadas, primero blog_upload_media_file (kind post) y pega media.url en imageUrl. Para carrusel Instagram, blog_upload_media_file (kind social) y pega media.url en socialPack.instagramSlides.',
+      description: 'Actualiza un post EXISTENTE. Si ya está publicado y solo cambias portada o texto, pasa keepPublished true o status published para que siga en vivo. Sin eso, en sitios con aprobación humana baja a review y sale del blog hasta que un humano pulse Publicar en vivo.',
       inputSchema: {
         type: 'object',
         properties: {
