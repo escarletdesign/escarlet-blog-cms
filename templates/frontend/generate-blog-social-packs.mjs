@@ -22,6 +22,7 @@ import * as blogData from '../src/data/blog-articles.js'
 
 const { getAllBlogPosts, getPostCanonicalUrl } = blogData
 const SYNCED_CHANNELS = blogData.SOCIAL_PACK_CHANNELS
+const BLOG_ON = blogData.BLOG_ENABLED !== false
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = join(__dirname, '..')
@@ -2391,6 +2392,11 @@ async function downloadRemoteImage(url, destPath) {
 }
 
 resetOutRoot()
+
+if (!BLOG_ON) {
+  console.log('blog-social-packs: blog apagado en el CMS. Sin packs públicos.')
+  process.exit(0)
+}
 
 const posts = getAllBlogPosts().filter(hasSocialPack)
 const indexItems = []

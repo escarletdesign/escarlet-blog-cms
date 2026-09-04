@@ -7,7 +7,7 @@
  *   BLOG_CMS_URL   https://blog-cms.escarlet.cc
  *   BLOG_CMS_SITE  handle del site (ej. escarlet, mares24)
  *   BLOG_SITE_URL  https://tu-dominio.com
- *   BLOG_ENABLED   false omite el pull
+ *   BLOG_ENABLED   false fuerza apagado local. El interruptor del CMS manda en producción.
  *   BLOG_OUT_FILE  ruta relativa al root (default src/data/blog.generated.js)
  *   BLOG_FALLBACK  ruta relativa opcional a un módulo fallback
  *
@@ -66,6 +66,7 @@ export function getBlogPagePath(page) {
 export function getPostCanonicalUrl(slug) { return \`${SITE}/blog/\${slug}\` }
 export function getRelatedSlugsMap() { return {} }
 export const BLOG_POSTS_PER_PAGE = 10
+export const BLOG_ENABLED = false
 export const BLOG_SITE_URL = ${JSON.stringify(SITE)}
 export const SOCIAL_PACK_CHANNELS = ${JSON.stringify(channels)}
 `
@@ -288,6 +289,7 @@ export function getRelatedSlugsMap() {
 }
 
 export { SITE as BLOG_SITE_URL }
+export const BLOG_ENABLED = true
 export const SOCIAL_PACK_CHANNELS = ${JSON.stringify(channels)}
 `
 }
@@ -305,7 +307,8 @@ async function fetchPublishedPosts() {
       const data = await res.json()
       return {
         posts: data.posts || [],
-        channels: data.socialPackChannels || null
+        channels: data.socialPackChannels || null,
+        blogEnabled: data.blogEnabled !== false
       }
     } catch (error) {
       lastError = error
@@ -318,7 +321,7 @@ async function fetchPublishedPosts() {
 
 async function main() {
   if (!isBlogEnabled()) {
-    useFallback('BLOG_ENABLED=false')
+    emptyModule('BLOG_ENABLED=false local')
     console.log('[sync-blog-cms] omitido (BLOG_ENABLED=false)')
     return
   }
@@ -328,8 +331,13 @@ async function main() {
   }
 
   try {
-    const { posts: cmsPosts, channels: fetchedChannels } = await fetchPublishedPosts()
+    const { posts: cmsPosts, channels: fetchedChannels, blogEnabled } = await fetchPublishedPosts()
     const channels = fetchedChannels || defaultChannels()
+    if (blogEnabled === false) {
+      emptyModule('blog apagado en el CMS', channels)
+      console.log('[sync-blog-cms] blog apagado en el CMS. La web pública no publicará /blog.')
+      return
+    }
     const { merged, cmsCount } = await mergePosts(cmsPosts)
     if (!merged.length) {
       useFallback('CMS y fallback sin posts')

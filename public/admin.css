@@ -1602,6 +1602,58 @@ body.has-editor-dock .toast {
 
 .checkbox-row input { width: auto; }
 
+.switch-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-top: 1.15rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card-mute, rgba(255,255,255,.4));
+}
+
+.switch-row input[type="checkbox"] {
+  width: 2.6rem;
+  height: 1.45rem;
+  margin-top: 0.15rem;
+  flex: 0 0 auto;
+  appearance: none;
+  border-radius: 999px;
+  background: #c5cdc8;
+  position: relative;
+  cursor: pointer;
+}
+
+.switch-row input[type="checkbox"]::after {
+  content: '';
+  position: absolute;
+  top: 0.15rem;
+  left: 0.15rem;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform .16s ease;
+}
+
+.switch-row input[type="checkbox"]:checked {
+  background: var(--accent, #1f6b4a);
+}
+
+.switch-row input[type="checkbox"]:checked::after {
+  transform: translateX(1.15rem);
+}
+
+.switch-row label {
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.switch-row .field-help {
+  margin: 0.25rem 0 0;
+}
+
 .channel-fieldset {
   margin: 1.25rem 0 0;
   padding: 1rem 1rem 0.85rem;

@@ -44,6 +44,7 @@ const siteCoolifyToken = document.getElementById('siteCoolifyToken')
 const siteTokenStatus = document.getElementById('siteTokenStatus')
 const rebuildResult = document.getElementById('rebuildResult')
 const siteHumanApproval = document.getElementById('siteHumanApproval')
+const siteBlogEnabled = document.getElementById('siteBlogEnabled')
 const siteList = document.getElementById('siteList')
 const siteListCard = document.getElementById('siteListCard')
 const siteOnboardCard = document.getElementById('siteOnboardCard')
@@ -1333,7 +1334,7 @@ function applyAuthUi() {
   }
   if (siteFilter) siteFilter.disabled = !isAdmin && (authSession?.sites?.length || 0) <= 1
   // Config avanzada solo admin
-  ;['siteWebhook', 'siteCoolifyToken', 'siteHumanApproval', 'testRebuild', 'saveSite'].forEach((id) => {
+  ;['siteWebhook', 'siteCoolifyToken', 'siteHumanApproval', 'siteBlogEnabled', 'testRebuild', 'saveSite'].forEach((id) => {
     const el = document.getElementById(id)
     if (!el) return
     if (id === 'saveSite') {
@@ -1359,6 +1360,9 @@ function applyAuthUi() {
   if (siteTokenStatus) siteTokenStatus.hidden = !isAdmin
   if (siteHumanApproval) {
     siteHumanApproval.closest('.checkbox-row')?.classList.toggle('is-hidden', !isAdmin)
+  }
+  if (siteBlogEnabled) {
+    siteBlogEnabled.closest('.switch-row')?.classList.toggle('is-hidden', !isAdmin)
   }
 }
 
@@ -2415,6 +2419,7 @@ async function loadSite() {
   if (siteWebhook) siteWebhook.value = data.config?.rebuildWebhookUrl || ''
   humanApprovalRequired = Boolean(data.config?.requiresHumanApproval)
   if (siteHumanApproval) siteHumanApproval.checked = humanApprovalRequired
+  if (siteBlogEnabled) siteBlogEnabled.checked = data.config?.blogEnabled !== false
   socialPackChannels = normalizeSocialPackChannels(data.config?.socialPackChannels)
   writeChannelCheckboxes(socialPackChannels)
   applySocialPackChannelUi(socialPackChannels)
@@ -2446,6 +2451,7 @@ document.getElementById('saveSite').onclick = async () => {
       domain: siteDomain.value.trim(),
       rebuildWebhookUrl: siteWebhook.value.trim(),
       requiresHumanApproval: siteHumanApproval.checked,
+      blogEnabled: siteBlogEnabled ? siteBlogEnabled.checked : true,
       socialPackChannels: readChannelCheckboxes()
     }
     if (siteCoolifyToken.value.trim()) payload.coolifyApiToken = siteCoolifyToken.value.trim()
@@ -2460,7 +2466,7 @@ document.getElementById('saveSite').onclick = async () => {
     socialPackChannels = normalizeSocialPackChannels(data.config?.socialPackChannels)
     writeChannelCheckboxes(socialPackChannels)
     applySocialPackChannelUi(socialPackChannels)
-    toast('Sitio guardado')
+    toast(data.rebuild?.ok ? 'Sitio guardado. La web se está reconstruyendo.' : 'Sitio guardado')
     humanApprovalRequired = Boolean(siteHumanApproval.checked)
     setPublishLabels(postStatusInput?.value || 'draft')
   })

@@ -12,7 +12,7 @@
  *   BLOG_CMS_SITE            handle
  *   BLOG_SITE_URL            https://dominio.com
  *   BLOG_RUNTIME_CHANNEL     v1
- *   BLOG_ENABLED             false omite sync y packs
+ *   BLOG_ENABLED             false fuerza apagado local. El interruptor del CMS manda en producción.
  */
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -52,11 +52,6 @@ function cmsUrl() {
 
 function channel() {
   return String(process.env.BLOG_RUNTIME_CHANNEL || 'v1').trim() || 'v1'
-}
-
-function isBlogEnabled(raw = process.env.BLOG_ENABLED) {
-  if (raw == null || String(raw).trim() === '') return true
-  return !['0', 'false', 'no', 'off', 'disabled'].includes(String(raw).trim().toLowerCase())
 }
 
 function sha256(buf) {
@@ -117,10 +112,6 @@ export async function runCli(argv = process.argv.slice(2)) {
   if (!['sync', 'packs', 'pages', 'all'].includes(cmd)) {
     console.error('Uso. node scripts/escarlet-blog.mjs [sync|packs|pages|all]')
     process.exit(1)
-  }
-  if (!isBlogEnabled()) {
-    console.log('[escarlet-blog] omitido (BLOG_ENABLED=false)')
-    return
   }
   if (cmd !== 'pages') await refreshRuntime()
   if (cmd === 'sync' || cmd === 'all') {

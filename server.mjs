@@ -19,7 +19,8 @@ import {
   listSiteHandles,
   saveSiteConfig,
   publicSiteConfig,
-  getSocialPackChannels
+  getSocialPackChannels,
+  isPublicBlogEnabled
 } from './lib/site-config.mjs'
 import {
   getBrandContext,
@@ -619,6 +620,15 @@ const server = createServer(async (req, res) => {
     const db = readDb()
     const siteConfig = loadSiteConfig(site)
     const socialPackChannels = siteConfig ? getSocialPackChannels(siteConfig) : undefined
+    const blogEnabled = isPublicBlogEnabled(siteConfig)
+    if (!blogEnabled) {
+      if (slug) {
+        json(res, 404, { message: 'No encontrado', blogEnabled: false })
+        return
+      }
+      json(res, 200, { site, posts: [], socialPackChannels, blogEnabled: false })
+      return
+    }
     const published = db.posts.filter((p) => p.site === site && p.status === 'published')
     if (slug) {
       const post = published.find((p) => p.slug === slug)
@@ -626,10 +636,10 @@ const server = createServer(async (req, res) => {
         json(res, 404, { message: 'No encontrado' })
         return
       }
-      json(res, 200, { site, post: publicPost(post), socialPackChannels })
+      json(res, 200, { site, post: publicPost(post), socialPackChannels, blogEnabled: true })
       return
     }
-    json(res, 200, { site, posts: published.map(publicPost), socialPackChannels })
+    json(res, 200, { site, posts: published.map(publicPost), socialPackChannels, blogEnabled: true })
     return
   }
 
@@ -890,11 +900,15 @@ const server = createServer(async (req, res) => {
           return
         }
         const body = await parseBody(req)
+        const previous = loadSiteConfig(handle)
         const partial = {
           name: body.name,
           domain: body.domain,
           rebuildWebhookUrl: body.rebuildWebhookUrl,
           requiresHumanApproval: body.requiresHumanApproval
+        }
+        if (Object.prototype.hasOwnProperty.call(body, 'blogEnabled')) {
+          partial.blogEnabled = body.blogEnabled
         }
         if (body.coolifyApiToken) partial.coolifyApiToken = body.coolifyApiToken
         if (body.clearCoolifyApiToken) partial.clearCoolifyApiToken = true
@@ -902,7 +916,13 @@ const server = createServer(async (req, res) => {
           partial.socialPackChannels = body.socialPackChannels
         }
         const config = saveSiteConfig(handle, partial)
-        json(res, 200, { config: publicSiteConfigForAuth(config, auth) })
+        const blogToggled =
+          previous && isPublicBlogEnabled(previous) !== isPublicBlogEnabled(config)
+        let rebuild = null
+        if (blogToggled) {
+          rebuild = await notifyRebuild(handle)
+        }
+        json(res, 200, { config: publicSiteConfigForAuth(config, auth), rebuild })
         return
       }
     }

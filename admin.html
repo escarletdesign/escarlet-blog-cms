@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex,nofollow" />
   <title>Escarlet Blog CMS</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/admin.css?v=13" />
+  <link rel="stylesheet" href="/admin.css?v=14" />
   <link rel="stylesheet" href="https://uicdn.toast.com/editor/latest/toastui-editor.min.css" />
 </head>
 <body>
@@ -537,6 +537,13 @@
               <strong>Dónde está el token</strong>
               <p>Coolify → Keys &amp; Tokens. Usa un token con permiso Deploy. Si ya hay uno guardado, deja el campo vacío para mantenerlo.</p>
             </div>
+            <div class="switch-row">
+              <input type="checkbox" id="siteBlogEnabled" role="switch" />
+              <div>
+                <label for="siteBlogEnabled">Blog en la web pública</label>
+                <p class="field-help">Apágalo y el siguiente rebuild quita /blog del sitio. Los borradores siguen aquí. El SEO deja de ofrecer esas URLs.</p>
+              </div>
+            </div>
             <div class="checkbox-row">
               <input type="checkbox" id="siteHumanApproval" />
               <label for="siteHumanApproval">Pedir aprobación humana antes de publicar en vivo</label>
@@ -635,6 +642,6 @@
     <p class="media-lightbox-caption" id="mediaLightboxCaption"></p>
   </div>
 
-  <script src="/admin.js?v=13"></script>
+  <script src="/admin.js?v=14"></script>
 </body>
 </html>

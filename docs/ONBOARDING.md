@@ -86,6 +86,7 @@ Luego completa el brand kit en `/admin` → Brand kit (o `blog_update_brand_file
 4. `.gitignore` → `src/data/blog.generated.js` y `.escarlet-blog-runtime/`
 5. Monta rutas `/blog` y `/blog/:slug` leyendo `getBlogIndex` / `getPostBySlug` (como en escarlet002)
 6. **Blog-packs**. El runtime los genera en `public/admin/blog-packs/` al hacer build. Env `BLOG_SITE_URL` / `BLOG_PACKS_NAME`. Canales del pack se configuran en el CMS (`socialPackChannels`). El look de `/blog` sigue en esta landing.
+7. **Interruptor**. CMS `/admin` → Sitio → Blog en la web pública. Encendido publica `/blog`. Apagado lo quita en el siguiente rebuild. Los posts siguen en el CMS.
 
 ### Env en Coolify (app del frontend)
 
@@ -166,6 +167,16 @@ Claude. Customize → Connectors → Add custom connector → URL `https://blog-
 
 Prohibido. Commitear posts al git del frontend. Usar `create_draft` para editar.
 
+### Cómo se edita (no lo mezcles)
+
+| Qué | Dónde |
+|-----|--------|
+| Texto, portada, metas, `socialPack` | MCP o dashboard del CMS |
+| Look de `/blog` y la ficha | La landing. SPA en `src/`. HTML estático en `generate-blog-pages.mjs` + CSS |
+| Encender o apagar `/blog` | CMS → Sitio → interruptor **Blog en la web pública** |
+
+`bodyHtml` es el artículo. Sin nav ni layout de página. El preview del CMS es solo revisión.
+
 ---
 
 ## E. Checklist rápido
@@ -175,6 +186,7 @@ Prohibido. Commitear posts al git del frontend. Usar `create_draft` para editar.
 - [ ] Sync en prebuild del frontend
 - [ ] Env `BLOG_CMS_URL` + `BLOG_CMS_SITE` en Coolify
 - [ ] Webhook + token en tab Sitio (probado)
+- [ ] Interruptor Blog en la web pública encendido
 - [ ] MCP + regla `blog-via-mcp.mdc` con el handle correcto
 - [ ] Publicar post de prueba → rebuild → aparece en `/blog/{slug}`
 

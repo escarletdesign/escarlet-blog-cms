@@ -60,6 +60,8 @@ BLOG_RUNTIME_CHANNEL=v1
 
 Los canales activos vienen del CMS (`socialPackChannels`) vía sync (`SOCIAL_PACK_CHANNELS`).
 
+Interruptor. CMS `/admin` → Sitio → **Blog en la web pública**. Env `BLOG_ENABLED=false` solo como override local.
+
 Helper.
 
 ```bash

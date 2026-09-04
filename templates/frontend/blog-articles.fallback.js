@@ -17,3 +17,5 @@ export const SOCIAL_PACK_CHANNELS = {
   videoScript: true,
   instagramCarousel: true
 }
+
+export const BLOG_ENABLED = true

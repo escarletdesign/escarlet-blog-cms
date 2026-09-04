@@ -57,6 +57,13 @@ Runtime en `{CMS}/runtime/v1/`. Cada landing guarda `scripts/escarlet-blog.mjs`.
 6. Coolify env. `BLOG_CMS_URL`, `BLOG_CMS_SITE={handle}`, `BLOG_SITE_URL`
 7. Regla Cursor. copia `blog-via-mcp.mdc` y sustituye `{{handle}}`
 8. **Blog-packs**. El runtime los genera. Canales por sitio en CMS (`socialPackChannels`). El look de `/blog` sigue en la landing. Ver skill global `escarlet-blog-integrate`
+9. **Interruptor**. CMS Sitio → Blog en la web pública. Apagar no borra posts. Quita `/blog` del siguiente rebuild.
+
+## Cómo se edita
+
+- **Texto e imágenes del post.** MCP o dashboard. Skill global `escarlet-blog-integrate` (sección Cómo se edita).
+- **Look de listado y ficha.** En la landing. `generate-blog-pages.mjs` + CSS, o vistas Vue. Nunca `templates/post.html` del CMS.
+- **On/off.** Interruptor del CMS. No uses env de Coolify salvo override local.
 
 ## Coolify webhook (contenido → rebuild)
 

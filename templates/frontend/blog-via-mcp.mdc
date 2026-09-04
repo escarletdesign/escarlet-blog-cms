@@ -19,6 +19,12 @@ Los posts viven en el CMS. El frontend solo sincroniza en build y pinta el HTML.
 Si el humano pide cambiar cómo se ve la ficha del post. edita el generador/vista y el CSS de esta landing, luego rebuild. No edites el CMS para eso.
 Detalle. skill global `escarlet-blog-integrate` (sección Headless).
 
+## Encender o apagar el blog
+
+CMS `/admin` → Sitio → interruptor **Blog en la web pública**. Guardar dispara rebuild.
+Apagado. la API pública no lista posts, el sync no genera `/blog`, el menú pierde el enlace. Los borradores siguen en el CMS.
+Env `BLOG_ENABLED=false` en local fuerza apagado. El interruptor del CMS manda en producción.
+
 ## Antes de redactar
 
 1. Si el site es nuevo o dudas del setup. `blog_get_onboarding` con `site: {{handle}}`
