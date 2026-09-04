@@ -58,6 +58,7 @@ Runtime en `{CMS}/runtime/v1/`. Cada landing guarda `scripts/escarlet-blog.mjs`.
 7. Regla Cursor. copia `blog-via-mcp.mdc` y sustituye `{{handle}}`
 8. **Blog-packs**. El runtime los genera. Canales por sitio en CMS (`socialPackChannels`). El look de `/blog` sigue en la landing. Ver skill global `escarlet-blog-integrate`
 9. **Interruptor**. CMS Sitio → Blog en la web pública. Apagar no borra posts. Quita `/blog` del siguiente rebuild.
+10. **Dashboard `/admin`**. Pico CSS condicional (clase `.pico`) para formularios e interruptor. El look de `/blog` sigue en la landing.
 
 ## Cómo se edita
 

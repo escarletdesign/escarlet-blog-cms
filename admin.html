@@ -1,17 +1,18 @@
 <!doctype html>
-<html lang="es">
+<html lang="es" data-theme="light">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="robots" content="noindex,nofollow" />
   <title>Escarlet Blog CMS</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/admin.css?v=14" />
+  <link rel="stylesheet" href="/vendor/pico.conditional.min.css" />
+  <link rel="stylesheet" href="/admin.css?v=18" />
   <link rel="stylesheet" href="https://uicdn.toast.com/editor/latest/toastui-editor.min.css" />
 </head>
 <body>
   <div id="login" class="login-screen">
-    <div class="login-card">
+    <div class="login-card pico">
       <div class="login-brand">
         <img src="/favicon.svg" alt="" width="36" height="36" />
         <h1>Escarlet Blog CMS</h1>
@@ -65,7 +66,7 @@
     </aside>
 
     <div class="main">
-      <header class="topbar">
+      <header class="topbar pico">
         <div class="topbar-site">
           <label class="topbar-kicker" for="siteFilter">Sitio activo</label>
           <div class="topbar-site-row">
@@ -80,7 +81,7 @@
         <p class="topbar-hint" id="topbarHint">Empieza por Entradas. Abre un borrador y avanza paso a paso hasta publicar.</p>
       </header>
 
-      <div class="content">
+      <div class="content pico">
         <section id="panel-entradas" class="panel active" data-panel="entradas">
           <div class="card">
             <h2 class="card-title">Entradas</h2>
@@ -479,10 +480,10 @@
               <input id="newSiteWebhook" placeholder="https://coolify.escarlet.cc/api/v1/deploy?uuid=…" />
               <label for="newSiteToken">Token API Coolify</label>
               <input id="newSiteToken" type="password" autocomplete="new-password" placeholder="Token con permiso Deploy" />
-              <div class="checkbox-row">
+              <label class="checkbox-row">
                 <input type="checkbox" id="newSiteHumanApproval" checked />
-                <label for="newSiteHumanApproval">Pedir aprobación humana antes de publicar en vivo</label>
-              </div>
+                Pedir aprobación humana antes de publicar en vivo
+              </label>
               <div class="actions sticky-actions">
                 <button type="button" class="btn btn-ghost" id="onboardBackBasics">Anterior</button>
                 <button type="button" class="btn btn-primary" id="onboardNextReview">Siguiente</button>
@@ -537,40 +538,40 @@
               <strong>Dónde está el token</strong>
               <p>Coolify → Keys &amp; Tokens. Usa un token con permiso Deploy. Si ya hay uno guardado, deja el campo vacío para mantenerlo.</p>
             </div>
-            <div class="switch-row">
-              <input type="checkbox" id="siteBlogEnabled" role="switch" />
-              <div>
-                <label for="siteBlogEnabled">Blog en la web pública</label>
-                <p class="field-help">Apágalo y el siguiente rebuild quita /blog del sitio. Los borradores siguen aquí. El SEO deja de ofrecer esas URLs.</p>
-              </div>
-            </div>
-            <div class="checkbox-row">
+            <fieldset class="switch-row">
+              <label>
+                <input type="checkbox" id="siteBlogEnabled" role="switch" />
+                Blog en la web pública
+              </label>
+              <small class="field-help">Apágalo y el siguiente rebuild quita /blog del sitio. Los borradores siguen aquí.</small>
+            </fieldset>
+            <label class="checkbox-row">
               <input type="checkbox" id="siteHumanApproval" />
-              <label for="siteHumanApproval">Pedir aprobación humana antes de publicar en vivo</label>
-            </div>
+              Pedir aprobación humana antes de publicar en vivo
+            </label>
             <fieldset class="channel-fieldset">
               <legend>Canales del pack de redes</legend>
               <p class="field-help">Elige qué piezas genera el agente y muestra el pack admin de cada post.</p>
-              <div class="checkbox-row">
+              <label class="checkbox-row">
                 <input type="checkbox" id="channelSubstack" data-channel-key="substack" />
-                <label for="channelSubstack">Substack</label>
-              </div>
-              <div class="checkbox-row">
+                Substack
+              </label>
+              <label class="checkbox-row">
                 <input type="checkbox" id="channelLinkedin" data-channel-key="linkedin" />
-                <label for="channelLinkedin">LinkedIn</label>
-              </div>
-              <div class="checkbox-row">
+                LinkedIn
+              </label>
+              <label class="checkbox-row">
                 <input type="checkbox" id="channelX" data-channel-key="x" />
-                <label for="channelX">X</label>
-              </div>
-              <div class="checkbox-row">
+                X
+              </label>
+              <label class="checkbox-row">
                 <input type="checkbox" id="channelVideoScript" data-channel-key="videoScript" />
-                <label for="channelVideoScript">Guion de vídeo</label>
-              </div>
-              <div class="checkbox-row">
+                Guion de vídeo
+              </label>
+              <label class="checkbox-row">
                 <input type="checkbox" id="channelInstagram" data-channel-key="instagramCarousel" />
-                <label for="channelInstagram">Carrusel Instagram</label>
-              </div>
+                Carrusel Instagram
+              </label>
             </fieldset>
             <div class="actions" id="siteAdminActions">
               <button type="button" class="btn btn-primary" id="saveSite">Guardar sitio</button>
@@ -642,6 +643,6 @@
     <p class="media-lightbox-caption" id="mediaLightboxCaption"></p>
   </div>
 
-  <script src="/admin.js?v=14"></script>
+  <script src="/admin.js?v=18"></script>
 </body>
 </html>

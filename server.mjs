@@ -501,6 +501,16 @@ const server = createServer(async (req, res) => {
     return
   }
 
+  if (req.method === 'GET' && path === '/vendor/pico.conditional.min.css') {
+    servePublic(
+      res,
+      'vendor/pico.conditional.min.css',
+      'text/css; charset=utf-8',
+      'public, max-age=604800'
+    )
+    return
+  }
+
   if (req.method === 'GET' && path === '/admin.js') {
     servePublic(res, 'admin.js', 'application/javascript; charset=utf-8', 'no-store, no-cache, must-revalidate')
     return

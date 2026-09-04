@@ -20,6 +20,223 @@
   background: var(--bg);
 }
 
+/* Pico CSS (condicional). Formularios y switch dentro de .pico */
+.pico {
+  --pico-font-family: 'DM Sans', system-ui, sans-serif;
+  --pico-primary: #2d6a4f;
+  --pico-primary-background: #2d6a4f;
+  --pico-primary-border: #2d6a4f;
+  --pico-primary-underline: #3d7d5e;
+  --pico-primary-hover: #245a42;
+  --pico-primary-hover-background: #245a42;
+  --pico-primary-hover-border: #245a42;
+  --pico-primary-focus: #5d9b7e;
+  --pico-primary-inverse: #fff;
+  --pico-form-element-active-border-color: #2d6a4f;
+  --pico-form-element-focus-color: rgba(45, 106, 79, 0.22);
+  --pico-border-radius: 0.7rem;
+  --pico-line-height: 1.5;
+  --pico-switch-background-color: #c5cdc8;
+  --pico-switch-checked-background-color: #2d6a4f;
+  --pico-switch-color: #fff;
+}
+
+.pico .btn {
+  width: auto;
+  height: auto;
+  margin-bottom: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.9rem;
+  line-height: 1.25;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  background-color: #fff;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  box-shadow: none;
+}
+
+.pico .btn:hover {
+  background: #f8f6f2;
+  background-color: #f8f6f2;
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.pico .btn.btn-primary,
+.pico button.btn.btn-primary {
+  background: var(--accent);
+  background-color: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.pico .btn.btn-primary:hover,
+.pico button.btn.btn-primary:hover {
+  background: var(--accent-hover);
+  background-color: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: #fff;
+}
+
+.pico .btn.btn-ghost,
+.pico button.btn.btn-ghost {
+  background: transparent;
+  background-color: transparent;
+  border-color: transparent;
+  color: var(--muted);
+  padding-left: 0.35rem;
+}
+
+.pico .btn.btn-ghost:hover,
+.pico button.btn.btn-ghost:hover {
+  background: #f0ece4;
+  background-color: #f0ece4;
+  color: var(--text);
+}
+
+.pico .btn.btn-danger,
+.pico button.btn.btn-danger {
+  background: transparent;
+  background-color: transparent;
+  border-color: #b42318;
+  color: #b42318;
+}
+
+.pico .btn.btn-danger:hover,
+.pico button.btn.btn-danger:hover {
+  background: #b42318;
+  background-color: #b42318;
+  border-color: #b42318;
+  color: #fff;
+}
+
+.pico .icon-btn,
+.pico button.icon-btn {
+  width: 32px;
+  height: 32px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  background-color: rgba(255, 255, 255, 0.96);
+  color: var(--sidebar);
+  box-shadow: 0 1px 4px rgba(12, 18, 14, 0.22);
+}
+
+.pico .step-btn,
+.pico button.step-btn {
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 0.65rem 0.75rem;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  background-color: transparent;
+  color: var(--muted);
+  box-shadow: none;
+}
+
+.pico .step-btn.active,
+.pico button.step-btn.active {
+  background: var(--accent);
+  background-color: var(--accent);
+  color: #fff;
+}
+
+.pico .card-title,
+.pico h2.card-title,
+.pico h3.card-title {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  font-family: inherit;
+  line-height: 1.3;
+  color: var(--text);
+}
+
+.pico .card-desc,
+.pico p.card-desc {
+  margin: 0 0 1rem;
+  color: var(--muted);
+}
+
+.pico ul.post-list,
+.pico ol.help-steps {
+  margin: 0;
+  padding: 0;
+}
+
+.pico ol.help-steps {
+  padding-left: 1.2rem;
+}
+
+.pico fieldset.switch-row,
+.pico fieldset.channel-fieldset {
+  width: auto;
+  margin: 1.25rem 0 0;
+  padding: 1rem 1.15rem 0.95rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.pico label.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin: 0.85rem 0 0;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.pico .switch-row label {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  margin: 0;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.pico .toastui-editor-defaultUI button,
+.pico .toastui-editor-toolbar button,
+.pico .toastui-editor-defaultUI [type='button'] {
+  all: revert;
+}
+
+.topbar.pico label {
+  margin: 0;
+}
+
+.topbar.pico select {
+  width: auto;
+  margin-bottom: 0;
+}
+
+.pico .toolbar select,
+.pico .topbar-field select {
+  width: auto;
+  max-width: 16rem;
+  margin-bottom: 0;
+}
+
+.pico .toolbar label,
+.pico .topbar-field label {
+  margin-top: 0;
+}
+
+.login-card.pico .btn {
+  width: 100%;
+  justify-content: center;
+}
+
 *, *::before, *::after { box-sizing: border-box; }
 
 [hidden] {
@@ -877,11 +1094,6 @@ a:hover { text-decoration: underline; }
   background: #fdecec;
 }
 
-.checkbox-row label {
-  margin: 0;
-  font-weight: 500;
-}
-
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -912,7 +1124,9 @@ label {
   color: #3d3d38;
 }
 
-input, textarea, select {
+input:not([type='checkbox']):not([type='radio']):not([type='file']),
+textarea,
+select {
   width: 100%;
   padding: 0.55rem 0.7rem;
   border: 1px solid var(--border);
@@ -923,7 +1137,9 @@ input, textarea, select {
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-input:focus, textarea:focus, select:focus {
+input:not([type='checkbox']):not([type='radio']):not([type='file']):focus,
+textarea:focus,
+select:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(45, 106, 79, 0.15);
@@ -1596,62 +1812,52 @@ body.has-editor-dock .toast {
 .checkbox-row {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  margin-top: 1rem;
-}
-
-.checkbox-row input { width: auto; }
-
-.switch-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
-  margin-top: 1.15rem;
-  padding: 0.9rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--card-mute, rgba(255,255,255,.4));
-}
-
-.switch-row input[type="checkbox"] {
-  width: 2.6rem;
-  height: 1.45rem;
-  margin-top: 0.15rem;
-  flex: 0 0 auto;
-  appearance: none;
-  border-radius: 999px;
-  background: #c5cdc8;
-  position: relative;
+  gap: 0.65rem;
+  margin-top: 0.85rem;
+  font-weight: 500;
   cursor: pointer;
 }
 
-.switch-row input[type="checkbox"]::after {
-  content: '';
-  position: absolute;
-  top: 0.15rem;
-  left: 0.15rem;
-  width: 1.15rem;
-  height: 1.15rem;
-  border-radius: 50%;
-  background: #fff;
-  transition: transform .16s ease;
+.checkbox-row input {
+  width: 1.25em;
+  height: 1.25em;
+  margin: 0;
+  flex: 0 0 auto;
 }
 
-.switch-row input[type="checkbox"]:checked {
-  background: var(--accent, #1f6b4a);
-}
-
-.switch-row input[type="checkbox"]:checked::after {
-  transform: translateX(1.15rem);
+.switch-row {
+  margin: 1.25rem 0 0;
+  padding: 1rem 1.15rem 0.95rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #f6f9f7;
 }
 
 .switch-row label {
-  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 650;
   cursor: pointer;
+  color: var(--text);
 }
 
-.switch-row .field-help {
-  margin: 0.25rem 0 0;
+.switch-row input[role='switch'] {
+  width: 2.25em;
+  height: 1.25em;
+  margin: 0;
+  flex: 0 0 auto;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.switch-row .field-help,
+.switch-row small {
+  display: block;
+  margin: 0.45rem 0 0;
+  line-height: 1.45;
 }
 
 .channel-fieldset {
