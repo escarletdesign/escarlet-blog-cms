@@ -102,6 +102,7 @@ let navigating = false
 let skipLocalSave = false
 let localDirty = false
 let localSaveTimer = null
+let lastSavedFingerprint = ''
 const LOCAL_DRAFT_PREFIX = 'escarlet_cms_local_draft:'
 if (siteFilter) {
   siteFilter.dataset.pending = localStorage.getItem('escarlet_cms_site') || ''
@@ -230,6 +231,78 @@ function collectFormState() {
   }
 }
 
+function stateFingerprint(state) {
+  const slides = parseInstagramSlides(state?.instagramSlides)
+  return JSON.stringify({
+    title: String(state?.title || '').trim(),
+    slug: String(state?.slug || '').trim(),
+    excerptEs: String(state?.excerptEs || '').trim(),
+    imageUrl: String(state?.imageUrl || '').trim(),
+    imageAlt: String(state?.imageAlt || '').trim(),
+    instagramCaption: String(state?.instagramCaption || '').trim(),
+    instagramSlides: slides || [],
+    bodyHtml: String(state?.bodyHtml || '').replace(/\s+/g, ' ').trim()
+  })
+}
+
+function rememberSavedState(state = collectFormState()) {
+  lastSavedFingerprint = stateFingerprint(state)
+}
+
+function isSameAsSaved(state = collectFormState()) {
+  return Boolean(lastSavedFingerprint) && stateFingerprint(state) === lastSavedFingerprint
+}
+
+function normalizeSlidesForCompare(slides) {
+  return (Array.isArray(slides) ? slides : []).map((slide) => ({
+    imageUrl: String(slide?.imageUrl || '').trim(),
+    alt: String(slide?.alt || '').trim(),
+    headline: String(slide?.headline || '').trim(),
+    body: String(slide?.body || '').trim()
+  }))
+}
+
+function draftLooksSaved(draft, post) {
+  if (!draft || !post) return false
+  const slides = normalizeSlidesForCompare(parseInstagramSlides(draft.instagramSlides) || [])
+  const postSlides = normalizeSlidesForCompare(post.socialPack?.instagramSlides)
+  return (
+    String(draft.title || '').trim() === String(post.title || '').trim() &&
+    String(draft.slug || post.slug || '').trim() === String(post.slug || '').trim() &&
+    String(draft.imageUrl || '').trim() === String(post.imageUrl || '').trim() &&
+    String(draft.instagramCaption || '').trim() === String(post.socialPack?.instagramCaption || '').trim() &&
+    JSON.stringify(slides) === JSON.stringify(postSlides)
+  )
+}
+
+function isMeaningfulLocalDraft({ slug, draft }, posts = cachedPosts) {
+  if (slug === '__new__') return Boolean((draft.title || '').trim() || (draft.bodyHtml || '').trim())
+  const post = posts.find((p) => p.slug === slug)
+  if (!post) return true
+  return !draftLooksSaved(draft, post)
+}
+
+function pruneMatchingLocalDrafts(site = currentSite()) {
+  for (const item of listLocalDrafts(site)) {
+    if (!isMeaningfulLocalDraft(item)) clearLocalDraft(site, item.slug)
+  }
+}
+
+function armCleanAfterSave(state) {
+  clearTimeout(localSaveTimer)
+  skipLocalSave = true
+  rememberSavedState(state || collectFormState())
+  markLocalDirty(false)
+  setTimeout(() => {
+    rememberSavedState(collectFormState())
+    skipLocalSave = false
+    markLocalDirty(false)
+    const slug = (form.slug.value || editingOriginalSlug || '').trim()
+    if (slug) clearLocalDraft(currentSite(), slug)
+    renderLocalInbox()
+  }, 800)
+}
+
 function applyFormState(state) {
   skipLocalSave = true
   try {
@@ -316,6 +389,11 @@ function saveLocalDraftNow() {
   const site = currentSite()
   const state = collectFormState()
   const slug = (state.slug || editingOriginalSlug || '__new__').trim() || '__new__'
+  if (isSameAsSaved(state)) {
+    clearLocalDraft(site, slug)
+    markLocalDirty(false)
+    return
+  }
   const payload = { ...state, savedAt: Date.now() }
   localStorage.setItem(localDraftStorageKey(site, slug), JSON.stringify(payload))
   if (slug !== '__new__') localStorage.removeItem(localDraftStorageKey(site, '__new__'))
@@ -324,6 +402,10 @@ function saveLocalDraftNow() {
 
 function scheduleLocalSave() {
   if (skipLocalSave || currentRoute?.view !== 'entrada') return
+  if (isSameAsSaved()) {
+    markLocalDirty(false)
+    return
+  }
   markLocalDirty(true)
   clearTimeout(localSaveTimer)
   localSaveTimer = setTimeout(saveLocalDraftNow, 400)
@@ -1067,12 +1149,13 @@ function fillFormFields(p) {
   skipLocalSave = false
 
   const local = readLocalDraft(currentSite(), p.slug)
-  if (local) {
+  if (local && !draftLooksSaved(local, p)) {
     applyFormState({ ...local, status: local.status || p.status || 'draft' })
     markLocalDirty(true)
     toast('Hay cambios de este navegador. Guardar los envía al CMS.')
   } else {
-    markLocalDirty(false)
+    if (local) clearLocalDraft(currentSite(), p.slug)
+    armCleanAfterSave()
   }
   updateReviewCallout(postStatusInput.value)
 }
@@ -1102,7 +1185,7 @@ function resetFormFields() {
     markLocalDirty(true)
     toast('Recuperé el borrador de este navegador.')
   } else {
-    markLocalDirty(false)
+    armCleanAfterSave()
   }
   updateReviewCallout('draft')
 }
@@ -1463,7 +1546,7 @@ function renderReviewInbox(posts) {
 function renderLocalInbox() {
   const el = document.getElementById('localInbox')
   const btn = document.getElementById('flushLocalDrafts')
-  const drafts = listLocalDrafts()
+  const drafts = listLocalDrafts().filter((item) => isMeaningfulLocalDraft(item))
   if (!el) return
   if (!drafts.length) {
     el.hidden = true
@@ -1510,10 +1593,13 @@ async function loadPosts() {
   const data = await api('/api/admin/posts?' + new URLSearchParams({ site }))
   list.innerHTML = ''
   cachedPosts = data.posts || []
+  pruneMatchingLocalDrafts(site)
   renderReviewInbox(cachedPosts)
   renderLocalInbox()
   const posts = status ? cachedPosts.filter((p) => p.status === status) : cachedPosts
-  const localSlugs = new Set(listLocalDrafts(site).map((item) => item.slug))
+  const localSlugs = new Set(
+    listLocalDrafts(site).filter((item) => isMeaningfulLocalDraft(item)).map((item) => item.slug)
+  )
   if (!posts.length) {
     const empty = document.createElement('li')
     empty.className = 'empty empty-cta'
@@ -1823,7 +1909,7 @@ async function persistPost({ busyBtn, state, silent = false } = {}) {
     if (needsCreate) clearLocalDraft(site, '__new__')
     if (isCurrentEditor) {
       editingOriginalSlug = slug
-      markLocalDirty(false)
+      armCleanAfterSave(formState)
       updateWorkspaceChrome()
       renderCarouselStrip()
       navigate({
@@ -1856,7 +1942,7 @@ async function persistPost({ busyBtn, state, silent = false } = {}) {
 
 async function flushAllLocalDrafts() {
   const btn = document.getElementById('flushLocalDrafts')
-  const drafts = listLocalDrafts()
+  const drafts = listLocalDrafts().filter((item) => isMeaningfulLocalDraft(item))
   if (!drafts.length) {
     toast('Este navegador no tiene cambios pendientes.')
     return
