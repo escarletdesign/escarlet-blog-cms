@@ -18,4 +18,5 @@ test('blog_upload_media_file declara openai/fileParams y schema OpenAIFile', () 
 test('createMcpServer arranca con instructions y versión 2.3', () => {
   const server = createMcpServer({ role: 'admin' })
   assert.ok(server)
+  assert.ok(MCP_SERVER_VERSION.startsWith('2.3'))
 })

@@ -137,7 +137,7 @@ export function buildToolList(auth) {
     },
     {
       name: 'blog_update_post',
-      description: 'Actualiza un post EXISTENTE. Guarda en el CMS y no dispara rebuild. Para que salga en la web llama blog_publish. Si ya está publicado, pasa keepPublished true o status published. Portada. blog_upload_media_file kind post y pega media.url en imageUrl.',
+      description: 'Actualiza un post EXISTENTE. Guarda en el CMS y no dispara rebuild. Para que salga en la web llama blog_publish. Si ya está publicado, pasa keepPublished true o status published. Portada. mediaUpload A→B→C kind post y pega media.url en imageUrl.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -218,7 +218,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_get_brand_context',
       description:
-        'Obligatorio al crear o editar. Incluye mediaUpload. Para fotos de ChatGPT usa blog_upload_media_file y adjunta el PNG en file. No hagas PUT ni curl.',
+        'Obligatorio al crear o editar. Incluye mediaUpload A→B→C. Si file no es invocable usa contentBase64. Resuelve solo. No hagas PUT ni curl.',
       inputSchema: {
         type: 'object',
         properties: { site: { type: 'string' } },
@@ -244,7 +244,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_upload_media_file',
       description:
-        'CAMINO PARA CHATGPT. Adjunta el PNG en file. ChatGPT rellena download_url. El CMS descarga y devuelve media.url. No hagas curl, urllib ni PUT. El sandbox no tiene DNS. kind: post (portada), social (Instagram), reference (moodboard).',
+        'Plan A. Adjunta el PNG en file si esta tool es invocable. Si no aparece en el set de tools, usa blog_upload_media (plan B/C). ChatGPT rellena download_url. El CMS descarga. No hagas curl ni PUT. kind: post, social o reference.',
       inputSchema: {
         type: 'object',
         $defs: openaiFileDefs(),
@@ -295,7 +295,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_upload_media',
       description:
-        'Respaldo por MCP si file nativo no existe. Pasa contentBase64 o blob. Si el host recorta, uploadId + chunkIndex + chunkCount. PROHIBIDO curl, PUT y /mnt/data en imageUrl. kind: post, social o reference.',
+        'Plan B/C. Úsala al momento si blog_upload_media_file no es invocable o falla. Pasa contentBase64 o blob. Si el host recorta o rechaza, uploadId + chunkIndex + chunkCount. No pares a preguntar. PROHIBIDO curl, PUT y /mnt/data. kind: post, social o reference.',
       inputSchema: {
         type: 'object',
         additionalProperties: true,
