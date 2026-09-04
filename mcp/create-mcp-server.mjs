@@ -6,6 +6,7 @@ import {
   ReadResourceRequestSchema
 } from '@modelcontextprotocol/sdk/types.js'
 import * as cms from '../lib/cms-ops.mjs'
+import { withMediaUploadContract } from '../lib/media-upload-contract.mjs'
 import { assertSiteAccess, assertSuperAdmin, allowedSiteHandles } from '../lib/auth.mjs'
 
 const DEFAULT_SITE = process.env.DEFAULT_SITE || 'escarlet'
@@ -238,53 +239,40 @@ function buildToolList(auth) {
     {
       name: 'blog_upload_media',
       description:
-        'Sube una imagen al CMS, la comprime a JPEG en servidor y devuelve media.url pública. Acepta PNG/JPG de 2–3 MB. Orden de preferencia: 1) contentBase64 o blob con el archivo completo 2) si el host recorta, uploadId + chunkIndex + chunkCount (trozos ≤ 120000 caracteres) 3) imageUrl https pública 4) filePath solo si el MCP ve el archivo en disco. kind oficial: post (portada), social (carrusel Instagram), reference (moodboard). NUNCA pases /mnt/data como imageUrl. ChatGPT debe leer el PNG de /mnt/data y enviarlo en contentBase64 o a trozos.',
+        'SUBE UNA FOTO AL CMS. Camino normal para ChatGPT: contentBase64 con el PNG de /mnt/data (2-3 MB vale). kind post, social o reference. El servidor comprime a JPEG y devuelve media.url. NO busques una URL https temporal. PROHIBIDO poner /mnt/data en imageUrl. Si el base64 se corta, usa uploadId, chunkIndex y chunkCount como texto.',
       inputSchema: {
         type: 'object',
+        additionalProperties: true,
         properties: {
           site: { type: 'string' },
           filename: {
             type: 'string',
-            description:
-              'Nombre kebab-case. El CMS lo guardará como .jpg tras comprimir. Ej. mi-post.jpg o {slug}-ig-01.jpg'
+            description: 'kebab-case. Portada mi-post.png. Slide Instagram {slug}-ig-01.png'
           },
-          imageUrl: {
+          kind: {
             type: 'string',
-            description:
-              'URL https pública. El CMS la descarga y comprime. Prohibido /mnt/data, sandbox:, file://.'
+            description: 'post = portada. social = carrusel Instagram. reference = moodboard.'
           },
           contentBase64: {
             type: 'string',
-            description:
-              'PNG o JPG completo en base64. 2–3 MB valen. El CMS comprime a JPEG y devuelve media.url. Si el host recorta el argumento, usa uploadId + chunkIndex + chunkCount.'
+            description: 'PNG o JPG en base64. Camino normal. 2-3 MB valen.'
+          },
+          alt: { type: 'string' },
+          imageUrl: {
+            type: 'string',
+            description: 'Solo si ya tienes un https público real. No uses /mnt/data.'
           },
           blob: {
             type: 'string',
-            description: 'Alias de contentBase64 para clientes que envían blob.'
+            description: 'Alias de contentBase64'
           },
           filePath: {
             type: 'string',
-            description:
-              'Ruta absoluta solo si este MCP corre en la misma máquina y el archivo existe (p. ej. /mnt/data/foo.png). En ChatGPT remoto esa ruta no existe. Usa contentBase64.'
+            description: 'Solo si el archivo existe en el servidor del CMS. En ChatGPT remoto no existe /mnt/data.'
           },
-          uploadId: {
-            type: 'string',
-            description: 'Id estable para subir a trozos cuando el base64 no cabe de una vez.'
-          },
-          chunkIndex: {
-            type: 'integer',
-            description: 'Índice del trozo, desde 0.'
-          },
-          chunkCount: {
-            type: 'integer',
-            description: 'Número total de trozos. Cada contentBase64 ≤ 120000 caracteres.'
-          },
-          alt: { type: 'string' },
-          kind: {
-            type: 'string',
-            enum: ['post', 'social', 'reference'],
-            description: 'post = portada, social = slide Instagram, reference = moodboard'
-          }
+          uploadId: { type: 'string', description: 'Id de la subida a trozos' },
+          chunkIndex: { type: 'string', description: 'Número de trozo desde 0, en texto' },
+          chunkCount: { type: 'string', description: 'Total de trozos, en texto' }
         },
         required: ['site', 'filename']
       },
@@ -293,7 +281,7 @@ function buildToolList(auth) {
     {
       name: 'blog_import_remote_image',
       description:
-        'Solo para imageUrl http(s) pública real. El CMS descarga y guarda. Si tienes /mnt/data o sandbox, usa blog_upload_media con contentBase64 en su lugar.',
+        'SOLO si ya tienes una URL https pública real. Si la foto está en /mnt/data, usa blog_upload_media con contentBase64. Esta tool no sirve para PNG de ChatGPT.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -317,7 +305,7 @@ function buildToolList(auth) {
     {
       name: 'blog_import_brand_zip',
       description:
-        'Importa un ZIP de brand kit y lo organiza solo. Acepta cualquier estructura de carpetas. Clasifica .md (voice, visual-style, image-guide, keywords, AGENT) por nombre o pistas, JSON brand-spec → image-spec.json, e imágenes raster como referencias. PREFERIDO: zipUrl http(s) pública. Evita contentBase64 en ZIPs grandes.',
+        'Importa un ZIP de brand kit. Para el ZIP grande usa zipUrl https. Esto no aplica a fotos de posts. Las fotos van en blog_upload_media con contentBase64.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -345,7 +333,7 @@ function buildToolList(auth) {
  */
 export function createMcpServer(auth = { role: 'admin' }) {
   const server = new Server(
-    { name: 'escarlet-blog-cms', version: '2.0.0' },
+    { name: 'escarlet-blog-cms', version: '2.1.0' },
     { capabilities: { tools: {}, resources: {} } }
   )
 
@@ -379,8 +367,12 @@ export function createMcpServer(auth = { role: 'admin' }) {
     if (!file) throw new Error(`Recurso desconocido: ${key}`)
     const data = await cms.getBrandFile(site, file)
     const mimeType = file.endsWith('.json') ? 'application/json' : 'text/markdown'
+    let text = data.content || ''
+    if (file === 'AGENT.md') {
+      text = withMediaUploadContract(text)
+    }
     return {
-      contents: [{ uri: request.params.uri, mimeType, text: data.content || '' }]
+      contents: [{ uri: request.params.uri, mimeType, text }]
     }
   })
 
