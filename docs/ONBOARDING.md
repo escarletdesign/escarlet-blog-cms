@@ -110,8 +110,8 @@ Son **dos caminos** al mismo sitio.
 
 | Trigger | Cuándo | Qué cambia |
 |---------|--------|------------|
-| Git push | Código Vue/CSS/scripts | App |
-| Deploy webhook | Publicar post en CMS | Contenido del blog |
+| Git push | Código Vue/CSS/scripts | App (con caché) |
+| Deploy webhook | Publicar post o interruptor del blog | Contenido. Sin caché de capas |
 
 ### Pasos
 

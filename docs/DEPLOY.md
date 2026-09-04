@@ -171,7 +171,7 @@ Objetivo. Cuando publicas en el CMS, escarlet.design se reconstruye solo con los
 4. Copia la URL. Suele ser algo como  
    `https://coolify.tudominio.com/api/v1/deploy?uuid=...`
 
-   No uses `force=false`. En Coolify 4.1 ese string se interpreta como true y el deploy va sin caché de Docker. El CMS lo quita si viene pegado.
+   No pegues `force=false`. En Coolify 4.1 ese string se interpreta como true. El CMS limpia eso al guardar. Al publicar o al interruptor, el CMS llama con `force=true` a propósito. Así Docker no recicla un dist viejo.
 
 ### B. Pégala en el CMS (dashboard)
 

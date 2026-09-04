@@ -71,7 +71,7 @@ Runtime en `{CMS}/runtime/v1/`. Cada landing guarda `scripts/escarlet-blog.mjs`.
 2. CMS `/admin` → Sitio → pega URL + token API → Probar → Guardar
 3. `blog_publish` dispara el POST. Coolify rebuild. Sync baja posts
 
-Git push = código. Webhook = solo blog.
+Git push = código (con caché). Webhook del CMS = contenido. Usa force=true para no reciclar el dist.
 
 ## Flujo de posts (MCP)
 
