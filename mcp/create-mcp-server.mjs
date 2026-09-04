@@ -6,7 +6,12 @@ import {
   ReadResourceRequestSchema
 } from '@modelcontextprotocol/sdk/types.js'
 import * as cms from '../lib/cms-ops.mjs'
-import { withMediaUploadContract } from '../lib/media-upload-contract.mjs'
+import {
+  MCP_INSTRUCTIONS,
+  MCP_SERVER_VERSION,
+  withMediaUploadContract
+} from '../lib/media-upload-contract.mjs'
+import { openaiFileDefs, connectorFileMeta } from '../lib/openai-file.mjs'
 import { assertSiteAccess, assertSuperAdmin, allowedSiteHandles } from '../lib/auth.mjs'
 
 const DEFAULT_SITE = process.env.DEFAULT_SITE || 'escarlet'
@@ -49,7 +54,7 @@ function resolveToolSite(auth, args = {}) {
   return requested
 }
 
-function buildToolList(auth) {
+export function buildToolList(auth) {
   const tools = [
     {
       name: 'blog_list_sites',
@@ -132,7 +137,7 @@ function buildToolList(auth) {
     },
     {
       name: 'blog_update_post',
-      description: 'Actualiza un post EXISTENTE. Para portadas, primero blog_upload_media (kind post) y pega media.url en imageUrl. Para carrusel Instagram, blog_upload_media (kind social) y pega media.url en socialPack.instagramSlides.',
+      description: 'Actualiza un post EXISTENTE. Para portadas, primero blog_upload_media_file (kind post) y pega media.url en imageUrl. Para carrusel Instagram, blog_upload_media_file (kind social) y pega media.url en socialPack.instagramSlides.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -213,7 +218,7 @@ function buildToolList(auth) {
     {
       name: 'blog_get_brand_context',
       description:
-        'Obligatorio al crear o editar. Incluye mediaUpload. Para fotos de ChatGPT usa blog_open_image_drop, no imageUrl.',
+        'Obligatorio al crear o editar. Incluye mediaUpload. Para fotos de ChatGPT usa blog_upload_media_file y adjunta el PNG en file. No hagas PUT ni curl.',
       inputSchema: {
         type: 'object',
         properties: { site: { type: 'string' } },
@@ -237,9 +242,38 @@ function buildToolList(auth) {
       annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false }
     },
     {
+      name: 'blog_upload_media_file',
+      description:
+        'CAMINO PARA CHATGPT. Adjunta el PNG en file. ChatGPT rellena download_url. El CMS descarga y devuelve media.url. No hagas curl, urllib ni PUT. El sandbox no tiene DNS. kind: post (portada), social (Instagram), reference (moodboard).',
+      inputSchema: {
+        type: 'object',
+        $defs: openaiFileDefs(),
+        properties: {
+          site: { type: 'string' },
+          filename: {
+            type: 'string',
+            description: 'Nombre kebab-case. Portada mi-post.png. Slide {slug}-ig-01.png'
+          },
+          kind: {
+            type: 'string',
+            description: 'post = portada. social = carrusel Instagram. reference = moodboard.'
+          },
+          alt: { type: 'string' },
+          file: { $ref: '#/$defs/OpenAIFile' }
+        },
+        required: ['site', 'filename', 'file']
+      },
+      annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false },
+      _meta: {
+        ...connectorFileMeta(),
+        'openai/toolInvocation/invoking': 'Subiendo la imagen',
+        'openai/toolInvocation/invoked': 'Imagen guardada'
+      }
+    },
+    {
       name: 'blog_open_image_drop',
       description:
-        'CAMINO PARA CHATGPT. Abre un buzón y devuelve putUrl. En el sandbox haz PUT del PNG de /mnt/data a esa URL. La respuesta del PUT trae media.url. No uses imageUrl pública ni contentBase64. kind: post (portada), social (Instagram), reference (moodboard).',
+        'Solo si el host puede hacer HTTP PUT. El sandbox de ChatGPT no resuelve DNS. ChatGPT debe usar blog_upload_media_file. kind: post, social o reference.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -261,7 +295,7 @@ function buildToolList(auth) {
     {
       name: 'blog_upload_media',
       description:
-        'NO uses esta tool desde el sandbox de ChatGPT. ChatGPT debe llamar blog_open_image_drop y hacer PUT del PNG. Esta tool queda para contentBase64 si el cliente MCP sí puede enviarlo. imageUrl solo si ya hay un https público real. kind: post, social o reference. PROHIBIDO /mnt/data en imageUrl.',
+        'Respaldo por MCP si file nativo no existe. Pasa contentBase64 o blob. Si el host recorta, uploadId + chunkIndex + chunkCount. PROHIBIDO curl, PUT y /mnt/data en imageUrl. kind: post, social o reference.',
       inputSchema: {
         type: 'object',
         additionalProperties: true,
@@ -303,7 +337,7 @@ function buildToolList(auth) {
     {
       name: 'blog_import_remote_image',
       description:
-        'SOLO si ya tienes una URL https pública real. Si la foto está en /mnt/data, usa blog_upload_media con contentBase64. Esta tool no sirve para PNG de ChatGPT.',
+        'SOLO si ya tienes una URL https pública real. Si la foto está en el chat, usa blog_upload_media_file. Esta tool no sirve para PNG del sandbox.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -327,7 +361,7 @@ function buildToolList(auth) {
     {
       name: 'blog_import_brand_zip',
       description:
-        'Importa un ZIP de brand kit. Para el ZIP grande usa zipUrl https. Esto no aplica a fotos de posts. Las fotos van en blog_upload_media con contentBase64.',
+        'Importa un ZIP de brand kit. Para el ZIP grande usa zipUrl https. Esto no aplica a fotos de posts. Las fotos van en blog_upload_media_file.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -355,8 +389,8 @@ function buildToolList(auth) {
  */
 export function createMcpServer(auth = { role: 'admin' }) {
   const server = new Server(
-    { name: 'escarlet-blog-cms', version: '2.2.0' },
-    { capabilities: { tools: {}, resources: {} } }
+    { name: 'escarlet-blog-cms', version: MCP_SERVER_VERSION, title: 'Escarlet Blog CMS' },
+    { capabilities: { tools: {}, resources: {} }, instructions: MCP_INSTRUCTIONS }
   )
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -475,6 +509,18 @@ export function createMcpServer(auth = { role: 'admin' }) {
           const site = resolveToolSite(auth, args)
           return textResult(await cms.updateBrandFile(site, args.file, args.content))
         }
+        case 'blog_upload_media_file': {
+          const site = resolveToolSite(auth, args)
+          if (!args.file) {
+            throw Object.assign(
+              new Error(
+                'Falta file. Adjunta el PNG en el argumento file. Si el host no adjunta archivos, usa blog_upload_media con contentBase64. No hagas curl ni PUT.'
+              ),
+              { status: 400 }
+            )
+          }
+          return textResult(await cms.uploadMedia({ ...args, site }))
+        }
         case 'blog_open_image_drop': {
           const site = resolveToolSite(auth, args)
           return textResult(cms.openImageDrop({ ...args, site }))
@@ -486,9 +532,10 @@ export function createMcpServer(auth = { role: 'admin' }) {
         case 'blog_import_remote_image': {
           const site = resolveToolSite(auth, args)
           if (!args.imageUrl) {
-            throw Object.assign(new Error('Esta tool no sirve para /mnt/data. Usa blog_open_image_drop y haz PUT del PNG.'), {
-              status: 400
-            })
+            throw Object.assign(
+              new Error('Esta tool no sirve para /mnt/data. Usa blog_upload_media_file y adjunta el PNG en file.'),
+              { status: 400 }
+            )
           }
           return textResult(await cms.uploadMedia({ ...args, site, contentBase64: undefined }))
         }

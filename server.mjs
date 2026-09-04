@@ -61,6 +61,7 @@ import { parseMultipart, isMultipartRequest } from './lib/multipart.mjs'
 import { withPostLinks } from './lib/preview-url.mjs'
 import { escapeHtml, renderPostBody } from './lib/content-render.mjs'
 import { handleMcpHttp, sendMcpCors } from './mcp/http-handler.mjs'
+import { MCP_SERVER_VERSION, MEDIA_UPLOAD_TOOL } from './lib/media-upload-contract.mjs'
 import {
   getMcpConnectionInfo,
   prepareSiteAgentIcon,
@@ -530,9 +531,9 @@ const server = createServer(async (req, res) => {
     const persistence = getPersistenceStatus()
     json(res, persistence.writable ? 200 : 503, {
       ok: persistence.writable,
-      version: '2.2.0',
+      version: MCP_SERVER_VERSION,
       mcp: '/mcp',
-      mcpUpload: 'blog_open_image_drop',
+      mcpUpload: MEDIA_UPLOAD_TOOL,
       persistence
     })
     return

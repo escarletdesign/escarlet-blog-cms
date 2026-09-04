@@ -7,7 +7,7 @@
     "dev": "node server.mjs",
     "start": "node server.mjs",
     "mcp": "node mcp/index.mjs",
-    "test": "node --test lib/**/*.test.mjs",
+    "test": "node --test lib/**/*.test.mjs mcp/**/*.test.mjs",
     "import:escarlet": "node scripts/import-escarlet.mjs",
     "site:init": "node scripts/init-site.mjs",
     "docker:up": "docker compose up -d --build",
