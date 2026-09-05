@@ -39,6 +39,7 @@ import {
 import { validatePostSeo } from './lib/seo-validator.mjs'
 import {
   resolveRequestAuth,
+  resolveAuth,
   publicAuthSession,
   assertSiteAccess,
   assertSuperAdmin,
@@ -72,6 +73,12 @@ import {
   handleStripeEvent,
   buildPaymentLinkHints
 } from './lib/stripe-webhook.mjs'
+import {
+  isPasswordAuthEnabled,
+  registerPasswordUser,
+  loginPasswordUser,
+  googleAuthStatus
+} from './lib/human-auth.mjs'
 import {
   notifyRebuild,
   uploadMedia,
@@ -896,6 +903,43 @@ const server = createServer(async (req, res) => {
       res.end(JSON.stringify({ ok: true, ...session }))
     } catch (error) {
       json(res, 400, { message: error.message })
+    }
+    return
+  }
+
+  if (isProductRestructureV1() && req.method === 'GET' && path === '/api/auth/status') {
+    json(res, 200, {
+      passwordAuth: isPasswordAuthEnabled(),
+      google: googleAuthStatus()
+    })
+    return
+  }
+
+  if (isProductRestructureV1() && req.method === 'POST' && path === '/api/auth/login') {
+    try {
+      const body = await parseBody(req)
+      const result = loginPasswordUser(body)
+      res.writeHead(200, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Set-Cookie': `escarlet_cms=${encodeURIComponent(result.token)}; Path=/; HttpOnly; SameSite=Lax`
+      })
+      res.end(JSON.stringify({ ok: true, ...result, ...publicAuthSession(resolveAuth(result.token)) }))
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
+    }
+    return
+  }
+
+  if (isProductRestructureV1() && req.method === 'POST' && path === '/api/auth/register') {
+    const auth = requireAuth(req, url, res)
+    if (!auth) return
+    try {
+      assertAgencyOps(auth)
+      const body = await parseBody(req)
+      const user = registerPasswordUser(body)
+      json(res, 201, { ok: true, user })
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
     }
     return
   }

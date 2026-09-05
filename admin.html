@@ -17,9 +17,15 @@
         <img src="/favicon.svg" alt="" width="36" height="36" />
         <h1>Escarlet Blog CMS</h1>
       </div>
-      <p>Usa el token de administración global o el token de un sitio concreto.</p>
+      <p>Usa el token de administración, el token de un sitio, o email y contraseña (F5).</p>
       <label for="token">Token de administración</label>
       <input id="token" type="password" autocomplete="current-password" />
+      <div id="passwordLoginBlock" hidden>
+        <label for="loginEmail">Email</label>
+        <input id="loginEmail" type="email" autocomplete="username" />
+        <label for="loginPassword">Contraseña</label>
+        <input id="loginPassword" type="password" autocomplete="current-password" />
+      </div>
       <p id="loginError" class="login-error" hidden></p>
       <div class="actions">
         <button type="button" class="btn btn-primary" id="enter">Entrar</button>
