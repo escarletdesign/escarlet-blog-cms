@@ -99,6 +99,13 @@ import {
   getRuntimeFile
 } from './lib/frontend-runtime.mjs'
 import {
+  isCmsSocialPackHostEnabled,
+  buildSocialPackPayload,
+  listSocialPackSummaries,
+  renderSocialPackPageHtml,
+  renderSocialPackIndexHtml
+} from './lib/social-pack-host.mjs'
+import {
   getMcpConnectionInfo,
   prepareSiteAgentIcon,
   readSiteAgentIcon
@@ -578,6 +585,47 @@ const server = createServer(async (req, res) => {
     return
   }
 
+  // CMS Social Pack host (F2). Takes precedence over any static Vite blog-packs.
+  if (isCmsSocialPackHostEnabled() && req.method === 'GET') {
+    const packIndex = path === '/admin/blog-packs' || path === '/admin/blog-packs/'
+    const packDetail = path.match(/^\/admin\/blog-packs\/([^/]+)\/?$/)
+    if (packIndex || packDetail) {
+      const auth = requireAuth(req, url, res)
+      if (!auth) return
+      const site = siteFrom(auth, url.searchParams.get('site') || DEFAULT_SITE)
+      try {
+        assertSiteAccess(auth, site)
+      } catch (err) {
+        json(res, err.status || 403, { message: err.message })
+        return
+      }
+      const siteConfig = loadSiteConfig(site) || { domain: 'https://example.com' }
+      const db = readDb()
+      const posts = db.posts.filter((p) => p.site === site)
+      if (packIndex) {
+        const summaries = listSocialPackSummaries(posts, siteConfig, { cmsHostEnabled: true })
+        html(res, 200, renderSocialPackIndexHtml(summaries, { siteLabel: site }))
+        return
+      }
+      const slug = decodeURIComponent(packDetail[1])
+      if (slug === 'manifest.webmanifest') {
+        json(res, 404, { message: 'Manifest Vite no aplica. Social Pack vive en el CMS.' })
+        return
+      }
+      const post = findPost(db, site, slug)
+      if (!post) {
+        json(res, 404, { message: 'Pack no encontrado' })
+        return
+      }
+      const payload = buildSocialPackPayload(post, siteConfig, {
+        cmsHostEnabled: true,
+        includeEmpty: true
+      })
+      html(res, 200, renderSocialPackPageHtml(payload))
+      return
+    }
+  }
+
   if (req.method === 'POST' && path === '/api/embed/session') {
     try {
       const auth = resolveRequestAuth(req, url)
@@ -916,6 +964,50 @@ const server = createServer(async (req, res) => {
 
     if (req.method === 'GET' && path === '/api/admin/session') {
       json(res, 200, publicAuthSession(auth))
+      return
+    }
+
+    if (isCmsSocialPackHostEnabled() && req.method === 'GET' && path === '/api/admin/social-pack') {
+      const site = siteFrom(auth, url.searchParams.get('site') || DEFAULT_SITE)
+      try {
+        assertSiteAccess(auth, site)
+      } catch (err) {
+        json(res, err.status || 403, { message: err.message })
+        return
+      }
+      const siteConfig = loadSiteConfig(site) || { domain: 'https://example.com' }
+      const posts = db.posts.filter((p) => p.site === site)
+      const packs = listSocialPackSummaries(posts, siteConfig, { cmsHostEnabled: true })
+      json(res, 200, {
+        site,
+        source: 'cms',
+        socialPackChannels: getSocialPackChannels(siteConfig),
+        packs
+      })
+      return
+    }
+
+    const socialPackMatch = path.match(/^\/api\/admin\/social-pack\/([^/]+)$/)
+    if (isCmsSocialPackHostEnabled() && req.method === 'GET' && socialPackMatch) {
+      const site = siteFrom(auth, url.searchParams.get('site') || DEFAULT_SITE)
+      try {
+        assertSiteAccess(auth, site)
+      } catch (err) {
+        json(res, err.status || 403, { message: err.message })
+        return
+      }
+      const slug = decodeURIComponent(socialPackMatch[1])
+      const post = findPost(db, site, slug)
+      if (!post) {
+        json(res, 404, { message: 'Pack no encontrado' })
+        return
+      }
+      const siteConfig = loadSiteConfig(site) || { domain: 'https://example.com' }
+      const pack = buildSocialPackPayload(post, siteConfig, {
+        cmsHostEnabled: true,
+        includeEmpty: true
+      })
+      json(res, 200, { pack })
       return
     }
 

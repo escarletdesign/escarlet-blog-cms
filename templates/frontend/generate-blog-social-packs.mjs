@@ -1,7 +1,9 @@
 /**
- * Genera packs admin para publicar manualmente en Substack, X y LinkedIn.
- * Plantilla canónica. El CMS la sirve en /runtime/v1/generate-blog-social-packs.mjs.
- * Las landings la bajan con scripts/escarlet-blog.mjs. Salida. public/admin/blog-packs/
+ * LEGACY (product-restructure F2).
+ * Vite pack generator retired from CMS /runtime channel.
+ * Canonical Social Pack UI and payloads live in the CMS (lib/social-pack-host.mjs).
+ * Kept on disk for dual-run landings that still have a cached copy.
+ * Salida histórica. public/admin/blog-packs/
  *
  * Env (opcionales).
  *   BLOG_SITE_URL       https://tu-dominio.com

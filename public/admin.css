@@ -2161,3 +2161,106 @@ body.has-editor-dock .toast {
     overflow: hidden;
   }
 }
+
+/* Social Pack CMS host panel */
+.social-pack-list {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.social-pack-list li {
+  margin: 0;
+}
+
+.social-pack-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.social-pack-item:hover {
+  border-color: var(--accent);
+}
+
+.social-pack-item.is-active {
+  border-color: var(--accent);
+  box-shadow: var(--shadow);
+}
+
+.social-pack-item-title {
+  font-weight: 600;
+  margin: 0;
+}
+
+.social-pack-item-meta {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.social-pack-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.social-pack-chip {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, #fff);
+  color: var(--accent);
+}
+
+.social-pack-detail .pack-channel-block {
+  margin: 0 0 1.1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.social-pack-detail .pack-channel-block:last-child {
+  border-bottom: 0;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.social-pack-detail pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin: 0.35rem 0 0.5rem;
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+.social-pack-detail .pack-slides {
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  margin-top: 0.5rem;
+}
+
+.social-pack-detail .pack-slides img {
+  width: 100%;
+  border-radius: 8px;
+  display: block;
+}
+
