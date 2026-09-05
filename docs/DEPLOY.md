@@ -66,6 +66,16 @@ Ejemplo sano:
 
 Si `likelyDockerVolume` es `false` o `posts` vuelve a `0` tras un redeploy, el volumen no está montado. Corrígelo antes de volver a generar posts con Hermes.
 
+### Stripe Payment Links (product-restructure F4)
+
+Con `PRODUCT_RESTRUCTURE_V1=1`:
+
+1. Crea Payment Links en Stripe (setup, membership, hosting opcional).
+2. En cada link, metadata: `site=<handle>`, `kind=setup|membership|hosting`, `planId=standard` (membership/setup).
+3. Webhook Stripe → `POST https://blog-cms…/api/stripe/webhook` (evento `checkout.session.completed`).
+4. Env: `STRIPE_WEBHOOK_SECRET`. Opcional `DATABASE_URL` (Postgres Coolify) para ledger idempotente; si no, usa `data/stripe-ledger.json`.
+5. Agency: `GET /api/admin/payment-links` muestra el contrato de metadata.
+
 Si montaste el volumen en otra ruta:
 
 ```

@@ -68,6 +68,11 @@ import {
 import { sendMagicLinkEmail } from './lib/magic-email.mjs'
 import { isProductRestructureV1 } from './lib/product-flags.mjs'
 import {
+  verifyStripeSignature,
+  handleStripeEvent,
+  buildPaymentLinkHints
+} from './lib/stripe-webhook.mjs'
+import {
   notifyRebuild,
   uploadMedia,
   receiveImageDrop,
@@ -430,10 +435,26 @@ const server = createServer(async (req, res) => {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Headers':
-        'Authorization, Content-Type, Mcp-Session-Id, MCP-Protocol-Version, Last-Event-Id',
+        'Authorization, Content-Type, Mcp-Session-Id, MCP-Protocol-Version, Last-Event-Id, Stripe-Signature',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS'
     })
     res.end()
+    return
+  }
+
+  // Stripe needs the raw body for signature verification (before JSON parse).
+  if (isProductRestructureV1() && req.method === 'POST' && path === '/api/stripe/webhook') {
+    try {
+      const rawBuf = await readRawBuffer(req)
+      const rawBody = rawBuf.toString('utf8')
+      const secret = process.env.STRIPE_WEBHOOK_SECRET || ''
+      verifyStripeSignature(rawBody, req.headers['stripe-signature'], secret)
+      const event = JSON.parse(rawBody)
+      const result = await handleStripeEvent(event)
+      json(res, 200, { ok: true, ...result })
+    } catch (err) {
+      json(res, err.status || 400, { message: err.message, ...(err.extra || {}) })
+    }
     return
   }
 
@@ -976,6 +997,16 @@ const server = createServer(async (req, res) => {
         json(res, 200, cmsGetQuotaSnapshot(site))
       } catch (err) {
         json(res, err.status || 403, { message: err.message, ...(err.extra || {}) })
+      }
+      return
+    }
+
+    if (isProductRestructureV1() && req.method === 'GET' && path === '/api/admin/payment-links') {
+      try {
+        assertAgencyOps(auth)
+        json(res, 200, buildPaymentLinkHints())
+      } catch (err) {
+        json(res, err.status || 403, { message: err.message })
       }
       return
     }
