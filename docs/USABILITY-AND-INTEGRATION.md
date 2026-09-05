@@ -202,3 +202,19 @@ Conclusión. El sync **ya funciona** con el CMS en producción. Las features V1 
 - [DEPLOY.md](./DEPLOY.md) — Coolify, Stripe, volúmenes, webhook paso a paso
 - [ONBOARDING.md](./ONBOARDING.md) — Vite vs WordPress
 - [HANDOFF.md](./HANDOFF.md) — estado del servicio
+
+---
+
+## Coolify y SEO (decisión sep 2026)
+
+**Pregunta.** ¿Se puede quitar Coolify y que el SEO siga funcionando?
+
+**Respuesta corta.** En landings Vite actuales, Coolify (o un redeploy equivalente) sigue haciendo falta para materializar el HTML SEO en el dominio público. El CMS es headless. Guarda contenido y valida SEO. El HTML indexable lo genera la landing en build.
+
+| Camino | Coolify rebuild | SEO público |
+|--------|-----------------|-------------|
+| Landing Vite / SPA | Sí (webhook deploy) | Sí, tras rebuild |
+| WordPress + plugin Escarlet | No (webhook = sync WP) | Sí, posts nativos SSR |
+| Futuro SSR/edge en la landing | Webhook ligero o ninguno | Sí, si el HTML sale en la primera respuesta |
+
+En este ciclo de UX del admin **no** se mueve el ownership del HTML SEO al CMS (freeze documentado). Mejoramos validación de handle/webhook en el onboarding. Para sitios nuevos sin Coolify, la vía operativa es WordPress.

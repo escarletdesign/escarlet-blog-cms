@@ -21,7 +21,9 @@ import {
   publicSiteConfig,
   getSocialPackChannels,
   isPublicBlogEnabled,
-  isAgencyGate
+  isAgencyGate,
+  canApproveLivePublish,
+  resolveApproverRole
 } from './lib/site-config.mjs'
 import {
   getBrandContext,
@@ -86,6 +88,7 @@ import {
   publishPost as cmsPublishPost,
   validateSeo as cmsValidateSeo,
   deleteMedia as cmsDeleteMedia,
+  updateMediaAlt as cmsUpdateMediaAlt,
   updatePost as cmsUpdatePost,
   unpublishPost as cmsUnpublishPost,
   deletePost as cmsDeletePost,
@@ -102,6 +105,7 @@ import {
   getQuotaSnapshot as cmsGetQuotaSnapshot
 } from './lib/cms-ops.mjs'
 import { mediaForClient, repairMediaInDb, repairPostsInDb, resolveImageSrc, resolvePostImageSrc, inspectImageBuffer } from './lib/media-url.mjs'
+import { generateThumbBuffer } from './lib/media-optimize.mjs'
 import { parseMultipart, isMultipartRequest } from './lib/multipart.mjs'
 import { withPostLinks } from './lib/preview-url.mjs'
 import { escapeHtml, renderPostBody } from './lib/content-render.mjs'
@@ -1189,8 +1193,15 @@ const server = createServer(async (req, res) => {
       }
       const kind = url.searchParams.get('kind')
       let items = (db.media || []).filter((m) => !m.site || m.site === site)
-      if (kind) items = items.filter((m) => m.kind === kind)
-      const media = items.map((item) => {
+      if (kind) {
+        items = items.filter((m) => m.kind === kind)
+      } else {
+        // Brand-kit reference assets stay out of the library unless kind=reference.
+        items = items.filter((m) => m.kind !== 'reference')
+      }
+      const media = []
+      let dbDirty = false
+      for (const item of items) {
         const client = mediaForClient(item)
         const disk = client.path?.startsWith('/media/')
           ? join(mediaDir, client.path.replace(/^\/media\//, ''))
@@ -1198,14 +1209,47 @@ const server = createServer(async (req, res) => {
         let bytes = 0
         let ok = false
         let integrity = { reason: 'missing' }
+        let buf = null
         if (disk && existsSync(disk)) {
-          const buf = readFileSync(disk)
+          buf = readFileSync(disk)
           bytes = buf.length
           integrity = inspectImageBuffer(buf)
           ok = integrity.ok
         }
-        return { ...client, bytes, ok, integrity }
-      })
+        let thumbUrl = client.thumbUrl || client.thumbPath || ''
+        if (!thumbUrl && disk && client.path) {
+          const thumbJpg = disk.replace(/\.[a-z0-9]+$/i, '_thumb.jpg')
+          const thumbWebp = disk.replace(/\.[a-z0-9]+$/i, '_thumb.webp')
+          if (existsSync(thumbJpg)) {
+            thumbUrl = client.path.replace(/\.[a-z0-9]+$/i, '_thumb.jpg')
+          } else if (existsSync(thumbWebp)) {
+            thumbUrl = client.path.replace(/\.[a-z0-9]+$/i, '_thumb.webp')
+          } else if (buf && ok) {
+            try {
+              const thumb = await generateThumbBuffer(buf, 400)
+              if (thumb.ok && thumb.buffer?.length) {
+                writeFileSync(thumbJpg, thumb.buffer)
+                thumbUrl = client.path.replace(/\.[a-z0-9]+$/i, '_thumb.jpg')
+                const idx = (db.media || []).findIndex((m) => m.id && item.id && m.id === item.id)
+                if (idx >= 0) {
+                  db.media[idx] = { ...db.media[idx], thumbPath: thumbUrl }
+                  dbDirty = true
+                }
+              }
+            } catch {
+              /* thumb best-effort */
+            }
+          }
+        }
+        media.push({
+          ...client,
+          ...(thumbUrl ? { thumbUrl, thumbPath: client.thumbPath || thumbUrl } : {}),
+          bytes,
+          ok,
+          integrity
+        })
+      }
+      if (dbDirty) writeDb(db)
       json(res, 200, { media })
       return
     }
@@ -1501,6 +1545,19 @@ const server = createServer(async (req, res) => {
       return
     }
 
+    if (req.method === 'POST' && path === '/api/admin/media/update-alt') {
+      const body = await parseBody(req)
+      try {
+        const site = siteFrom(auth, body.site || DEFAULT_SITE)
+        assertSiteAccess(auth, site)
+        const result = await cmsUpdateMediaAlt(site, body.id, body.alt)
+        json(res, 200, result)
+      } catch (err) {
+        json(res, err.status || 400, { message: err.message })
+      }
+      return
+    }
+
     if (req.method === 'POST' && path === '/api/admin/media') {
       const body = await parseBody(req)
       const site = siteFrom(auth, body.site || DEFAULT_SITE)
@@ -1510,13 +1567,25 @@ const server = createServer(async (req, res) => {
         json(res, err.status || 403, { message: err.message })
         return
       }
+      db.media = db.media || []
+      if (body.id && Object.prototype.hasOwnProperty.call(body, 'alt')) {
+        const idx = db.media.findIndex((m) => m.id === body.id && (!site || m.site === site))
+        if (idx >= 0) {
+          try {
+            const result = await cmsUpdateMediaAlt(site, body.id, body.alt)
+            json(res, 200, result)
+          } catch (err) {
+            json(res, err.status || 400, { message: err.message })
+          }
+          return
+        }
+      }
       const item = {
         id: body.id || `media-${Date.now()}`,
         site,
         url: body.url || '',
         alt: body.alt || ''
       }
-      db.media = db.media || []
       db.media.push(item)
       writeDb(db)
       json(res, 200, { media: item })
@@ -1623,23 +1692,27 @@ const server = createServer(async (req, res) => {
       const slug = body.slug
       try {
         assertSiteAccess(auth, site)
-        // Con confirmación activa, client solo puede draft/changes_requested→review o programar.
-        if (!body.publishAt && !isAgencyOrAdmin(auth)) {
+        // Live publish (not submit-for-review, not schedule) respects approverRole.
+        if (!body.publishAt) {
           const siteConfig = loadSiteConfig(site)
-          if (siteConfig?.requiresPublishConfirmation !== false) {
-            const dbNow = readDb()
-            const existing = findPost(dbNow, site, slug)
-            const needsHuman = isAgencyGate(siteConfig)
-            const submitForReviewOnly =
-              needsHuman &&
-              (existing?.status === 'draft' || existing?.status === 'changes_requested')
-            if (existing && !submitForReviewOnly) {
-              json(res, 403, {
-                message:
-                  'Solo agency o admin pueden publicar en vivo. Programa con publishAt o espera confirmación.'
-              })
-              return
-            }
+          const dbNow = readDb()
+          const existing = findPost(dbNow, site, slug)
+          const needsHuman = isAgencyGate(siteConfig)
+          const submitForReviewOnly =
+            needsHuman &&
+            (existing?.status === 'draft' || existing?.status === 'changes_requested')
+          if (existing && !submitForReviewOnly && !canApproveLivePublish(auth, siteConfig)) {
+            const who = resolveApproverRole(siteConfig)
+            const label =
+              who === 'site_client'
+                ? 'el cliente, un editor o un super-admin'
+                : who === 'agency_editor'
+                  ? 'un editor de agencia o un super-admin'
+                  : 'un super-admin'
+            json(res, 403, {
+              message: `Solo ${label} pueden publicar en vivo en este sitio. Envía a revisión, programa con publishAt o pide confirmación.`
+            })
+            return
           }
         }
         const result = await cmsPublishPost(site, slug, {

@@ -115,6 +115,7 @@ let onboardStep = 'basics'
 let token = localStorage.getItem('escarlet_cms_token') || ''
 let navigating = false
 let skipLocalSave = false
+let skipEditorChange = false
 let localDirty = false
 let localSaveTimer = null
 let lastSavedFingerprint = ''
@@ -181,24 +182,43 @@ function setPublishLabels(status) {
   syncScheduleButtons(status)
 }
 
+function isEditorReviewStep() {
+  return currentRoute?.view === 'entrada' && currentStep === 'revisar'
+}
+
 function syncScheduleButtons(status) {
   const isAdmin = isSuperAdminSession()
   const scheduled = status === 'pending_schedule' || status === 'scheduled'
+  const onReview = isEditorReviewStep()
   if (schedulePostBtn) {
-    schedulePostBtn.hidden = scheduled || status === 'published'
+    schedulePostBtn.hidden = !onReview || scheduled || status === 'published'
   }
   if (confirmScheduleBtn) {
-    confirmScheduleBtn.hidden = !(isAdmin && status === 'pending_schedule')
+    confirmScheduleBtn.hidden = !(onReview && isAdmin && status === 'pending_schedule')
   }
   if (cancelScheduleBtn) {
-    cancelScheduleBtn.hidden = !scheduled
+    cancelScheduleBtn.hidden = !(onReview && scheduled)
   }
   if (publishPostBtn) {
-    publishPostBtn.hidden = scheduled
+    publishPostBtn.hidden = !onReview || scheduled
   }
   if (requestChangesPostBtn) {
-    requestChangesPostBtn.hidden = !(isAgencySession() && status === 'review')
+    requestChangesPostBtn.hidden = !(onReview && isAgencySession() && status === 'review')
   }
+  syncDockMoreVisibility()
+}
+
+function syncDockMoreVisibility() {
+  const moreBtn = document.getElementById('dockMoreBtn')
+  const panel = document.getElementById('dockMorePanel')
+  if (!moreBtn) return
+  const ids = ['requestChangesPost', 'confirmSchedulePost', 'cancelSchedulePost', 'unpublishPost', 'deletePost']
+  const anyVisible = ids.some((id) => {
+    const el = document.getElementById(id)
+    return el && !el.hidden
+  })
+  moreBtn.hidden = !anyVisible
+  if (!anyVisible && panel) panel.hidden = true
 }
 
 function currentSite() {
@@ -296,13 +316,33 @@ function stateFingerprint(state) {
   return JSON.stringify({
     title: String(state?.title || '').trim(),
     slug: String(state?.slug || '').trim(),
+    authorName: String(state?.authorName || '').trim(),
+    datePublished: String(state?.datePublished || '').trim(),
+    publishAt: String(state?.publishAt || '').trim(),
+    dateModified: String(state?.dateModified || '').trim(),
+    metaTitleEs: String(state?.metaTitleEs || '').trim(),
+    metaDescriptionEs: String(state?.metaDescriptionEs || '').trim(),
     excerptEs: String(state?.excerptEs || '').trim(),
     imageUrl: String(state?.imageUrl || '').trim(),
     imageAlt: String(state?.imageAlt || '').trim(),
+    relatedSlugs: String(state?.relatedSlugs || '').trim(),
+    substackTitle: String(state?.substackTitle || '').trim(),
+    substackBody: String(state?.substackBody || '').trim(),
+    linkedin: String(state?.linkedin || '').trim(),
+    x: String(state?.x || '').trim(),
+    videoScript: String(state?.videoScript || '').trim(),
     instagramCaption: String(state?.instagramCaption || '').trim(),
     instagramSlides: slides || [],
-    bodyHtml: String(state?.bodyHtml || '').replace(/\s+/g, ' ').trim()
+    bodyHtml: normalizeBodyHtml(state?.bodyHtml)
   })
+}
+
+function normalizeBodyHtml(html) {
+  return String(html || '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/>\s+</g, '><')
+    .trim()
 }
 
 function rememberSavedState(state = collectFormState()) {
@@ -330,6 +370,9 @@ function draftLooksSaved(draft, post) {
     String(draft.title || '').trim() === String(post.title || '').trim() &&
     String(draft.slug || post.slug || '').trim() === String(post.slug || '').trim() &&
     String(draft.imageUrl || '').trim() === String(post.imageUrl || '').trim() &&
+    String(draft.imageAlt || '').trim() === String(post.imageAlt || '').trim() &&
+    String(draft.excerptEs || '').trim() === String(post.excerptEs || '').trim() &&
+    normalizeBodyHtml(draft.bodyHtml) === normalizeBodyHtml(post.bodyHtml) &&
     String(draft.instagramCaption || '').trim() === String(post.socialPack?.instagramCaption || '').trim() &&
     JSON.stringify(slides) === JSON.stringify(postSlides)
   )
@@ -402,22 +445,24 @@ function applyFormState(state) {
 
 function updateDockStatus() {
   const el = document.getElementById('editorDockStatus')
+  const discard = document.getElementById('dockDiscard')
   if (!el) return
   el.textContent = localDirty
     ? 'Hay cambios en este navegador. Guardar los envía al CMS. Publicar actualiza la web.'
     : 'Todo está en el CMS. Publicar actualiza la web.'
+  if (discard) discard.hidden = !localDirty
 }
 
 function updateDockNav() {
   const prev = document.getElementById('dockPrev')
   const next = document.getElementById('dockNext')
+  const saveBtn = document.getElementById('dockSave')
   if (currentStep === 'escribir') {
     if (prev) prev.hidden = true
     if (next) {
       next.hidden = false
       next.textContent = 'Fotos y redes'
     }
-    if (publishPostBtn) publishPostBtn.hidden = true
   } else if (currentStep === 'portada') {
     if (prev) {
       prev.hidden = false
@@ -427,17 +472,48 @@ function updateDockNav() {
       next.hidden = false
       next.textContent = 'Revisar'
     }
-    if (publishPostBtn) publishPostBtn.hidden = true
   } else {
     if (prev) {
       prev.hidden = false
       prev.textContent = 'Fotos y redes'
     }
     if (next) next.hidden = true
-    if (publishPostBtn) publishPostBtn.hidden = false
+  }
+  if (saveBtn) {
+    saveBtn.classList.toggle('btn-primary', currentStep !== 'revisar')
+    saveBtn.classList.toggle('btn-ghost', currentStep === 'revisar')
   }
   updateDockStatus()
   syncEditorLifecycleButtons(postStatusInput.value || 'draft')
+}
+
+function discardLocalChanges() {
+  const site = currentSite()
+  const slug = (editingOriginalSlug || form.slug.value || '__new__').trim() || '__new__'
+  clearLocalDraft(site, slug)
+  clearLocalDraft(site, '__new__')
+  if (editingOriginalSlug) {
+    const post = cachedPosts.find((p) => p.slug === editingOriginalSlug)
+    if (post) {
+      fillFormFields(post)
+      toast('Cambios locales descartados.')
+      return
+    }
+  }
+  editingOriginalSlug = ''
+  skipLocalSave = true
+  form.reset()
+  form.authorName.value = 'Silvia'
+  postStatusInput.value = 'draft'
+  setBodyValue('')
+  updateImagePreview()
+  renderCarouselStrip()
+  showPublishBanner('')
+  updateWorkspaceChrome()
+  skipLocalSave = false
+  armCleanAfterSave()
+  updateReviewCallout('draft')
+  toast('Cambios locales descartados.')
 }
 
 function markLocalDirty(dirty) {
@@ -779,10 +855,15 @@ function renderMediaGrid(target, items, { allowUse = false } = {}) {
     const img = document.createElement('img')
     img.alt = item.alt || ''
     img.loading = 'lazy'
-    img.src = src
+    img.src = item.thumbUrl || item.thumbPath || src
+    img.dataset.fullSrc = src
     img.title = label
     img.onclick = () => openMediaLightbox(src, item.alt || item.filename || '')
     img.onerror = () => {
+      if (img.src !== src) {
+        img.src = src
+        return
+      }
       div.classList.add('media-card--broken')
     }
     const badges = document.createElement('div')
@@ -827,8 +908,34 @@ function renderMediaGrid(target, items, { allowUse = false } = {}) {
       }
     }
     overlay.appendChild(createIconBtn({
+      className: 'icon-btn',
+      title: 'Editar texto alternativo',
+      icon: ICONS.editor,
+      onClick: async () => {
+        if (!item.id) {
+          toast('Falta el id de esta imagen.')
+          return
+        }
+        const next = window.prompt('Texto alternativo', item.alt || '')
+        if (next === null) return
+        try {
+          const site = siteFilter.value.trim() || 'escarlet'
+          await api('/api/admin/media/update-alt', {
+            method: 'POST',
+            body: JSON.stringify({ site, id: item.id, alt: next.trim() })
+          })
+          toast('Alt actualizado')
+          if (target === mediaGrid) await loadMedia()
+          else if (target === libraryGrid) await loadLibrary()
+          else await loadRefs()
+        } catch (err) {
+          toast(err.message)
+        }
+      }
+    }))
+    overlay.appendChild(createIconBtn({
       className: 'icon-btn icon-btn--danger',
-      title: 'Eliminar del archivo',
+      title: 'Eliminar de medios',
       icon: ICONS.trash,
       onClick: async () => {
         if (!item.id && !item.path && !item.url) {
@@ -885,7 +992,10 @@ function ensureBodyEditor() {
   if (bodyEditor) return bodyEditor
   bodyEditor = createToastEditor('bodyEditorMount', '420px')
   try {
-    bodyEditor.on('change', () => scheduleLocalSave())
+    bodyEditor.on('change', () => {
+      if (skipLocalSave || skipEditorChange) return
+      scheduleLocalSave()
+    })
   } catch {
     /* editor sin eventos */
   }
@@ -905,11 +1015,18 @@ function bodyValue() {
 function setBodyValue(text) {
   ensureBodyEditor()
   const raw = text || ''
-  if (bodyEditor) {
-    if (looksLikeBodyHtml(raw)) bodyEditor.setHTML(raw)
-    else bodyEditor.setMarkdown(raw)
-  } else if (bodyContent) {
-    bodyContent.value = raw
+  skipEditorChange = true
+  try {
+    if (bodyEditor) {
+      if (looksLikeBodyHtml(raw)) bodyEditor.setHTML(raw)
+      else bodyEditor.setMarkdown(raw)
+    } else if (bodyContent) {
+      bodyContent.value = raw
+    }
+  } finally {
+    setTimeout(() => {
+      skipEditorChange = false
+    }, 50)
   }
 }
 
@@ -1089,7 +1206,7 @@ function applyRoute(route) {
       } else if (view === 'calendario') {
         topbarHint.textContent = 'Qué se publica y cuándo. Confirma o cancela desde aquí.'
       } else if (view === 'media') {
-        topbarHint.textContent = 'Pulsa una foto para verla a tamaño real. El archivo guarda el original, no la miniatura.'
+        topbarHint.textContent = 'Fotos del blog. Las de marca viven en Kit de marca. Las miniaturas cargan más rápido.'
       } else if (view === 'social-pack') {
         topbarHint.textContent = 'Social Pack desde el CMS. Copia textos y abre el pack completo si lo necesitas.'
       } else if (view === 'sitio') {
@@ -1153,17 +1270,37 @@ function showStep(step) {
     loadMedia().catch((e) => toast(e.message))
   }
   if (currentStep === 'revisar') {
-    const slug = editingOriginalSlug || form.slug.value.trim()
-    updateReviewCallout(postStatusInput.value)
-    if (localDirty) {
-      previewStatus.textContent = 'La vista previa lee el CMS. Guardar primero para ver estos cambios.'
-    }
-    if (slug) showPreviewForSlug(slug)
-    else {
-      previewStatus.textContent = 'Pon título y slug. Luego Guardar. Así sale la vista previa.'
+    prepareReviewPreview().catch((e) => toast(e.message))
+  }
+}
+
+async function prepareReviewPreview() {
+  const title = form.title?.value?.trim() || ''
+  let slug = (editingOriginalSlug || form.slug.value.trim() || '').trim()
+  updateReviewCallout(postStatusInput.value)
+  if (!title && !slug) {
+    previewStatus.textContent = 'Pon un título y guarda. Así sale la vista previa.'
+    previewFrame.src = 'about:blank'
+    previewUrl.textContent = ''
+    return
+  }
+  if (localDirty || !editingOriginalSlug) {
+    if (previewStatus) previewStatus.textContent = 'Guardando para la vista previa…'
+    const saved = await persistPost({ silent: true })
+    if (!saved) {
+      if (previewStatus) {
+        previewStatus.textContent = 'No pude guardar. Corrige el formulario y vuelve a Revisar.'
+      }
       previewFrame.src = 'about:blank'
-      previewUrl.textContent = ''
+      return
     }
+    slug = (editingOriginalSlug || form.slug.value.trim() || '').trim()
+  }
+  if (slug) showPreviewForSlug(slug)
+  else {
+    previewStatus.textContent = 'Pon título y slug. Luego Guardar. Así sale la vista previa.'
+    previewFrame.src = 'about:blank'
+    previewUrl.textContent = ''
   }
 }
 
@@ -1303,9 +1440,6 @@ function showPreviewForSlug(slug, { newTab = false } = {}) {
   if (!slug) {
     toast('Pon un slug y pulsa Guardar para previsualizar')
     return
-  }
-  if (localDirty) {
-    toast('La vista previa lee el CMS. Guardar primero para ver estos cambios.')
   }
   updatePreviewStatus(slug)
   const url = buildPreviewUrl(slug)
@@ -1689,6 +1823,19 @@ document.getElementById('dockNext')?.addEventListener('click', () => {
   else if (currentStep === 'portada') goToStep('revisar')
 })
 
+document.getElementById('dockDiscard')?.addEventListener('click', () => {
+  if (!localDirty) return
+  if (!window.confirm('¿Descartar los cambios de este navegador y volver a lo guardado en el CMS?')) return
+  discardLocalChanges()
+})
+
+document.getElementById('dockMoreBtn')?.addEventListener('click', (e) => {
+  e.stopPropagation()
+  const panel = document.getElementById('dockMorePanel')
+  if (!panel) return
+  panel.hidden = !panel.hidden
+})
+
 document.getElementById('goToPortada')?.addEventListener('click', () => goToStep('portada'))
 document.getElementById('goToEscribir')?.addEventListener('click', () => goToStep('escribir'))
 document.getElementById('goToRevisar')?.addEventListener('click', () => goToStep('revisar'))
@@ -1848,30 +1995,6 @@ async function loadPosts() {
       icon: ICONS.preview,
       onClick: () => openPostWorkspace(p, 'revisar')
     }))
-    if (p.status === 'review' || p.status === 'draft') {
-      actions.appendChild(createIconBtn({
-        className: 'icon-btn icon-btn--accent',
-        title: p.status === 'review' ? 'Publicar en vivo' : 'Enviar a revisión',
-        icon: ICONS.check,
-        onClick: () => publishSlug(p.slug)
-      }))
-    }
-    if (p.status === 'pending_schedule' && isSuperAdminSession()) {
-      actions.appendChild(createIconBtn({
-        className: 'icon-btn icon-btn--accent',
-        title: 'Confirmar programación',
-        icon: ICONS.check,
-        onClick: () => confirmScheduleSlug(p.slug)
-      }))
-    }
-    if (p.status === 'pending_schedule' || p.status === 'scheduled') {
-      actions.appendChild(createIconBtn({
-        className: 'icon-btn',
-        title: 'Cancelar programación',
-        icon: ICONS.x,
-        onClick: () => cancelScheduleSlug(p.slug)
-      }))
-    }
 
     const moreWrap = document.createElement('div')
     moreWrap.className = 'more-menu'
@@ -1884,6 +2007,43 @@ async function loadPosts() {
     const menu = document.createElement('div')
     menu.className = 'more-menu-panel'
     menu.hidden = true
+
+    if (p.status === 'review' || p.status === 'draft') {
+      const pub = document.createElement('button')
+      pub.type = 'button'
+      pub.className = 'more-item'
+      pub.textContent = p.status === 'review' ? 'Publicar en vivo' : 'Enviar a revisión'
+      pub.onclick = (e) => {
+        e.stopPropagation()
+        menu.hidden = true
+        publishSlug(p.slug)
+      }
+      menu.appendChild(pub)
+    }
+    if (p.status === 'pending_schedule' && isSuperAdminSession()) {
+      const conf = document.createElement('button')
+      conf.type = 'button'
+      conf.className = 'more-item'
+      conf.textContent = 'Confirmar programación'
+      conf.onclick = (e) => {
+        e.stopPropagation()
+        menu.hidden = true
+        confirmScheduleSlug(p.slug)
+      }
+      menu.appendChild(conf)
+    }
+    if (p.status === 'pending_schedule' || p.status === 'scheduled') {
+      const cancel = document.createElement('button')
+      cancel.type = 'button'
+      cancel.className = 'more-item'
+      cancel.textContent = 'Cancelar programación'
+      cancel.onclick = (e) => {
+        e.stopPropagation()
+        menu.hidden = true
+        cancelScheduleSlug(p.slug)
+      }
+      menu.appendChild(cancel)
+    }
 
     if (p.status === 'published') {
       const unpub = document.createElement('button')
@@ -2111,11 +2271,29 @@ async function loadCalendar() {
     })
   }
   calendarGrid.innerHTML = '<p class="empty">Cargando calendario…</p>'
-  const data = await api(
-    '/api/admin/posts/calendar?' + new URLSearchParams({ site, from, to })
-  )
-  cachedCalendarPosts = data.posts || []
-  renderCalendarGrid(y, m, last, cachedCalendarPosts)
+  try {
+    const data = await api(
+      '/api/admin/posts/calendar?' + new URLSearchParams({ site, from, to })
+    )
+    cachedCalendarPosts = data.posts || []
+    renderCalendarGrid(y, m, last, cachedCalendarPosts)
+    if (!cachedCalendarPosts.length && calendarDetail) {
+      calendarDetail.hidden = false
+      calendarDetail.innerHTML =
+        '<p class="empty">Este mes no hay pendientes, programados ni publicados. Los borradores viven en Entradas.</p>'
+    } else if (calendarDetail && !cachedCalendarPosts.length) {
+      calendarDetail.hidden = true
+    }
+  } catch (err) {
+    cachedCalendarPosts = []
+    renderCalendarGrid(y, m, last, [])
+    const msg = String(err.message || 'Error al cargar el calendario')
+    if (calendarDetail) {
+      calendarDetail.hidden = false
+      calendarDetail.innerHTML = `<p class="empty">${escapeHtml(msg)}</p>`
+    }
+    toast(`Calendario. ${msg}`)
+  }
 }
 
 function renderCalendarGrid(y, m, last, posts) {
@@ -2593,19 +2771,34 @@ async function loadSocialPacks() {
     return
   }
   listEl.innerHTML = ''
+  const header = document.createElement('li')
+  header.className = 'social-pack-site-header'
+  header.innerHTML = `<div class="social-pack-site-brand">
+    <img src="/favicon.svg" alt="" width="28" height="28" />
+    <div>
+      <strong>${escapeHtml(site)}</strong>
+      <span>Social Pack · CMS</span>
+    </div>
+  </div>`
+  listEl.appendChild(header)
   for (const item of cachedSocialPacks) {
     const li = document.createElement('li')
+    li.className = 'social-pack-card-wrap'
     const btn = document.createElement('button')
     btn.type = 'button'
-    btn.className = 'social-pack-item' + (item.slug === selectedSocialPackSlug ? ' is-active' : '')
+    btn.className = 'social-pack-card' + (item.slug === selectedSocialPackSlug ? ' is-active' : '')
     const chips = Object.entries(item.channelsPresent || {})
       .filter(([, on]) => on)
       .map(([key]) => CHANNEL_LABELS[key] || key)
-    btn.innerHTML = `<div>
+    const cover = item.imageUrl
+      ? `<img class="social-pack-card-cover" src="${escapePackHtml(item.thumbUrl || item.imageUrl)}" alt="" loading="lazy" />`
+      : `<div class="social-pack-card-cover social-pack-card-cover--empty" aria-hidden="true"></div>`
+    btn.innerHTML = `${cover}
+    <div class="social-pack-card-body">
       <p class="social-pack-item-title">${escapePackHtml(item.title)}</p>
       <p class="social-pack-item-meta">${escapePackHtml(item.datePublished || '')} · ${escapePackHtml(item.status || '')}</p>
-    </div>
-    <div class="social-pack-chips">${chips.map((c) => `<span class="social-pack-chip">${escapePackHtml(c)}</span>`).join('')}</div>`
+      <div class="social-pack-chips">${chips.map((c) => `<span class="social-pack-chip">${escapePackHtml(c)}</span>`).join('')}</div>
+    </div>`
     btn.onclick = () => openSocialPackDetail(item.slug)
     li.appendChild(btn)
     listEl.appendChild(li)
@@ -2756,7 +2949,7 @@ document.getElementById('libraryUploadForm')?.addEventListener('submit', async (
     })
     document.getElementById('libraryFile').value = ''
     await loadLibrary()
-    toast('Imagen subida al archivo')
+    toast('Imagen subida a medios')
   })
 })
 
@@ -2858,16 +3051,15 @@ function renderSiteList() {
     siteList.innerHTML = '<li class="muted">Aún no hay sitios. Crea el primero con Nuevo sitio.</li>'
     return
   }
+  siteList.className = 'site-pill-list'
   siteList.innerHTML = cachedSiteHandles
     .map((handle) => {
       const isActive = handle === active
-      return `<li class="site-list-item${isActive ? ' is-active' : ''}">
-        <div class="site-list-meta">
-          <strong>${escapeHtml(handle)}</strong>
-          <span>${isActive ? 'Sitio activo ahora' : 'Clic para activar'}</span>
-        </div>
-        <button type="button" class="btn ${isActive ? '' : 'btn-primary'}" data-activate-site="${escapeHtml(handle)}" ${isActive ? 'disabled' : ''}>
-          ${isActive ? 'Activo' : 'Usar'}
+      return `<li>
+        <button type="button" class="site-pill${isActive ? ' is-active' : ''}" data-activate-site="${escapeHtml(handle)}" aria-pressed="${isActive ? 'true' : 'false'}">
+          <img src="/favicon.svg" alt="" width="18" height="18" />
+          <span>${escapeHtml(handle)}</span>
+          ${isActive ? '<em>Activo</em>' : ''}
         </button>
       </li>`
     })
@@ -3017,14 +3209,23 @@ document.getElementById('onboardNextCoolify')?.addEventListener('click', () => {
 })
 
 document.getElementById('onboardBackBasics')?.addEventListener('click', () => setOnboardStep('basics'))
-document.getElementById('onboardNextReview')?.addEventListener('click', () => setOnboardStep('review'))
+document.getElementById('onboardNextReview')?.addEventListener('click', () => {
+  if (!validateOnboardBasics()) {
+    setOnboardStep('basics')
+    return
+  }
+  setOnboardStep('review')
+})
 document.getElementById('onboardBackCoolify')?.addEventListener('click', () => setOnboardStep('coolify'))
 
 document.querySelectorAll('[data-onboard-step]').forEach((btn) => {
   btn.addEventListener('click', () => {
     const step = btn.dataset.onboardStep
     if (step === 'coolify' || step === 'review') {
-      if (!validateOnboardBasics()) return
+      if (!validateOnboardBasics()) {
+        setOnboardStep('basics')
+        return
+      }
     }
     setOnboardStep(step)
   })
@@ -3044,10 +3245,29 @@ document.getElementById('createSiteBtn')?.addEventListener('click', async () => 
     await api('/api/admin/sites', { method: 'POST', body: JSON.stringify(payload) })
     await loadSites()
     await switchSite(payload.handle)
+    const brandZip = document.getElementById('newSiteBrandZip')?.files?.[0]
+    if (brandZip) {
+      try {
+        const contentBase64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result || ''))
+          reader.onerror = () => reject(new Error('No se pudo leer el ZIP'))
+          reader.readAsDataURL(brandZip)
+        })
+        await api(`/api/admin/brand-kit/${encodeURIComponent(payload.handle)}/import-zip`, {
+          method: 'POST',
+          body: JSON.stringify({ contentBase64 })
+        })
+        toast(`Sitio ${payload.handle} creado. Brand kit importado.`)
+      } catch (err) {
+        toast(`Sitio creado. El ZIP de marca falló. ${err.message}`)
+      }
+    } else {
+      toast(`Sitio ${payload.handle} creado`)
+    }
     if (onboardDone) onboardDone.hidden = false
     btn.hidden = true
     document.getElementById('onboardBackCoolify').hidden = true
-    toast(`Sitio ${payload.handle} creado`)
   })
 })
 
@@ -3074,6 +3294,13 @@ async function loadSite() {
   if (siteHumanApproval) siteHumanApproval.checked = humanApprovalRequired
   publishConfirmationRequired = data.config?.requiresPublishConfirmation !== false
   if (sitePublishConfirmation) sitePublishConfirmation.checked = publishConfirmationRequired
+  const siteApproverRole = document.getElementById('siteApproverRole')
+  if (siteApproverRole) {
+    const role = data.config?.approverRole || 'super_admin'
+    siteApproverRole.value = ['super_admin', 'agency_editor', 'site_client'].includes(role)
+      ? role
+      : 'super_admin'
+  }
   if (siteBlogEnabled) siteBlogEnabled.checked = data.config?.blogEnabled !== false
   socialPackChannels = normalizeSocialPackChannels(data.config?.socialPackChannels)
   writeChannelCheckboxes(socialPackChannels)
@@ -3109,6 +3336,7 @@ document.getElementById('saveSite').onclick = async () => {
       requiresPublishConfirmation: sitePublishConfirmation
         ? sitePublishConfirmation.checked
         : true,
+      approverRole: document.getElementById('siteApproverRole')?.value || 'super_admin',
       blogEnabled: siteBlogEnabled ? siteBlogEnabled.checked : true,
       socialPackChannels: readChannelCheckboxes()
     }
