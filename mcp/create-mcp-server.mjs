@@ -122,8 +122,20 @@ export function buildToolList(auth) {
       annotations: { readOnlyHint: true }
     },
     {
+      name: 'blog_get_quota',
+      description:
+        'Lee cupos del plan del sitio (borradores y publicaciones del mes UTC), membresía y hosting. Solo lectura.',
+      inputSchema: {
+        type: 'object',
+        properties: { site: { type: 'string' } },
+        required: ['site']
+      },
+      annotations: { readOnlyHint: true }
+    },
+    {
       name: 'blog_create_draft',
-      description: 'Crea esqueleto de borrador NUEVO. Antes usa blog_get_brand_context. Escribe en el CMS.',
+      description:
+        'Crea esqueleto de borrador NUEVO. Antes usa blog_get_brand_context. Respeta cupos del plan (QUOTA_EXCEEDED / MEMBERSHIP_SUSPENDED). Escribe en el CMS.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -131,7 +143,8 @@ export function buildToolList(auth) {
           title: { type: 'string' },
           author: { type: 'string' },
           slug: { type: 'string' },
-          date: { type: 'string' }
+          date: { type: 'string' },
+          contentSource: { type: 'string', description: 'agency | client' }
         },
         required: ['site', 'title']
       },
@@ -551,9 +564,19 @@ export function createMcpServer(auth = { role: 'admin' }) {
           const site = resolveToolSite(auth, args)
           return textResult(await cms.getPost(site, args.slug))
         }
+        case 'blog_get_quota': {
+          const site = resolveToolSite(auth, args)
+          return textResult(cms.getQuotaSnapshot(site))
+        }
         case 'blog_create_draft': {
           const site = resolveToolSite(auth, args)
-          return textResult(await cms.createDraft({ ...args, site }))
+          return textResult(
+            await cms.createDraft({
+              ...args,
+              site,
+              contentSource: args.contentSource || (auth.role === 'client' ? 'client' : 'agency')
+            })
+          )
         }
         case 'blog_update_post': {
           const site = resolveToolSite(auth, args)

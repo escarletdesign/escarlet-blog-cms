@@ -85,7 +85,9 @@ import {
   listCalendarPosts as cmsListCalendar,
   promoteDueScheduledPosts,
   requestPostChanges as cmsRequestPostChanges,
-  applyReviewLinkAction as cmsApplyReviewLinkAction
+  applyReviewLinkAction as cmsApplyReviewLinkAction,
+  createDraft as cmsCreateDraft,
+  getQuotaSnapshot as cmsGetQuotaSnapshot
 } from './lib/cms-ops.mjs'
 import { mediaForClient, repairMediaInDb, repairPostsInDb, resolveImageSrc, resolvePostImageSrc, inspectImageBuffer } from './lib/media-url.mjs'
 import { parseMultipart, isMultipartRequest } from './lib/multipart.mjs'
@@ -967,6 +969,17 @@ const server = createServer(async (req, res) => {
       return
     }
 
+    if (isProductRestructureV1() && req.method === 'GET' && path === '/api/admin/quota') {
+      const site = siteFrom(auth, url.searchParams.get('site') || DEFAULT_SITE)
+      try {
+        assertSiteAccess(auth, site)
+        json(res, 200, cmsGetQuotaSnapshot(site))
+      } catch (err) {
+        json(res, err.status || 403, { message: err.message, ...(err.extra || {}) })
+      }
+      return
+    }
+
     if (isCmsSocialPackHostEnabled() && req.method === 'GET' && path === '/api/admin/social-pack') {
       const site = siteFrom(auth, url.searchParams.get('site') || DEFAULT_SITE)
       try {
@@ -1440,41 +1453,18 @@ const server = createServer(async (req, res) => {
       const site = siteFrom(auth, body.site || DEFAULT_SITE)
       try {
         assertSiteAccess(auth, site)
-      } catch (err) {
-        json(res, err.status || 403, { message: err.message })
-        return
+        const skipQuota = Boolean(auth.capabilities?.includes('quota:override'))
+        const result = await cmsCreateDraft({
+          ...body,
+          site,
+          skipQuota,
+          contentSource: body.contentSource || (auth.role === 'client' ? 'client' : 'agency')
+        })
+        json(res, 201, result)
+      } catch (error) {
+        const status = error.status || 500
+        json(res, status, { message: error.message, ...(error.extra || {}) })
       }
-      const siteConfig = loadSiteConfig(site)
-      const title = String(body.title || '').trim()
-      if (!title) {
-        json(res, 400, { message: 'Falta title' })
-        return
-      }
-      const slug = toSlug(body.slug || title)
-      validateSlug(slug)
-      if (findPost(db, site, slug)) {
-        json(res, 409, { message: `Ya existe slug ${slug}` })
-        return
-      }
-      const author = normalizeAuthor(body.author || body.authorName, siteConfig?.authors)
-      const date = body.date || todayIso()
-      const existingSlugs = db.posts.filter((p) => p.site === site).map((p) => p.slug)
-      const relatedSlugs = pickRelated(existingSlugs, slug, siteConfig?.seo?.relatedSlugsCount || 3)
-      const draft = buildDraftPost({
-        site,
-        slug,
-        title,
-        author,
-        date,
-        domain: siteConfig?.domain || 'https://escarlet.design',
-        relatedSlugs
-      })
-      upsertPost(db, draft)
-      writeDb(db)
-      json(res, 201, withPostLinks({
-        post: draft,
-        reminder: getBrandContext(site, { auth }).reminder
-      }, site, slug))
       return
     }
 
@@ -1577,7 +1567,10 @@ const server = createServer(async (req, res) => {
             }
           }
         }
-        const result = await cmsPublishPost(site, slug, { publishAt: body.publishAt })
+        const result = await cmsPublishPost(site, slug, {
+          publishAt: body.publishAt,
+          skipQuota: Boolean(auth.capabilities?.includes('quota:override'))
+        })
         json(res, 200, result)
       } catch (error) {
         const status = error.status || 500
