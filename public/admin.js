@@ -989,6 +989,7 @@ function parseHash() {
   if (raw === 'marca') return { view: 'marca' }
   if (raw === 'calendario') return { view: 'calendario' }
   if (raw === 'media') return { view: 'media' }
+  if (raw === 'social-pack') return { view: 'social-pack' }
   if (raw === 'sitio') return { view: 'sitio' }
   const mNew = raw.match(/^entrada\/nueva(?:\/(escribir|portada|revisar))?$/)
   if (mNew) return { view: 'entrada', slug: null, isNew: true, step: mNew[1] || 'escribir' }
@@ -1002,6 +1003,7 @@ function routeToHash(route) {
   if (route.view === 'marca') return '#/marca'
   if (route.view === 'calendario') return '#/calendario'
   if (route.view === 'media') return '#/media'
+  if (route.view === 'social-pack') return '#/social-pack'
   if (route.view === 'sitio') return '#/sitio'
   if (route.view === 'entrada') {
     const step = route.step || 'escribir'
@@ -1066,6 +1068,8 @@ function applyRoute(route) {
         topbarHint.textContent = 'Qué se publica y cuándo. Confirma o cancela desde aquí.'
       } else if (view === 'media') {
         topbarHint.textContent = 'Pulsa una foto para verla a tamaño real. El archivo guarda el original, no la miniatura.'
+      } else if (view === 'social-pack') {
+        topbarHint.textContent = 'Social Pack desde el CMS. Copia textos y abre el pack completo si lo necesitas.'
       } else if (view === 'sitio') {
         topbarHint.textContent = canCreateSites()
           ? 'Crea un sitio nuevo o ajusta dominio y webhook del activo.'
@@ -1095,6 +1099,9 @@ function applyRoute(route) {
   }
   if (view === 'media') {
     loadLibrary().catch((e) => toast(e.message))
+  }
+  if (view === 'social-pack') {
+    loadSocialPacks().catch((e) => toast(e.message))
   }
   if (view === 'sitio') {
     loadSites().catch((e) => toast(e.message))
@@ -1307,7 +1314,13 @@ function mergeAuthSession(partial = {}) {
         : Boolean(authSession?.canManageAllSites),
     capabilities: Array.isArray(partial.capabilities)
       ? partial.capabilities
-      : authSession?.capabilities || []
+      : authSession?.capabilities || [],
+    productRestructureV1:
+      typeof partial.productRestructureV1 === 'boolean'
+        ? partial.productRestructureV1
+        : Boolean(authSession?.productRestructureV1),
+    socialPackHost:
+      partial.socialPackHost || authSession?.socialPackHost || null
   }
   if (authSession.role === 'admin') {
     authSession.canCreateSites = true
@@ -1398,6 +1411,18 @@ function applyAuthUi() {
   document.querySelectorAll('[data-nav-scope="agency"]').forEach((el) => {
     el.hidden = isClient
   })
+
+  const socialPackNav = document.getElementById('navSocialPackBtn')
+  if (socialPackNav) {
+    socialPackNav.hidden = !authSession?.productRestructureV1
+  }
+  const sourceHint = document.getElementById('socialPackSourceHint')
+  if (sourceHint) {
+    sourceHint.hidden = !authSession?.productRestructureV1
+    if (authSession?.socialPackHost) {
+      sourceHint.textContent = `Fuente · ${authSession.socialPackHost === 'cms' ? 'CMS' : authSession.socialPackHost}`
+    }
+  }
 
   if (startBtn) {
     startBtn.hidden = !allowCreate
@@ -2468,6 +2493,157 @@ async function loadLibrary() {
   renderMediaGrid(libraryGrid, data.media || [], { allowUse: false })
 }
 
+const CHANNEL_LABELS = {
+  substack: 'Substack',
+  linkedin: 'LinkedIn',
+  x: 'X',
+  videoScript: 'Vídeo',
+  instagramCarousel: 'Instagram'
+}
+
+let cachedSocialPacks = []
+let selectedSocialPackSlug = null
+
+function escapePackHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+async function loadSocialPacks() {
+  const listEl = document.getElementById('socialPackList')
+  if (!listEl || !authSession?.productRestructureV1) return
+  const site = currentSite()
+  const indexLink = document.getElementById('openSocialPackIndex')
+  if (indexLink) {
+    indexLink.href = `/admin/blog-packs?site=${encodeURIComponent(site)}`
+  }
+  const data = await api('/api/admin/social-pack?' + new URLSearchParams({ site }))
+  cachedSocialPacks = data.packs || []
+  const sourceHint = document.getElementById('socialPackSourceHint')
+  if (sourceHint) {
+    sourceHint.hidden = false
+    sourceHint.textContent = `Fuente · ${(data.source || 'cms') === 'cms' ? 'CMS' : data.source}`
+  }
+  if (!cachedSocialPacks.length) {
+    listEl.innerHTML = '<li class="muted">Aún no hay Social Packs con contenido en este sitio.</li>'
+    document.getElementById('socialPackDetailCard').hidden = true
+    return
+  }
+  listEl.innerHTML = ''
+  for (const item of cachedSocialPacks) {
+    const li = document.createElement('li')
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'social-pack-item' + (item.slug === selectedSocialPackSlug ? ' is-active' : '')
+    const chips = Object.entries(item.channelsPresent || {})
+      .filter(([, on]) => on)
+      .map(([key]) => CHANNEL_LABELS[key] || key)
+    btn.innerHTML = `<div>
+      <p class="social-pack-item-title">${escapePackHtml(item.title)}</p>
+      <p class="social-pack-item-meta">${escapePackHtml(item.datePublished || '')} · ${escapePackHtml(item.status || '')}</p>
+    </div>
+    <div class="social-pack-chips">${chips.map((c) => `<span class="social-pack-chip">${escapePackHtml(c)}</span>`).join('')}</div>`
+    btn.onclick = () => openSocialPackDetail(item.slug)
+    li.appendChild(btn)
+    listEl.appendChild(li)
+  }
+  if (selectedSocialPackSlug && cachedSocialPacks.some((p) => p.slug === selectedSocialPackSlug)) {
+    await openSocialPackDetail(selectedSocialPackSlug)
+  }
+}
+
+async function openSocialPackDetail(slug) {
+  selectedSocialPackSlug = slug
+  const site = currentSite()
+  const data = await api(
+    `/api/admin/social-pack/${encodeURIComponent(slug)}?` + new URLSearchParams({ site })
+  )
+  const pack = data.pack
+  if (!pack) return toast('Pack no encontrado')
+  document.querySelectorAll('.social-pack-item').forEach((el) => {
+    el.classList.toggle('is-active', el.querySelector('.social-pack-item-title')?.textContent === pack.title)
+  })
+  const card = document.getElementById('socialPackDetailCard')
+  card.hidden = false
+  document.getElementById('socialPackDetailTitle').textContent = pack.title || slug
+  document.getElementById('socialPackDetailMeta').textContent = [
+    pack.authorName,
+    pack.datePublished,
+    pack.articleUrl
+  ]
+    .filter(Boolean)
+    .join(' · ')
+  const body = document.getElementById('socialPackDetailBody')
+  const sp = pack.socialPack || {}
+  const present = pack.channelsPresent || {}
+  const blocks = []
+  const pushField = (label, text, id) => {
+    blocks.push(`<div class="pack-field">
+      <label>${escapePackHtml(label)}</label>
+      <pre id="${escapePackHtml(id)}">${escapePackHtml(text || '')}</pre>
+      <button type="button" class="btn" data-pack-copy="${escapePackHtml(id)}">Copiar</button>
+    </div>`)
+  }
+  if (present.substack) {
+    blocks.push('<div class="pack-channel-block"><h4>Substack</h4>')
+    pushField('Título', sp.substackTitle, 'sp-substack-title')
+    pushField('Cuerpo', sp.substackBody, 'sp-substack-body')
+    blocks.push('</div>')
+  }
+  if (present.linkedin) {
+    blocks.push('<div class="pack-channel-block"><h4>LinkedIn</h4>')
+    pushField('Post', sp.linkedin, 'sp-linkedin')
+    blocks.push('</div>')
+  }
+  if (present.x) {
+    blocks.push('<div class="pack-channel-block"><h4>X</h4>')
+    pushField('Tuit', sp.x, 'sp-x')
+    blocks.push('</div>')
+  }
+  if (present.videoScript) {
+    blocks.push('<div class="pack-channel-block"><h4>Guion de vídeo</h4>')
+    pushField('Guion', sp.videoScript, 'sp-video')
+    blocks.push('</div>')
+  }
+  if (present.instagramCarousel) {
+    blocks.push('<div class="pack-channel-block"><h4>Instagram</h4>')
+    pushField('Caption', sp.instagramCaption, 'sp-ig-caption')
+    const slides = (sp.instagramSlides || [])
+      .map(
+        (slide, i) => `<figure>
+  ${slide.imageUrl ? `<img src="${escapePackHtml(slide.imageUrl)}" alt="${escapePackHtml(slide.alt || '')}" loading="lazy" />` : ''}
+  <figcaption>Slide ${i + 1}${slide.headline ? ` · ${escapePackHtml(slide.headline)}` : ''}</figcaption>
+</figure>`
+      )
+      .join('')
+    if (slides) blocks.push(`<div class="pack-slides">${slides}</div>`)
+    blocks.push('</div>')
+  }
+  blocks.push(
+    `<p><a class="btn" href="/admin/blog-packs/${encodeURIComponent(slug)}?site=${encodeURIComponent(site)}" target="_blank" rel="noopener noreferrer">Abrir pack completo</a></p>`
+  )
+  body.innerHTML = blocks.join('\n')
+  body.querySelectorAll('[data-pack-copy]').forEach((btn) => {
+    btn.onclick = async () => {
+      const el = document.getElementById(btn.getAttribute('data-pack-copy'))
+      if (!el) return
+      try {
+        await navigator.clipboard.writeText(el.textContent || '')
+        toast('Copiado')
+      } catch {
+        toast('No se pudo copiar')
+      }
+    }
+  })
+}
+
+document.getElementById('reloadSocialPacks')?.addEventListener('click', () => {
+  loadSocialPacks().catch((e) => toast(e.message))
+})
+
 document.getElementById('uploadForm').onsubmit = async (e) => {
   e.preventDefault()
   const file = document.getElementById('uploadFile').files[0]
@@ -2659,6 +2835,10 @@ async function switchSite(handle) {
   }
   if (currentRoute?.view === 'media') {
     await loadLibrary()
+  }
+  if (currentRoute?.view === 'social-pack') {
+    selectedSocialPackSlug = null
+    await loadSocialPacks()
   }
   toast(`Sitio activo. ${handle}`)
 }

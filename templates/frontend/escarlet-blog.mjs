@@ -117,7 +117,14 @@ export async function runCli(argv = process.argv.slice(2)) {
     runNode(join(runtimeDir, 'sync-blog-cms.mjs'))
   }
   if (cmd === 'packs' || cmd === 'all') {
-    runNode(join(runtimeDir, 'generate-blog-social-packs.mjs'))
+    const packsScript = join(runtimeDir, 'generate-blog-social-packs.mjs')
+    if (existsSync(packsScript)) {
+      runNode(packsScript)
+    } else {
+      console.log(
+        '[escarlet-blog] Social Pack generator ausente en runtime (CMS es canónico). Se omite Vite packs.'
+      )
+    }
   }
   if (cmd === 'pages') {
     const pages = join(landingRoot, 'scripts', 'generate-blog-pages.mjs')
