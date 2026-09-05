@@ -20,7 +20,8 @@ import {
   saveSiteConfig,
   publicSiteConfig,
   getSocialPackChannels,
-  isPublicBlogEnabled
+  isPublicBlogEnabled,
+  isAgencyGate
 } from './lib/site-config.mjs'
 import {
   getBrandContext,
@@ -37,6 +38,36 @@ import {
 } from './lib/brand-kit.mjs'
 import { validatePostSeo } from './lib/seo-validator.mjs'
 import {
+  resolveRequestAuth,
+  publicAuthSession,
+  assertSiteAccess,
+  assertSuperAdmin,
+  assertAgencyOps,
+  allowedSiteHandles,
+  canAccessSite,
+  isSuperAdmin,
+  isAgencyOrAdmin,
+  isSiteScopedRole,
+  generateSiteAccessToken,
+  publicSiteConfigForAuth,
+  extractBearerOrCookie
+} from './lib/auth.mjs'
+import {
+  createEmbedSession,
+  consumeEmbedSession,
+  sanitizeNext,
+  frameAncestorsHeader
+} from './lib/embed-session.mjs'
+import {
+  createMagicToken,
+  consumeMagicToken,
+  createSessionBearer,
+  createReviewToken,
+  consumeReviewToken
+} from './lib/access-tokens.mjs'
+import { sendMagicLinkEmail } from './lib/magic-email.mjs'
+import { isProductRestructureV1 } from './lib/product-flags.mjs'
+import {
   notifyRebuild,
   uploadMedia,
   receiveImageDrop,
@@ -52,26 +83,10 @@ import {
   confirmSchedule as cmsConfirmSchedule,
   cancelSchedule as cmsCancelSchedule,
   listCalendarPosts as cmsListCalendar,
-  promoteDueScheduledPosts
+  promoteDueScheduledPosts,
+  requestPostChanges as cmsRequestPostChanges,
+  applyReviewLinkAction as cmsApplyReviewLinkAction
 } from './lib/cms-ops.mjs'
-import {
-  resolveRequestAuth,
-  publicAuthSession,
-  assertSiteAccess,
-  assertSuperAdmin,
-  allowedSiteHandles,
-  canAccessSite,
-  isSuperAdmin,
-  generateSiteAccessToken,
-  publicSiteConfigForAuth,
-  extractBearerOrCookie
-} from './lib/auth.mjs'
-import {
-  createEmbedSession,
-  consumeEmbedSession,
-  sanitizeNext,
-  frameAncestorsHeader
-} from './lib/embed-session.mjs'
 import { mediaForClient, repairMediaInDb, repairPostsInDb, resolveImageSrc, resolvePostImageSrc, inspectImageBuffer } from './lib/media-url.mjs'
 import { parseMultipart, isMultipartRequest } from './lib/multipart.mjs'
 import { withPostLinks } from './lib/preview-url.mjs'
@@ -165,7 +180,7 @@ function requireAuth(req, url, res) {
 }
 
 function siteFrom(auth, preferred) {
-  if (auth.role === 'site') return auth.site
+  if (isSiteScopedRole(auth.role)) return auth.site
   return preferred || DEFAULT_SITE
 }
 
@@ -545,7 +560,7 @@ const server = createServer(async (req, res) => {
     const extra = {}
     if (embed && auth) {
       const domains = []
-      if (auth.role === 'site') {
+      if (isSiteScopedRole(auth.role)) {
         const cfg = loadSiteConfig(auth.site)
         if (cfg?.domain) domains.push(cfg.domain)
       } else {
@@ -575,7 +590,7 @@ const server = createServer(async (req, res) => {
       const next = sanitizeNext(body.next || body.path || '')
       const session = createEmbedSession({
         token: rawToken,
-        site: auth.role === 'site' ? auth.site : body.site || null,
+        site: isSiteScopedRole(auth.role) ? auth.site : body.site || null,
         next
       })
       const origin = absoluteCmsOrigin(req)
@@ -604,6 +619,125 @@ const server = createServer(async (req, res) => {
       'Set-Cookie': cookie,
       'Cache-Control': 'no-store'
     })
+    return
+  }
+
+  // --- Product restructure V1: magic + review links ---
+  if (isProductRestructureV1() && req.method === 'POST' && path === '/api/magic/send') {
+    try {
+      const auth = requireAuth(req, url, res)
+      if (!auth) return
+      assertAgencyOps(auth)
+      const body = await parseBody(req)
+      const site = siteFrom(auth, body.site || DEFAULT_SITE)
+      assertSiteAccess(auth, site)
+      const email = String(body.email || '').trim()
+      const role = body.role === 'agency_admin' ? 'agency_admin' : 'client'
+      const minted = createMagicToken({
+        site,
+        role,
+        email,
+        next: sanitizeNext(body.next)
+      })
+      const origin = absoluteCmsOrigin(req)
+      const link = `${origin}/api/magic/consume?token=${encodeURIComponent(minted.token)}`
+      const delivery = await sendMagicLinkEmail({ to: email, link, site })
+      json(res, 200, {
+        ok: true,
+        expiresAt: new Date(minted.expiresAt).toISOString(),
+        transport: delivery.transport,
+        // Ops paste when Resend is unset
+        link: delivery.transport === 'console' ? link : undefined
+      })
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message })
+    }
+    return
+  }
+
+  if (isProductRestructureV1() && req.method === 'GET' && path === '/api/magic/consume') {
+    const token = url.searchParams.get('token') || ''
+    const result = consumeMagicToken(token, {
+      origin: req.headers.origin,
+      host: req.headers.host
+    })
+    if (!result.ok) {
+      html(
+        res,
+        result.status || 410,
+        `<!doctype html><p>${escapeHtml(result.message || 'Enlace mágico no válido o caducado.')}</p>`
+      )
+      return
+    }
+    const bearer = createSessionBearer({
+      site: result.session.site,
+      role: result.session.role
+    })
+    const cookie = `escarlet_cms=${encodeURIComponent(bearer.token)}; Path=/; HttpOnly; SameSite=Lax`
+    const next = result.session.next || '#/entradas'
+    html(
+      res,
+      200,
+      embedBootstrapHtml({ next, site: result.session.site, token: bearer.token }),
+      { 'Set-Cookie': cookie, 'Cache-Control': 'no-store' }
+    )
+    return
+  }
+
+  if (isProductRestructureV1() && req.method === 'POST' && path === '/api/review/token') {
+    try {
+      const auth = requireAuth(req, url, res)
+      if (!auth) return
+      assertAgencyOps(auth)
+      const body = await parseBody(req)
+      const site = siteFrom(auth, body.site || DEFAULT_SITE)
+      assertSiteAccess(auth, site)
+      const slug = String(body.slug || '').trim()
+      if (!slug) {
+        json(res, 400, { message: 'Falta slug' })
+        return
+      }
+      const minted = createReviewToken({
+        site,
+        slug,
+        actions: body.actions
+      })
+      const origin = absoluteCmsOrigin(req)
+      json(res, 200, {
+        ok: true,
+        token: minted.token,
+        expiresAt: new Date(minted.expiresAt).toISOString(),
+        consumeUrl: `${origin}/api/review/consume`
+      })
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message })
+    }
+    return
+  }
+
+  if (isProductRestructureV1() && req.method === 'POST' && path === '/api/review/consume') {
+    try {
+      const body = await parseBody(req)
+      const consumed = consumeReviewToken(body.token, {
+        action: body.action,
+        rejectReason: body.rejectReason,
+        expectedSlug: body.slug,
+        origin: req.headers.origin,
+        host: req.headers.host
+      })
+      if (!consumed.ok) {
+        json(res, consumed.status || 401, { message: consumed.message || 'Review token denied' })
+        return
+      }
+      const result = await cmsApplyReviewLinkAction(consumed.site, consumed.slug, {
+        action: consumed.action,
+        rejectReason: consumed.rejectReason,
+        actor: consumed.actor
+      })
+      json(res, 200, result)
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
+    }
     return
   }
 
@@ -901,7 +1035,7 @@ const server = createServer(async (req, res) => {
       const handle = siteConfigTestMatch[1]
       try {
         assertSiteAccess(auth, handle)
-        assertSuperAdmin(auth)
+        assertAgencyOps(auth)
       } catch (err) {
         json(res, err.status || 403, { message: err.message })
         return
@@ -1025,7 +1159,7 @@ const server = createServer(async (req, res) => {
       }
       if (req.method === 'POST') {
         try {
-          assertSuperAdmin(auth)
+          assertAgencyOps(auth)
         } catch (err) {
           json(res, err.status || 403, { message: err.message })
           return
@@ -1043,6 +1177,12 @@ const server = createServer(async (req, res) => {
         }
         if (Object.prototype.hasOwnProperty.call(body, 'requiresPublishConfirmation')) {
           partial.requiresPublishConfirmation = body.requiresPublishConfirmation
+        }
+        if (Object.prototype.hasOwnProperty.call(body, 'reviewMode')) {
+          partial.reviewMode = body.reviewMode
+        }
+        if (Object.prototype.hasOwnProperty.call(body, 'planId')) {
+          partial.planId = body.planId
         }
         if (body.coolifyApiToken) partial.coolifyApiToken = body.coolifyApiToken
         if (body.clearCoolifyApiToken) partial.clearCoolifyApiToken = true
@@ -1326,24 +1466,44 @@ const server = createServer(async (req, res) => {
       const slug = body.slug
       try {
         assertSiteAccess(auth, site)
-        // Con confirmación activa, el token de sitio solo puede draft→review o programar.
-        if (!body.publishAt && !isSuperAdmin(auth)) {
+        // Con confirmación activa, client solo puede draft/changes_requested→review o programar.
+        if (!body.publishAt && !isAgencyOrAdmin(auth)) {
           const siteConfig = loadSiteConfig(site)
           if (siteConfig?.requiresPublishConfirmation !== false) {
             const dbNow = readDb()
             const existing = findPost(dbNow, site, slug)
-            const needsHuman = Boolean(siteConfig?.requiresHumanApproval)
-            const submitForReviewOnly = needsHuman && existing?.status === 'draft'
+            const needsHuman = isAgencyGate(siteConfig)
+            const submitForReviewOnly =
+              needsHuman &&
+              (existing?.status === 'draft' || existing?.status === 'changes_requested')
             if (existing && !submitForReviewOnly) {
               json(res, 403, {
                 message:
-                  'Solo el super-admin puede publicar en vivo. Programa con publishAt o espera confirmación.'
+                  'Solo agency o admin pueden publicar en vivo. Programa con publishAt o espera confirmación.'
               })
               return
             }
           }
         }
         const result = await cmsPublishPost(site, slug, { publishAt: body.publishAt })
+        json(res, 200, result)
+      } catch (error) {
+        const status = error.status || 500
+        json(res, status, { message: error.message, ...(error.extra || {}) })
+      }
+      return
+    }
+
+    if (req.method === 'POST' && path === '/api/admin/posts/request-changes') {
+      const body = await parseBody(req)
+      const site = siteFrom(auth, body.site || DEFAULT_SITE)
+      try {
+        assertSiteAccess(auth, site)
+        assertAgencyOps(auth)
+        const result = await cmsRequestPostChanges(site, body.slug, {
+          rejectReason: body.rejectReason,
+          actor: { role: auth.role }
+        })
         json(res, 200, result)
       } catch (error) {
         const status = error.status || 500

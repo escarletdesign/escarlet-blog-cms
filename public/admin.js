@@ -61,6 +61,7 @@ const toastClose = document.getElementById('toastClose')
 const siteLabel = document.getElementById('siteLabel')
 const publishBanner = document.getElementById('publishBanner')
 const publishPostBtn = document.getElementById('publishPost')
+const requestChangesPostBtn = document.getElementById('requestChangesPost')
 const schedulePostBtn = document.getElementById('schedulePost')
 const confirmScheduleBtn = document.getElementById('confirmSchedulePost')
 const cancelScheduleBtn = document.getElementById('cancelSchedulePost')
@@ -170,9 +171,11 @@ function setPublishLabels(status) {
   const label =
     status === 'review'
       ? 'Publicar en vivo'
-      : humanApprovalRequired
-        ? 'Enviar a revisión'
-        : 'Publicar en vivo'
+      : status === 'changes_requested'
+        ? 'Reenviar a revisión'
+        : humanApprovalRequired
+          ? 'Enviar a revisión'
+          : 'Publicar en vivo'
   if (publishPostBtn) publishPostBtn.textContent = label
   syncScheduleButtons(status)
 }
@@ -191,6 +194,9 @@ function syncScheduleButtons(status) {
   }
   if (publishPostBtn) {
     publishPostBtn.hidden = scheduled
+  }
+  if (requestChangesPostBtn) {
+    requestChangesPostBtn.hidden = !(isAgencySession() && status === 'review')
   }
 }
 
@@ -444,13 +450,20 @@ function scheduleLocalSave() {
   localSaveTimer = setTimeout(saveLocalDraftNow, 400)
 }
 
-function updateReviewCallout(status) {
+function updateReviewCallout(status, post = null) {
   const el = document.getElementById('reviewStatusCallout')
   if (!el) return
   if (status === 'review') {
     el.hidden = false
     el.className = 'status-callout status-callout--review'
     el.textContent = 'Esta entrada espera tu OK. Publicar en vivo la manda al blog.'
+  } else if (status === 'changes_requested') {
+    el.hidden = false
+    el.className = 'status-callout status-callout--changes'
+    const reason = String(post?.rejectReason || '').trim()
+    el.textContent = reason
+      ? `Cambios pedidos. Motivo: ${reason}`
+      : 'Cambios pedidos. Revisa el feedback y reenvía a revisión.'
   } else {
     el.hidden = true
     el.textContent = ''
@@ -1200,7 +1213,7 @@ function fillFormFields(p) {
     if (local) clearLocalDraft(currentSite(), p.slug)
     armCleanAfterSave()
   }
-  updateReviewCallout(postStatusInput.value)
+  updateReviewCallout(postStatusInput.value, p)
 }
 
 function resetFormFields() {
@@ -1291,7 +1304,10 @@ function mergeAuthSession(partial = {}) {
     canManageAllSites:
       typeof partial.canManageAllSites === 'boolean'
         ? partial.canManageAllSites
-        : Boolean(authSession?.canManageAllSites)
+        : Boolean(authSession?.canManageAllSites),
+    capabilities: Array.isArray(partial.capabilities)
+      ? partial.capabilities
+      : authSession?.capabilities || []
   }
   if (authSession.role === 'admin') {
     authSession.canCreateSites = true
@@ -1307,6 +1323,14 @@ function canCreateSites() {
 
 function isSuperAdminSession() {
   return authSession?.role === 'admin'
+}
+
+function isAgencySession() {
+  return authSession?.role === 'admin' || authSession?.role === 'agency_admin'
+}
+
+function isClientSession() {
+  return authSession?.role === 'client' || authSession?.role === 'site'
 }
 
 async function afterLogin() {
@@ -1348,6 +1372,8 @@ async function afterLogin() {
 
 function applyAuthUi() {
   const isAdmin = isSuperAdminSession()
+  const isAgency = isAgencySession()
+  const isClient = isClientSession()
   const allowCreate = canCreateSites()
   const startBtn = document.getElementById('startNewSite')
   const accessCard = document.getElementById('siteAccessCard')
@@ -1358,12 +1384,20 @@ function applyAuthUi() {
     if (isAdmin) {
       authRoleBadge.dataset.role = 'admin'
       authRoleBadge.textContent = 'Super-admin'
+    } else if (authSession?.role === 'agency_admin') {
+      const handle = authSession?.site || authSession?.sites?.[0] || 'este proyecto'
+      authRoleBadge.dataset.role = 'agency_admin'
+      authRoleBadge.textContent = `Agency · ${handle}`
     } else {
       const handle = authSession?.site || authSession?.sites?.[0] || 'este proyecto'
-      authRoleBadge.dataset.role = 'site'
-      authRoleBadge.textContent = `Acceso al sitio ${handle}`
+      authRoleBadge.dataset.role = 'client'
+      authRoleBadge.textContent = `Cliente · ${handle}`
     }
   }
+
+  document.querySelectorAll('[data-nav-scope="agency"]').forEach((el) => {
+    el.hidden = isClient
+  })
 
   if (startBtn) {
     startBtn.hidden = !allowCreate
@@ -1375,36 +1409,36 @@ function applyAuthUi() {
       : `Tu token solo gestiona ${authSession?.site || 'este sitio'}. Para crear sitios nuevos usa el token de super-admin.`
   }
   if (siteFilter) siteFilter.disabled = !isAdmin && (authSession?.sites?.length || 0) <= 1
-  // Config avanzada solo admin
+  // Ops / Coolify: agency+admin only (clients never see secrets)
   ;['siteWebhook', 'siteCoolifyToken', 'siteHumanApproval', 'sitePublishConfirmation', 'siteBlogEnabled', 'testRebuild', 'saveSite'].forEach((id) => {
     const el = document.getElementById(id)
     if (!el) return
     if (id === 'saveSite') {
-      el.hidden = !isAdmin
+      el.hidden = !isAgency
       return
     }
     if (id === 'testRebuild') {
-      el.hidden = !isAdmin
+      el.hidden = !isAgency
       return
     }
-    el.disabled = !isAdmin
+    el.disabled = !isAgency
   })
   document.querySelectorAll('#siteConfigCard .help-callout').forEach((el) => {
-    el.hidden = !isAdmin
+    el.hidden = !isAgency
   })
-  if (webhookLabel) webhookLabel.hidden = !isAdmin
-  if (siteWebhook) siteWebhook.hidden = !isAdmin
+  if (webhookLabel) webhookLabel.hidden = !isAgency
+  if (siteWebhook) siteWebhook.hidden = !isAgency
   if (siteCoolifyToken) {
-    siteCoolifyToken.hidden = !isAdmin
+    siteCoolifyToken.hidden = !isAgency
     const lab = document.querySelector('label[for="siteCoolifyToken"]')
-    if (lab) lab.hidden = !isAdmin
+    if (lab) lab.hidden = !isAgency
   }
-  if (siteTokenStatus) siteTokenStatus.hidden = !isAdmin
+  if (siteTokenStatus) siteTokenStatus.hidden = !isAgency
   if (siteHumanApproval) {
-    siteHumanApproval.closest('.checkbox-row')?.classList.toggle('is-hidden', !isAdmin)
+    siteHumanApproval.closest('.checkbox-row')?.classList.toggle('is-hidden', !isAgency)
   }
   if (sitePublishConfirmation) {
-    sitePublishConfirmation.closest('.checkbox-row')?.classList.toggle('is-hidden', !isAdmin)
+    sitePublishConfirmation.closest('.checkbox-row')?.classList.toggle('is-hidden', !isAgency)
   }
   const pubHelp = document.getElementById('sitePublishConfirmationHelp')
   if (pubHelp) pubHelp.hidden = !isAdmin
@@ -2347,6 +2381,28 @@ document.getElementById('publishPost').onclick = async () => {
     /* toast ya mostrado */
   }
 }
+
+document.getElementById('requestChangesPost')?.addEventListener('click', async () => {
+  const slug = form.slug.value.trim() || editingOriginalSlug
+  if (!slug) return toast('Guarda el post antes de pedir cambios.')
+  const rejectReason = window.prompt('Motivo de los cambios (obligatorio)')
+  if (rejectReason == null) return
+  if (!String(rejectReason).trim()) return toast('El motivo no puede estar vacío.')
+  try {
+    await withBusy(requestChangesPostBtn, async () => {
+      const data = await api('/api/admin/posts/request-changes', {
+        method: 'POST',
+        body: JSON.stringify({ site: currentSite(), slug, rejectReason })
+      })
+      toast(data.message || 'Cambios solicitados')
+      await loadPosts()
+      const post = cachedPosts.find((p) => p.slug === slug)
+      if (post) fillFormFields(post)
+    })
+  } catch {
+    /* toast */
+  }
+})
 
 document.getElementById('schedulePost')?.addEventListener('click', async () => {
   const slug = form.slug.value.trim() || editingOriginalSlug

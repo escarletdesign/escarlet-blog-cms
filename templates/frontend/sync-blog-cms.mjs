@@ -3,6 +3,11 @@
  * El CMS sirve este archivo en /runtime/v1/sync-blog-cms.mjs.
  * Las landings lo bajan con scripts/escarlet-blog.mjs. No lo copies a mano.
  *
+ * ADDITIVE-ONLY FREEZE (product-restructure):
+ * This sync merges CMS published posts into landing data. It must remain additive.
+ * Do not move HTML ownership into the CMS. Do not rewrite landing templates here.
+ * SEO HTML stays on the landing; CMS validates and stores content only.
+ *
  * Env.
  *   BLOG_CMS_URL   https://blog-cms.escarlet.cc
  *   BLOG_CMS_SITE  handle del site (ej. escarlet, mares24)

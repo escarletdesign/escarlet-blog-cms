@@ -12,7 +12,7 @@ import {
   withMediaUploadContract
 } from '../lib/media-upload-contract.mjs'
 import { openaiFileDefs, connectorFileMeta } from '../lib/openai-file.mjs'
-import { assertSiteAccess, assertSuperAdmin, allowedSiteHandles } from '../lib/auth.mjs'
+import { assertSiteAccess, assertSuperAdmin, allowedSiteHandles, isSiteScopedRole } from '../lib/auth.mjs'
 import { isSecretBrandFile } from '../lib/brand-kit.mjs'
 
 const DEFAULT_SITE = process.env.DEFAULT_SITE || 'escarlet'
@@ -50,7 +50,7 @@ function errorResult(err) {
 }
 
 function resolveToolSite(auth, args = {}) {
-  const requested = args.site || (auth?.role === 'site' ? auth.site : DEFAULT_SITE)
+  const requested = args.site || (isSiteScopedRole(auth?.role) ? auth.site : DEFAULT_SITE)
   assertSiteAccess(auth, requested)
   return requested
 }
@@ -100,7 +100,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_list_posts',
       description:
-        'Lista posts por site y status opcional (draft, review, pending_schedule, scheduled, published). Solo lectura.',
+        'Lista posts por site y status opcional (draft, review, changes_requested, pending_schedule, scheduled, published). Solo lectura.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -215,6 +215,21 @@ export function buildToolList(auth) {
         required: ['site', 'slug']
       },
       annotations: { readOnlyHint: false, openWorldHint: true, destructiveHint: false }
+    },
+    {
+      name: 'blog_request_changes',
+      description:
+        'Agency feedback: marca el post como changes_requested con rejectReason obligatorio. El cliente lo ve en admin, MCP y review link.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          site: { type: 'string' },
+          slug: { type: 'string' },
+          rejectReason: { type: 'string', description: 'Motivo no vacío para el cliente' }
+        },
+        required: ['site', 'slug', 'rejectReason']
+      },
+      annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false }
     },
     {
       name: 'blog_schedule_post',
@@ -444,7 +459,9 @@ export function buildToolList(auth) {
     }
   ]
 
-  return tools.filter((t) => !(t.adminOnly && auth?.role === 'site')).map(({ adminOnly, ...rest }) => rest)
+  return tools
+    .filter((t) => !(t.adminOnly && (auth?.role === 'site' || auth?.role === 'client')))
+    .map(({ adminOnly, ...rest }) => rest)
 }
 
 /**
@@ -466,7 +483,7 @@ export function createMcpServer(auth = { role: 'admin' }) {
     for (const site of sites) {
       for (const key of Object.keys(RESOURCE_MAP)) {
         const file = RESOURCE_MAP[key]
-        if (auth?.role === 'site' && isSecretBrandFile(file)) continue
+        if ((auth?.role === 'site' || auth?.role === 'client') && isSecretBrandFile(file)) continue
         const mimeType = file.endsWith('.json') ? 'application/json' : 'text/markdown'
         resources.push({
           uri: `brand://${site}/${key}`,
@@ -511,8 +528,8 @@ export function createMcpServer(auth = { role: 'admin' }) {
         }
         case 'blog_get_onboarding': {
           const { getOnboardingPlaybook } = await import('../lib/onboarding.mjs')
-          const handle = auth.role === 'site' ? auth.site : args.site || DEFAULT_SITE
-          if (auth.role === 'site') assertSiteAccess(auth, handle)
+          const handle = isSiteScopedRole(auth.role) ? auth.site : args.site || DEFAULT_SITE
+          if (isSiteScopedRole(auth.role)) assertSiteAccess(auth, handle)
           const base = await cms.getOnboarding(handle)
           return textResult(
             getOnboardingPlaybook({
@@ -560,6 +577,15 @@ export function createMcpServer(auth = { role: 'admin' }) {
         case 'blog_publish': {
           const site = resolveToolSite(auth, args)
           return textResult(await cms.publishPost(site, args.slug, { publishAt: args.publishAt }))
+        }
+        case 'blog_request_changes': {
+          const site = resolveToolSite(auth, args)
+          return textResult(
+            await cms.requestPostChanges(site, args.slug, {
+              rejectReason: args.rejectReason,
+              actor: { role: auth.role }
+            })
+          )
         }
         case 'blog_schedule_post': {
           const site = resolveToolSite(auth, args)

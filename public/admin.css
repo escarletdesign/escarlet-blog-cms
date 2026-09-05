@@ -945,6 +945,12 @@ a:hover { text-decoration: underline; }
   border: 1px solid #e2d4b8;
 }
 
+.status-callout--changes {
+  background: #fde8e8;
+  color: #7a1f1f;
+  border: 1px solid #e2b8b8;
+}
+
 .post-local-badge {
   display: inline-block;
   margin-left: 0.35rem;
