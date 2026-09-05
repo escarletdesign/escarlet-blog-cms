@@ -2264,3 +2264,16 @@ body.has-editor-dock .toast {
   display: block;
 }
 
+.quota-chip {
+  margin: 0.35rem 0 0;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--muted, #5c6b63);
+  max-width: 16rem;
+}
+
+.quota-chip[data-suspended='1'] {
+  color: #9b2226;
+  font-weight: 600;
+}
+

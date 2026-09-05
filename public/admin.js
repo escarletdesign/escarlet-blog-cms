@@ -84,6 +84,7 @@ const editorStatusBadge = document.getElementById('editorStatusBadge')
 const postStatusInput = document.getElementById('postStatus')
 const topbarHint = document.getElementById('topbarHint')
 const authRoleBadge = document.getElementById('authRoleBadge')
+const quotaChip = document.getElementById('quotaChip')
 
 const ONBOARD_HINTS = {
   basics: 'Paso 1 de 3. Datos básicos del proyecto.',
@@ -202,6 +203,27 @@ function syncScheduleButtons(status) {
 
 function currentSite() {
   return siteFilter?.value.trim() || 'escarlet'
+}
+
+async function loadQuotaChip() {
+  if (!quotaChip) return
+  if (!authSession?.productRestructureV1) {
+    quotaChip.hidden = true
+    return
+  }
+  const site = currentSite()
+  try {
+    const data = await api(`/api/admin/quota?site=${encodeURIComponent(site)}`)
+    const drafts = `${data.drafts?.used ?? 0}/${data.drafts?.limit ?? '—'}`
+    const pubs = `${data.publishes?.used ?? 0}/${data.publishes?.limit ?? '—'}`
+    const host = data.hosting ? 'Hosting sí' : 'Hosting no'
+    const sus = data.suspended ? ' · Suspendido' : ''
+    quotaChip.textContent = `${data.planName || data.planId} · ${drafts} borradores · ${pubs} pubs · ${host}${sus}`
+    quotaChip.hidden = false
+    quotaChip.dataset.suspended = data.suspended ? '1' : '0'
+  } catch {
+    quotaChip.hidden = true
+  }
 }
 
 function localDraftStorageKey(site, slug) {
@@ -1424,6 +1446,8 @@ function applyAuthUi() {
     }
   }
 
+  loadQuotaChip().catch(() => {})
+
   if (startBtn) {
     startBtn.hidden = !allowCreate
   }
@@ -1733,6 +1757,7 @@ async function loadPosts() {
   pruneMatchingLocalDrafts(site)
   renderReviewInbox(cachedPosts)
   renderLocalInbox()
+  loadQuotaChip().catch(() => {})
   const posts = status ? cachedPosts.filter((p) => p.status === status) : cachedPosts
   const localSlugs = new Set(
     listLocalDrafts(site).filter((item) => isMeaningfulLocalDraft(item)).map((item) => item.slug)
