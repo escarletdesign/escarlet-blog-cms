@@ -1534,42 +1534,69 @@ function showLoginError(message) {
 }
 
 async function doLogin() {
+  const emailEl = document.getElementById('loginEmail')
+  const passEl = document.getElementById('loginPassword')
+  const email = emailEl?.value.trim() || ''
+  const password = passEl?.value || ''
   const value = tokenInput.value.trim()
-  if (!value) {
-    showLoginError('Escribe el token de administración.')
-    tokenInput.focus()
-    return
-  }
 
   showLoginError('')
   enterBtn.disabled = true
 
   try {
-    token = value
-    const data = await fetch('/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token })
-    }).then(async (res) => {
-      const payload = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(payload.message || 'Token incorrecto')
-      return payload
-    })
+    let data
+    if (email && password) {
+      data = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      }).then(async (res) => {
+        const payload = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(payload.message || 'Email o contraseña incorrectos')
+        return payload
+      })
+      token = data.token
+    } else {
+      if (!value) {
+        showLoginError('Escribe el token, o email y contraseña.')
+        tokenInput.focus()
+        return
+      }
+      token = value
+      data = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token })
+      }).then(async (res) => {
+        const payload = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(payload.message || 'Token incorrecto')
+        return payload
+      })
+    }
 
     mergeAuthSession({
       role: data.role || 'admin',
       site: data.site || null,
       sites: data.sites || [],
       canCreateSites: Boolean(data.canCreateSites),
-      canManageAllSites: Boolean(data.canManageAllSites)
+      canManageAllSites: Boolean(data.canManageAllSites),
+      productRestructureV1: Boolean(data.productRestructureV1),
+      socialPackHost: data.socialPackHost,
+      capabilities: data.capabilities || []
     })
-    if (data.role === 'site' && data.site) {
+    if ((data.role === 'site' || data.role === 'client' || data.role === 'agency_admin') && data.site) {
       localStorage.setItem('escarlet_cms_site', data.site)
       if (siteFilter) siteFilter.dataset.pending = data.site
     }
     localStorage.setItem('escarlet_cms_token', token)
     await afterLogin()
-    toast(data.role === 'site' ? `Sesión del sitio ${data.site}` : 'Sesión de super-admin')
+    const label =
+      data.role === 'client' || data.role === 'site'
+        ? `Sesión del sitio ${data.site}`
+        : data.role === 'agency_admin'
+          ? `Sesión agency · ${data.site}`
+          : 'Sesión de super-admin'
+    toast(label)
   } catch (err) {
     token = ''
     localStorage.removeItem('escarlet_cms_token')
@@ -1588,6 +1615,14 @@ tokenInput.addEventListener('keydown', (event) => {
     doLogin()
   }
 })
+
+fetch('/api/auth/status')
+  .then((r) => (r.ok ? r.json() : null))
+  .then((status) => {
+    const block = document.getElementById('passwordLoginBlock')
+    if (block && status?.passwordAuth) block.hidden = false
+  })
+  .catch(() => {})
 
 document.getElementById('logout').onclick = () => {
   token = ''
