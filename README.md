@@ -93,6 +93,8 @@ BLOG_CMS_URL=http://localhost:3040 BLOG_CMS_SITE=escarlet npm run blog:sync
 Plantilla genérica. `templates/frontend/escarlet-blog.mjs` baja sync y packs desde `/runtime/v1/`.
 Build incluye sync automático. Ver [docs/ONBOARDING.md](docs/ONBOARDING.md).
 
+**WordPress.** Plugin cliente en `_plugins/escarlet-blog-client` (fuera de este repo, carpeta Escarlet `_plugins`). Sync a posts nativos + webhook + SSO al dashboard. Packs en el CMS (sin HTML estático). Sección **C2** en ONBOARDING.
+
 ## Migración (escarlet)
 
 ```bash

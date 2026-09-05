@@ -441,7 +441,7 @@
             <div class="card-head-row">
               <div>
                 <h2 class="card-title">Tus sitios</h2>
-                <p class="card-desc">Cada landing tiene su handle, dominio y webhook de Coolify.</p>
+                <p class="card-desc">Cada landing tiene su handle, dominio y webhook (Coolify o sync WordPress).</p>
               </div>
               <button type="button" class="btn btn-primary" id="startNewSite">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
@@ -561,18 +561,20 @@
             <input id="siteName" placeholder="Escarlet" />
             <label for="siteDomain">Dominio público</label>
             <input id="siteDomain" placeholder="https://escarlet.design" />
-            <label for="siteWebhook">URL de deploy (webhook)</label>
-            <input id="siteWebhook" placeholder="https://…/api/v1/deploy?uuid=…" />
+            <label for="siteWebhook">URL de rebuild / sync (webhook)</label>
+            <input id="siteWebhook" placeholder="Coolify deploy o …/wp-json/escarlet-blog/v1/sync" />
             <div class="help-callout help-callout-compact">
               <strong>Dónde está el webhook</strong>
-              <p>Coolify → app del <em>frontend</em> en producción → Webhooks → Deploy Webhook (auth required). Pega esa URL aquí.</p>
+              <p><strong>Landing Vite/SPA.</strong> Coolify → app del frontend en producción → Webhooks → Deploy Webhook (auth required).</p>
+              <p><strong>WordPress.</strong> Plugin Escarlet Blog Client → Ajustes → URL de sync (<code>/wp-json/escarlet-blog/v1/sync</code>). Los packs se usan en este CMS. WP no genera HTML de packs.</p>
             </div>
-            <label for="siteCoolifyToken">Token API de Coolify</label>
-            <input id="siteCoolifyToken" type="password" autocomplete="new-password" placeholder="Token con permiso Deploy" />
+            <label for="siteCoolifyToken">Token Bearer del webhook</label>
+            <input id="siteCoolifyToken" type="password" autocomplete="new-password" placeholder="Token Coolify Deploy o secreto del plugin WP" />
             <p class="field-help" id="siteTokenStatus"></p>
             <div class="help-callout help-callout-compact">
               <strong>Dónde está el token</strong>
-              <p>Coolify → Keys &amp; Tokens. Usa un token con permiso Deploy. Si ya hay uno guardado, deja el campo vacío para mantenerlo.</p>
+              <p><strong>Coolify.</strong> Keys &amp; Tokens con permiso Deploy. Si ya hay uno guardado, deja el campo vacío para mantenerlo.</p>
+              <p><strong>WordPress.</strong> El secreto Bearer que muestra el plugin en Ajustes.</p>
             </div>
             <fieldset class="switch-row">
               <label>

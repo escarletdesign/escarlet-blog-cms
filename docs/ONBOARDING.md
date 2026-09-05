@@ -132,6 +132,33 @@ Detalle de volumen del CMS y variables. [DEPLOY.md](./DEPLOY.md).
 
 ---
 
+## C2. WordPress (frontend alternativo)
+
+Mismo CMS. En lugar de Coolify + `escarlet-blog.mjs`, el sitio público es WordPress.
+
+Plugin. `escarlet-blog-client` en `_plugins/escarlet-blog-client` (o el ZIP que despliegues en el WP del cliente).
+
+### Qué hace el plugin
+
+| Pieza | Comportamiento |
+|-------|----------------|
+| Sync | `GET /api/sites/{handle}/posts` → entradas nativas en `/blog` |
+| Webhook | `GET/POST /wp-json/escarlet-blog/v1/sync` con Bearer. Pégalo en CMS → Sitio como webhook |
+| Panel | wp-admin → Escarlet Blog → Abrir panel Escarlet (SSO con token de sitio) |
+| Packs | Se usan en el CMS Escarlet. WordPress **no** genera `/admin/blog-packs` HTML como Vite |
+
+### Pasos
+
+1. Activa el plugin en WordPress.
+2. Escarlet Blog → Ajustes. `BLOG_CMS_URL`, handle, token de sitio (CMS → Sitio → Generar).
+3. Copia URL de webhook + secreto Bearer al CMS → Sitio. Probar webhook.
+4. Publica un post en el CMS → sync → `https://dominio/blog/{slug}`.
+5. Packs y edición. botón Abrir panel Escarlet (o la fila «Abrir pack en CMS»).
+
+SSO. El plugin llama `POST /api/embed/session` y redirige a `/api/embed/consume?code=…` (enlace de un solo uso, 5 min).
+
+---
+
 ## D. Agentes (Cursor / Hermes / ChatGPT / Claude)
 
 1. MCP apuntando al CMS (mismo para todos los sites):
@@ -189,12 +216,12 @@ Prohibido. Commitear posts al git del frontend. Usar `create_draft` para editar.
 
 - [ ] `site:init` o `blog_create_site` con handle + domain
 - [ ] Brand kit relleno + 2–4 referencias
-- [ ] Sync en prebuild del frontend
-- [ ] Env `BLOG_CMS_URL` + `BLOG_CMS_SITE` en Coolify
+- [ ] Frontend Vite. sync en prebuild + env Coolify **o** WordPress. plugin + webhook de sync
 - [ ] Webhook + token en tab Sitio (probado)
 - [ ] Interruptor Blog en la web pública encendido
-- [ ] MCP + regla `blog-via-mcp.mdc` con el handle correcto
-- [ ] Publicar post de prueba → rebuild → aparece en `/blog/{slug}`
+- [ ] MCP + regla `blog-via-mcp.mdc` con el handle correcto (landings Vite)
+- [ ] Publicar post de prueba → rebuild/sync → aparece en `/blog/{slug}`
+- [ ] Vite. pack en `/admin/blog-packs/{slug}` **o** WordPress. pack abierto desde el CMS
 
 ---
 

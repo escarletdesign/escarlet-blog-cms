@@ -63,8 +63,15 @@ import {
   canAccessSite,
   isSuperAdmin,
   generateSiteAccessToken,
-  publicSiteConfigForAuth
+  publicSiteConfigForAuth,
+  extractBearerOrCookie
 } from './lib/auth.mjs'
+import {
+  createEmbedSession,
+  consumeEmbedSession,
+  sanitizeNext,
+  frameAncestorsHeader
+} from './lib/embed-session.mjs'
 import { mediaForClient, repairMediaInDb, repairPostsInDb, resolveImageSrc, resolvePostImageSrc, inspectImageBuffer } from './lib/media-url.mjs'
 import { parseMultipart, isMultipartRequest } from './lib/multipart.mjs'
 import { withPostLinks } from './lib/preview-url.mjs'
@@ -204,7 +211,14 @@ function parseBody(req) {
   })
 }
 
-function serveStaticFile(res, filePath, contentType, method = 'GET', cacheControl = 'public, max-age=3600') {
+function serveStaticFile(
+  res,
+  filePath,
+  contentType,
+  method = 'GET',
+  cacheControl = 'public, max-age=3600',
+  extraHeaders = {}
+) {
   if (!existsSync(filePath)) {
     json(res, 404, { message: 'No encontrado' })
     return
@@ -213,7 +227,8 @@ function serveStaticFile(res, filePath, contentType, method = 'GET', cacheContro
   res.writeHead(200, {
     'Content-Type': contentType,
     'Content-Length': data.length,
-    'Cache-Control': cacheControl
+    'Cache-Control': cacheControl,
+    ...extraHeaders
   })
   if (method === 'HEAD') {
     res.end()
@@ -222,14 +237,49 @@ function serveStaticFile(res, filePath, contentType, method = 'GET', cacheContro
   res.end(data)
 }
 
-function serveAdmin(res) {
+function serveAdmin(res, extraHeaders = {}) {
   serveStaticFile(
     res,
     join(root, 'admin.html'),
     'text/html; charset=utf-8',
     'GET',
-    'no-store, no-cache, must-revalidate'
+    'no-store, no-cache, must-revalidate',
+    extraHeaders
   )
+}
+
+function absoluteCmsOrigin(req) {
+  const proto = String(req.headers['x-forwarded-proto'] || 'http').split(',')[0].trim() || 'http'
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || `localhost:${PORT}`)
+    .split(',')[0]
+    .trim()
+  return `${proto}://${host}`
+}
+
+function embedBootstrapHtml({ token, next }) {
+  const safeToken = JSON.stringify(String(token || ''))
+  const safeNext = JSON.stringify(sanitizeNext(next))
+  return `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>Entrando al CMS…</title>
+</head>
+<body>
+  <p>Abriendo el panel Escarlet…</p>
+  <script>
+    (function () {
+      var token = ${safeToken};
+      var next = ${safeNext};
+      try {
+        localStorage.setItem('escarlet_cms_token', token);
+      } catch (e) {}
+      location.replace('/admin' + (next || '#/entradas'));
+    })();
+  </script>
+</body>
+</html>`
 }
 
 function servePublic(res, filePath, contentType, cacheControl = 'public, max-age=3600') {
@@ -490,7 +540,70 @@ const server = createServer(async (req, res) => {
   }
 
   if (req.method === 'GET' && (path === '/admin' || path === '/')) {
-    serveAdmin(res)
+    const auth = resolveRequestAuth(req, url)
+    const embed = url.searchParams.get('embed') === '1'
+    const extra = {}
+    if (embed && auth) {
+      const domains = []
+      if (auth.role === 'site') {
+        const cfg = loadSiteConfig(auth.site)
+        if (cfg?.domain) domains.push(cfg.domain)
+      } else {
+        for (const handle of listSiteHandles()) {
+          const cfg = loadSiteConfig(handle)
+          if (cfg?.domain) domains.push(cfg.domain)
+        }
+      }
+      extra['Content-Security-Policy'] = frameAncestorsHeader(domains)
+    } else {
+      // Default harden unless embed=1 with a valid session cookie/token.
+      extra['Content-Security-Policy'] = "frame-ancestors 'self'"
+    }
+    serveAdmin(res, extra)
+    return
+  }
+
+  if (req.method === 'POST' && path === '/api/embed/session') {
+    try {
+      const auth = resolveRequestAuth(req, url)
+      if (!auth) {
+        json(res, 401, { message: 'No autorizado' })
+        return
+      }
+      const body = await parseBody(req)
+      const rawToken = extractBearerOrCookie(req, url)
+      const next = sanitizeNext(body.next || body.path || '')
+      const session = createEmbedSession({
+        token: rawToken,
+        site: auth.role === 'site' ? auth.site : body.site || null,
+        next
+      })
+      const origin = absoluteCmsOrigin(req)
+      const consumeUrl = `${origin}/api/embed/consume?code=${encodeURIComponent(session.code)}`
+      json(res, 200, {
+        ok: true,
+        consumeUrl,
+        expiresAt: new Date(session.expiresAt).toISOString(),
+        next: session.next
+      })
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message })
+    }
+    return
+  }
+
+  if (req.method === 'GET' && path === '/api/embed/consume') {
+    const code = url.searchParams.get('code') || ''
+    const session = consumeEmbedSession(code)
+    if (!session) {
+      html(res, 400, '<!doctype html><p>El enlace de acceso ha caducado. Vuelve a WordPress y ábrelo otra vez.</p>')
+      return
+    }
+    const cookie = `escarlet_cms=${encodeURIComponent(session.token)}; Path=/; HttpOnly; SameSite=Lax`
+    html(res, 200, embedBootstrapHtml(session), {
+      'Set-Cookie': cookie,
+      'Cache-Control': 'no-store'
+    })
     return
   }
 
