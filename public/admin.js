@@ -1324,6 +1324,7 @@ function parseHash() {
   if (raw === 'media') return { view: 'media' }
   if (raw === 'social-pack') return { view: 'social-pack' }
   if (raw === 'sitio') return { view: 'sitio' }
+  if (raw === 'usuarios') return { view: 'usuarios' }
   const mNew = raw.match(/^entrada\/nueva(?:\/(escribir|portada|revisar))?$/)
   if (mNew) return { view: 'entrada', slug: null, isNew: true, step: mNew[1] || 'escribir' }
   const m = raw.match(/^entrada\/([^/]+)(?:\/(escribir|portada|revisar))?$/)
@@ -1338,6 +1339,7 @@ function routeToHash(route) {
   if (route.view === 'media') return '#/media'
   if (route.view === 'social-pack') return '#/social-pack'
   if (route.view === 'sitio') return '#/sitio'
+  if (route.view === 'usuarios') return '#/usuarios'
   if (route.view === 'entrada') {
     const step = route.step || 'escribir'
     if (route.isNew || !route.slug) return `#/entrada/nueva/${step}`
@@ -1407,6 +1409,8 @@ function applyRoute(route) {
         topbarHint.textContent = canCreateSites()
           ? 'Crea un sitio nuevo o ajusta dominio y webhook del activo.'
           : `Ajusta el sitio ${authSession?.site || 'activo'}. Crear sitios pide token de super-admin.`
+      } else if (view === 'usuarios') {
+        topbarHint.textContent = 'Crea clientes y editores de agencia con email y contraseña para el sitio activo.'
       } else {
         topbarHint.textContent =
           'Empieza por Entradas. Abre un borrador y avanza paso a paso hasta publicar.'
@@ -1439,6 +1443,9 @@ function applyRoute(route) {
   if (view === 'sitio') {
     loadSites().catch((e) => toast(e.message))
     loadSite().catch((e) => toast(e.message))
+  }
+  if (view === 'usuarios') {
+    loadUsers().catch((e) => toast(e.message))
   }
   closeSidebar()
 }
@@ -1761,6 +1768,11 @@ function applyAuthUi() {
   document.querySelectorAll('[data-nav-scope="agency"]').forEach((el) => {
     el.hidden = isClient
   })
+
+  const usersNav = document.getElementById('navUsersBtn')
+  if (usersNav) {
+    usersNav.hidden = isClient || !authSession?.productRestructureV1
+  }
 
   const socialPackNav = document.getElementById('navSocialPackBtn')
   if (socialPackNav) {
@@ -3245,29 +3257,35 @@ function renderSiteList() {
   if (!siteList) return
   const active = siteFilter.value.trim()
   if (!cachedSiteHandles.length) {
-    siteList.innerHTML = '<li class="muted">Aún no hay sitios. Crea el primero con Nuevo sitio.</li>'
+    siteList.innerHTML = '<p class="muted">Aún no hay sitios. Crea el primero con Nuevo sitio.</p>'
     return
   }
-  siteList.className = 'site-pill-list'
+  siteList.className = 'site-switcher'
+  siteList.setAttribute('role', 'listbox')
   siteList.innerHTML = cachedSiteHandles
     .map((handle) => {
       const isActive = handle === active
-      return `<li>
-        <button type="button" class="site-pill${isActive ? ' is-active' : ''}" data-activate-site="${escapeHtml(handle)}" aria-pressed="${isActive ? 'true' : 'false'}">
-          <img src="/favicon.svg" alt="" width="18" height="18" />
-          <span>${escapeHtml(handle)}</span>
-          ${isActive ? '<em>Activo</em>' : ''}
-        </button>
-      </li>`
+      return `<button type="button" class="site-switcher-item${isActive ? ' is-active' : ''}" role="option" aria-selected="${isActive ? 'true' : 'false'}" data-activate-site="${escapeHtml(handle)}">
+        <span class="site-switcher-name">${escapeHtml(handle)}</span>
+        ${isActive ? '<span class="site-switcher-badge">Activo</span>' : ''}
+      </button>`
     })
     .join('')
   siteList.querySelectorAll('[data-activate-site]').forEach((btn) => {
-    btn.onclick = () => switchSite(btn.getAttribute('data-activate-site'))
+    btn.addEventListener('click', () => {
+      switchSite(btn.getAttribute('data-activate-site')).catch((e) => toast(e.message))
+    })
   })
 }
 
 async function switchSite(handle) {
   if (!handle) return
+  if (![...siteFilter.options].some((o) => o.value === handle)) {
+    const opt = document.createElement('option')
+    opt.value = handle
+    opt.textContent = handle
+    siteFilter.appendChild(opt)
+  }
   const changing = handle !== activeSiteHandle
   siteFilter.value = handle
   activeSiteHandle = handle
@@ -3288,6 +3306,9 @@ async function switchSite(handle) {
   if (currentRoute?.view === 'social-pack') {
     selectedSocialPackSlug = null
     await loadSocialPacks()
+  }
+  if (currentRoute?.view === 'usuarios') {
+    await loadUsers()
   }
   toast(`Sitio activo. ${handle}`)
 }
@@ -3720,6 +3741,91 @@ document.getElementById('brandZipForm')?.addEventListener('submit', async (e) =>
     await loadBrand()
     await loadRefs()
     toast('Brand kit importado')
+  })
+})
+
+function humanRoleLabel(role) {
+  if (role === 'agency_admin') return 'Editor de agencia'
+  if (role === 'client' || role === 'site') return 'Cliente'
+  if (role === 'admin') return 'Super-admin'
+  return role || '—'
+}
+
+async function loadUsers() {
+  const body = document.getElementById('usersTableBody')
+  const hint = document.getElementById('usersSiteHint')
+  const site = currentSite()
+  if (hint) hint.textContent = `Sitio. ${site}`
+  if (!body) return
+  if (!isAgencySession()) {
+    body.innerHTML = '<tr><td colspan="4" class="muted">Solo agency o super-admin pueden gestionar usuarios.</td></tr>'
+    return
+  }
+  body.innerHTML = '<tr><td colspan="4" class="muted">Cargando…</td></tr>'
+  try {
+    const data = await api('/api/auth/users?' + new URLSearchParams({ site }))
+    const users = data.users || []
+    if (!users.length) {
+      body.innerHTML = '<tr><td colspan="4" class="muted">Todavía no hay usuarios en este sitio.</td></tr>'
+      return
+    }
+    body.innerHTML = users
+      .map((u) => {
+        const roleClass = u.role === 'client' || u.role === 'site' ? ' is-client' : ''
+        const when = u.createdAt ? String(u.createdAt).slice(0, 10) : '—'
+        return `<tr>
+          <td>${escapeHtml(u.email)}</td>
+          <td><span class="user-role-pill${roleClass}">${escapeHtml(humanRoleLabel(u.role))}</span></td>
+          <td>${escapeHtml(when)}</td>
+          <td><button type="button" class="btn btn-ghost" data-delete-user="${escapeHtml(u.id)}">Eliminar</button></td>
+        </tr>`
+      })
+      .join('')
+    body.querySelectorAll('[data-delete-user]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!window.confirm('¿Eliminar este usuario?')) return
+        try {
+          await api('/api/auth/users/delete', {
+            method: 'POST',
+            body: JSON.stringify({ site: currentSite(), id: btn.getAttribute('data-delete-user') })
+          })
+          toast('Usuario eliminado')
+          await loadUsers()
+        } catch (err) {
+          toast(err.message)
+        }
+      })
+    })
+  } catch (err) {
+    body.innerHTML = `<tr><td colspan="4" class="muted">${escapeHtml(err.message || 'No se pudo cargar')}</td></tr>`
+  }
+}
+
+document.getElementById('createUserForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault()
+  const email = document.getElementById('newUserEmail')?.value.trim()
+  const role = document.getElementById('newUserRole')?.value || 'client'
+  const password = document.getElementById('newUserPassword')?.value || ''
+  const password2 = document.getElementById('newUserPassword2')?.value || ''
+  if (!email) return toast('Pon un email')
+  if (password.length < 8) return toast('La contraseña necesita al menos 8 caracteres')
+  if (password !== password2) return toast('Las contraseñas no coinciden')
+  const btn = document.getElementById('createUserBtn')
+  await withBusy(btn, 'Creando…', async () => {
+    await api('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({
+        email,
+        password,
+        role,
+        site: currentSite()
+      })
+    })
+    document.getElementById('newUserEmail').value = ''
+    document.getElementById('newUserPassword').value = ''
+    document.getElementById('newUserPassword2').value = ''
+    toast('Usuario creado')
+    await loadUsers()
   })
 })
 

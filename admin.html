@@ -7,7 +7,7 @@
   <title>Escarlet Blog CMS</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/vendor/pico.conditional.min.css" />
-  <link rel="stylesheet" href="/admin.css?v=23" />
+  <link rel="stylesheet" href="/admin.css?v=25" />
   <link rel="stylesheet" href="https://uicdn.toast.com/editor/3.2.2/toastui-editor.min.css" />
 </head>
 <body>
@@ -69,6 +69,10 @@
         <button type="button" class="nav-btn" data-route="sitio" data-nav-scope="agency">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/></svg>
           <span>Sitio</span>
+        </button>
+        <button type="button" class="nav-btn" data-route="usuarios" data-nav-scope="agency" id="navUsersBtn">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span>Usuarios</span>
         </button>
       </nav>
       <div class="sidebar-foot">
@@ -588,7 +592,7 @@
                 Nuevo sitio
               </button>
             </div>
-            <ul class="site-list" id="siteList" aria-live="polite"></ul>
+            <div class="site-switcher" id="siteList" role="listbox" aria-label="Sitios" aria-live="polite"></div>
           </div>
 
           <div class="card" id="siteOnboardCard" hidden>
@@ -730,10 +734,16 @@
           <div class="card" id="siteConfigCard">
             <h2 class="card-title">Configuración del sitio activo</h2>
             <p class="card-desc">Dominio público y aviso de rebuild cuando publicas una entrada.</p>
-            <label for="siteName">Nombre visible</label>
-            <input id="siteName" placeholder="Escarlet" />
-            <label for="siteDomain">Dominio público</label>
-            <input id="siteDomain" placeholder="https://escarlet.design" />
+            <div class="form-grid form-grid--2">
+              <div>
+                <label for="siteName">Nombre visible</label>
+                <input id="siteName" placeholder="Escarlet" />
+              </div>
+              <div>
+                <label for="siteDomain">Dominio público</label>
+                <input id="siteDomain" placeholder="https://escarlet.design" />
+              </div>
+            </div>
             <label for="siteWebhook">URL de rebuild / sync (webhook)</label>
             <input id="siteWebhook" placeholder="Coolify deploy o …/wp-json/escarlet-blog/v1/sync" />
             <div class="help-callout help-callout-compact">
@@ -741,9 +751,22 @@
               <p><strong>Landing Vite/SPA.</strong> Coolify → app del frontend en producción → Webhooks → Deploy Webhook (auth required).</p>
               <p><strong>WordPress.</strong> Plugin Escarlet Blog Client → Ajustes → URL de sync (<code>/wp-json/escarlet-blog/v1/sync</code>). Los packs se usan en este CMS. WP no genera HTML de packs.</p>
             </div>
-            <label for="siteCoolifyToken">Token Bearer del webhook</label>
-            <input id="siteCoolifyToken" type="password" autocomplete="new-password" placeholder="Token Coolify Deploy o secreto del plugin WP" />
-            <p class="field-help" id="siteTokenStatus"></p>
+            <div class="form-grid form-grid--2">
+              <div>
+                <label for="siteCoolifyToken">Token Bearer del webhook</label>
+                <input id="siteCoolifyToken" type="password" autocomplete="new-password" placeholder="Token Coolify Deploy o secreto del plugin WP" />
+                <p class="field-help" id="siteTokenStatus"></p>
+              </div>
+              <div>
+                <label for="siteApproverRole">Quién aprueba las publicaciones</label>
+                <select id="siteApproverRole">
+                  <option value="super_admin">Super-admin</option>
+                  <option value="agency_editor">Editor de agencia</option>
+                  <option value="site_client">Cliente del sitio</option>
+                </select>
+                <p class="field-help" id="sitePublishConfirmationHelp">Si la programación pide confirmación, el super-admin la valida desde el calendario.</p>
+              </div>
+            </div>
             <div class="help-callout help-callout-compact">
               <strong>Dónde está el token</strong>
               <p><strong>Coolify.</strong> Keys &amp; Tokens con permiso Deploy. Si ya hay uno guardado, deja el campo vacío para mantenerlo.</p>
@@ -766,38 +789,31 @@
                 Confirmar publicaciones programadas (super-admin)
               </label>
             </div>
-            <div class="field-narrow">
-              <label for="siteApproverRole">Quién aprueba las publicaciones</label>
-              <select id="siteApproverRole">
-                <option value="super_admin">Super-admin</option>
-                <option value="agency_editor">Editor de agencia</option>
-                <option value="site_client">Cliente del sitio</option>
-              </select>
-            </div>
-            <p class="field-help" id="sitePublishConfirmationHelp">Si está activo, un post programado queda pendiente hasta que el super-admin lo confirme.</p>
             <fieldset class="channel-fieldset">
               <legend>Canales del pack de redes</legend>
               <p class="field-help">Elige qué piezas genera el agente y muestra el pack admin de cada post.</p>
-              <label class="checkbox-row">
-                <input type="checkbox" id="channelSubstack" data-channel-key="substack" />
-                Substack
-              </label>
-              <label class="checkbox-row">
-                <input type="checkbox" id="channelLinkedin" data-channel-key="linkedin" />
-                LinkedIn
-              </label>
-              <label class="checkbox-row">
-                <input type="checkbox" id="channelX" data-channel-key="x" />
-                X
-              </label>
-              <label class="checkbox-row">
-                <input type="checkbox" id="channelVideoScript" data-channel-key="videoScript" />
-                Guion de vídeo
-              </label>
-              <label class="checkbox-row">
-                <input type="checkbox" id="channelInstagram" data-channel-key="instagramCarousel" />
-                Carrusel Instagram
-              </label>
+              <div class="channel-grid">
+                <label class="checkbox-row">
+                  <input type="checkbox" id="channelSubstack" data-channel-key="substack" />
+                  Substack
+                </label>
+                <label class="checkbox-row">
+                  <input type="checkbox" id="channelLinkedin" data-channel-key="linkedin" />
+                  LinkedIn
+                </label>
+                <label class="checkbox-row">
+                  <input type="checkbox" id="channelX" data-channel-key="x" />
+                  X
+                </label>
+                <label class="checkbox-row">
+                  <input type="checkbox" id="channelVideoScript" data-channel-key="videoScript" />
+                  Guion de vídeo
+                </label>
+                <label class="checkbox-row">
+                  <input type="checkbox" id="channelInstagram" data-channel-key="instagramCarousel" />
+                  Carrusel Instagram
+                </label>
+              </div>
             </fieldset>
             <div class="actions" id="siteAdminActions">
               <button type="button" class="btn btn-primary" id="saveSite">Guardar sitio</button>
@@ -838,6 +854,61 @@
               <p class="field-help" id="siteMcpStaticUrl">Se completa al cargar el sitio.</p>
               <p class="field-help">Autenticación OAuth. Al conectar pega el token de este sitio o el token de administración global.</p>
             </div>
+          </div>
+        </section>
+
+        <section id="panel-usuarios" class="panel" data-panel="usuarios" hidden>
+          <div class="card">
+            <h2 class="card-title">Usuarios del sitio activo</h2>
+            <p class="card-desc">Cuentas con email y contraseña. El rol Cliente redacta. El rol Editor de agencia publica y gestiona el sitio.</p>
+            <p class="inline-hint" id="usersSiteHint">Sitio. —</p>
+            <div class="user-table-wrap">
+              <table class="user-table" id="usersTable">
+                <thead>
+                  <tr>
+                    <th>Email</th>
+                    <th>Rol</th>
+                    <th>Alta</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="usersTableBody">
+                  <tr><td colspan="4" class="muted">Cargando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card">
+            <h2 class="card-title">Crear usuario</h2>
+            <p class="card-desc">Se crea en el sitio activo del topbar. El usuario entra con email y contraseña en la pantalla de acceso.</p>
+            <form id="createUserForm" class="form-stack">
+              <div class="form-grid form-grid--2">
+                <div>
+                  <label for="newUserEmail">Email</label>
+                  <input id="newUserEmail" type="email" autocomplete="off" required />
+                </div>
+                <div>
+                  <label for="newUserRole">Rol</label>
+                  <select id="newUserRole">
+                    <option value="client">Cliente</option>
+                    <option value="agency_admin">Editor de agencia</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-grid form-grid--2">
+                <div>
+                  <label for="newUserPassword">Contraseña</label>
+                  <input id="newUserPassword" type="password" autocomplete="new-password" minlength="8" required />
+                </div>
+                <div>
+                  <label for="newUserPassword2">Repetir contraseña</label>
+                  <input id="newUserPassword2" type="password" autocomplete="new-password" minlength="8" required />
+                </div>
+              </div>
+              <div class="actions">
+                <button type="submit" class="btn btn-primary" id="createUserBtn">Crear usuario</button>
+              </div>
+            </form>
           </div>
         </section>
       </div>
@@ -881,6 +952,6 @@
     <p class="media-lightbox-caption" id="mediaLightboxCaption"></p>
   </div>
 
-  <script src="/admin.js?v=23"></script>
+  <script src="/admin.js?v=25"></script>
 </body>
 </html>

@@ -79,6 +79,8 @@ import {
   isPasswordAuthEnabled,
   registerPasswordUser,
   loginPasswordUser,
+  listPasswordUsers,
+  deletePasswordUser,
   googleAuthStatus
 } from './lib/human-auth.mjs'
 import {
@@ -940,8 +942,44 @@ const server = createServer(async (req, res) => {
     try {
       assertAgencyOps(auth)
       const body = await parseBody(req)
-      const user = registerPasswordUser(body)
+      const site = siteFrom(auth, body.site || DEFAULT_SITE)
+      assertSiteAccess(auth, site)
+      const user = registerPasswordUser({ ...body, site })
       json(res, 201, { ok: true, user })
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
+    }
+    return
+  }
+
+  if (isProductRestructureV1() && req.method === 'GET' && path === '/api/auth/users') {
+    const auth = requireAuth(req, url, res)
+    if (!auth) return
+    try {
+      assertAgencyOps(auth)
+      const site = siteFrom(auth, url.searchParams.get('site') || DEFAULT_SITE)
+      assertSiteAccess(auth, site)
+      const users = listPasswordUsers({ site })
+      json(res, 200, { users, site })
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
+    }
+    return
+  }
+
+  if (isProductRestructureV1() && req.method === 'POST' && path === '/api/auth/users/delete') {
+    const auth = requireAuth(req, url, res)
+    if (!auth) return
+    try {
+      assertAgencyOps(auth)
+      const body = await parseBody(req)
+      const site = siteFrom(auth, body.site || DEFAULT_SITE)
+      assertSiteAccess(auth, site)
+      const rows = listPasswordUsers({ site })
+      const target = rows.find((u) => u.id === body.id || u.email === String(body.email || '').toLowerCase())
+      if (!target) throw Object.assign(new Error('Usuario no encontrado en este sitio'), { status: 404 })
+      const result = deletePasswordUser({ id: target.id })
+      json(res, 200, result)
     } catch (error) {
       json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
     }

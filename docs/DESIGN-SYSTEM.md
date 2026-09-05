@@ -91,3 +91,9 @@ El drop va arriba. Alt / uso / CTA debajo, sin botón full-bleed ancho de pantal
   </div>
 </form>
 ```
+
+## Formularios y sitios
+
+- Pares de campos (nombre + dominio, email + rol). `.form-grid.form-grid--2`
+- Selector de sitios en Sitio. `.site-switcher` + `.site-switcher-item` (botones, no pills)
+- Usuarios. `#panel-usuarios` + `.user-table` (solo agency con flag V1)

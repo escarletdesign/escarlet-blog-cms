@@ -14,7 +14,7 @@ Nota de continuidad (sep 2026). El change `product-restructure` (F0–F5) está 
 | Social Pack en el CMS | Sí | Canónico en CMS. La PWA Vite en la landing es legado |
 | Cupos de plan + suspend | Sí | Planes en `db.json`; gate en MCP y REST |
 | Stripe Payment Links + webhook | Código listo | Hace falta secretos + links en Stripe (ops) |
-| Email / password | Sí | Register por agency; login en admin. Google diferido |
+| Email / password | Sí | Panel **Usuarios** (agency). Roles `client` y `agency_admin`. Google diferido |
 | SEO público | Sin regresión | HTML SEO sigue en la landing; sync aditivo |
 
 **No es un SaaS self-serve cerrado.** El alta de brand kit y Payment Links sigue siendo ops (Carlos). Activar en Coolify el flag y, si cobras, Stripe.
