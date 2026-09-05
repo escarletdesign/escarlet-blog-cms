@@ -62,8 +62,27 @@ export async function validateSeo(site, slug, post) {
   return request('POST', '/api/admin/validate-seo', { site, slug, post })
 }
 
-export async function publishPost(site, slug) {
-  return request('POST', '/api/admin/posts/publish', { site, slug })
+export async function publishPost(site, slug, publishAt) {
+  return request('POST', '/api/admin/posts/publish', { site, slug, publishAt })
+}
+
+export async function schedulePost(site, slug, publishAt) {
+  return request('POST', '/api/admin/posts/schedule', { site, slug, publishAt })
+}
+
+export async function confirmSchedule(site, slug) {
+  return request('POST', '/api/admin/posts/confirm-schedule', { site, slug })
+}
+
+export async function cancelSchedule(site, slug) {
+  return request('POST', '/api/admin/posts/cancel-schedule', { site, slug })
+}
+
+export async function listCalendar(site, from, to) {
+  const q = new URLSearchParams({ site })
+  if (from) q.set('from', from)
+  if (to) q.set('to', to)
+  return request('GET', `/api/admin/posts/calendar?${q}`)
 }
 
 export async function unpublishPost(site, slug) {

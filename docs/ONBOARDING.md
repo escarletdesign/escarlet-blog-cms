@@ -162,8 +162,14 @@ Claude. Customize → Connectors → Add custom connector → URL `https://blog-
 | Acción | Tools |
 |--------|-------|
 | Crear | `blog_get_brand_context` → `blog_create_draft` → `blog_update_post` → `blog_validate_seo` → `blog_publish` |
+| Programar | Igual + `blog_schedule_post` / `blog_publish` con `publishAt` (YYYY-MM-DD). Super-admin confirma con `blog_confirm_schedule` si el sitio lo pide |
+| Calendario | Dashboard → Calendario, o `blog_list_calendar` |
 | Editar | `blog_get_post` + `blog_update_post` (mismo slug) |
 | Setup site | `blog_get_onboarding` / `blog_create_site` |
+
+**Token de cliente.** Solo toca `AGENT.md`, `keywords.md` e imágenes de referencia. La voz de marca y el image-spec quedan ocultos (super-admin).
+
+**Sitio.** Interruptor «Confirmar publicaciones programadas» (default on). Con él, un post programado espera tu OK antes de entrar en cola.
 
 Prohibido. Commitear posts al git del frontend. Usar `create_draft` para editar.
 

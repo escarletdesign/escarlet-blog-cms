@@ -7,7 +7,7 @@
   <title>Escarlet Blog CMS</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/vendor/pico.conditional.min.css" />
-  <link rel="stylesheet" href="/admin.css?v=18" />
+  <link rel="stylesheet" href="/admin.css?v=19" />
   <link rel="stylesheet" href="https://uicdn.toast.com/editor/latest/toastui-editor.min.css" />
 </head>
 <body>
@@ -43,14 +43,18 @@
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>
           <span>Entradas</span>
         </button>
+        <button type="button" class="nav-btn" data-route="calendario">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></svg>
+          <span>Calendario</span>
+        </button>
         <button type="button" class="nav-btn" data-route="media">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
           <span>Archivo</span>
         </button>
         <p class="nav-section">Ajustes</p>
-        <button type="button" class="nav-btn" data-route="marca">
+        <button type="button" class="nav-btn" data-route="marca" id="navBrandBtn">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
-          <span>Kit de marca</span>
+          <span id="navBrandLabel">Kit de marca</span>
         </button>
         <button type="button" class="nav-btn" data-route="sitio">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/></svg>
@@ -95,6 +99,8 @@
                   <option value="">Todos</option>
                   <option value="draft">Borrador</option>
                   <option value="review">En revisión</option>
+                  <option value="pending_schedule">Pendiente de confirmación</option>
+                  <option value="scheduled">Programado</option>
                   <option value="published">Publicado</option>
                 </select>
               </div>
@@ -111,6 +117,29 @@
               </button>
             </div>
             <ul class="post-list" id="list" aria-live="polite"></ul>
+          </div>
+        </section>
+
+        <section id="panel-calendario" class="panel" data-panel="calendario" hidden>
+          <div class="card">
+            <div class="card-head-row">
+              <div>
+                <h2 class="card-title">Calendario de publicación</h2>
+                <p class="card-desc">Pendientes de confirmación, programados y publicados del mes.</p>
+              </div>
+              <div class="calendar-nav">
+                <button type="button" class="btn" id="calPrevMonth" aria-label="Mes anterior">←</button>
+                <strong id="calMonthLabel">Mes</strong>
+                <button type="button" class="btn" id="calNextMonth" aria-label="Mes siguiente">→</button>
+              </div>
+            </div>
+            <div class="calendar-legend">
+              <span><i class="cal-dot pending_schedule"></i> Pendiente de confirmación</span>
+              <span><i class="cal-dot scheduled"></i> Programado</span>
+              <span><i class="cal-dot published"></i> Publicado</span>
+            </div>
+            <div class="calendar-grid" id="calendarGrid" aria-live="polite"></div>
+            <div class="calendar-detail" id="calendarDetail" hidden></div>
           </div>
         </section>
 
@@ -210,9 +239,16 @@
                 </div>
                 <div class="row">
                   <div>
-                    <label for="fieldDatePublished">Fecha de publicación</label>
+                    <label for="fieldDatePublished">Fecha editorial</label>
                     <input id="fieldDatePublished" name="datePublished" type="date" />
                   </div>
+                  <div>
+                    <label for="fieldPublishAt">Publicar el día</label>
+                    <input id="fieldPublishAt" name="publishAt" type="date" />
+                    <p class="field-help">Si eliges una fecha futura y pulsas Programar, entra en el calendario.</p>
+                  </div>
+                </div>
+                <div class="row">
                   <div>
                     <label for="fieldDateModified">Última modificación</label>
                     <input id="fieldDateModified" name="dateModified" type="date" />
@@ -344,7 +380,7 @@
         </section>
 
         <section id="panel-marca" class="panel" data-panel="marca">
-          <div class="card">
+          <div class="card" id="brandZipCard" data-super-admin-only>
             <h2 class="card-title">Importar kit (ZIP)</h2>
             <p class="card-desc">Sube un ZIP con los .md del kit, el JSON de specs de imágenes y fotos de referencia. Da igual cómo estén las carpetas. El CMS clasifica por nombre o pistas y organiza solo.</p>
             <div class="help-callout help-callout-compact">
@@ -366,14 +402,14 @@
             <pre id="brandZipResult" class="result" hidden></pre>
           </div>
           <div class="card">
-            <h2 class="card-title">Kit de marca</h2>
-            <p class="card-desc">El agente de contenido usa este kit al redactar. Puedes corregir el texto o las fotos de referencia.</p>
+            <h2 class="card-title" id="brandKitTitle">Kit de marca</h2>
+            <p class="card-desc" id="brandKitDesc">El agente de contenido usa este kit al redactar. Puedes corregir el texto o las fotos de referencia.</p>
             <label for="brandFile">Qué editas</label>
             <select id="brandFile">
-              <option value="voice.md">Voz de marca</option>
-              <option value="visual-style.md">Estilo de imágenes</option>
-              <option value="image-guide.md">Nombres y alt SEO</option>
-              <option value="image-spec.json">Spec de imágenes (JSON)</option>
+              <option value="voice.md" data-secret-brand>Voz de marca</option>
+              <option value="visual-style.md" data-secret-brand>Estilo de imágenes</option>
+              <option value="image-guide.md" data-secret-brand>Nombres y alt SEO</option>
+              <option value="image-spec.json" data-secret-brand>Spec de imágenes (JSON)</option>
               <option value="keywords.md">Keywords</option>
               <option value="AGENT.md">Reglas del agente</option>
             </select>
@@ -549,6 +585,11 @@
               <input type="checkbox" id="siteHumanApproval" />
               Pedir aprobación humana antes de publicar en vivo
             </label>
+            <label class="checkbox-row">
+              <input type="checkbox" id="sitePublishConfirmation" />
+              Confirmar publicaciones programadas (super-admin)
+            </label>
+            <p class="field-help" id="sitePublishConfirmationHelp">Si está activo, un post programado queda pendiente hasta que el super-admin lo confirme.</p>
             <fieldset class="channel-fieldset">
               <legend>Canales del pack de redes</legend>
               <p class="field-help">Elige qué piezas genera el agente y muestra el pack admin de cada post.</p>
@@ -622,6 +663,9 @@
           <button type="submit" class="btn btn-primary" id="dockSave" form="form">Guardar en el CMS</button>
           <button type="button" class="btn" id="dockNext">Siguiente</button>
           <button type="button" class="btn btn-primary" id="publishPost">Enviar a revisión</button>
+          <button type="button" class="btn" id="schedulePost">Programar</button>
+          <button type="button" class="btn" id="confirmSchedulePost" hidden>Confirmar programación</button>
+          <button type="button" class="btn btn-ghost" id="cancelSchedulePost" hidden>Cancelar programación</button>
         </div>
         <div class="editor-dock-more">
           <button type="button" class="btn btn-ghost" id="unpublishPost" hidden>Despublicar</button>
@@ -643,6 +687,6 @@
     <p class="media-lightbox-caption" id="mediaLightboxCaption"></p>
   </div>
 
-  <script src="/admin.js?v=18"></script>
+  <script src="/admin.js?v=19"></script>
 </body>
 </html>

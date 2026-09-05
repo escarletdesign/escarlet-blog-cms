@@ -12,6 +12,8 @@ const ICONS = {
 const STATUS_LABELS = {
   draft: 'Borrador',
   review: 'En revisión',
+  pending_schedule: 'Pendiente de confirmación',
+  scheduled: 'Programado',
   published: 'Publicado'
 }
 
@@ -44,6 +46,7 @@ const siteCoolifyToken = document.getElementById('siteCoolifyToken')
 const siteTokenStatus = document.getElementById('siteTokenStatus')
 const rebuildResult = document.getElementById('rebuildResult')
 const siteHumanApproval = document.getElementById('siteHumanApproval')
+const sitePublishConfirmation = document.getElementById('sitePublishConfirmation')
 const siteBlogEnabled = document.getElementById('siteBlogEnabled')
 const siteList = document.getElementById('siteList')
 const siteListCard = document.getElementById('siteListCard')
@@ -58,6 +61,12 @@ const toastClose = document.getElementById('toastClose')
 const siteLabel = document.getElementById('siteLabel')
 const publishBanner = document.getElementById('publishBanner')
 const publishPostBtn = document.getElementById('publishPost')
+const schedulePostBtn = document.getElementById('schedulePost')
+const confirmScheduleBtn = document.getElementById('confirmSchedulePost')
+const cancelScheduleBtn = document.getElementById('cancelSchedulePost')
+const calendarGrid = document.getElementById('calendarGrid')
+const calendarDetail = document.getElementById('calendarDetail')
+const calMonthLabel = document.getElementById('calMonthLabel')
 const loginError = document.getElementById('loginError')
 const enterBtn = document.getElementById('enter')
 const previewStatus = document.getElementById('previewStatus')
@@ -87,6 +96,9 @@ let cachedSiteHandles = []
 let activeSiteHandle = ''
 let authSession = { role: 'admin', canCreateSites: true, canManageAllSites: true, sites: [] }
 let humanApprovalRequired = true
+let publishConfirmationRequired = true
+let calendarCursor = new Date()
+let cachedCalendarPosts = []
 let socialPackChannels = {
   substack: true,
   linkedin: true,
@@ -162,6 +174,24 @@ function setPublishLabels(status) {
         ? 'Enviar a revisión'
         : 'Publicar en vivo'
   if (publishPostBtn) publishPostBtn.textContent = label
+  syncScheduleButtons(status)
+}
+
+function syncScheduleButtons(status) {
+  const isAdmin = isSuperAdminSession()
+  const scheduled = status === 'pending_schedule' || status === 'scheduled'
+  if (schedulePostBtn) {
+    schedulePostBtn.hidden = scheduled || status === 'published'
+  }
+  if (confirmScheduleBtn) {
+    confirmScheduleBtn.hidden = !(isAdmin && status === 'pending_schedule')
+  }
+  if (cancelScheduleBtn) {
+    cancelScheduleBtn.hidden = !scheduled
+  }
+  if (publishPostBtn) {
+    publishPostBtn.hidden = scheduled
+  }
 }
 
 function currentSite() {
@@ -214,6 +244,7 @@ function collectFormState() {
     authorName: form.authorName.value,
     status: postStatusInput.value,
     datePublished: form.datePublished.value,
+    publishAt: form.publishAt?.value || '',
     dateModified: form.dateModified.value,
     metaTitleEs: form.metaTitleEs.value,
     metaDescriptionEs: form.metaDescriptionEs.value,
@@ -312,6 +343,7 @@ function applyFormState(state) {
     form.authorName.value = state.authorName || 'Silvia'
     postStatusInput.value = state.status || 'draft'
     form.datePublished.value = state.datePublished || ''
+    if (form.publishAt) form.publishAt.value = state.publishAt || ''
     form.dateModified.value = state.dateModified || ''
     form.metaTitleEs.value = state.metaTitleEs || ''
     form.metaDescriptionEs.value = state.metaDescriptionEs || ''
@@ -942,6 +974,7 @@ function parseHash() {
   const raw = (location.hash || '').replace(/^#\/?/, '').trim()
   if (!raw || raw === 'entradas') return { view: 'entradas' }
   if (raw === 'marca') return { view: 'marca' }
+  if (raw === 'calendario') return { view: 'calendario' }
   if (raw === 'media') return { view: 'media' }
   if (raw === 'sitio') return { view: 'sitio' }
   const mNew = raw.match(/^entrada\/nueva(?:\/(escribir|portada|revisar))?$/)
@@ -954,6 +987,7 @@ function parseHash() {
 function routeToHash(route) {
   if (!route || route.view === 'entradas') return '#/entradas'
   if (route.view === 'marca') return '#/marca'
+  if (route.view === 'calendario') return '#/calendario'
   if (route.view === 'media') return '#/media'
   if (route.view === 'sitio') return '#/sitio'
   if (route.view === 'entrada') {
@@ -1012,7 +1046,11 @@ function applyRoute(route) {
     }
     if (topbarHint) {
       if (view === 'marca') {
-        topbarHint.textContent = 'Textos y referencias que usa el agente al crear contenido.'
+        topbarHint.textContent = isSuperAdminSession()
+          ? 'Textos y referencias que usa el agente al crear contenido.'
+          : 'Reglas del agente y keywords. La voz de marca queda solo para Escarlet.'
+      } else if (view === 'calendario') {
+        topbarHint.textContent = 'Qué se publica y cuándo. Confirma o cancela desde aquí.'
       } else if (view === 'media') {
         topbarHint.textContent = 'Pulsa una foto para verla a tamaño real. El archivo guarda el original, no la miniatura.'
       } else if (view === 'sitio') {
@@ -1038,6 +1076,9 @@ function applyRoute(route) {
   if (view === 'marca') {
     loadBrand().catch((e) => toast(e.message))
     loadRefs().catch((e) => toast(e.message))
+  }
+  if (view === 'calendario') {
+    loadCalendar().catch((e) => toast(e.message))
   }
   if (view === 'media') {
     loadLibrary().catch((e) => toast(e.message))
@@ -1122,6 +1163,7 @@ function fillFormFields(p) {
   form.authorName.value = p.authorName || 'Silvia'
   postStatusInput.value = p.status || 'draft'
   form.datePublished.value = p.datePublished || ''
+  if (form.publishAt) form.publishAt.value = p.publishAt || ''
   form.dateModified.value = p.dateModified || ''
   form.metaTitleEs.value = p.metaTitle?.es || ''
   form.metaDescriptionEs.value = p.metaDescription?.es || ''
@@ -1334,7 +1376,7 @@ function applyAuthUi() {
   }
   if (siteFilter) siteFilter.disabled = !isAdmin && (authSession?.sites?.length || 0) <= 1
   // Config avanzada solo admin
-  ;['siteWebhook', 'siteCoolifyToken', 'siteHumanApproval', 'siteBlogEnabled', 'testRebuild', 'saveSite'].forEach((id) => {
+  ;['siteWebhook', 'siteCoolifyToken', 'siteHumanApproval', 'sitePublishConfirmation', 'siteBlogEnabled', 'testRebuild', 'saveSite'].forEach((id) => {
     const el = document.getElementById(id)
     if (!el) return
     if (id === 'saveSite') {
@@ -1361,8 +1403,40 @@ function applyAuthUi() {
   if (siteHumanApproval) {
     siteHumanApproval.closest('.checkbox-row')?.classList.toggle('is-hidden', !isAdmin)
   }
+  if (sitePublishConfirmation) {
+    sitePublishConfirmation.closest('.checkbox-row')?.classList.toggle('is-hidden', !isAdmin)
+  }
+  const pubHelp = document.getElementById('sitePublishConfirmationHelp')
+  if (pubHelp) pubHelp.hidden = !isAdmin
   if (siteBlogEnabled) {
     siteBlogEnabled.closest('.switch-row')?.classList.toggle('is-hidden', !isAdmin)
+  }
+
+  // Brand kit. clientes solo AGENT.md + keywords + referencias.
+  const brandLabel = document.getElementById('navBrandLabel')
+  if (brandLabel) brandLabel.textContent = isAdmin ? 'Kit de marca' : 'Reglas del agente'
+  const brandTitle = document.getElementById('brandKitTitle')
+  if (brandTitle) brandTitle.textContent = isAdmin ? 'Kit de marca' : 'Reglas del agente'
+  const brandDesc = document.getElementById('brandKitDesc')
+  if (brandDesc) {
+    brandDesc.textContent = isAdmin
+      ? 'El agente de contenido usa este kit al redactar. Puedes corregir el texto o las fotos de referencia.'
+      : 'Ajusta AGENT.md y keywords. La voz de marca y el image-spec son privados de Escarlet.'
+  }
+  document.querySelectorAll('[data-super-admin-only]').forEach((el) => {
+    el.hidden = !isAdmin
+  })
+  if (brandFile) {
+    const options = [...brandFile.options]
+    for (const opt of options) {
+      const secret = opt.hasAttribute('data-secret-brand')
+      opt.hidden = secret && !isAdmin
+      opt.disabled = secret && !isAdmin
+    }
+    const selected = brandFile.selectedOptions[0]
+    if (selected?.disabled) {
+      brandFile.value = 'AGENT.md'
+    }
   }
 }
 
@@ -1627,7 +1701,11 @@ async function loadPosts() {
     const statusHint =
       p.status === 'review'
         ? '<div class="post-meta">Pendiente de publicar en vivo</div>'
-        : ''
+        : p.status === 'pending_schedule'
+          ? `<div class="post-meta">Espera confirmación · ${escapeHtml(p.publishAt || '')}</div>`
+          : p.status === 'scheduled'
+            ? `<div class="post-meta">Se publica el ${escapeHtml(p.publishAt || '')}</div>`
+            : ''
     const localHint = localSlugs.has(p.slug)
       ? '<span class="post-local-badge">En este navegador</span>'
       : ''
@@ -1657,6 +1735,22 @@ async function loadPosts() {
         title: p.status === 'review' ? 'Publicar en vivo' : 'Enviar a revisión',
         icon: ICONS.check,
         onClick: () => publishSlug(p.slug)
+      }))
+    }
+    if (p.status === 'pending_schedule' && isSuperAdminSession()) {
+      actions.appendChild(createIconBtn({
+        className: 'icon-btn icon-btn--accent',
+        title: 'Confirmar programación',
+        icon: ICONS.check,
+        onClick: () => confirmScheduleSlug(p.slug)
+      }))
+    }
+    if (p.status === 'pending_schedule' || p.status === 'scheduled') {
+      actions.appendChild(createIconBtn({
+        className: 'icon-btn',
+        title: 'Cancelar programación',
+        icon: ICONS.x,
+        onClick: () => cancelScheduleSlug(p.slug)
       }))
     }
 
@@ -1727,6 +1821,7 @@ function syncEditorLifecycleButtons(status) {
   const deleteBtn = document.getElementById('deletePost')
   if (unpublishBtn) unpublishBtn.hidden = !(editingOriginalSlug && status === 'published')
   if (deleteBtn) deleteBtn.hidden = !editingOriginalSlug
+  syncScheduleButtons(status)
 }
 
 document.getElementById('unpublishPost')?.addEventListener('click', () => {
@@ -1768,23 +1863,30 @@ async function publishSlug(slug) {
     const msg = data.submittedForReview
       ? (data.message ||
         'Enviado a revisión. En Entradas aparece como En revisión. Cuando esté listo, pulsa Publicar en vivo.')
-      : data.rebuild
-        ? (data.rebuild.ok
-          ? 'Publicado en vivo. Rebuild del sitio disparado.'
-          : `Publicado en vivo. El rebuild falló. ${data.rebuild.message || ''}`)
-        : (data.message || 'Publicado en vivo')
+      : data.pendingConfirmation || data.scheduled
+        ? (data.message || 'Programado.')
+        : data.rebuild
+          ? (data.rebuild.ok
+            ? 'Publicado en vivo. Rebuild del sitio disparado.'
+            : `Publicado en vivo. El rebuild falló. ${data.rebuild.message || ''}`)
+          : (data.message || 'Publicado en vivo')
     toast(msg, { sticky: Boolean(data.submittedForReview), duration: data.submittedForReview ? 0 : 12000 })
     if (currentStep === 'revisar') {
-      showPublishBanner(msg, data.submittedForReview ? 'review' : data.published ? 'ok' : 'info')
+      showPublishBanner(
+        msg,
+        data.submittedForReview || data.pendingConfirmation
+          ? 'review'
+          : data.published
+            ? 'ok'
+            : 'info'
+      )
     }
     await loadPosts()
     const updated = cachedPosts.find((p) => p.slug === slug)
     if (updated) {
       postStatusInput.value = updated.status
+      if (form.publishAt) form.publishAt.value = updated.publishAt || ''
       updateWorkspaceChrome()
-      if (editingOriginalSlug === slug || form.slug.value === slug) {
-        // keep form in sync
-      }
     }
     if (currentStep === 'revisar' || currentRoute.view === 'entrada') showPreviewForSlug(slug)
     return data
@@ -1793,6 +1895,216 @@ async function publishSlug(slug) {
     if (currentStep === 'revisar') showPublishBanner(err.message, 'error')
     throw err
   }
+}
+
+async function scheduleSlug(slug, publishAt) {
+  const site = siteFilter.value.trim() || 'escarlet'
+  const day = String(publishAt || form.publishAt?.value || '').trim()
+  if (!day) return toast('Elige la fecha en «Publicar el día».')
+  try {
+    const data = await withBusy(schedulePostBtn, 'Programando…', () =>
+      api('/api/admin/posts/schedule', {
+        method: 'POST',
+        body: JSON.stringify({ site, slug, publishAt: day })
+      })
+    )
+    toast(data.message || `Programado para ${day}`)
+    await loadPosts()
+    const updated = cachedPosts.find((p) => p.slug === slug)
+    if (updated) {
+      postStatusInput.value = updated.status
+      if (form.publishAt) form.publishAt.value = updated.publishAt || day
+      updateWorkspaceChrome()
+    }
+    return data
+  } catch (err) {
+    toast(err.message, { duration: 12000 })
+    throw err
+  }
+}
+
+async function confirmScheduleSlug(slug) {
+  const site = siteFilter.value.trim() || 'escarlet'
+  try {
+    const data = await withBusy(confirmScheduleBtn, 'Confirmando…', () =>
+      api('/api/admin/posts/confirm-schedule', {
+        method: 'POST',
+        body: JSON.stringify({ site, slug })
+      })
+    )
+    toast(data.message || 'Programación confirmada')
+    await loadPosts()
+    const updated = cachedPosts.find((p) => p.slug === slug)
+    if (updated) {
+      postStatusInput.value = updated.status
+      updateWorkspaceChrome()
+    }
+    if (currentRoute.view === 'calendario') await loadCalendar()
+    return data
+  } catch (err) {
+    toast(err.message)
+    throw err
+  }
+}
+
+async function cancelScheduleSlug(slug) {
+  const site = siteFilter.value.trim() || 'escarlet'
+  try {
+    const data = await withBusy(cancelScheduleBtn, 'Cancelando…', () =>
+      api('/api/admin/posts/cancel-schedule', {
+        method: 'POST',
+        body: JSON.stringify({ site, slug })
+      })
+    )
+    toast(data.message || 'Programación cancelada')
+    await loadPosts()
+    const updated = cachedPosts.find((p) => p.slug === slug)
+    if (updated) {
+      postStatusInput.value = updated.status
+      if (form.publishAt) form.publishAt.value = ''
+      updateWorkspaceChrome()
+    }
+    if (currentRoute.view === 'calendario') await loadCalendar()
+    return data
+  } catch (err) {
+    toast(err.message)
+    throw err
+  }
+}
+
+function monthBounds(cursor = calendarCursor) {
+  const y = cursor.getFullYear()
+  const m = cursor.getMonth()
+  const from = `${y}-${String(m + 1).padStart(2, '0')}-01`
+  const last = new Date(y, m + 1, 0).getDate()
+  const to = `${y}-${String(m + 1).padStart(2, '0')}-${String(last).padStart(2, '0')}`
+  return { from, to, y, m, last }
+}
+
+async function loadCalendar() {
+  if (!calendarGrid) return
+  const site = currentSite()
+  const { from, to, y, m, last } = monthBounds()
+  if (calMonthLabel) {
+    calMonthLabel.textContent = new Date(y, m, 1).toLocaleDateString('es-ES', {
+      month: 'long',
+      year: 'numeric'
+    })
+  }
+  calendarGrid.innerHTML = '<p class="empty">Cargando calendario…</p>'
+  const data = await api(
+    '/api/admin/posts/calendar?' + new URLSearchParams({ site, from, to })
+  )
+  cachedCalendarPosts = data.posts || []
+  renderCalendarGrid(y, m, last, cachedCalendarPosts)
+}
+
+function renderCalendarGrid(y, m, last, posts) {
+  if (!calendarGrid) return
+  const byDay = new Map()
+  for (const p of posts) {
+    const day = String(p.calendarDate || '').slice(0, 10)
+    if (!day) continue
+    if (!byDay.has(day)) byDay.set(day, [])
+    byDay.get(day).push(p)
+  }
+  const startWeekday = new Date(y, m, 1).getDay()
+  const offset = (startWeekday + 6) % 7
+  const weekdays = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+  const parts = ['<div class="calendar-weekdays">']
+  for (const w of weekdays) parts.push(`<span>${w}</span>`)
+  parts.push('</div><div class="calendar-days">')
+  for (let i = 0; i < offset; i += 1) parts.push('<div class="calendar-cell is-empty"></div>')
+  for (let d = 1; d <= last; d += 1) {
+    const day = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+    const items = byDay.get(day) || []
+    const chips = items
+      .slice(0, 3)
+      .map(
+        (p) =>
+          `<button type="button" class="cal-chip ${p.status}" data-slug="${escapeHtml(p.slug)}" title="${escapeHtml(p.title)}">${escapeHtml(p.title)}</button>`
+      )
+      .join('')
+    const more =
+      items.length > 3 ? `<span class="cal-more">+${items.length - 3}</span>` : ''
+    parts.push(
+      `<div class="calendar-cell" data-day="${day}"><span class="cal-daynum">${d}</span><div class="cal-chips">${chips}${more}</div></div>`
+    )
+  }
+  parts.push('</div>')
+  calendarGrid.innerHTML = parts.join('')
+  calendarGrid.querySelectorAll('.cal-chip').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      const slug = btn.dataset.slug
+      const post = cachedCalendarPosts.find((p) => p.slug === slug)
+      showCalendarDetail(post)
+    })
+  })
+  calendarGrid.querySelectorAll('.calendar-cell[data-day]').forEach((cell) => {
+    cell.addEventListener('click', () => {
+      const day = cell.dataset.day
+      const items = cachedCalendarPosts.filter((p) => p.calendarDate === day)
+      if (items.length === 1) showCalendarDetail(items[0])
+      else if (items.length > 1) showCalendarDayList(day, items)
+      else if (calendarDetail) calendarDetail.hidden = true
+    })
+  })
+}
+
+function showCalendarDayList(day, items) {
+  if (!calendarDetail) return
+  calendarDetail.hidden = false
+  calendarDetail.innerHTML = `
+    <h3 class="card-title">${escapeHtml(day)}</h3>
+    <ul class="calendar-day-list">
+      ${items
+        .map(
+          (p) =>
+            `<li><button type="button" class="btn btn-ghost cal-open" data-slug="${escapeHtml(p.slug)}"><span class="badge ${p.status}">${statusLabel(p.status)}</span> ${escapeHtml(p.title)}</button></li>`
+        )
+        .join('')}
+    </ul>`
+  calendarDetail.querySelectorAll('.cal-open').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const post = cachedCalendarPosts.find((p) => p.slug === btn.dataset.slug)
+      showCalendarDetail(post)
+    })
+  })
+}
+
+function showCalendarDetail(post) {
+  if (!calendarDetail || !post) return
+  calendarDetail.hidden = false
+  const isAdmin = isSuperAdminSession()
+  const actions = []
+  actions.push(
+    `<button type="button" class="btn btn-primary" id="calOpenPost">Abrir entrada</button>`
+  )
+  if (post.status === 'pending_schedule' && isAdmin) {
+    actions.push(
+      `<button type="button" class="btn" id="calConfirm">Confirmar</button>`
+    )
+  }
+  if (post.status === 'pending_schedule' || post.status === 'scheduled') {
+    actions.push(
+      `<button type="button" class="btn btn-ghost" id="calCancel">Cancelar programación</button>`
+    )
+  }
+  calendarDetail.innerHTML = `
+    <h3 class="card-title">${escapeHtml(post.title)}</h3>
+    <p><span class="badge ${post.status}">${statusLabel(post.status)}</span> · ${escapeHtml(post.calendarDate || '')}</p>
+    <p class="post-meta">${escapeHtml(post.slug)}</p>
+    <div class="actions">${actions.join('')}</div>`
+  document.getElementById('calOpenPost')?.addEventListener('click', () => {
+    openPostWorkspace(post, 'escribir')
+  })
+  document.getElementById('calConfirm')?.addEventListener('click', () => {
+    confirmScheduleSlug(post.slug).then(() => loadCalendar())
+  })
+  document.getElementById('calCancel')?.addEventListener('click', () => {
+    cancelScheduleSlug(post.slug).then(() => loadCalendar())
+  })
 }
 
 async function unpublishSlug(slug) {
@@ -1884,11 +2196,12 @@ async function persistPost({ busyBtn, state, silent = false } = {}) {
       site,
       slug,
       originalSlug: needsCreate ? slug : lookupSlug,
-      keepPublished: formState.status === 'published',
+      keepPublished: ['published', 'scheduled', 'pending_schedule'].includes(formState.status),
       title,
       authorName: (formState.authorName || '').trim(),
       status: formState.status,
       datePublished: formState.datePublished,
+      publishAt: formState.publishAt || '',
       dateModified: formState.dateModified,
       metaTitle: { es: (formState.metaTitleEs || '').trim(), en: (formState.metaTitleEs || '').trim() },
       metaDescription: { es: (formState.metaDescriptionEs || '').trim(), en: (formState.metaDescriptionEs || '').trim() },
@@ -2034,6 +2347,50 @@ document.getElementById('publishPost').onclick = async () => {
     /* toast ya mostrado */
   }
 }
+
+document.getElementById('schedulePost')?.addEventListener('click', async () => {
+  const slug = form.slug.value.trim() || editingOriginalSlug
+  if (!slug) return toast('Pon título y slug. Luego Guardar. Después programa.')
+  try {
+    if (localDirty) {
+      const saved = await persistPost({ busyBtn: schedulePostBtn })
+      if (!saved) return
+    }
+    await scheduleSlug(slug)
+  } catch {
+    /* toast ya mostrado */
+  }
+})
+
+document.getElementById('confirmSchedulePost')?.addEventListener('click', async () => {
+  const slug = form.slug.value.trim() || editingOriginalSlug
+  if (!slug) return
+  try {
+    await confirmScheduleSlug(slug)
+  } catch {
+    /* toast */
+  }
+})
+
+document.getElementById('cancelSchedulePost')?.addEventListener('click', async () => {
+  const slug = form.slug.value.trim() || editingOriginalSlug
+  if (!slug) return
+  try {
+    await cancelScheduleSlug(slug)
+  } catch {
+    /* toast */
+  }
+})
+
+document.getElementById('calPrevMonth')?.addEventListener('click', () => {
+  calendarCursor = new Date(calendarCursor.getFullYear(), calendarCursor.getMonth() - 1, 1)
+  loadCalendar().catch((e) => toast(e.message))
+})
+
+document.getElementById('calNextMonth')?.addEventListener('click', () => {
+  calendarCursor = new Date(calendarCursor.getFullYear(), calendarCursor.getMonth() + 1, 1)
+  loadCalendar().catch((e) => toast(e.message))
+})
 
 async function loadMedia() {
   const site = siteFilter.value.trim() || 'escarlet'
@@ -2419,6 +2776,8 @@ async function loadSite() {
   if (siteWebhook) siteWebhook.value = data.config?.rebuildWebhookUrl || ''
   humanApprovalRequired = Boolean(data.config?.requiresHumanApproval)
   if (siteHumanApproval) siteHumanApproval.checked = humanApprovalRequired
+  publishConfirmationRequired = data.config?.requiresPublishConfirmation !== false
+  if (sitePublishConfirmation) sitePublishConfirmation.checked = publishConfirmationRequired
   if (siteBlogEnabled) siteBlogEnabled.checked = data.config?.blogEnabled !== false
   socialPackChannels = normalizeSocialPackChannels(data.config?.socialPackChannels)
   writeChannelCheckboxes(socialPackChannels)
@@ -2451,6 +2810,9 @@ document.getElementById('saveSite').onclick = async () => {
       domain: siteDomain.value.trim(),
       rebuildWebhookUrl: siteWebhook.value.trim(),
       requiresHumanApproval: siteHumanApproval.checked,
+      requiresPublishConfirmation: sitePublishConfirmation
+        ? sitePublishConfirmation.checked
+        : true,
       blogEnabled: siteBlogEnabled ? siteBlogEnabled.checked : true,
       socialPackChannels: readChannelCheckboxes()
     }
@@ -2468,6 +2830,9 @@ document.getElementById('saveSite').onclick = async () => {
     applySocialPackChannelUi(socialPackChannels)
     toast(data.rebuild?.ok ? 'Sitio guardado. La web se está reconstruyendo.' : 'Sitio guardado')
     humanApprovalRequired = Boolean(siteHumanApproval.checked)
+    publishConfirmationRequired = sitePublishConfirmation
+      ? Boolean(sitePublishConfirmation.checked)
+      : true
     setPublishLabels(postStatusInput?.value || 'draft')
   })
 }

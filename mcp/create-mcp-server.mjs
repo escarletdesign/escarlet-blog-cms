@@ -13,6 +13,7 @@ import {
 } from '../lib/media-upload-contract.mjs'
 import { openaiFileDefs, connectorFileMeta } from '../lib/openai-file.mjs'
 import { assertSiteAccess, assertSuperAdmin, allowedSiteHandles } from '../lib/auth.mjs'
+import { isSecretBrandFile } from '../lib/brand-kit.mjs'
 
 const DEFAULT_SITE = process.env.DEFAULT_SITE || 'escarlet'
 
@@ -98,7 +99,8 @@ export function buildToolList(auth) {
     },
     {
       name: 'blog_list_posts',
-      description: 'Lista posts por site y status opcional (draft, review, published). Solo lectura.',
+      description:
+        'Lista posts por site y status opcional (draft, review, pending_schedule, scheduled, published). Solo lectura.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -155,7 +157,8 @@ export function buildToolList(auth) {
           relatedSlugs: { type: 'array', items: { type: 'string' } },
           socialPack: { type: 'object' },
           status: { type: 'string' },
-          keepPublished: { type: 'boolean' }
+          keepPublished: { type: 'boolean' },
+          publishAt: { type: 'string', description: 'YYYY-MM-DD si se programa' }
         },
         required: ['site', 'slug']
       },
@@ -197,13 +200,72 @@ export function buildToolList(auth) {
     },
     {
       name: 'blog_publish',
-      description: 'Publica o envía a revisión. Cambia estado y puede disparar rebuild del frontend.',
+      description:
+        'Publica, envía a revisión o programa. Con publishAt futuro (YYYY-MM-DD) entra en cola (pending_schedule o scheduled según el sitio).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          site: { type: 'string' },
+          slug: { type: 'string' },
+          publishAt: {
+            type: 'string',
+            description: 'YYYY-MM-DD. Si es futuro, programa en vez de publicar ya.'
+          }
+        },
+        required: ['site', 'slug']
+      },
+      annotations: { readOnlyHint: false, openWorldHint: true, destructiveHint: false }
+    },
+    {
+      name: 'blog_schedule_post',
+      description:
+        'Programa un post para publishAt (YYYY-MM-DD). Si el sitio pide confirmación, queda pending_schedule hasta el super-admin.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          site: { type: 'string' },
+          slug: { type: 'string' },
+          publishAt: { type: 'string', description: 'YYYY-MM-DD' }
+        },
+        required: ['site', 'slug', 'publishAt']
+      },
+      annotations: { readOnlyHint: false, openWorldHint: true, destructiveHint: false }
+    },
+    {
+      name: 'blog_confirm_schedule',
+      description: 'Confirma un post pending_schedule → scheduled. Solo super-admin.',
+      inputSchema: {
+        type: 'object',
+        properties: { site: { type: 'string' }, slug: { type: 'string' } },
+        required: ['site', 'slug']
+      },
+      annotations: { readOnlyHint: false, openWorldHint: true, destructiveHint: false },
+      adminOnly: true
+    },
+    {
+      name: 'blog_cancel_schedule',
+      description: 'Cancela pending_schedule o scheduled. Vuelve a review o draft.',
       inputSchema: {
         type: 'object',
         properties: { site: { type: 'string' }, slug: { type: 'string' } },
         required: ['site', 'slug']
       },
       annotations: { readOnlyHint: false, openWorldHint: true, destructiveHint: false }
+    },
+    {
+      name: 'blog_list_calendar',
+      description:
+        'Posts del calendario (pending_schedule, scheduled, published) entre from y to (YYYY-MM-DD).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          site: { type: 'string' },
+          from: { type: 'string' },
+          to: { type: 'string' }
+        },
+        required: ['site']
+      },
+      annotations: { readOnlyHint: true }
     },
     {
       name: 'blog_get_seo_context',
@@ -218,7 +280,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_get_brand_context',
       description:
-        'Obligatorio al crear o editar. Incluye mediaUpload A→B→C. Si file no es invocable usa contentBase64. Resuelve solo. No hagas PUT ni curl.',
+        'Obligatorio al crear o editar. Incluye mediaUpload A→B→C. Con token de sitio no incluye voz ni image-spec (privados). Si file no es invocable usa contentBase64.',
       inputSchema: {
         type: 'object',
         properties: { site: { type: 'string' } },
@@ -229,7 +291,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_update_brand_file',
       description:
-        'Crea o corrige un archivo del brand kit (voice.md, visual-style.md, image-guide.md, keywords.md, AGENT.md, image-spec.json).',
+        'Con token de sitio solo AGENT.md y keywords.md. Voz, estilo, image-guide e image-spec son solo super-admin.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -361,7 +423,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_import_brand_zip',
       description:
-        'Importa un ZIP de brand kit. Para el ZIP grande usa zipUrl https. Esto no aplica a fotos de posts. Las fotos van en blog_upload_media_file.',
+        'Importa un ZIP de brand kit. Solo super-admin. Para el ZIP grande usa zipUrl https.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -377,7 +439,8 @@ export function buildToolList(auth) {
         },
         required: ['site']
       },
-      annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false }
+      annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false },
+      adminOnly: true
     }
   ]
 
@@ -403,6 +466,7 @@ export function createMcpServer(auth = { role: 'admin' }) {
     for (const site of sites) {
       for (const key of Object.keys(RESOURCE_MAP)) {
         const file = RESOURCE_MAP[key]
+        if (auth?.role === 'site' && isSecretBrandFile(file)) continue
         const mimeType = file.endsWith('.json') ? 'application/json' : 'text/markdown'
         resources.push({
           uri: `brand://${site}/${key}`,
@@ -421,7 +485,7 @@ export function createMcpServer(auth = { role: 'admin' }) {
     assertSiteAccess(auth, site)
     const file = RESOURCE_MAP[key]
     if (!file) throw new Error(`Recurso desconocido: ${key}`)
-    const data = await cms.getBrandFile(site, file)
+    const data = await cms.getBrandFile(site, file, { auth })
     const mimeType = file.endsWith('.json') ? 'application/json' : 'text/markdown'
     let text = data.content || ''
     if (file === 'AGENT.md') {
@@ -495,7 +559,24 @@ export function createMcpServer(auth = { role: 'admin' }) {
         }
         case 'blog_publish': {
           const site = resolveToolSite(auth, args)
-          return textResult(await cms.publishPost(site, args.slug))
+          return textResult(await cms.publishPost(site, args.slug, { publishAt: args.publishAt }))
+        }
+        case 'blog_schedule_post': {
+          const site = resolveToolSite(auth, args)
+          return textResult(await cms.schedulePostForDate(site, args.slug, args.publishAt))
+        }
+        case 'blog_confirm_schedule': {
+          assertSuperAdmin(auth)
+          const site = resolveToolSite(auth, args)
+          return textResult(await cms.confirmSchedule(site, args.slug))
+        }
+        case 'blog_cancel_schedule': {
+          const site = resolveToolSite(auth, args)
+          return textResult(await cms.cancelSchedule(site, args.slug))
+        }
+        case 'blog_list_calendar': {
+          const site = resolveToolSite(auth, args)
+          return textResult(await cms.listCalendarPosts(site, args.from, args.to))
         }
         case 'blog_get_seo_context': {
           const site = resolveToolSite(auth, args)
@@ -503,11 +584,11 @@ export function createMcpServer(auth = { role: 'admin' }) {
         }
         case 'blog_get_brand_context': {
           const site = resolveToolSite(auth, args)
-          return textResult(await cms.getBrandContext(site))
+          return textResult(await cms.getBrandContext(site, { auth }))
         }
         case 'blog_update_brand_file': {
           const site = resolveToolSite(auth, args)
-          return textResult(await cms.updateBrandFile(site, args.file, args.content))
+          return textResult(await cms.updateBrandFile(site, args.file, args.content, { auth }))
         }
         case 'blog_upload_media_file': {
           const site = resolveToolSite(auth, args)
@@ -540,11 +621,12 @@ export function createMcpServer(auth = { role: 'admin' }) {
           return textResult(await cms.uploadMedia({ ...args, site, contentBase64: undefined }))
         }
         case 'blog_import_brand_zip': {
+          assertSuperAdmin(auth)
           const site = resolveToolSite(auth, args)
           if (!args.zipUrl && !args.contentBase64) {
             throw Object.assign(new Error('Pasa zipUrl (preferido) o contentBase64'), { status: 400 })
           }
-          return textResult(await cms.importBrandZip(site, args))
+          return textResult(await cms.importBrandZip(site, args, { auth }))
         }
         default:
           throw new Error(`Tool desconocida: ${name}`)

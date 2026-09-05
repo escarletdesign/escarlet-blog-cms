@@ -51,10 +51,14 @@ Deploy producción. [docs/DEPLOY.md](docs/DEPLOY.md).
 | `blog_create_draft` | Esqueleto borrador |
 | `blog_update_post` | Actualizar campos |
 | `blog_validate_seo` | Quality gates |
-| `blog_publish` | Publicar + webhook |
+| `blog_publish` | Publicar, revisión o programar (`publishAt`) |
+| `blog_schedule_post` | Programar fecha futura |
+| `blog_confirm_schedule` | Confirmar pendiente (super-admin) |
+| `blog_cancel_schedule` | Cancelar programación |
+| `blog_list_calendar` | Posts del calendario |
 | `blog_get_seo_context` | Keywords y reglas |
-| `blog_get_brand_context` | Voz, estilo visual, AGENT.md e imágenes de referencia |
-| `blog_update_brand_file` | Subir o corregir un archivo del kit |
+| `blog_get_brand_context` | Contexto de marca (site token sin voz ni image-spec) |
+| `blog_update_brand_file` | Site token. solo AGENT.md y keywords.md |
 | `blog_upload_media` | PNG/JPG en `contentBase64` o `blob` (2–3 MB valen). `kind` `post` o `social`. El CMS comprime a JPEG. Si recorta, `uploadId` a trozos |
 | `blog_import_remote_image` | Solo URL https pública (atajo) |
 | `blog_import_brand_zip` | ZIP de brand kit (cualquier estructura). Preferir `zipUrl` |

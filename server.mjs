@@ -30,7 +30,10 @@ import {
   seedAllBrandKits,
   importBrandKitZip,
   BRAND_ALL_FILES,
-  BRAND_FILE_LABELS
+  BRAND_FILE_LABELS,
+  assertBrandFileAccess,
+  brandFilesForAuth,
+  brandLabelsForAuth
 } from './lib/brand-kit.mjs'
 import { validatePostSeo } from './lib/seo-validator.mjs'
 import {
@@ -44,7 +47,12 @@ import {
   unpublishPost as cmsUnpublishPost,
   deletePost as cmsDeletePost,
   createSiteRecord,
-  getOnboarding
+  getOnboarding,
+  schedulePostForDate as cmsSchedulePost,
+  confirmSchedule as cmsConfirmSchedule,
+  cancelSchedule as cmsCancelSchedule,
+  listCalendarPosts as cmsListCalendar,
+  promoteDueScheduledPosts
 } from './lib/cms-ops.mjs'
 import {
   resolveRequestAuth,
@@ -920,6 +928,9 @@ const server = createServer(async (req, res) => {
         if (Object.prototype.hasOwnProperty.call(body, 'blogEnabled')) {
           partial.blogEnabled = body.blogEnabled
         }
+        if (Object.prototype.hasOwnProperty.call(body, 'requiresPublishConfirmation')) {
+          partial.requiresPublishConfirmation = body.requiresPublishConfirmation
+        }
         if (body.coolifyApiToken) partial.coolifyApiToken = body.coolifyApiToken
         if (body.clearCoolifyApiToken) partial.clearCoolifyApiToken = true
         if (body.socialPackChannels && typeof body.socialPackChannels === 'object') {
@@ -942,6 +953,7 @@ const server = createServer(async (req, res) => {
       const site = brandZipMatch[1]
       try {
         assertSiteAccess(auth, site)
+        assertSuperAdmin(auth)
         const body = await parseBody(req)
         if (!body.contentBase64 && !body.zipUrl) {
           json(res, 400, { message: 'Falta zipUrl o contentBase64 del ZIP' })
@@ -968,22 +980,34 @@ const server = createServer(async (req, res) => {
         return
       }
       const file = brandMatch[2] ? decodeURIComponent(brandMatch[2]) : ''
+      const allowedFiles = brandFilesForAuth(auth)
+      const allowedLabels = brandLabelsForAuth(auth)
       const allowed = !file || BRAND_ALL_FILES.includes(file) || file === 'agent-rules.md'
       if (req.method === 'GET' && !file) {
-        json(res, 200, { ...getBrandContext(site), files: BRAND_ALL_FILES, labels: BRAND_FILE_LABELS })
+        json(res, 200, {
+          ...getBrandContext(site, { auth }),
+          files: allowedFiles,
+          labels: allowedLabels
+        })
         return
       }
       if (req.method === 'GET' && file && allowed) {
-        json(res, 200, { site, file, content: readBrandFile(site, file) })
+        try {
+          assertBrandFileAccess(auth, file, { write: false })
+          json(res, 200, { site, file, content: readBrandFile(site, file) })
+        } catch (err) {
+          json(res, err.status || 403, { message: err.message })
+        }
         return
       }
       if (req.method === 'POST' && file && allowed) {
         try {
+          assertBrandFileAccess(auth, file, { write: true })
           const body = await parseBody(req)
           writeBrandFile(site, file, body.content || '')
           json(res, 200, { ok: true, file })
         } catch (err) {
-          json(res, 400, { message: err.message })
+          json(res, err.status || 400, { message: err.message })
         }
         return
       }
@@ -1104,7 +1128,7 @@ const server = createServer(async (req, res) => {
       writeDb(db)
       json(res, 201, withPostLinks({
         post: draft,
-        reminder: getBrandContext(site).reminder
+        reminder: getBrandContext(site, { auth }).reminder
       }, site, slug))
       return
     }
@@ -1123,13 +1147,90 @@ const server = createServer(async (req, res) => {
       return
     }
 
+    if (req.method === 'GET' && path === '/api/admin/posts/calendar') {
+      const site = siteFrom(auth, url.searchParams.get('site') || DEFAULT_SITE)
+      try {
+        assertSiteAccess(auth, site)
+        const result = await cmsListCalendar(
+          site,
+          url.searchParams.get('from') || '',
+          url.searchParams.get('to') || ''
+        )
+        json(res, 200, result)
+      } catch (error) {
+        const status = error.status || 500
+        json(res, status, { message: error.message, ...(error.extra || {}) })
+      }
+      return
+    }
+
+    if (req.method === 'POST' && path === '/api/admin/posts/schedule') {
+      const body = await parseBody(req)
+      const site = siteFrom(auth, body.site || DEFAULT_SITE)
+      try {
+        assertSiteAccess(auth, site)
+        const result = await cmsSchedulePost(site, body.slug, body.publishAt)
+        json(res, 200, result)
+      } catch (error) {
+        const status = error.status || 500
+        json(res, status, { message: error.message, ...(error.extra || {}) })
+      }
+      return
+    }
+
+    if (req.method === 'POST' && path === '/api/admin/posts/confirm-schedule') {
+      const body = await parseBody(req)
+      const site = siteFrom(auth, body.site || DEFAULT_SITE)
+      try {
+        assertSuperAdmin(auth)
+        assertSiteAccess(auth, site)
+        const result = await cmsConfirmSchedule(site, body.slug)
+        json(res, 200, result)
+      } catch (error) {
+        const status = error.status || 500
+        json(res, status, { message: error.message, ...(error.extra || {}) })
+      }
+      return
+    }
+
+    if (req.method === 'POST' && path === '/api/admin/posts/cancel-schedule') {
+      const body = await parseBody(req)
+      const site = siteFrom(auth, body.site || DEFAULT_SITE)
+      try {
+        assertSiteAccess(auth, site)
+        const result = await cmsCancelSchedule(site, body.slug)
+        json(res, 200, result)
+      } catch (error) {
+        const status = error.status || 500
+        json(res, status, { message: error.message, ...(error.extra || {}) })
+      }
+      return
+    }
+
     if (req.method === 'POST' && path === '/api/admin/posts/publish') {
       const body = await parseBody(req)
       const site = siteFrom(auth, body.site || DEFAULT_SITE)
       const slug = body.slug
       try {
         assertSiteAccess(auth, site)
-        const result = await cmsPublishPost(site, slug)
+        // Con confirmación activa, el token de sitio solo puede draft→review o programar.
+        if (!body.publishAt && !isSuperAdmin(auth)) {
+          const siteConfig = loadSiteConfig(site)
+          if (siteConfig?.requiresPublishConfirmation !== false) {
+            const dbNow = readDb()
+            const existing = findPost(dbNow, site, slug)
+            const needsHuman = Boolean(siteConfig?.requiresHumanApproval)
+            const submitForReviewOnly = needsHuman && existing?.status === 'draft'
+            if (existing && !submitForReviewOnly) {
+              json(res, 403, {
+                message:
+                  'Solo el super-admin puede publicar en vivo. Programa con publishAt o espera confirmación.'
+              })
+              return
+            }
+          }
+        }
+        const result = await cmsPublishPost(site, slug, { publishAt: body.publishAt })
         json(res, 200, result)
       } catch (error) {
         const status = error.status || 500
@@ -1197,5 +1298,13 @@ server.listen(PORT, () => {
   console.log(`Escarlet blog CMS en http://localhost:${PORT}/admin`)
   console.log(`MCP remoto (Hermes) en http://localhost:${PORT}/mcp`)
 })
+
+const SCHEDULE_TICK_MS = Number(process.env.SCHEDULE_TICK_MS || 60_000)
+const scheduleTimer = setInterval(() => {
+  promoteDueScheduledPosts().catch((err) => {
+    console.error('[schedule] promote falló', err.message)
+  })
+}, SCHEDULE_TICK_MS)
+if (typeof scheduleTimer.unref === 'function') scheduleTimer.unref()
 
 export { ADMIN_TOKEN, DEFAULT_SITE, CMS_PUBLIC_URL }

@@ -82,7 +82,11 @@ Git push = código (con caché). Webhook del CMS = contenido. Usa force=true par
 | `blog_create_draft` | `blog_get_post` |
 | `blog_update_post` | `blog_update_post` (mismo slug) |
 | `blog_upload_media_file` (`kind` `post` o `social`. Adjunta el PNG en `file`. El CMS descarga y comprime a JPEG) | idem |
-| `blog_validate_seo` → `blog_publish` | idem |
+| `blog_validate_seo` → `blog_publish` o `blog_schedule_post` con `publishAt` | idem |
+
+**Programar.** `publishAt` YYYY-MM-DD futuro. Con el interruptor del sitio activo queda `pending_schedule` hasta `blog_confirm_schedule` (solo super-admin). Luego `scheduled` y el ticker lo publica el día. Calendario en `/admin` → Calendario.
+
+**Brand kit y token de cliente.** El site token solo lee/edita `AGENT.md` y `keywords.md` (+ fotos reference). Voz, visual-style, image-guide e image-spec son solo super-admin.
 
 Prohibido. Commitear posts al frontend. Usar `create_draft` para editar.
 
