@@ -26,6 +26,7 @@ Los posts viven en el CMS. El frontend solo hace pull en build.
 2. En este repo o con MCP. `blog_get_onboarding` (y si hace falta `blog_create_site`)
 3. Si pide **escribir o editar un post** → `blog_get_brand_context` con el `site` correcto
 4. Leer también `docs/ONBOARDING.md` si trabajas en el workspace del CMS
+5. UI del admin. patrones en `docs/DESIGN-SYSTEM.md` (file-drop, botones, anchos)
 
 ## Alta rápida de un site
 

@@ -7,7 +7,7 @@
   <title>Escarlet Blog CMS</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/vendor/pico.conditional.min.css" />
-  <link rel="stylesheet" href="/admin.css?v=22" />
+  <link rel="stylesheet" href="/admin.css?v=23" />
   <link rel="stylesheet" href="https://uicdn.toast.com/editor/3.2.2/toastui-editor.min.css" />
 </head>
 <body>
@@ -159,10 +159,37 @@
           <div class="card">
             <h2 class="card-title">Medios</h2>
             <p class="card-desc">Fotos del blog de este sitio. Pulsa una para verla grande. Las de marca viven en Kit de marca.</p>
-            <form id="libraryUploadForm" class="upload-zone upload-zone--compact">
-              <div class="upload-zone-row">
-                <label class="btn" for="libraryFile">Subir imagen</label>
+            <form id="libraryUploadForm" class="upload-panel">
+              <div
+                class="file-drop"
+                data-file-drop
+                data-accept="image/*"
+                data-max-mb="12"
+                data-kind="image"
+              >
                 <input type="file" id="libraryFile" accept="image/*" class="visually-hidden" />
+                <div class="file-drop-surface" tabindex="0" role="button" aria-controls="libraryFile">
+                  <div class="file-drop-empty">
+                    <span class="file-drop-icon" aria-hidden="true">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+                    </span>
+                    <p class="file-drop-title">Suelta la imagen aquí</p>
+                    <p class="file-drop-hint">JPG, PNG o WebP · máx. 12 MB</p>
+                    <span class="btn file-drop-browse">Elegir archivo</span>
+                  </div>
+                  <div class="file-drop-preview" hidden>
+                    <img class="file-drop-thumb" alt="" />
+                    <div class="file-drop-file-icon" hidden aria-hidden="true"></div>
+                    <div class="file-drop-meta">
+                      <strong class="file-drop-name"></strong>
+                      <span class="file-drop-size"></span>
+                    </div>
+                    <button type="button" class="file-drop-clear" aria-label="Quitar archivo">×</button>
+                  </div>
+                </div>
+                <p class="file-drop-error" hidden role="alert"></p>
+              </div>
+              <div class="upload-panel-fields">
                 <div class="field-narrow">
                   <label for="libraryAlt">Texto alternativo</label>
                   <input id="libraryAlt" />
@@ -176,7 +203,7 @@
                 </div>
               </div>
               <div class="actions">
-                <button type="submit" class="btn btn-primary" id="libraryUploadBtn">Subir al archivo</button>
+                <button type="submit" class="btn btn-primary" id="libraryUploadBtn">Subir a medios</button>
               </div>
             </form>
             <div class="toolbar posts-toolbar">
@@ -353,20 +380,46 @@
                   <div class="carousel-strip" id="carouselStrip"></div>
                 </section>
               </div>
-              <form id="uploadForm" class="upload-zone">
-                <label for="uploadFile">Subir una foto nueva</label>
-                <input type="file" id="uploadFile" accept="image/*" />
-                <div class="row">
-                  <div>
+              <form id="uploadForm" class="upload-panel">
+                <div
+                  class="file-drop"
+                  data-file-drop
+                  data-accept="image/*"
+                  data-max-mb="12"
+                  data-kind="image"
+                >
+                  <input type="file" id="uploadFile" accept="image/*" class="visually-hidden" />
+                  <div class="file-drop-surface" tabindex="0" role="button" aria-controls="uploadFile">
+                    <div class="file-drop-empty">
+                      <span class="file-drop-icon" aria-hidden="true">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+                      </span>
+                      <p class="file-drop-title">Suelta la foto aquí</p>
+                      <p class="file-drop-hint">JPG, PNG o WebP · máx. 12 MB</p>
+                      <span class="btn file-drop-browse">Elegir archivo</span>
+                    </div>
+                    <div class="file-drop-preview" hidden>
+                      <img class="file-drop-thumb" alt="" />
+                      <div class="file-drop-file-icon" hidden aria-hidden="true"></div>
+                      <div class="file-drop-meta">
+                        <strong class="file-drop-name"></strong>
+                        <span class="file-drop-size"></span>
+                      </div>
+                      <button type="button" class="file-drop-clear" aria-label="Quitar archivo">×</button>
+                    </div>
+                  </div>
+                  <p class="file-drop-error" hidden role="alert"></p>
+                </div>
+                <div class="upload-panel-fields">
+                  <div class="field-narrow">
                     <label for="uploadAlt">Texto alternativo</label>
                     <input id="uploadAlt" />
                   </div>
-                  <div>
+                  <div class="field-narrow">
                     <label for="uploadKind">Uso al subir</label>
                     <select id="uploadKind">
                       <option value="post">Portada de entrada</option>
                       <option value="social">Slide Instagram</option>
-                      <option value="reference">Referencia de marca</option>
                     </select>
                   </div>
                 </div>
@@ -419,9 +472,38 @@
                 <li>Cualquier estructura de carpetas vale. También se puede importar por MCP con <code>blog_import_brand_zip</code> y una <code>zipUrl</code></li>
               </ul>
             </div>
-            <form id="brandZipForm" class="upload-zone">
-              <label for="brandZipFile">Archivo ZIP</label>
-              <input type="file" id="brandZipFile" accept=".zip,application/zip" />
+            <form id="brandZipForm" class="upload-panel">
+              <div
+                class="file-drop"
+                data-file-drop
+                data-accept=".zip,application/zip"
+                data-max-mb="40"
+                data-kind="file"
+              >
+                <input type="file" id="brandZipFile" accept=".zip,application/zip" class="visually-hidden" />
+                <div class="file-drop-surface" tabindex="0" role="button" aria-controls="brandZipFile">
+                  <div class="file-drop-empty">
+                    <span class="file-drop-icon" aria-hidden="true">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+                    </span>
+                    <p class="file-drop-title">Suelta el ZIP del kit aquí</p>
+                    <p class="file-drop-hint">Solo .zip · máx. 40 MB</p>
+                    <span class="btn file-drop-browse">Elegir ZIP</span>
+                  </div>
+                  <div class="file-drop-preview" hidden>
+                    <img class="file-drop-thumb" alt="" hidden />
+                    <div class="file-drop-file-icon" aria-hidden="true">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>
+                    </div>
+                    <div class="file-drop-meta">
+                      <strong class="file-drop-name"></strong>
+                      <span class="file-drop-size"></span>
+                    </div>
+                    <button type="button" class="file-drop-clear" aria-label="Quitar archivo">×</button>
+                  </div>
+                </div>
+                <p class="file-drop-error" hidden role="alert"></p>
+              </div>
               <div class="actions">
                 <button type="submit" class="btn btn-primary" id="brandZipBtn">Importar ZIP</button>
               </div>
@@ -450,11 +532,42 @@
           <div class="card">
             <h2 class="card-title">Imágenes de referencia</h2>
             <p class="card-desc">Moodboard para portadas. Pulsa una para verla grande. Pasa el ratón y la papelera la borra.</p>
-            <form id="refUploadForm" class="upload-zone">
-              <label for="refFile">Archivo</label>
-              <input type="file" id="refFile" accept="image/*" />
-              <label for="refAlt">Qué muestra</label>
-              <input id="refAlt" placeholder="Foto de taller con luz cálida" />
+            <form id="refUploadForm" class="upload-panel">
+              <div
+                class="file-drop"
+                data-file-drop
+                data-accept="image/*"
+                data-max-mb="12"
+                data-kind="image"
+              >
+                <input type="file" id="refFile" accept="image/*" class="visually-hidden" />
+                <div class="file-drop-surface" tabindex="0" role="button" aria-controls="refFile">
+                  <div class="file-drop-empty">
+                    <span class="file-drop-icon" aria-hidden="true">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+                    </span>
+                    <p class="file-drop-title">Suelta la referencia aquí</p>
+                    <p class="file-drop-hint">JPG, PNG o WebP · máx. 12 MB</p>
+                    <span class="btn file-drop-browse">Elegir archivo</span>
+                  </div>
+                  <div class="file-drop-preview" hidden>
+                    <img class="file-drop-thumb" alt="" />
+                    <div class="file-drop-file-icon" hidden aria-hidden="true"></div>
+                    <div class="file-drop-meta">
+                      <strong class="file-drop-name"></strong>
+                      <span class="file-drop-size"></span>
+                    </div>
+                    <button type="button" class="file-drop-clear" aria-label="Quitar archivo">×</button>
+                  </div>
+                </div>
+                <p class="file-drop-error" hidden role="alert"></p>
+              </div>
+              <div class="upload-panel-fields">
+                <div class="field-reading">
+                  <label for="refAlt">Qué muestra</label>
+                  <input id="refAlt" placeholder="Foto de taller con luz cálida" />
+                </div>
+              </div>
               <div class="actions">
                 <button type="submit" class="btn btn-primary" id="refUploadBtn">Subir referencia</button>
               </div>
@@ -544,7 +657,37 @@
               <label for="newSiteToken">Token API Coolify (opcional)</label>
               <input id="newSiteToken" type="password" autocomplete="new-password" placeholder="Token con permiso Deploy" />
               <label for="newSiteBrandZip">Brand kit ZIP (opcional)</label>
-              <input type="file" id="newSiteBrandZip" accept=".zip,application/zip" />
+              <div
+                class="file-drop"
+                data-file-drop
+                data-accept=".zip,application/zip"
+                data-max-mb="40"
+                data-kind="file"
+              >
+                <input type="file" id="newSiteBrandZip" accept=".zip,application/zip" class="visually-hidden" />
+                <div class="file-drop-surface" tabindex="0" role="button" aria-controls="newSiteBrandZip">
+                  <div class="file-drop-empty">
+                    <span class="file-drop-icon" aria-hidden="true">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+                    </span>
+                    <p class="file-drop-title">Suelta el ZIP del kit aquí</p>
+                    <p class="file-drop-hint">Opcional · solo .zip · máx. 40 MB</p>
+                    <span class="btn file-drop-browse">Elegir ZIP</span>
+                  </div>
+                  <div class="file-drop-preview" hidden>
+                    <img class="file-drop-thumb" alt="" hidden />
+                    <div class="file-drop-file-icon" aria-hidden="true">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>
+                    </div>
+                    <div class="file-drop-meta">
+                      <strong class="file-drop-name"></strong>
+                      <span class="file-drop-size"></span>
+                    </div>
+                    <button type="button" class="file-drop-clear" aria-label="Quitar archivo">×</button>
+                  </div>
+                </div>
+                <p class="file-drop-error" hidden role="alert"></p>
+              </div>
               <p class="field-help">Si lo tienes, súbelo aquí. Si no, lo completas después en Kit de marca.</p>
               <label class="checkbox-row">
                 <input type="checkbox" id="newSiteHumanApproval" checked />
@@ -738,6 +881,6 @@
     <p class="media-lightbox-caption" id="mediaLightboxCaption"></p>
   </div>
 
-  <script src="/admin.js?v=22"></script>
+  <script src="/admin.js?v=23"></script>
 </body>
 </html>

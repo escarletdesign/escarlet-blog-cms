@@ -153,6 +153,200 @@ toastClose?.addEventListener('click', () => {
   toastEl.hidden = true
 })
 
+function formatFileSize(bytes) {
+  if (!Number.isFinite(bytes) || bytes < 0) return ''
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
+}
+
+function fileMatchesAccept(file, accept) {
+  if (!accept || !file) return true
+  const tokens = accept.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean)
+  if (!tokens.length) return true
+  const name = String(file.name || '').toLowerCase()
+  const type = String(file.type || '').toLowerCase()
+  return tokens.some((token) => {
+    if (token.startsWith('.')) return name.endsWith(token)
+    if (token.endsWith('/*')) return type.startsWith(token.slice(0, -1))
+    return type === token || name.endsWith(`.${token}`)
+  })
+}
+
+function clearFileDrop(inputOrSelector) {
+  const input =
+    typeof inputOrSelector === 'string'
+      ? document.querySelector(inputOrSelector)
+      : inputOrSelector
+  if (!input) return
+  input.value = ''
+  const root = input.closest('[data-file-drop]')
+  if (root) syncFileDropUi(root)
+}
+
+function syncFileDropUi(root) {
+  if (!root) return
+  const input = root.querySelector('input[type="file"]')
+  const empty = root.querySelector('.file-drop-empty')
+  const preview = root.querySelector('.file-drop-preview')
+  const thumb = root.querySelector('.file-drop-thumb')
+  const fileIcon = root.querySelector('.file-drop-file-icon')
+  const nameEl = root.querySelector('.file-drop-name')
+  const sizeEl = root.querySelector('.file-drop-size')
+  const errorEl = root.querySelector('.file-drop-error')
+  const kind = root.dataset.kind || 'image'
+  const file = input?.files?.[0] || null
+
+  if (errorEl && !file) {
+    errorEl.hidden = true
+    errorEl.textContent = ''
+  }
+  if (!file) {
+    if (empty) empty.hidden = false
+    if (preview) preview.hidden = true
+    if (thumb) {
+      if (thumb.dataset.objectUrl) {
+        URL.revokeObjectURL(thumb.dataset.objectUrl)
+        delete thumb.dataset.objectUrl
+      }
+      thumb.removeAttribute('src')
+      thumb.hidden = kind !== 'image'
+    }
+    if (fileIcon) fileIcon.hidden = kind === 'image'
+    if (nameEl) nameEl.textContent = ''
+    if (sizeEl) sizeEl.textContent = ''
+    return
+  }
+
+  if (empty) empty.hidden = true
+  if (preview) preview.hidden = false
+  if (nameEl) nameEl.textContent = file.name
+  if (sizeEl) sizeEl.textContent = formatFileSize(file.size)
+
+  const isImage = kind === 'image' && /^image\//.test(file.type || '')
+  if (thumb) {
+    if (thumb.dataset.objectUrl) {
+      URL.revokeObjectURL(thumb.dataset.objectUrl)
+      delete thumb.dataset.objectUrl
+    }
+    if (isImage) {
+      const url = URL.createObjectURL(file)
+      thumb.dataset.objectUrl = url
+      thumb.src = url
+      thumb.hidden = false
+    } else {
+      thumb.hidden = true
+    }
+  }
+  if (fileIcon) fileIcon.hidden = isImage
+}
+
+function assignFileToInput(input, file) {
+  if (!input || !file) return
+  try {
+    const dt = new DataTransfer()
+    dt.items.add(file)
+    input.files = dt.files
+  } catch {
+    /* algunos navegadores no permiten DataTransfer */
+  }
+}
+
+function initFileDrop(root) {
+  if (!root || root.dataset.fileDropReady === '1') return
+  const input = root.querySelector('input[type="file"]')
+  const surface = root.querySelector('.file-drop-surface')
+  const browse = root.querySelector('.file-drop-browse')
+  const clearBtn = root.querySelector('.file-drop-clear')
+  const errorEl = root.querySelector('.file-drop-error')
+  if (!input || !surface) return
+
+  const maxMb = Number(root.dataset.maxMb || 12)
+  const maxBytes = (Number.isFinite(maxMb) ? maxMb : 12) * 1024 * 1024
+  const accept = root.dataset.accept || input.getAttribute('accept') || ''
+
+  const showError = (msg) => {
+    if (!errorEl) {
+      toast(msg)
+      return
+    }
+    errorEl.hidden = false
+    errorEl.textContent = msg
+  }
+
+  const takeFile = (file) => {
+    if (!file) return
+    if (!fileMatchesAccept(file, accept)) {
+      showError('Este tipo de archivo no cabe aquí.')
+      clearFileDrop(input)
+      return
+    }
+    if (file.size > maxBytes) {
+      showError(`El archivo supera ${maxMb} MB.`)
+      clearFileDrop(input)
+      return
+    }
+    if (errorEl) {
+      errorEl.hidden = true
+      errorEl.textContent = ''
+    }
+    if (!input.files?.length || input.files[0] !== file) {
+      assignFileToInput(input, file)
+    }
+    syncFileDropUi(root)
+  }
+
+  const openPicker = (e) => {
+    e?.preventDefault?.()
+    e?.stopPropagation?.()
+    input.click()
+  }
+
+  surface.addEventListener('click', (e) => {
+    if (e.target.closest('.file-drop-clear')) return
+    openPicker(e)
+  })
+  surface.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') openPicker(e)
+  })
+  browse?.addEventListener('click', openPicker)
+  clearBtn?.addEventListener('click', (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    clearFileDrop(input)
+  })
+  input.addEventListener('change', () => takeFile(input.files?.[0]))
+
+  ;['dragenter', 'dragover'].forEach((type) => {
+    surface.addEventListener(type, (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      root.dataset.dragging = 'true'
+    })
+  })
+  ;['dragleave', 'dragend'].forEach((type) => {
+    surface.addEventListener(type, (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      delete root.dataset.dragging
+    })
+  })
+  surface.addEventListener('drop', (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    delete root.dataset.dragging
+    const file = e.dataTransfer?.files?.[0]
+    takeFile(file)
+  })
+
+  root.dataset.fileDropReady = '1'
+  syncFileDropUi(root)
+}
+
+function initFileDrops(scope = document) {
+  scope.querySelectorAll('[data-file-drop]').forEach((el) => initFileDrop(el))
+}
+
 async function withBusy(btn, labelBusy, fn) {
   if (!btn) return fn()
   const prev = btn.innerHTML
@@ -2913,6 +3107,7 @@ document.getElementById('uploadForm').onsubmit = async (e) => {
       site
     })
     document.getElementById('uploadFile').value = ''
+    clearFileDrop('#uploadFile')
     if (data.media && kind === 'post') {
       applyImageToPost(data.media)
     } else if (data.media && kind === 'social') {
@@ -2948,6 +3143,7 @@ document.getElementById('libraryUploadForm')?.addEventListener('submit', async (
       site
     })
     document.getElementById('libraryFile').value = ''
+    clearFileDrop('#libraryFile')
     await loadLibrary()
     toast('Imagen subida a medios')
   })
@@ -3000,6 +3196,7 @@ document.getElementById('refUploadForm').onsubmit = async (e) => {
       site
     })
     document.getElementById('refFile').value = ''
+    clearFileDrop('#refFile')
     await loadRefs()
     toast('Referencia subida')
   })
@@ -3519,8 +3716,11 @@ document.getElementById('brandZipForm')?.addEventListener('submit', async (e) =>
         .join('\n')
     }
     document.getElementById('brandZipFile').value = ''
+    clearFileDrop('#brandZipFile')
     await loadBrand()
     await loadRefs()
     toast('Brand kit importado')
   })
 })
+
+initFileDrops()
