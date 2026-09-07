@@ -81,7 +81,13 @@ import {
   loginPasswordUser,
   listPasswordUsers,
   deletePasswordUser,
-  googleAuthStatus
+  googleAuthStatus,
+  updatePasswordUser,
+  mintUserLoginToken,
+  revokeUserLoginToken,
+  setUserPassword,
+  getPasswordUserByEmail,
+  userSites
 } from './lib/human-auth.mjs'
 import {
   notifyRebuild,
@@ -755,7 +761,10 @@ const server = createServer(async (req, res) => {
     }
     const bearer = createSessionBearer({
       site: result.session.site,
-      role: result.session.role
+      sites: result.session.sites,
+      role: result.session.role,
+      userId: result.session.userId,
+      mustSetPassword: result.session.purpose === 'invite' || result.session.purpose === 'reset'
     })
     const cookie = `escarlet_cms=${encodeURIComponent(bearer.token)}; Path=/; HttpOnly; SameSite=Lax`
     const next = result.session.next || '#/entradas'
@@ -942,10 +951,105 @@ const server = createServer(async (req, res) => {
     try {
       assertAgencyOps(auth)
       const body = await parseBody(req)
-      const site = siteFrom(auth, body.site || DEFAULT_SITE)
-      assertSiteAccess(auth, site)
-      const user = registerPasswordUser({ ...body, site })
-      json(res, 201, { ok: true, user })
+      const allowed = allowedSiteHandles(auth)
+      const requestedSites = Array.isArray(body.sites) ? body.sites : [body.site || DEFAULT_SITE]
+      const sites = [...new Set(requestedSites.map((s) => String(s || '').trim()).filter((s) => allowed.includes(s)))]
+      if (!sites.length) {
+        json(res, 403, { message: 'No puedes asignar esos sitios' })
+        return
+      }
+      sites.forEach((site) => assertSiteAccess(auth, site))
+      const invite = body.invite === true || body.method === 'invite'
+      const user = registerPasswordUser({
+        email: body.email,
+        password: body.password,
+        role: body.role,
+        site: sites[0],
+        sites,
+        invite
+      })
+      let inviteMail = null
+      if (invite) {
+        const minted = createMagicToken({
+          site: user.site,
+          sites: user.sites,
+          role: user.role,
+          email: user.email,
+          userId: user.id,
+          purpose: 'invite',
+          next: '#/entradas'
+        })
+        const origin = absoluteCmsOrigin(req)
+        const link = `${origin}/api/magic/consume?token=${encodeURIComponent(minted.token)}`
+        inviteMail = await sendMagicLinkEmail({
+          to: user.email,
+          link,
+          site: user.site,
+          subject: `Activa tu acceso al CMS (${user.site})`,
+          text: `Hola.\n\nCrea tu contraseña y entra al CMS Escarlet con este enlace (caduca en 15 minutos):\n\n${link}\n`
+        })
+      }
+      json(res, 201, {
+        ok: true,
+        user,
+        invite: invite
+          ? {
+              transport: inviteMail?.transport,
+              link: inviteMail?.transport === 'console' ? inviteMail.link : undefined
+            }
+          : undefined
+      })
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
+    }
+    return
+  }
+
+  if (isProductRestructureV1() && req.method === 'POST' && path === '/api/auth/forgot') {
+    try {
+      const body = await parseBody(req)
+      const email = String(body.email || '').trim().toLowerCase()
+      const user = email.includes('@') ? getPasswordUserByEmail(email) : null
+      if (user) {
+        const sites = userSites(user)
+        const minted = createMagicToken({
+          site: sites[0],
+          sites,
+          role: user.role,
+          email: user.email,
+          userId: user.id,
+          purpose: 'reset',
+          next: '#/entradas'
+        })
+        const origin = absoluteCmsOrigin(req)
+        const link = `${origin}/api/magic/consume?token=${encodeURIComponent(minted.token)}`
+        await sendMagicLinkEmail({
+          to: user.email,
+          link,
+          site: sites[0],
+          subject: 'Recupera tu contraseña del CMS Escarlet',
+          text: `Hola.\n\nElige una contraseña nueva con este enlace (caduca en 15 minutos):\n\n${link}\n`
+        })
+      }
+      json(res, 200, { ok: true })
+    } catch (error) {
+      json(res, 200, { ok: true })
+    }
+    return
+  }
+
+  if (isProductRestructureV1() && req.method === 'POST' && path === '/api/auth/password') {
+    const auth = requireAuth(req, url, res)
+    if (!auth) return
+    try {
+      const body = await parseBody(req)
+      if (!auth.userId && auth.role !== 'admin') {
+        json(res, 403, { message: 'Esta sesión no puede cambiar la contraseña' })
+        return
+      }
+      const targetId = auth.role === 'admin' && body.id ? body.id : auth.userId
+      const user = setUserPassword({ id: targetId, password: body.password })
+      json(res, 200, { ok: true, user })
     } catch (error) {
       json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
     }
@@ -980,6 +1084,64 @@ const server = createServer(async (req, res) => {
       if (!target) throw Object.assign(new Error('Usuario no encontrado en este sitio'), { status: 404 })
       const result = deletePasswordUser({ id: target.id })
       json(res, 200, result)
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
+    }
+    return
+  }
+
+  if (isProductRestructureV1() && req.method === 'POST' && path === '/api/auth/users/token') {
+    const auth = requireAuth(req, url, res)
+    if (!auth) return
+    try {
+      if (!isSuperAdmin(auth)) {
+        json(res, 403, { message: 'Solo el super-admin puede crear tokens de usuario' })
+        return
+      }
+      const body = await parseBody(req)
+      const minted = mintUserLoginToken({ id: body.id })
+      json(res, 200, { ok: true, user: minted, token: minted.token })
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
+    }
+    return
+  }
+
+  if (isProductRestructureV1() && req.method === 'POST' && path === '/api/auth/users/token/revoke') {
+    const auth = requireAuth(req, url, res)
+    if (!auth) return
+    try {
+      if (!isSuperAdmin(auth)) {
+        json(res, 403, { message: 'Solo el super-admin puede revocar tokens de usuario' })
+        return
+      }
+      const body = await parseBody(req)
+      const user = revokeUserLoginToken({ id: body.id })
+      json(res, 200, { ok: true, user })
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
+    }
+    return
+  }
+
+  if (isProductRestructureV1() && req.method === 'POST' && path === '/api/auth/users/update') {
+    const auth = requireAuth(req, url, res)
+    if (!auth) return
+    try {
+      assertAgencyOps(auth)
+      const body = await parseBody(req)
+      const allowed = allowedSiteHandles(auth)
+      let sites
+      if (Array.isArray(body.sites)) {
+        sites = [...new Set(body.sites.map((s) => String(s || '').trim()).filter((s) => allowed.includes(s)))]
+        if (!sites.length) {
+          json(res, 403, { message: 'No puedes asignar esos sitios' })
+          return
+        }
+        sites.forEach((site) => assertSiteAccess(auth, site))
+      }
+      const user = updatePasswordUser({ id: body.id, sites, role: body.role })
+      json(res, 200, { ok: true, user })
     } catch (error) {
       json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
     }

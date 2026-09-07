@@ -7,7 +7,7 @@
   <title>Escarlet Blog CMS</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/vendor/pico.conditional.min.css" />
-  <link rel="stylesheet" href="/admin.css?v=25" />
+  <link rel="stylesheet" href="/admin.css?v=26" />
   <link rel="stylesheet" href="https://uicdn.toast.com/editor/3.2.2/toastui-editor.min.css" />
 </head>
 <body>
@@ -17,15 +17,36 @@
         <img src="/favicon.svg" alt="" width="36" height="36" />
         <h1>Escarlet Blog CMS</h1>
       </div>
-      <p>Usa el token de administración, el token de un sitio, o email y contraseña (F5).</p>
-      <label for="token">Token de administración</label>
-      <input id="token" type="password" autocomplete="current-password" />
+      <p>Entra con email y contraseña, o con un token de acceso.</p>
       <div id="passwordLoginBlock" hidden>
         <label for="loginEmail">Email</label>
         <input id="loginEmail" type="email" autocomplete="username" />
         <label for="loginPassword">Contraseña</label>
         <input id="loginPassword" type="password" autocomplete="current-password" />
+        <p class="login-forgot-row">
+          <button type="button" class="btn btn-ghost" id="forgotPasswordBtn">He olvidado la contraseña</button>
+        </p>
       </div>
+      <div id="forgotBlock" hidden>
+        <label for="forgotEmail">Email para recuperar el acceso</label>
+        <input id="forgotEmail" type="email" autocomplete="email" />
+        <div class="actions">
+          <button type="button" class="btn btn-primary" id="forgotSendBtn">Enviar enlace</button>
+          <button type="button" class="btn btn-ghost" id="forgotCancelBtn">Volver</button>
+        </div>
+      </div>
+      <div id="setPasswordBlock" hidden>
+        <label for="setPassword">Nueva contraseña</label>
+        <input id="setPassword" type="password" autocomplete="new-password" minlength="8" />
+        <label for="setPassword2">Repetir contraseña</label>
+        <input id="setPassword2" type="password" autocomplete="new-password" minlength="8" />
+        <div class="actions">
+          <button type="button" class="btn btn-primary" id="setPasswordBtn">Guardar contraseña</button>
+        </div>
+      </div>
+      <p class="login-alt">Token de acceso</p>
+      <label for="token">Token de administración o de usuario</label>
+      <input id="token" type="password" autocomplete="current-password" />
       <p id="loginError" class="login-error" hidden></p>
       <div class="actions">
         <button type="button" class="btn btn-primary" id="enter">Entrar</button>
@@ -85,17 +106,17 @@
 
     <div class="main">
       <header class="topbar pico">
-        <div class="topbar-site">
-          <label class="topbar-kicker" for="siteFilter">Sitio activo</label>
-          <div class="topbar-site-row">
+        <div class="topbar-cluster">
+          <div class="topbar-item topbar-site">
+            <label class="topbar-kicker" for="siteFilter">Sitio activo</label>
             <select id="siteFilter" aria-label="Sitio activo"></select>
             <strong id="siteLabel" class="visually-hidden">escarlet</strong>
           </div>
-        </div>
-        <div class="topbar-auth" id="topbarAuth">
-          <span class="topbar-kicker">Tu acceso</span>
-          <span class="auth-role-badge" id="authRoleBadge" data-role="admin">Super-admin</span>
-          <p class="quota-chip" id="quotaChip" hidden></p>
+          <div class="topbar-item topbar-auth" id="topbarAuth">
+            <span class="topbar-kicker">Tu acceso</span>
+            <span class="auth-role-badge" id="authRoleBadge" data-role="admin">Super-admin</span>
+            <p class="quota-chip" id="quotaChip" hidden></p>
+          </div>
         </div>
         <p class="topbar-hint" id="topbarHint">Empieza por Entradas. Abre un borrador y avanza paso a paso hasta publicar.</p>
       </header>
@@ -230,10 +251,34 @@
             <p class="card-desc">Textos y piezas para redes. Se sirven desde el CMS. Elige un pack para copiar.</p>
             <p class="inline-hint" id="socialPackSourceHint" hidden>Fuente · CMS</p>
             <div class="toolbar posts-toolbar">
+              <div class="topbar-field">
+                <label for="socialPackView">Vista</label>
+                <select id="socialPackView">
+                  <option value="list" selected>Lista</option>
+                  <option value="cards">Tarjetas</option>
+                </select>
+              </div>
+              <div class="topbar-field">
+                <label for="socialPackSort">Orden</label>
+                <select id="socialPackSort">
+                  <option value="newest" selected>Última primero</option>
+                  <option value="oldest">Más antigua primero</option>
+                  <option value="title">Título A-Z</option>
+                </select>
+              </div>
+              <div class="topbar-field">
+                <label for="socialPackStatus">Estado</label>
+                <select id="socialPackStatus">
+                  <option value="">Todos</option>
+                  <option value="published">Publicado</option>
+                  <option value="draft">Borrador</option>
+                  <option value="scheduled">Programado</option>
+                </select>
+              </div>
               <button type="button" class="btn" id="reloadSocialPacks">Recargar</button>
               <a class="btn" id="openSocialPackIndex" href="/admin/blog-packs" target="_blank" rel="noopener noreferrer">Abrir índice</a>
             </div>
-            <ul class="social-pack-list" id="socialPackList"></ul>
+            <div class="social-pack-list is-list" id="socialPackList" role="list"></div>
           </div>
           <div class="card" id="socialPackDetailCard" hidden>
             <h3 class="card-title" id="socialPackDetailTitle">Pack</h3>
@@ -860,7 +905,7 @@
         <section id="panel-usuarios" class="panel" data-panel="usuarios" hidden>
           <div class="card">
             <h2 class="card-title">Usuarios del sitio activo</h2>
-            <p class="card-desc">Cuentas con email y contraseña. El rol Cliente redacta. El rol Editor de agencia publica y gestiona el sitio.</p>
+            <p class="card-desc">Cuentas con email, contraseña o token. El rol Cliente trabaja en un sitio. El rol Editor de agencia puede llevar varios sitios.</p>
             <p class="inline-hint" id="usersSiteHint">Sitio. —</p>
             <div class="user-table-wrap">
               <table class="user-table" id="usersTable">
@@ -868,19 +913,24 @@
                   <tr>
                     <th>Email</th>
                     <th>Rol</th>
+                    <th>Sitios</th>
                     <th>Alta</th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody id="usersTableBody">
-                  <tr><td colspan="4" class="muted">Cargando…</td></tr>
+                  <tr><td colspan="5" class="muted">Cargando…</td></tr>
                 </tbody>
               </table>
+            </div>
+            <div id="userTokenResult" class="user-token-panel" hidden>
+              <p class="access-token-label">Token de este usuario. Cópialo ahora. Solo se muestra una vez.</p>
+              <pre id="userTokenValue" class="result"></pre>
             </div>
           </div>
           <div class="card">
             <h2 class="card-title">Crear usuario</h2>
-            <p class="card-desc">Se crea en el sitio activo del topbar. El usuario entra con email y contraseña en la pantalla de acceso.</p>
+            <p class="card-desc">Puedes enviar un email de alta con Resend, poner una contraseña ahora, o generar un token después de crear la cuenta.</p>
             <form id="createUserForm" class="form-stack">
               <div class="form-grid form-grid--2">
                 <div>
@@ -890,19 +940,30 @@
                 <div>
                   <label for="newUserRole">Rol</label>
                   <select id="newUserRole">
-                    <option value="client">Cliente</option>
-                    <option value="agency_admin">Editor de agencia</option>
+                    <option value="client">Cliente (un sitio)</option>
+                    <option value="agency_admin">Editor de agencia (varios sitios)</option>
                   </select>
                 </div>
               </div>
-              <div class="form-grid form-grid--2">
+              <div id="newUserSitesWrap" hidden>
+                <p class="field-help">Sitios que podrá gestionar este editor.</p>
+                <div class="site-checkboxes" id="newUserSites"></div>
+              </div>
+              <div>
+                <label for="newUserMethod">Cómo entra</label>
+                <select id="newUserMethod">
+                  <option value="invite">Enviar email de alta (elige su contraseña)</option>
+                  <option value="password">Crear ahora con contraseña</option>
+                </select>
+              </div>
+              <div id="newUserPasswordWrap" class="form-grid form-grid--2" hidden>
                 <div>
                   <label for="newUserPassword">Contraseña</label>
-                  <input id="newUserPassword" type="password" autocomplete="new-password" minlength="8" required />
+                  <input id="newUserPassword" type="password" autocomplete="new-password" minlength="8" />
                 </div>
                 <div>
                   <label for="newUserPassword2">Repetir contraseña</label>
-                  <input id="newUserPassword2" type="password" autocomplete="new-password" minlength="8" required />
+                  <input id="newUserPassword2" type="password" autocomplete="new-password" minlength="8" />
                 </div>
               </div>
               <div class="actions">
@@ -952,6 +1013,6 @@
     <p class="media-lightbox-caption" id="mediaLightboxCaption"></p>
   </div>
 
-  <script src="/admin.js?v=25"></script>
+  <script src="/admin.js?v=26"></script>
 </body>
 </html>

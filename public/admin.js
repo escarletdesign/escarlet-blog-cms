@@ -1410,7 +1410,7 @@ function applyRoute(route) {
           ? 'Crea un sitio nuevo o ajusta dominio y webhook del activo.'
           : `Ajusta el sitio ${authSession?.site || 'activo'}. Crear sitios pide token de super-admin.`
       } else if (view === 'usuarios') {
-        topbarHint.textContent = 'Crea clientes y editores de agencia con email y contraseña para el sitio activo.'
+        topbarHint.textContent = 'Crea clientes y editores. Puedes enviar un email de alta o generar un token.'
       } else {
         topbarHint.textContent =
           'Empieza por Entradas. Abre un borrador y avanza paso a paso hasta publicar.'
@@ -1677,7 +1677,14 @@ function mergeAuthSession(partial = {}) {
         ? partial.productRestructureV1
         : Boolean(authSession?.productRestructureV1),
     socialPackHost:
-      partial.socialPackHost || authSession?.socialPackHost || null
+      partial.socialPackHost || authSession?.socialPackHost || null,
+    mustSetPassword:
+      typeof partial.mustSetPassword === 'boolean'
+        ? partial.mustSetPassword
+        : Boolean(authSession?.mustSetPassword),
+    userId: Object.prototype.hasOwnProperty.call(partial, 'userId')
+      ? partial.userId
+      : authSession?.userId || null
   }
   if (authSession.role === 'admin') {
     authSession.canCreateSites = true
@@ -1713,6 +1720,12 @@ async function afterLogin() {
     }
   }
   applyAuthUi()
+  if (authSession?.mustSetPassword) {
+    showLoginPanel('set')
+    login.hidden = false
+    app.hidden = true
+    return
+  }
   await loadSites()
   await loadPosts()
   await loadSite()
@@ -1755,9 +1768,10 @@ function applyAuthUi() {
       authRoleBadge.dataset.role = 'admin'
       authRoleBadge.textContent = 'Super-admin'
     } else if (authSession?.role === 'agency_admin') {
-      const handle = authSession?.site || authSession?.sites?.[0] || 'este proyecto'
+      const handles = authSession?.sites?.length ? authSession.sites : [authSession?.site].filter(Boolean)
       authRoleBadge.dataset.role = 'agency_admin'
-      authRoleBadge.textContent = `Agency · ${handle}`
+      authRoleBadge.textContent =
+        handles.length > 1 ? `Editor · ${handles.length} sitios` : `Editor · ${handles[0] || 'sitio'}`
     } else {
       const handle = authSession?.site || authSession?.sites?.[0] || 'este proyecto'
       authRoleBadge.dataset.role = 'client'
@@ -1922,7 +1936,9 @@ async function doLogin() {
       canManageAllSites: Boolean(data.canManageAllSites),
       productRestructureV1: Boolean(data.productRestructureV1),
       socialPackHost: data.socialPackHost,
-      capabilities: data.capabilities || []
+      capabilities: data.capabilities || [],
+      mustSetPassword: Boolean(data.mustSetPassword),
+      userId: data.userId || data.user?.id || null
     })
     if ((data.role === 'site' || data.role === 'client' || data.role === 'agency_admin') && data.site) {
       localStorage.setItem('escarlet_cms_site', data.site)
@@ -1955,14 +1971,97 @@ tokenInput.addEventListener('keydown', (event) => {
     doLogin()
   }
 })
+document.getElementById('loginEmail')?.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    doLogin()
+  }
+})
+document.getElementById('loginPassword')?.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    doLogin()
+  }
+})
+
+function showLoginPanel(mode) {
+  const passwordBlock = document.getElementById('passwordLoginBlock')
+  const forgotBlock = document.getElementById('forgotBlock')
+  const setBlock = document.getElementById('setPasswordBlock')
+  const enter = document.getElementById('enter')
+  const tokenLabel = document.querySelector('label[for="token"]')
+  const tokenInputEl = document.getElementById('token')
+  const alt = document.querySelector('.login-alt')
+  if (passwordBlock) passwordBlock.hidden = mode !== 'login'
+  if (forgotBlock) forgotBlock.hidden = mode !== 'forgot'
+  if (setBlock) setBlock.hidden = mode !== 'set'
+  if (enter) enter.hidden = mode !== 'login'
+  if (tokenLabel) tokenLabel.hidden = mode !== 'login'
+  if (tokenInputEl) tokenInputEl.hidden = mode !== 'login'
+  if (alt) alt.hidden = mode !== 'login'
+}
 
 fetch('/api/auth/status')
   .then((r) => (r.ok ? r.json() : null))
   .then((status) => {
-    const block = document.getElementById('passwordLoginBlock')
-    if (block && status?.passwordAuth) block.hidden = false
+    if (authSession?.mustSetPassword) return
+    if (status?.passwordAuth) showLoginPanel('login')
   })
   .catch(() => {})
+
+document.getElementById('forgotPasswordBtn')?.addEventListener('click', () => {
+  const email = document.getElementById('loginEmail')?.value || ''
+  const forgotEmail = document.getElementById('forgotEmail')
+  if (forgotEmail && email) forgotEmail.value = email
+  showLoginPanel('forgot')
+  showLoginError('')
+})
+
+document.getElementById('forgotCancelBtn')?.addEventListener('click', () => {
+  showLoginPanel('login')
+  showLoginError('')
+})
+
+document.getElementById('forgotSendBtn')?.addEventListener('click', async () => {
+  const email = document.getElementById('forgotEmail')?.value.trim()
+  if (!email) return showLoginError('Escribe el email de la cuenta.')
+  const btn = document.getElementById('forgotSendBtn')
+  btn.disabled = true
+  try {
+    await fetch('/api/auth/forgot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    })
+    showLoginPanel('login')
+    showLoginError('')
+    toast('Si el email existe, te enviamos un enlace para elegir contraseña.')
+  } catch {
+    toast('Si el email existe, te enviamos un enlace para elegir contraseña.')
+    showLoginPanel('login')
+  } finally {
+    btn.disabled = false
+  }
+})
+
+document.getElementById('setPasswordBtn')?.addEventListener('click', async () => {
+  const password = document.getElementById('setPassword')?.value || ''
+  const password2 = document.getElementById('setPassword2')?.value || ''
+  if (password.length < 8) return showLoginError('La contraseña necesita al menos 8 caracteres')
+  if (password !== password2) return showLoginError('Las contraseñas no coinciden')
+  try {
+    await api('/api/auth/password', {
+      method: 'POST',
+      body: JSON.stringify({ password })
+    })
+    mergeAuthSession({ mustSetPassword: false })
+    showLoginError('')
+    toast('Contraseña guardada')
+    await afterLogin()
+  } catch (err) {
+    showLoginError(err.message || 'No se pudo guardar la contraseña')
+  }
+})
 
 document.getElementById('logout').onclick = () => {
   token = ''
@@ -2956,6 +3055,93 @@ function escapePackHtml(str) {
     .replace(/"/g, '&quot;')
 }
 
+function packDateValue(item) {
+  const raw = item?.datePublished || item?.updatedAt || item?.createdAt || ''
+  const t = Date.parse(raw)
+  return Number.isFinite(t) ? t : 0
+}
+
+function filteredSocialPacks() {
+  const status = document.getElementById('socialPackStatus')?.value || ''
+  const sort = document.getElementById('socialPackSort')?.value || 'newest'
+  let rows = [...cachedSocialPacks]
+  if (status) {
+    rows = rows.filter((p) => String(p.status || '').toLowerCase() === status)
+  }
+  rows.sort((a, b) => {
+    if (sort === 'title') return String(a.title || '').localeCompare(String(b.title || ''), 'es')
+    const diff = packDateValue(b) - packDateValue(a)
+    return sort === 'oldest' ? -diff : diff
+  })
+  return rows
+}
+
+function applySocialPackView() {
+  const listEl = document.getElementById('socialPackList')
+  if (!listEl) return
+  const view = document.getElementById('socialPackView')?.value || 'list'
+  listEl.classList.toggle('is-list', view === 'list')
+  listEl.classList.toggle('is-cards', view === 'cards')
+}
+
+function renderSocialPacks() {
+  const listEl = document.getElementById('socialPackList')
+  if (!listEl) return
+  applySocialPackView()
+  const site = currentSite()
+  const rows = filteredSocialPacks()
+  listEl.replaceChildren()
+  const header = document.createElement('div')
+  header.className = 'social-pack-site-header'
+  header.innerHTML = `<div class="social-pack-site-brand">
+    <img src="/favicon.svg" alt="" width="28" height="28" />
+    <div>
+      <strong>${escapeHtml(site)}</strong>
+      <span>Social Pack · CMS</span>
+    </div>
+  </div>`
+  listEl.appendChild(header)
+  if (!cachedSocialPacks.length) {
+    const empty = document.createElement('p')
+    empty.className = 'muted'
+    empty.textContent = 'Aún no hay Social Packs con contenido en este sitio.'
+    listEl.appendChild(empty)
+    document.getElementById('socialPackDetailCard').hidden = true
+    return
+  }
+  if (!rows.length) {
+    const empty = document.createElement('p')
+    empty.className = 'muted'
+    empty.textContent = 'Ningún pack coincide con ese filtro.'
+    listEl.appendChild(empty)
+    return
+  }
+  for (const item of rows) {
+    const wrap = document.createElement('div')
+    wrap.className = 'social-pack-card-wrap'
+    wrap.setAttribute('role', 'listitem')
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'social-pack-card' + (item.slug === selectedSocialPackSlug ? ' is-active' : '')
+    btn.dataset.slug = item.slug
+    const chips = Object.entries(item.channelsPresent || {})
+      .filter(([, on]) => on)
+      .map(([key]) => CHANNEL_LABELS[key] || key)
+    const cover = item.imageUrl
+      ? `<img class="social-pack-card-cover" src="${escapePackHtml(item.thumbUrl || item.imageUrl)}" alt="" loading="lazy" />`
+      : `<div class="social-pack-card-cover social-pack-card-cover--empty" aria-hidden="true"></div>`
+    btn.innerHTML = `${cover}
+    <div class="social-pack-card-body">
+      <p class="social-pack-item-title">${escapePackHtml(item.title)}</p>
+      <p class="social-pack-item-meta">${escapePackHtml(item.datePublished || '')} · ${escapePackHtml(item.status || '')}</p>
+      <div class="social-pack-chips">${chips.map((c) => `<span class="social-pack-chip">${escapePackHtml(c)}</span>`).join('')}</div>
+    </div>`
+    btn.onclick = () => openSocialPackDetail(item.slug)
+    wrap.appendChild(btn)
+    listEl.appendChild(wrap)
+  }
+}
+
 async function loadSocialPacks() {
   const listEl = document.getElementById('socialPackList')
   if (!listEl || !authSession?.productRestructureV1) return
@@ -2971,44 +3157,7 @@ async function loadSocialPacks() {
     sourceHint.hidden = false
     sourceHint.textContent = `Fuente · ${(data.source || 'cms') === 'cms' ? 'CMS' : data.source}`
   }
-  if (!cachedSocialPacks.length) {
-    listEl.innerHTML = '<li class="muted">Aún no hay Social Packs con contenido en este sitio.</li>'
-    document.getElementById('socialPackDetailCard').hidden = true
-    return
-  }
-  listEl.innerHTML = ''
-  const header = document.createElement('li')
-  header.className = 'social-pack-site-header'
-  header.innerHTML = `<div class="social-pack-site-brand">
-    <img src="/favicon.svg" alt="" width="28" height="28" />
-    <div>
-      <strong>${escapeHtml(site)}</strong>
-      <span>Social Pack · CMS</span>
-    </div>
-  </div>`
-  listEl.appendChild(header)
-  for (const item of cachedSocialPacks) {
-    const li = document.createElement('li')
-    li.className = 'social-pack-card-wrap'
-    const btn = document.createElement('button')
-    btn.type = 'button'
-    btn.className = 'social-pack-card' + (item.slug === selectedSocialPackSlug ? ' is-active' : '')
-    const chips = Object.entries(item.channelsPresent || {})
-      .filter(([, on]) => on)
-      .map(([key]) => CHANNEL_LABELS[key] || key)
-    const cover = item.imageUrl
-      ? `<img class="social-pack-card-cover" src="${escapePackHtml(item.thumbUrl || item.imageUrl)}" alt="" loading="lazy" />`
-      : `<div class="social-pack-card-cover social-pack-card-cover--empty" aria-hidden="true"></div>`
-    btn.innerHTML = `${cover}
-    <div class="social-pack-card-body">
-      <p class="social-pack-item-title">${escapePackHtml(item.title)}</p>
-      <p class="social-pack-item-meta">${escapePackHtml(item.datePublished || '')} · ${escapePackHtml(item.status || '')}</p>
-      <div class="social-pack-chips">${chips.map((c) => `<span class="social-pack-chip">${escapePackHtml(c)}</span>`).join('')}</div>
-    </div>`
-    btn.onclick = () => openSocialPackDetail(item.slug)
-    li.appendChild(btn)
-    listEl.appendChild(li)
-  }
+  renderSocialPacks()
   if (selectedSocialPackSlug && cachedSocialPacks.some((p) => p.slug === selectedSocialPackSlug)) {
     await openSocialPackDetail(selectedSocialPackSlug)
   }
@@ -3022,8 +3171,8 @@ async function openSocialPackDetail(slug) {
   )
   const pack = data.pack
   if (!pack) return toast('Pack no encontrado')
-  document.querySelectorAll('.social-pack-item').forEach((el) => {
-    el.classList.toggle('is-active', el.querySelector('.social-pack-item-title')?.textContent === pack.title)
+  document.querySelectorAll('.social-pack-card').forEach((el) => {
+    el.classList.toggle('is-active', el.dataset.slug === pack.slug)
   })
   const card = document.getElementById('socialPackDetailCard')
   card.hidden = false
@@ -3101,6 +3250,11 @@ async function openSocialPackDetail(slug) {
 
 document.getElementById('reloadSocialPacks')?.addEventListener('click', () => {
   loadSocialPacks().catch((e) => toast(e.message))
+})
+;['socialPackView', 'socialPackSort', 'socialPackStatus'].forEach((id) => {
+  document.getElementById(id)?.addEventListener('change', () => {
+    renderSocialPacks()
+  })
 })
 
 document.getElementById('uploadForm').onsubmit = async (e) => {
@@ -3751,33 +3905,79 @@ function humanRoleLabel(role) {
   return role || '—'
 }
 
+function syncUserFormMode() {
+  const method = document.getElementById('newUserMethod')?.value || 'invite'
+  const wrap = document.getElementById('newUserPasswordWrap')
+  if (wrap) wrap.hidden = method !== 'password'
+  const role = document.getElementById('newUserRole')?.value || 'client'
+  const sitesWrap = document.getElementById('newUserSitesWrap')
+  const box = document.getElementById('newUserSites')
+  if (!sitesWrap || !box) return
+  const showSites = role === 'agency_admin' && (cachedSiteHandles || []).length > 0
+  sitesWrap.hidden = !showSites
+  if (!showSites) return
+  const current = currentSite()
+  const checked = new Set(
+    [...box.querySelectorAll('input:checked')].map((el) => el.value)
+  )
+  if (!checked.size) checked.add(current)
+  box.innerHTML = cachedSiteHandles
+    .map((handle) => {
+      const on = checked.has(handle) || handle === current
+      return `<label><input type="checkbox" value="${escapeHtml(handle)}" ${on ? 'checked' : ''} /> ${escapeHtml(handle)}</label>`
+    })
+    .join('')
+}
+
+function selectedNewUserSites() {
+  const role = document.getElementById('newUserRole')?.value || 'client'
+  if (role !== 'agency_admin') return [currentSite()]
+  const picked = [...document.querySelectorAll('#newUserSites input[type="checkbox"]:checked')].map(
+    (el) => el.value
+  )
+  return picked.length ? picked : [currentSite()]
+}
+
 async function loadUsers() {
   const body = document.getElementById('usersTableBody')
   const hint = document.getElementById('usersSiteHint')
   const site = currentSite()
   if (hint) hint.textContent = `Sitio. ${site}`
+  syncUserFormMode()
   if (!body) return
   if (!isAgencySession()) {
-    body.innerHTML = '<tr><td colspan="4" class="muted">Solo agency o super-admin pueden gestionar usuarios.</td></tr>'
+    body.innerHTML = '<tr><td colspan="5" class="muted">Solo agency o super-admin pueden gestionar usuarios.</td></tr>'
     return
   }
-  body.innerHTML = '<tr><td colspan="4" class="muted">Cargando…</td></tr>'
+  body.innerHTML = '<tr><td colspan="5" class="muted">Cargando…</td></tr>'
   try {
     const data = await api('/api/auth/users?' + new URLSearchParams({ site }))
     const users = data.users || []
     if (!users.length) {
-      body.innerHTML = '<tr><td colspan="4" class="muted">Todavía no hay usuarios en este sitio.</td></tr>'
+      body.innerHTML = '<tr><td colspan="5" class="muted">Todavía no hay usuarios en este sitio.</td></tr>'
       return
     }
+    const canMintToken = isSuperAdminSession()
     body.innerHTML = users
       .map((u) => {
         const roleClass = u.role === 'client' || u.role === 'site' ? ' is-client' : ''
         const when = u.createdAt ? String(u.createdAt).slice(0, 10) : '—'
+        const sites = (u.sites && u.sites.length ? u.sites : [u.site]).filter(Boolean).join(', ')
+        const tokenBtn = canMintToken
+          ? `<button type="button" class="btn btn-ghost" data-user-token="${escapeHtml(u.id)}">${u.hasLoginToken ? 'Nuevo token' : 'Crear token'}</button>
+             ${u.hasLoginToken ? `<button type="button" class="btn btn-ghost" data-revoke-token="${escapeHtml(u.id)}">Revocar</button>` : ''}`
+          : u.hasLoginToken
+            ? `<span class="muted">${escapeHtml(u.loginTokenHint || 'Token activo')}</span>`
+            : ''
         return `<tr>
           <td>${escapeHtml(u.email)}</td>
           <td><span class="user-role-pill${roleClass}">${escapeHtml(humanRoleLabel(u.role))}</span></td>
+          <td>${escapeHtml(sites || '—')}</td>
           <td>${escapeHtml(when)}</td>
-          <td><button type="button" class="btn btn-ghost" data-delete-user="${escapeHtml(u.id)}">Eliminar</button></td>
+          <td>
+            ${tokenBtn}
+            <button type="button" class="btn btn-ghost" data-delete-user="${escapeHtml(u.id)}">Eliminar</button>
+          </td>
         </tr>`
       })
       .join('')
@@ -3796,35 +3996,93 @@ async function loadUsers() {
         }
       })
     })
+    body.querySelectorAll('[data-user-token]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        try {
+          const data = await api('/api/auth/users/token', {
+            method: 'POST',
+            body: JSON.stringify({ id: btn.getAttribute('data-user-token') })
+          })
+          const panel = document.getElementById('userTokenResult')
+          const pre = document.getElementById('userTokenValue')
+          if (panel && pre) {
+            panel.hidden = false
+            pre.textContent = data.token || ''
+          }
+          toast('Token creado. Cópialo ahora.')
+          await loadUsers()
+        } catch (err) {
+          toast(err.message)
+        }
+      })
+    })
+    body.querySelectorAll('[data-revoke-token]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!window.confirm('¿Revocar el token de este usuario?')) return
+        try {
+          await api('/api/auth/users/token/revoke', {
+            method: 'POST',
+            body: JSON.stringify({ id: btn.getAttribute('data-revoke-token') })
+          })
+          toast('Token revocado')
+          await loadUsers()
+        } catch (err) {
+          toast(err.message)
+        }
+      })
+    })
   } catch (err) {
-    body.innerHTML = `<tr><td colspan="4" class="muted">${escapeHtml(err.message || 'No se pudo cargar')}</td></tr>`
+    body.innerHTML = `<tr><td colspan="5" class="muted">${escapeHtml(err.message || 'No se pudo cargar')}</td></tr>`
   }
 }
+
+document.getElementById('newUserRole')?.addEventListener('change', syncUserFormMode)
+document.getElementById('newUserMethod')?.addEventListener('change', syncUserFormMode)
 
 document.getElementById('createUserForm')?.addEventListener('submit', async (e) => {
   e.preventDefault()
   const email = document.getElementById('newUserEmail')?.value.trim()
   const role = document.getElementById('newUserRole')?.value || 'client'
+  const method = document.getElementById('newUserMethod')?.value || 'invite'
   const password = document.getElementById('newUserPassword')?.value || ''
   const password2 = document.getElementById('newUserPassword2')?.value || ''
+  const sites = selectedNewUserSites()
   if (!email) return toast('Pon un email')
-  if (password.length < 8) return toast('La contraseña necesita al menos 8 caracteres')
-  if (password !== password2) return toast('Las contraseñas no coinciden')
+  if (method === 'password') {
+    if (password.length < 8) return toast('La contraseña necesita al menos 8 caracteres')
+    if (password !== password2) return toast('Las contraseñas no coinciden')
+  }
   const btn = document.getElementById('createUserBtn')
-  await withBusy(btn, 'Creando…', async () => {
-    await api('/api/auth/register', {
+  await withBusy(btn, method === 'invite' ? 'Enviando…' : 'Creando…', async () => {
+    const data = await api('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify({
         email,
-        password,
+        password: method === 'password' ? password : undefined,
         role,
-        site: currentSite()
+        site: sites[0],
+        sites,
+        invite: method === 'invite',
+        method
       })
     })
     document.getElementById('newUserEmail').value = ''
     document.getElementById('newUserPassword').value = ''
     document.getElementById('newUserPassword2').value = ''
-    toast('Usuario creado')
+    if (method === 'invite') {
+      const link = data?.invite?.link
+      toast(link ? 'Usuario creado. Copia el enlace de alta y envíaselo a la persona.' : 'Email de alta enviado')
+      if (link) {
+        const panel = document.getElementById('userTokenResult')
+        const pre = document.getElementById('userTokenValue')
+        if (panel && pre) {
+          panel.hidden = false
+          pre.textContent = link
+        }
+      }
+    } else {
+      toast('Usuario creado')
+    }
     await loadUsers()
   })
 })
