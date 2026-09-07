@@ -108,6 +108,13 @@ let socialPackChannels = {
   videoScript: true,
   instagramCarousel: true
 }
+let cachedSocialPacks = []
+let selectedSocialPackSlug = null
+let selectedPackChannel = null
+let cachedPackDetail = null
+let packStatusFilter = ''
+let packViewMode = localStorage.getItem('escarlet_cms_pack_view') === 'list' ? 'list' : 'cards'
+let packCols = Number(localStorage.getItem('escarlet_cms_pack_cols') || 3)
 let editingOriginalSlug = ''
 let currentStep = 'escribir'
 let currentRoute = { view: 'entradas' }
@@ -1323,6 +1330,8 @@ function parseHash() {
   if (raw === 'calendario') return { view: 'calendario' }
   if (raw === 'media') return { view: 'media' }
   if (raw === 'social-pack') return { view: 'social-pack' }
+  const mPack = raw.match(/^social-pack\/([^/]+)$/)
+  if (mPack) return { view: 'social-pack', slug: decodeURIComponent(mPack[1]) }
   if (raw === 'sitio') return { view: 'sitio' }
   if (raw === 'usuarios') return { view: 'usuarios' }
   const mNew = raw.match(/^entrada\/nueva(?:\/(escribir|portada|revisar))?$/)
@@ -1337,7 +1346,11 @@ function routeToHash(route) {
   if (route.view === 'marca') return '#/marca'
   if (route.view === 'calendario') return '#/calendario'
   if (route.view === 'media') return '#/media'
-  if (route.view === 'social-pack') return '#/social-pack'
+  if (route.view === 'social-pack') {
+    return route.slug
+      ? `#/social-pack/${encodeURIComponent(route.slug)}`
+      : '#/social-pack'
+  }
   if (route.view === 'sitio') return '#/sitio'
   if (route.view === 'usuarios') return '#/usuarios'
   if (route.view === 'entrada') {
@@ -1365,6 +1378,10 @@ function navigate(route, { replace = false } = {}) {
 function applyRoute(route) {
   currentRoute = route || { view: 'entradas' }
   const view = currentRoute.view || 'entradas'
+
+  if (view !== 'social-pack') {
+    closeSocialPackDrawer({ updateHash: false })
+  }
 
   document.querySelectorAll('.nav-btn[data-route]').forEach((b) => {
     const active =
@@ -1404,7 +1421,7 @@ function applyRoute(route) {
       } else if (view === 'media') {
         topbarHint.textContent = 'Fotos del blog. Las de marca viven en Kit de marca. Las miniaturas cargan más rápido.'
       } else if (view === 'social-pack') {
-        topbarHint.textContent = 'Social Pack desde el CMS. Copia textos y abre el pack completo si lo necesitas.'
+        topbarHint.textContent = 'Elige un pack y copia el texto para la red.'
       } else if (view === 'sitio') {
         topbarHint.textContent = canCreateSites()
           ? 'Crea un sitio nuevo o ajusta dominio y webhook del activo.'
@@ -1438,7 +1455,14 @@ function applyRoute(route) {
     loadLibrary().catch((e) => toast(e.message))
   }
   if (view === 'social-pack') {
-    loadSocialPacks().catch((e) => toast(e.message))
+    if (!cachedSocialPacks.length) {
+      loadSocialPacks().catch((e) => toast(e.message))
+    } else if (currentRoute.slug) {
+      openSocialPackDetail(currentRoute.slug).catch((e) => toast(e.message))
+    } else {
+      closeSocialPackDrawer({ updateHash: false })
+      renderSocialPacks()
+    }
   }
   if (view === 'sitio') {
     loadSites().catch((e) => toast(e.message))
@@ -2159,6 +2183,9 @@ document.addEventListener('keydown', (e) => {
   }
   if (e.key === 'Escape' && !document.getElementById('mediaLightbox')?.hidden) {
     closeMediaLightbox()
+  }
+  if (e.key === 'Escape' && !document.getElementById('socialPackDrawer')?.hidden) {
+    closeSocialPackDrawer()
   }
 })
 
@@ -3043,9 +3070,8 @@ const CHANNEL_LABELS = {
   videoScript: 'Vídeo',
   instagramCarousel: 'Instagram'
 }
-
-let cachedSocialPacks = []
-let selectedSocialPackSlug = null
+const PACK_VIEW_KEY = 'escarlet_cms_pack_view'
+const PACK_COLS_KEY = 'escarlet_cms_pack_cols'
 
 function escapePackHtml(str) {
   return String(str ?? '')
@@ -3061,13 +3087,50 @@ function packDateValue(item) {
   return Number.isFinite(t) ? t : 0
 }
 
-function filteredSocialPacks() {
-  const status = document.getElementById('socialPackStatus')?.value || ''
-  const sort = document.getElementById('socialPackSort')?.value || 'newest'
-  let rows = [...cachedSocialPacks]
-  if (status) {
-    rows = rows.filter((p) => String(p.status || '').toLowerCase() === status)
+function packStatusKind(status) {
+  const s = String(status || 'draft').toLowerCase()
+  if (s === 'published') return 'published'
+  if (s === 'scheduled' || s === 'pending_schedule') return 'scheduled'
+  return 'draft'
+}
+
+function packMatchesStatus(item, filter) {
+  const s = String(item?.status || '').toLowerCase()
+  if (!filter) return true
+  if (filter === 'published') return s === 'published'
+  if (filter === 'draft') return s === 'draft' || s === 'review'
+  if (filter === 'scheduled') return s === 'scheduled' || s === 'pending_schedule'
+  return s === filter
+}
+
+function formatPackDate(raw) {
+  if (!raw) return ''
+  const d = new Date(raw)
+  if (Number.isNaN(d.getTime())) return String(raw)
+  return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+function presentChannelKeys(item) {
+  return Object.entries(item?.channelsPresent || {})
+    .filter(([, on]) => on)
+    .map(([key]) => key)
+}
+
+function packChannelText(sp, channel) {
+  const pack = sp || {}
+  if (channel === 'substack') {
+    return [pack.substackTitle, pack.substackBody].filter(Boolean).join('\n\n')
   }
+  if (channel === 'linkedin') return pack.linkedin || ''
+  if (channel === 'x') return pack.x || ''
+  if (channel === 'videoScript') return pack.videoScript || ''
+  if (channel === 'instagramCarousel') return pack.instagramCaption || ''
+  return ''
+}
+
+function filteredSocialPacks() {
+  const sort = document.getElementById('socialPackSort')?.value || 'newest'
+  let rows = cachedSocialPacks.filter((p) => packMatchesStatus(p, packStatusFilter))
   rows.sort((a, b) => {
     if (sort === 'title') return String(a.title || '').localeCompare(String(b.title || ''), 'es')
     const diff = packDateValue(b) - packDateValue(a)
@@ -3079,66 +3142,127 @@ function filteredSocialPacks() {
 function applySocialPackView() {
   const listEl = document.getElementById('socialPackList')
   if (!listEl) return
-  const view = document.getElementById('socialPackView')?.value || 'list'
-  listEl.classList.toggle('is-list', view === 'list')
-  listEl.classList.toggle('is-cards', view === 'cards')
+  const cols = [3, 4, 5].includes(packCols) ? packCols : 3
+  packCols = cols
+  listEl.classList.toggle('is-list', packViewMode === 'list')
+  listEl.classList.toggle('is-cards', packViewMode === 'cards')
+  listEl.classList.toggle('cols-3', cols === 3)
+  listEl.classList.toggle('cols-4', cols === 4)
+  listEl.classList.toggle('cols-5', cols === 5)
+  const cardsBtn = document.getElementById('socialPackViewCards')
+  const listBtn = document.getElementById('socialPackViewList')
+  cardsBtn?.classList.toggle('is-on', packViewMode === 'cards')
+  listBtn?.classList.toggle('is-on', packViewMode === 'list')
+  cardsBtn?.setAttribute('aria-pressed', packViewMode === 'cards' ? 'true' : 'false')
+  listBtn?.setAttribute('aria-pressed', packViewMode === 'list' ? 'true' : 'false')
+  const colsGroup = document.getElementById('socialPackColsGroup')
+  if (colsGroup) colsGroup.hidden = packViewMode !== 'cards'
+  colsGroup?.querySelectorAll('[data-pack-cols]').forEach((btn) => {
+    const on = Number(btn.dataset.packCols) === cols
+    btn.classList.toggle('is-on', on)
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false')
+  })
+}
+
+function setPackView(view) {
+  packViewMode = view === 'list' ? 'list' : 'cards'
+  localStorage.setItem(PACK_VIEW_KEY, packViewMode)
+  applySocialPackView()
+}
+
+function setPackCols(n) {
+  packCols = [3, 4, 5].includes(Number(n)) ? Number(n) : 3
+  localStorage.setItem(PACK_COLS_KEY, String(packCols))
+  applySocialPackView()
+}
+
+function updatePackCount(visibleCount) {
+  const el = document.getElementById('socialPackCount')
+  if (!el) return
+  const total = cachedSocialPacks.length
+  const published = cachedSocialPacks.filter((p) => String(p.status || '').toLowerCase() === 'published').length
+  if (!total) {
+    el.textContent = 'Los textos de redes de este sitio aparecerán aquí.'
+    return
+  }
+  if (packStatusFilter) {
+    el.textContent = `${visibleCount} de ${total} ${total === 1 ? 'pack' : 'packs'}`
+    return
+  }
+  const packWord = total === 1 ? 'pack' : 'packs'
+  const publishedWord = published === 1 ? 'publicado' : 'publicados'
+  el.textContent = published
+    ? `${total} ${packWord} · ${published} ${publishedWord}`
+    : `${total} ${packWord}`
+}
+
+function closeSocialPackDrawer({ updateHash = true } = {}) {
+  const drawer = document.getElementById('socialPackDrawer')
+  const backdrop = document.getElementById('socialPackDrawerBackdrop')
+  const wasOpen = Boolean(drawer && !drawer.hidden)
+  selectedSocialPackSlug = null
+  selectedPackChannel = null
+  cachedPackDetail = null
+  if (drawer) drawer.hidden = true
+  if (backdrop) backdrop.hidden = true
+  document.body.classList.remove('pack-drawer-open')
+  document.querySelectorAll('.social-pack-card').forEach((el) => el.classList.remove('is-active'))
+  if (updateHash && wasOpen && currentRoute?.view === 'social-pack' && currentRoute.slug) {
+    navigate({ view: 'social-pack' }, { replace: true })
+  }
 }
 
 function renderSocialPacks() {
   const listEl = document.getElementById('socialPackList')
   if (!listEl) return
   applySocialPackView()
-  const site = currentSite()
   const rows = filteredSocialPacks()
+  updatePackCount(rows.length)
   listEl.replaceChildren()
-  const header = document.createElement('div')
-  header.className = 'social-pack-site-header'
-  header.innerHTML = `<div class="social-pack-site-brand">
-    <img src="/favicon.svg" alt="" width="28" height="28" />
-    <div>
-      <strong>${escapeHtml(site)}</strong>
-      <span>Social Pack · CMS</span>
-    </div>
-  </div>`
-  listEl.appendChild(header)
   if (!cachedSocialPacks.length) {
     const empty = document.createElement('p')
-    empty.className = 'muted'
-    empty.textContent = 'Aún no hay Social Packs con contenido en este sitio.'
+    empty.className = 'pack-empty'
+    empty.textContent = 'Cuando una entrada tenga textos para redes, aparecen aquí.'
     listEl.appendChild(empty)
-    document.getElementById('socialPackDetailCard').hidden = true
     return
   }
   if (!rows.length) {
     const empty = document.createElement('p')
-    empty.className = 'muted'
-    empty.textContent = 'Ningún pack coincide con ese filtro.'
+    empty.className = 'pack-empty'
+    empty.textContent = 'Prueba otro estado o mira todos los packs.'
     listEl.appendChild(empty)
     return
   }
   for (const item of rows) {
-    const wrap = document.createElement('div')
-    wrap.className = 'social-pack-card-wrap'
-    wrap.setAttribute('role', 'listitem')
-    const btn = document.createElement('button')
-    btn.type = 'button'
-    btn.className = 'social-pack-card' + (item.slug === selectedSocialPackSlug ? ' is-active' : '')
-    btn.dataset.slug = item.slug
-    const chips = Object.entries(item.channelsPresent || {})
-      .filter(([, on]) => on)
-      .map(([key]) => CHANNEL_LABELS[key] || key)
+    const card = document.createElement('article')
+    const kind = packStatusKind(item.status)
+    card.className = 'social-pack-card' + (item.slug === selectedSocialPackSlug ? ' is-active' : '')
+    card.dataset.slug = item.slug
+    card.setAttribute('role', 'listitem')
+    card.tabIndex = 0
+    card.setAttribute('aria-label', `${item.title}. ${statusLabel(item.status)}`)
+    const chips = presentChannelKeys(item).map((key) => CHANNEL_LABELS[key] || key)
     const cover = item.imageUrl
       ? `<img class="social-pack-card-cover" src="${escapePackHtml(item.thumbUrl || item.imageUrl)}" alt="" loading="lazy" />`
       : `<div class="social-pack-card-cover social-pack-card-cover--empty" aria-hidden="true"></div>`
-    btn.innerHTML = `${cover}
-    <div class="social-pack-card-body">
-      <p class="social-pack-item-title">${escapePackHtml(item.title)}</p>
-      <p class="social-pack-item-meta">${escapePackHtml(item.datePublished || '')} · ${escapePackHtml(item.status || '')}</p>
-      <div class="social-pack-chips">${chips.map((c) => `<span class="social-pack-chip">${escapePackHtml(c)}</span>`).join('')}</div>
-    </div>`
-    btn.onclick = () => openSocialPackDetail(item.slug)
-    wrap.appendChild(btn)
-    listEl.appendChild(wrap)
+    const dateLabel = formatPackDate(item.datePublished)
+    card.innerHTML = `${cover}
+      <div class="social-pack-card-scrim" aria-hidden="true"></div>
+      <span class="pack-flag is-${kind}">${escapePackHtml(statusLabel(item.status))}</span>
+      <div class="social-pack-card-body">
+        <strong class="social-pack-item-title">${escapePackHtml(item.title)}</strong>
+        ${dateLabel ? `<span class="social-pack-item-meta">${escapePackHtml(dateLabel)}</span>` : ''}
+        <div class="social-pack-chips">${chips.map((c) => `<span class="social-pack-chip">${escapePackHtml(c)}</span>`).join('')}</div>
+      </div>`
+    const open = () => navigate({ view: 'social-pack', slug: item.slug })
+    card.onclick = open
+    card.onkeydown = (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        open()
+      }
+    }
+    listEl.appendChild(card)
   }
 }
 
@@ -3146,78 +3270,65 @@ async function loadSocialPacks() {
   const listEl = document.getElementById('socialPackList')
   if (!listEl || !authSession?.productRestructureV1) return
   const site = currentSite()
-  const indexLink = document.getElementById('openSocialPackIndex')
-  if (indexLink) {
-    indexLink.href = `/admin/blog-packs?site=${encodeURIComponent(site)}`
-  }
   const data = await api('/api/admin/social-pack?' + new URLSearchParams({ site }))
   cachedSocialPacks = data.packs || []
   const sourceHint = document.getElementById('socialPackSourceHint')
-  if (sourceHint) {
-    sourceHint.hidden = false
-    sourceHint.textContent = `Fuente · ${(data.source || 'cms') === 'cms' ? 'CMS' : data.source}`
-  }
+  if (sourceHint) sourceHint.hidden = true
+  const slug = currentRoute?.slug || selectedSocialPackSlug
+  selectedSocialPackSlug = slug || null
   renderSocialPacks()
-  if (selectedSocialPackSlug && cachedSocialPacks.some((p) => p.slug === selectedSocialPackSlug)) {
-    await openSocialPackDetail(selectedSocialPackSlug)
+  if (slug && cachedSocialPacks.some((p) => p.slug === slug)) {
+    await openSocialPackDetail(slug)
   }
 }
 
-async function openSocialPackDetail(slug) {
-  selectedSocialPackSlug = slug
-  const site = currentSite()
-  const data = await api(
-    `/api/admin/social-pack/${encodeURIComponent(slug)}?` + new URLSearchParams({ site })
-  )
-  const pack = data.pack
-  if (!pack) return toast('Pack no encontrado')
-  document.querySelectorAll('.social-pack-card').forEach((el) => {
-    el.classList.toggle('is-active', el.dataset.slug === pack.slug)
-  })
-  const card = document.getElementById('socialPackDetailCard')
-  card.hidden = false
-  document.getElementById('socialPackDetailTitle').textContent = pack.title || slug
-  document.getElementById('socialPackDetailMeta').textContent = [
-    pack.authorName,
-    pack.datePublished,
-    pack.articleUrl
-  ]
-    .filter(Boolean)
-    .join(' · ')
+function renderPackTabs(pack) {
+  const tabs = document.getElementById('socialPackChannelTabs')
+  if (!tabs) return
+  const keys = presentChannelKeys(pack)
+  if (!keys.includes(selectedPackChannel)) selectedPackChannel = keys[0] || null
+  tabs.replaceChildren()
+  for (const key of keys) {
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'pack-channel-tab' + (key === selectedPackChannel ? ' is-on' : '')
+    btn.dataset.channel = key
+    btn.setAttribute('role', 'tab')
+    btn.setAttribute('aria-selected', key === selectedPackChannel ? 'true' : 'false')
+    btn.textContent = CHANNEL_LABELS[key] || key
+    btn.onclick = () => {
+      selectedPackChannel = key
+      renderPackTabs(pack)
+      renderPackChannelBody(pack)
+    }
+    tabs.appendChild(btn)
+  }
+}
+
+function renderPackChannelBody(pack) {
   const body = document.getElementById('socialPackDetailBody')
+  const copyBtn = document.getElementById('copySocialPackChannel')
+  if (!body) return
   const sp = pack.socialPack || {}
-  const present = pack.channelsPresent || {}
+  const channel = selectedPackChannel
   const blocks = []
   const pushField = (label, text, id) => {
     blocks.push(`<div class="pack-field">
-      <label>${escapePackHtml(label)}</label>
+      <span class="pack-field-label">${escapePackHtml(label)}</span>
       <pre id="${escapePackHtml(id)}">${escapePackHtml(text || '')}</pre>
-      <button type="button" class="btn" data-pack-copy="${escapePackHtml(id)}">Copiar</button>
+      <button type="button" class="btn btn-ghost" data-pack-copy="${escapePackHtml(id)}">Copiar este texto</button>
     </div>`)
   }
-  if (present.substack) {
-    blocks.push('<div class="pack-channel-block"><h4>Substack</h4>')
+  if (channel === 'substack') {
     pushField('Título', sp.substackTitle, 'sp-substack-title')
     pushField('Cuerpo', sp.substackBody, 'sp-substack-body')
-    blocks.push('</div>')
-  }
-  if (present.linkedin) {
-    blocks.push('<div class="pack-channel-block"><h4>LinkedIn</h4>')
+  } else if (channel === 'linkedin') {
     pushField('Post', sp.linkedin, 'sp-linkedin')
-    blocks.push('</div>')
-  }
-  if (present.x) {
-    blocks.push('<div class="pack-channel-block"><h4>X</h4>')
+  } else if (channel === 'x') {
     pushField('Tuit', sp.x, 'sp-x')
-    blocks.push('</div>')
-  }
-  if (present.videoScript) {
-    blocks.push('<div class="pack-channel-block"><h4>Guion de vídeo</h4>')
+  } else if (channel === 'videoScript') {
     pushField('Guion', sp.videoScript, 'sp-video')
-    blocks.push('</div>')
-  }
-  if (present.instagramCarousel) {
-    blocks.push('<div class="pack-channel-block"><h4>Instagram</h4>')
+  } else if (channel === 'instagramCarousel') {
     pushField('Caption', sp.instagramCaption, 'sp-ig-caption')
     const slides = (sp.instagramSlides || [])
       .map(
@@ -3228,33 +3339,123 @@ async function openSocialPackDetail(slug) {
       )
       .join('')
     if (slides) blocks.push(`<div class="pack-slides">${slides}</div>`)
-    blocks.push('</div>')
+  } else {
+    blocks.push('<p class="muted">Este pack espera textos en los canales activos.</p>')
   }
-  blocks.push(
-    `<p><a class="btn" href="/admin/blog-packs/${encodeURIComponent(slug)}?site=${encodeURIComponent(site)}" target="_blank" rel="noopener noreferrer">Abrir pack completo</a></p>`
-  )
   body.innerHTML = blocks.join('\n')
   body.querySelectorAll('[data-pack-copy]').forEach((btn) => {
     btn.onclick = async () => {
       const el = document.getElementById(btn.getAttribute('data-pack-copy'))
       if (!el) return
-      try {
-        await navigator.clipboard.writeText(el.textContent || '')
-        toast('Copiado')
-      } catch {
-        toast('No se pudo copiar')
-      }
+      await copyPackText(el.textContent || '')
     }
   })
+  if (copyBtn) {
+    const label = CHANNEL_LABELS[channel] || 'canal'
+    copyBtn.textContent = `Copiar ${label}`
+    copyBtn.hidden = !channel
+  }
+}
+
+async function copyPackText(text) {
+  try {
+    await navigator.clipboard.writeText(text || '')
+    toast('Texto copiado')
+  } catch {
+    toast('Selecciona el texto y cópialo.')
+  }
+}
+
+async function openSocialPackDetail(slug) {
+  selectedSocialPackSlug = slug
+  const site = currentSite()
+  const data = await api(
+    `/api/admin/social-pack/${encodeURIComponent(slug)}?` + new URLSearchParams({ site })
+  )
+  const pack = data.pack
+  if (!pack) return toast('Ese pack no está en este sitio.')
+  cachedPackDetail = pack
+  document.querySelectorAll('.social-pack-card').forEach((el) => {
+    el.classList.toggle('is-active', el.dataset.slug === pack.slug)
+  })
+  const drawer = document.getElementById('socialPackDrawer')
+  const backdrop = document.getElementById('socialPackDrawerBackdrop')
+  const badge = document.getElementById('socialPackDetailBadge')
+  if (drawer) drawer.hidden = false
+  if (backdrop) backdrop.hidden = false
+  document.body.classList.add('pack-drawer-open')
+  setBadge(badge, pack.status || 'draft')
+  document.getElementById('socialPackDetailTitle').textContent = pack.title || slug
+  document.getElementById('socialPackDetailMeta').textContent = [
+    pack.authorName,
+    formatPackDate(pack.datePublished)
+  ]
+    .filter(Boolean)
+    .join(' · ')
+  const fullLink = document.getElementById('openSocialPackFull')
+  if (fullLink) {
+    fullLink.href = `/admin/blog-packs/${encodeURIComponent(slug)}?site=${encodeURIComponent(site)}`
+  }
+  renderPackTabs(pack)
+  renderPackChannelBody(pack)
+}
+
+async function editPackPost() {
+  const slug = selectedSocialPackSlug || cachedPackDetail?.slug
+  if (!slug) return
+  const site = currentSite()
+  let post = cachedPosts.find((p) => p.slug === slug)
+  if (!post) {
+    const data = await api(
+      `/api/admin/posts/${encodeURIComponent(slug)}?` + new URLSearchParams({ site })
+    )
+    post = data.post
+  }
+  if (!post) return toast('La entrada no está disponible.')
+  closeSocialPackDrawer({ updateHash: false })
+  openPostWorkspace(post, 'escribir')
 }
 
 document.getElementById('reloadSocialPacks')?.addEventListener('click', () => {
   loadSocialPacks().catch((e) => toast(e.message))
 })
-;['socialPackView', 'socialPackSort', 'socialPackStatus'].forEach((id) => {
-  document.getElementById(id)?.addEventListener('change', () => {
-    renderSocialPacks()
+document.getElementById('socialPackViewCards')?.addEventListener('click', () => {
+  setPackView('cards')
+})
+document.getElementById('socialPackViewList')?.addEventListener('click', () => {
+  setPackView('list')
+})
+document.getElementById('socialPackColsGroup')?.addEventListener('click', (event) => {
+  const btn = event.target.closest('[data-pack-cols]')
+  if (!btn) return
+  setPackCols(btn.dataset.packCols)
+})
+document.getElementById('socialPackStatusPills')?.addEventListener('click', (event) => {
+  const btn = event.target.closest('[data-status]')
+  if (!btn) return
+  packStatusFilter = btn.dataset.status || ''
+  document.querySelectorAll('#socialPackStatusPills .status-pill').forEach((el) => {
+    const on = el === btn
+    el.classList.toggle('is-on', on)
+    el.setAttribute('aria-pressed', on ? 'true' : 'false')
   })
+  renderSocialPacks()
+})
+document.getElementById('socialPackSort')?.addEventListener('change', () => {
+  renderSocialPacks()
+})
+document.getElementById('closeSocialPackDrawer')?.addEventListener('click', () => {
+  closeSocialPackDrawer()
+})
+document.getElementById('socialPackDrawerBackdrop')?.addEventListener('click', () => {
+  closeSocialPackDrawer()
+})
+document.getElementById('copySocialPackChannel')?.addEventListener('click', () => {
+  if (!cachedPackDetail) return
+  copyPackText(packChannelText(cachedPackDetail.socialPack, selectedPackChannel))
+})
+document.getElementById('editSocialPackPost')?.addEventListener('click', () => {
+  editPackPost().catch((e) => toast(e.message))
 })
 
 document.getElementById('uploadForm').onsubmit = async (e) => {
@@ -3458,7 +3659,13 @@ async function switchSite(handle) {
     await loadLibrary()
   }
   if (currentRoute?.view === 'social-pack') {
+    cachedSocialPacks = []
     selectedSocialPackSlug = null
+    closeSocialPackDrawer({ updateHash: false })
+    if (currentRoute.slug) {
+      currentRoute = { view: 'social-pack' }
+      history.replaceState(currentRoute, '', '#/social-pack')
+    }
     await loadSocialPacks()
   }
   if (currentRoute?.view === 'usuarios') {
