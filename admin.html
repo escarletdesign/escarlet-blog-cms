@@ -7,7 +7,7 @@
   <title>Escarlet Blog CMS</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/vendor/pico.conditional.min.css" />
-  <link rel="stylesheet" href="/admin.css?v=28" />
+  <link rel="stylesheet" href="/admin.css?v=32" />
   <link rel="stylesheet" href="https://uicdn.toast.com/editor/3.2.2/toastui-editor.min.css" />
 </head>
 <body>
@@ -122,54 +122,64 @@
       </header>
 
       <div class="content pico">
-        <section id="panel-entradas" class="panel active" data-panel="entradas">
-          <div class="card">
-            <h2 class="card-title">Entradas</h2>
-            <p class="card-desc">Borradores, en revisión y publicados. El verde publica. El lápiz abre. El ojo revisa.</p>
-            <div class="review-inbox" id="reviewInbox" hidden></div>
-            <div class="local-inbox" id="localInbox" hidden></div>
-            <div class="toolbar posts-toolbar">
-              <div class="topbar-field status-field">
-                <label for="statusFilter">Filtrar por estado</label>
-                <select id="statusFilter">
-                  <option value="">Todos</option>
-                  <option value="draft">Borrador</option>
-                  <option value="review">En revisión</option>
-                  <option value="changes_requested">Cambios pedidos</option>
-                  <option value="pending_schedule">Pendiente de confirmación</option>
-                  <option value="scheduled">Programado</option>
-                  <option value="published">Publicado</option>
-                </select>
-              </div>
+        <section id="panel-entradas" class="panel active page-shell" data-panel="entradas">
+          <div class="page-head">
+            <div class="page-head-copy">
+              <h2 class="card-title">Entradas</h2>
+              <p class="page-head-meta" id="postsCountMeta">Borradores y publicados del sitio activo</p>
+            </div>
+            <div class="page-head-tools">
               <button type="button" class="btn btn-primary" id="newPost">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
                 Nuevo borrador
               </button>
-              <button type="button" class="btn" id="reloadPosts">
+              <button type="button" class="icon-btn" id="reloadPosts" title="Recargar" aria-label="Recargar entradas">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
-                Recargar
               </button>
               <button type="button" class="btn" id="flushLocalDrafts" hidden>
                 Enviar cambios de este navegador
               </button>
             </div>
+          </div>
+          <div class="review-inbox" id="reviewInbox" hidden></div>
+          <div class="local-inbox" id="localInbox" hidden></div>
+          <div class="page-toolbar">
+            <div class="status-pills" role="group" aria-label="Estado" id="postsStatusPills">
+              <button type="button" class="status-pill is-on" data-status="" aria-pressed="true">Todos</button>
+              <button type="button" class="status-pill" data-status="draft" aria-pressed="false">Borrador</button>
+              <button type="button" class="status-pill" data-status="review" aria-pressed="false">En revisión</button>
+              <button type="button" class="status-pill" data-status="scheduled" aria-pressed="false">Programado</button>
+              <button type="button" class="status-pill" data-status="published" aria-pressed="false">Publicado</button>
+            </div>
+            <label class="visually-hidden" for="statusFilter">Filtrar por estado</label>
+            <select id="statusFilter" class="visually-hidden" tabindex="-1" aria-hidden="true">
+              <option value="">Todos</option>
+              <option value="draft">Borrador</option>
+              <option value="review">En revisión</option>
+              <option value="changes_requested">Cambios pedidos</option>
+              <option value="pending_schedule">Pendiente de confirmación</option>
+              <option value="scheduled">Programado</option>
+              <option value="published">Publicado</option>
+            </select>
+          </div>
+          <div class="page-surface">
             <ul class="post-list" id="list" aria-live="polite"></ul>
           </div>
         </section>
 
-        <section id="panel-calendario" class="panel" data-panel="calendario" hidden>
-          <div class="card">
-            <div class="card-head-row">
-              <div>
-                <h2 class="card-title">Calendario de publicación</h2>
-                <p class="card-desc">Pendientes de confirmación, programados y publicados del mes.</p>
-              </div>
-              <div class="calendar-nav">
-                <button type="button" class="btn" id="calPrevMonth" aria-label="Mes anterior">←</button>
-                <strong id="calMonthLabel">Mes</strong>
-                <button type="button" class="btn" id="calNextMonth" aria-label="Mes siguiente">→</button>
-              </div>
+        <section id="panel-calendario" class="panel page-shell" data-panel="calendario" hidden>
+          <div class="page-head">
+            <div class="page-head-copy">
+              <h2 class="card-title">Calendario</h2>
+              <p class="page-head-meta">Pendientes, programados y publicados del mes.</p>
             </div>
+            <div class="page-head-tools calendar-nav">
+              <button type="button" class="btn" id="calPrevMonth" aria-label="Mes anterior">←</button>
+              <strong id="calMonthLabel">Mes</strong>
+              <button type="button" class="btn" id="calNextMonth" aria-label="Mes siguiente">→</button>
+            </div>
+          </div>
+          <div class="page-surface">
             <div class="calendar-legend">
               <span><i class="cal-dot pending_schedule"></i> Pendiente de confirmación</span>
               <span><i class="cal-dot scheduled"></i> Programado</span>
@@ -180,80 +190,100 @@
           </div>
         </section>
 
-        <section id="panel-media" class="panel" data-panel="media" hidden>
-          <div class="card">
-            <h2 class="card-title">Medios</h2>
-            <p class="card-desc">Fotos del blog de este sitio. Pulsa una para verla grande. Las de marca viven en Kit de marca.</p>
-            <form id="libraryUploadForm" class="upload-panel">
-              <div
-                class="file-drop"
-                data-file-drop
-                data-accept="image/*"
-                data-max-mb="12"
-                data-kind="image"
-              >
-                <input type="file" id="libraryFile" accept="image/*" class="visually-hidden" />
-                <div class="file-drop-surface" tabindex="0" role="button" aria-controls="libraryFile">
-                  <div class="file-drop-empty">
-                    <span class="file-drop-icon" aria-hidden="true">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
-                    </span>
-                    <p class="file-drop-title">Suelta la imagen aquí</p>
-                    <p class="file-drop-hint">JPG, PNG o WebP · máx. 12 MB</p>
-                    <span class="btn file-drop-browse">Elegir archivo</span>
-                  </div>
-                  <div class="file-drop-preview" hidden>
-                    <img class="file-drop-thumb" alt="" />
-                    <div class="file-drop-file-icon" hidden aria-hidden="true"></div>
-                    <div class="file-drop-meta">
-                      <strong class="file-drop-name"></strong>
-                      <span class="file-drop-size"></span>
+        <section id="panel-media" class="panel page-shell" data-panel="media" hidden>
+          <div class="page-head">
+            <div class="page-head-copy">
+              <h2 class="card-title">Medios</h2>
+              <p class="page-head-meta">Portadas y slides del blog. Las de marca están en Kit de marca.</p>
+            </div>
+          </div>
+          <div class="media-layout">
+            <aside class="page-surface media-upload-card">
+              <h3 class="surface-title">Subir</h3>
+              <form id="libraryUploadForm" class="upload-panel upload-panel--compact">
+                <div
+                  class="file-drop"
+                  data-file-drop
+                  data-accept="image/*"
+                  data-max-mb="12"
+                  data-kind="image"
+                >
+                  <input type="file" id="libraryFile" accept="image/*" class="visually-hidden" />
+                  <div class="file-drop-surface" tabindex="0" aria-controls="libraryFile">
+                    <div class="file-drop-empty">
+                      <span class="file-drop-icon" aria-hidden="true">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+                      </span>
+                      <p class="file-drop-title">Suelta la imagen aquí</p>
+                      <p class="file-drop-hint">JPG, PNG o WebP · máx. 12 MB</p>
+                      <span class="btn file-drop-browse">Elegir archivo</span>
                     </div>
-                    <button type="button" class="file-drop-clear" aria-label="Quitar archivo">×</button>
+                    <div class="file-drop-preview" hidden>
+                      <img class="file-drop-thumb" alt="" />
+                      <div class="file-drop-file-icon" hidden aria-hidden="true"></div>
+                      <div class="file-drop-meta">
+                        <strong class="file-drop-name"></strong>
+                        <span class="file-drop-size"></span>
+                      </div>
+                      <button type="button" class="file-drop-clear" aria-label="Quitar archivo">×</button>
+                    </div>
+                  </div>
+                  <p class="file-drop-error" hidden role="alert"></p>
+                </div>
+                <div class="upload-panel-fields">
+                  <div>
+                    <label for="libraryAlt">Texto alternativo</label>
+                    <input id="libraryAlt" />
+                  </div>
+                  <div>
+                    <label for="libraryKind">Uso</label>
+                    <select id="libraryKind">
+                      <option value="post">Portada de entrada</option>
+                      <option value="social">Slide Instagram</option>
+                    </select>
                   </div>
                 </div>
-                <p class="file-drop-error" hidden role="alert"></p>
-              </div>
-              <div class="upload-panel-fields">
-                <div class="field-narrow">
-                  <label for="libraryAlt">Texto alternativo</label>
-                  <input id="libraryAlt" />
+                <div class="actions">
+                  <button type="submit" class="btn btn-primary" id="libraryUploadBtn">Subir a medios</button>
                 </div>
-                <div class="field-narrow">
-                  <label for="libraryKind">Uso</label>
-                  <select id="libraryKind">
-                    <option value="post">Portada de entrada</option>
-                    <option value="social">Slide Instagram</option>
-                  </select>
+              </form>
+            </aside>
+            <div class="page-surface media-gallery-card">
+              <div class="page-toolbar page-toolbar--tight">
+                <div class="status-pills" role="group" aria-label="Uso" id="libraryKindPills">
+                  <button type="button" class="status-pill is-on" data-kind="" aria-pressed="true">Todos</button>
+                  <button type="button" class="status-pill" data-kind="post" aria-pressed="false">Portadas</button>
+                  <button type="button" class="status-pill" data-kind="social" aria-pressed="false">Instagram</button>
                 </div>
-              </div>
-              <div class="actions">
-                <button type="submit" class="btn btn-primary" id="libraryUploadBtn">Subir a medios</button>
-              </div>
-            </form>
-            <div class="toolbar posts-toolbar">
-              <div class="topbar-field status-field">
-                <label for="libraryKindFilter">Filtrar por uso</label>
-                <select id="libraryKindFilter">
+                <label class="visually-hidden" for="libraryKindFilter">Filtrar por uso</label>
+                <select id="libraryKindFilter" class="visually-hidden" tabindex="-1" aria-hidden="true">
                   <option value="">Portadas y redes</option>
                   <option value="post">Portadas</option>
                   <option value="social">Instagram</option>
                 </select>
               </div>
+              <div class="media-grid media-grid--library" id="libraryGrid"></div>
             </div>
-            <div class="media-grid media-grid--library" id="libraryGrid"></div>
           </div>
         </section>
 
-        <section id="panel-social-pack" class="panel pack-panel" data-panel="social-pack" hidden>
+        <section id="panel-social-pack" class="panel pack-panel page-shell" data-panel="social-pack" hidden>
           <div class="pack-browse">
-            <div class="pack-head">
-              <div class="pack-head-copy">
+            <div class="page-head">
+              <div class="page-head-copy">
                 <h2 class="card-title">Social Pack</h2>
-                <p class="pack-head-meta" id="socialPackCount"></p>
+                <p class="page-head-meta" id="socialPackCount"></p>
                 <p class="inline-hint" id="socialPackSourceHint" hidden>Fuente · CMS</p>
               </div>
-              <div class="pack-head-tools">
+            </div>
+            <div class="page-toolbar pack-toolbar">
+              <div class="status-pills" role="group" aria-label="Estado" id="socialPackStatusPills">
+                <button type="button" class="status-pill is-on" data-status="" aria-pressed="true">Todos</button>
+                <button type="button" class="status-pill" data-status="published" aria-pressed="false">Publicado</button>
+                <button type="button" class="status-pill" data-status="draft" aria-pressed="false">Borrador</button>
+                <button type="button" class="status-pill" data-status="scheduled" aria-pressed="false">Programado</button>
+              </div>
+              <div class="page-head-tools pack-head-tools">
                 <div class="seg" role="group" aria-label="Vista">
                   <button type="button" class="seg-btn is-on" id="socialPackViewCards" aria-pressed="true" title="Tarjetas">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/></svg>
@@ -281,12 +311,6 @@
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
                 </button>
               </div>
-            </div>
-            <div class="status-pills" role="group" aria-label="Estado" id="socialPackStatusPills">
-              <button type="button" class="status-pill is-on" data-status="" aria-pressed="true">Todos</button>
-              <button type="button" class="status-pill" data-status="published" aria-pressed="false">Publicado</button>
-              <button type="button" class="status-pill" data-status="draft" aria-pressed="false">Borrador</button>
-              <button type="button" class="status-pill" data-status="scheduled" aria-pressed="false">Programado</button>
             </div>
             <div class="social-pack-list is-cards cols-3" id="socialPackList" role="list"></div>
           </div>
@@ -463,7 +487,7 @@
                   data-kind="image"
                 >
                   <input type="file" id="uploadFile" accept="image/*" class="visually-hidden" />
-                  <div class="file-drop-surface" tabindex="0" role="button" aria-controls="uploadFile">
+                  <div class="file-drop-surface" tabindex="0" aria-controls="uploadFile">
                     <div class="file-drop-empty">
                       <span class="file-drop-icon" aria-hidden="true">
                         <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
@@ -533,139 +557,144 @@
           </div>
         </section>
 
-        <section id="panel-marca" class="panel" data-panel="marca">
-          <div class="card" id="brandZipCard" data-super-admin-only>
-            <h2 class="card-title">Importar kit (ZIP)</h2>
-            <p class="card-desc">Sube un ZIP con los .md del kit, el JSON de specs de imágenes y fotos de referencia. Da igual cómo estén las carpetas. El CMS clasifica por nombre o pistas y organiza solo.</p>
-            <div class="help-callout help-callout-compact">
-              <strong>Qué puede ir dentro</strong>
-              <ul class="help-steps">
-                <li>Markdown. voz, estilo visual, guía de imágenes, keywords, AGENT (por nombre o pista en la ruta)</li>
-                <li>JSON de specs. <code>image-spec.json</code>, <code>*brand-spec*.json</code> o <code>*imagenes*spec*.json</code> (va a image-spec.json para el agente)</li>
-                <li>Imágenes <code>.webp</code> <code>.jpg</code> <code>.png</code> <code>.gif</code> (van a referencias). Los SVG se omiten</li>
-                <li>Cualquier estructura de carpetas vale. También se puede importar por MCP con <code>blog_import_brand_zip</code> y una <code>zipUrl</code></li>
-              </ul>
-            </div>
-            <form id="brandZipForm" class="upload-panel">
-              <div
-                class="file-drop"
-                data-file-drop
-                data-accept=".zip,application/zip"
-                data-max-mb="40"
-                data-kind="file"
-              >
-                <input type="file" id="brandZipFile" accept=".zip,application/zip" class="visually-hidden" />
-                <div class="file-drop-surface" tabindex="0" role="button" aria-controls="brandZipFile">
-                  <div class="file-drop-empty">
-                    <span class="file-drop-icon" aria-hidden="true">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
-                    </span>
-                    <p class="file-drop-title">Suelta el ZIP del kit aquí</p>
-                    <p class="file-drop-hint">Solo .zip · máx. 40 MB</p>
-                    <span class="btn file-drop-browse">Elegir ZIP</span>
-                  </div>
-                  <div class="file-drop-preview" hidden>
-                    <img class="file-drop-thumb" alt="" hidden />
-                    <div class="file-drop-file-icon" aria-hidden="true">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>
-                    </div>
-                    <div class="file-drop-meta">
-                      <strong class="file-drop-name"></strong>
-                      <span class="file-drop-size"></span>
-                    </div>
-                    <button type="button" class="file-drop-clear" aria-label="Quitar archivo">×</button>
-                  </div>
-                </div>
-                <p class="file-drop-error" hidden role="alert"></p>
-              </div>
-              <div class="actions">
-                <button type="submit" class="btn btn-primary" id="brandZipBtn">Importar ZIP</button>
-              </div>
-            </form>
-            <pre id="brandZipResult" class="result" hidden></pre>
-          </div>
-          <div class="card">
-            <h2 class="card-title" id="brandKitTitle">Kit de marca</h2>
-            <p class="card-desc" id="brandKitDesc">El agente de contenido usa este kit al redactar. Puedes corregir el texto o las fotos de referencia.</p>
-            <label for="brandFile">Qué editas</label>
-            <select id="brandFile">
-              <option value="voice.md" data-secret-brand>Voz de marca</option>
-              <option value="visual-style.md" data-secret-brand>Estilo de imágenes</option>
-              <option value="image-guide.md" data-secret-brand>Nombres y alt SEO</option>
-              <option value="image-spec.json" data-secret-brand>Spec de imágenes (JSON)</option>
-              <option value="keywords.md">Keywords</option>
-              <option value="AGENT.md">Reglas del agente</option>
-            </select>
-            <label for="brandContent">Contenido</label>
-            <textarea id="brandContent" class="mono brand-textarea" rows="18"></textarea>
-            <div id="brandEditorMount" class="toast-mount" hidden></div>
-            <div class="actions">
-              <button type="button" class="btn btn-primary" id="saveBrand">Guardar texto</button>
+        <section id="panel-marca" class="panel page-shell" data-panel="marca">
+          <div class="page-head">
+            <div class="page-head-copy">
+              <h2 class="card-title" id="brandKitTitle">Kit de marca</h2>
+              <p class="page-head-meta" id="brandKitDesc">Texto y referencias que usa el agente al redactar.</p>
             </div>
           </div>
-          <div class="card">
-            <h2 class="card-title">Imágenes de referencia</h2>
-            <p class="card-desc">Moodboard para portadas. Pulsa una para verla grande. Pasa el ratón y la papelera la borra.</p>
-            <form id="refUploadForm" class="upload-panel">
-              <div
-                class="file-drop"
-                data-file-drop
-                data-accept="image/*"
-                data-max-mb="12"
-                data-kind="image"
-              >
-                <input type="file" id="refFile" accept="image/*" class="visually-hidden" />
-                <div class="file-drop-surface" tabindex="0" role="button" aria-controls="refFile">
-                  <div class="file-drop-empty">
-                    <span class="file-drop-icon" aria-hidden="true">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
-                    </span>
-                    <p class="file-drop-title">Suelta la referencia aquí</p>
-                    <p class="file-drop-hint">JPG, PNG o WebP · máx. 12 MB</p>
-                    <span class="btn file-drop-browse">Elegir archivo</span>
-                  </div>
-                  <div class="file-drop-preview" hidden>
-                    <img class="file-drop-thumb" alt="" />
-                    <div class="file-drop-file-icon" hidden aria-hidden="true"></div>
-                    <div class="file-drop-meta">
-                      <strong class="file-drop-name"></strong>
-                      <span class="file-drop-size"></span>
-                    </div>
-                    <button type="button" class="file-drop-clear" aria-label="Quitar archivo">×</button>
-                  </div>
-                </div>
-                <p class="file-drop-error" hidden role="alert"></p>
+          <div class="brand-layout">
+            <div class="page-surface brand-editor-card">
+              <div class="brand-file-row">
+                <label for="brandFile">Qué editas</label>
+                <select id="brandFile">
+                  <option value="voice.md" data-secret-brand>Voz de marca</option>
+                  <option value="visual-style.md" data-secret-brand>Estilo de imágenes</option>
+                  <option value="image-guide.md" data-secret-brand>Nombres y alt SEO</option>
+                  <option value="image-spec.json" data-secret-brand>Spec de imágenes (JSON)</option>
+                  <option value="keywords.md">Keywords</option>
+                  <option value="AGENT.md">Reglas del agente</option>
+                </select>
               </div>
-              <div class="upload-panel-fields">
-                <div class="field-reading">
-                  <label for="refAlt">Qué muestra</label>
-                  <input id="refAlt" placeholder="Foto de taller con luz cálida" />
-                </div>
-              </div>
+              <label for="brandContent" class="visually-hidden">Contenido</label>
+              <textarea id="brandContent" class="mono brand-textarea" rows="18"></textarea>
+              <div id="brandEditorMount" class="toast-mount" hidden></div>
               <div class="actions">
-                <button type="submit" class="btn btn-primary" id="refUploadBtn">Subir referencia</button>
+                <button type="button" class="btn btn-primary" id="saveBrand">Guardar texto</button>
               </div>
-            </form>
-            <div class="media-grid" id="refGrid"></div>
+            </div>
+            <aside class="brand-side">
+              <div class="page-surface" id="brandZipCard" data-super-admin-only>
+                <h3 class="surface-title">Importar ZIP</h3>
+                <p class="surface-desc">Markdown, JSON de specs e imágenes de referencia.</p>
+                <form id="brandZipForm" class="upload-panel upload-panel--compact">
+                  <div
+                    class="file-drop"
+                    data-file-drop
+                    data-accept=".zip,application/zip"
+                    data-max-mb="40"
+                    data-kind="file"
+                  >
+                    <input type="file" id="brandZipFile" accept=".zip,application/zip" class="visually-hidden" />
+                    <div class="file-drop-surface file-drop-surface--sm" tabindex="0" aria-controls="brandZipFile">
+                      <div class="file-drop-empty">
+                        <span class="file-drop-icon" aria-hidden="true">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+                        </span>
+                        <p class="file-drop-title">Suelta el ZIP aquí</p>
+                        <p class="file-drop-hint">Solo .zip · máx. 40 MB</p>
+                        <span class="btn file-drop-browse">Elegir ZIP</span>
+                      </div>
+                      <div class="file-drop-preview" hidden>
+                        <img class="file-drop-thumb" alt="" hidden />
+                        <div class="file-drop-file-icon" aria-hidden="true">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>
+                        </div>
+                        <div class="file-drop-meta">
+                          <strong class="file-drop-name"></strong>
+                          <span class="file-drop-size"></span>
+                        </div>
+                        <button type="button" class="file-drop-clear" aria-label="Quitar archivo">×</button>
+                      </div>
+                    </div>
+                    <p class="file-drop-error" hidden role="alert"></p>
+                  </div>
+                  <div class="actions">
+                    <button type="submit" class="btn btn-primary" id="brandZipBtn">Importar ZIP</button>
+                  </div>
+                </form>
+                <pre id="brandZipResult" class="result" hidden></pre>
+              </div>
+              <div class="page-surface">
+                <h3 class="surface-title">Referencias</h3>
+                <p class="surface-desc">Moodboard para portadas.</p>
+                <form id="refUploadForm" class="upload-panel upload-panel--compact">
+                  <div
+                    class="file-drop"
+                    data-file-drop
+                    data-accept="image/*"
+                    data-max-mb="12"
+                    data-kind="image"
+                  >
+                    <input type="file" id="refFile" accept="image/*" class="visually-hidden" />
+                    <div class="file-drop-surface file-drop-surface--sm" tabindex="0" aria-controls="refFile">
+                      <div class="file-drop-empty">
+                        <span class="file-drop-icon" aria-hidden="true">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+                        </span>
+                        <p class="file-drop-title">Suelta la referencia</p>
+                        <p class="file-drop-hint">JPG, PNG o WebP · máx. 12 MB</p>
+                        <span class="btn file-drop-browse">Elegir archivo</span>
+                      </div>
+                      <div class="file-drop-preview" hidden>
+                        <img class="file-drop-thumb" alt="" />
+                        <div class="file-drop-file-icon" hidden aria-hidden="true"></div>
+                        <div class="file-drop-meta">
+                          <strong class="file-drop-name"></strong>
+                          <span class="file-drop-size"></span>
+                        </div>
+                        <button type="button" class="file-drop-clear" aria-label="Quitar archivo">×</button>
+                      </div>
+                    </div>
+                    <p class="file-drop-error" hidden role="alert"></p>
+                  </div>
+                  <div class="upload-panel-fields">
+                    <div>
+                      <label for="refAlt">Qué muestra</label>
+                      <input id="refAlt" placeholder="Foto de taller con luz cálida" />
+                    </div>
+                  </div>
+                  <div class="actions">
+                    <button type="submit" class="btn btn-primary" id="refUploadBtn">Subir referencia</button>
+                  </div>
+                </form>
+                <div class="media-grid media-grid--refs" id="refGrid"></div>
+              </div>
+            </aside>
           </div>
         </section>
 
-        <section id="panel-sitio" class="panel" data-panel="sitio">
-          <div class="card" id="siteListCard">
-            <div class="card-head-row">
-              <div>
-                <h2 class="card-title">Tus sitios</h2>
-                <p class="card-desc">Cada landing tiene su handle, dominio y webhook (Coolify o sync WordPress).</p>
-              </div>
+        <section id="panel-sitio" class="panel page-shell" data-panel="sitio">
+          <div class="page-head">
+            <div class="page-head-copy">
+              <h2 class="card-title">Sitio</h2>
+              <p class="page-head-meta">Cambia de landing y ajusta dominio, webhook y canales.</p>
+            </div>
+            <div class="page-head-tools">
               <button type="button" class="btn btn-primary" id="startNewSite">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
                 Nuevo sitio
               </button>
             </div>
+          </div>
+
+          <div class="page-surface site-strip-card" id="siteListCard">
+            <h3 class="surface-title">Tus sitios</h3>
             <div class="site-switcher" id="siteList" role="listbox" aria-label="Sitios" aria-live="polite"></div>
           </div>
 
-          <div class="card" id="siteOnboardCard" hidden>
+          <div class="card card--form" id="siteOnboardCard" hidden>
             <div class="card-head-row">
               <div>
                 <h2 class="card-title">Alta de un sitio nuevo</h2>
@@ -739,7 +768,7 @@
                 data-kind="file"
               >
                 <input type="file" id="newSiteBrandZip" accept=".zip,application/zip" class="visually-hidden" />
-                <div class="file-drop-surface" tabindex="0" role="button" aria-controls="newSiteBrandZip">
+                <div class="file-drop-surface" tabindex="0" aria-controls="newSiteBrandZip">
                   <div class="file-drop-empty">
                     <span class="file-drop-icon" aria-hidden="true">
                       <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
@@ -801,163 +830,163 @@
             </div>
           </div>
 
-          <div class="card" id="siteConfigCard">
-            <h2 class="card-title">Configuración del sitio activo</h2>
-            <p class="card-desc">Dominio público y aviso de rebuild cuando publicas una entrada.</p>
-            <div class="form-grid form-grid--2">
-              <div>
-                <label for="siteName">Nombre visible</label>
-                <input id="siteName" placeholder="Escarlet" />
+          <div class="site-config-layout">
+            <div class="page-surface site-config-card" id="siteConfigCard">
+              <h3 class="surface-title">Configuración del sitio activo</h3>
+              <p class="surface-desc">Dominio público y aviso de rebuild al publicar.</p>
+              <div class="form-grid form-grid--2 form-reading">
+                <div>
+                  <label for="siteName">Nombre visible</label>
+                  <input id="siteName" placeholder="Escarlet" />
+                </div>
+                <div>
+                  <label for="siteDomain">Dominio público</label>
+                  <input id="siteDomain" placeholder="https://escarlet.design" />
+                </div>
               </div>
-              <div>
-                <label for="siteDomain">Dominio público</label>
-                <input id="siteDomain" placeholder="https://escarlet.design" />
+              <div class="form-reading">
+                <label for="siteWebhook">URL de rebuild / sync (webhook)</label>
+                <input id="siteWebhook" placeholder="Coolify deploy o …/wp-json/escarlet-blog/v1/sync" />
+                <p class="field-help">Coolify. Deploy Webhook de la app del frontend. WordPress. URL de sync del plugin Escarlet Blog Client.</p>
               </div>
-            </div>
-            <label for="siteWebhook">URL de rebuild / sync (webhook)</label>
-            <input id="siteWebhook" placeholder="Coolify deploy o …/wp-json/escarlet-blog/v1/sync" />
-            <div class="help-callout help-callout-compact">
-              <strong>Dónde está el webhook</strong>
-              <p><strong>Landing Vite/SPA.</strong> Coolify → app del frontend en producción → Webhooks → Deploy Webhook (auth required).</p>
-              <p><strong>WordPress.</strong> Plugin Escarlet Blog Client → Ajustes → URL de sync (<code>/wp-json/escarlet-blog/v1/sync</code>). Los packs se usan en este CMS. WP no genera HTML de packs.</p>
-            </div>
-            <div class="form-grid form-grid--2">
-              <div>
-                <label for="siteCoolifyToken">Token Bearer del webhook</label>
-                <input id="siteCoolifyToken" type="password" autocomplete="new-password" placeholder="Token Coolify Deploy o secreto del plugin WP" />
-                <p class="field-help" id="siteTokenStatus"></p>
+              <div class="form-grid form-grid--2 form-reading">
+                <div>
+                  <label for="siteCoolifyToken">Token Bearer del webhook</label>
+                  <input id="siteCoolifyToken" type="password" autocomplete="new-password" placeholder="Token Coolify Deploy o secreto del plugin WP" />
+                  <p class="field-help" id="siteTokenStatus"></p>
+                </div>
+                <div>
+                  <label for="siteApproverRole">Quién aprueba las publicaciones</label>
+                  <select id="siteApproverRole">
+                    <option value="super_admin">Super-admin</option>
+                    <option value="agency_editor">Editor de agencia</option>
+                    <option value="site_client">Cliente del sitio</option>
+                  </select>
+                  <p class="field-help" id="sitePublishConfirmationHelp">Si la programación pide confirmación, el super-admin la valida desde el calendario.</p>
+                </div>
               </div>
-              <div>
-                <label for="siteApproverRole">Quién aprueba las publicaciones</label>
-                <select id="siteApproverRole">
-                  <option value="super_admin">Super-admin</option>
-                  <option value="agency_editor">Editor de agencia</option>
-                  <option value="site_client">Cliente del sitio</option>
-                </select>
-                <p class="field-help" id="sitePublishConfirmationHelp">Si la programación pide confirmación, el super-admin la valida desde el calendario.</p>
-              </div>
-            </div>
-            <div class="help-callout help-callout-compact">
-              <strong>Dónde está el token</strong>
-              <p><strong>Coolify.</strong> Keys &amp; Tokens con permiso Deploy. Si ya hay uno guardado, deja el campo vacío para mantenerlo.</p>
-              <p><strong>WordPress.</strong> El secreto Bearer que muestra el plugin en Ajustes.</p>
-            </div>
-            <fieldset class="switch-row">
-              <label>
-                <input type="checkbox" id="siteBlogEnabled" role="switch" />
-                Blog en la web pública
-              </label>
-              <small class="field-help">Apágalo y el siguiente rebuild quita /blog del sitio. Los borradores siguen aquí.</small>
-            </fieldset>
-            <div class="approval-row">
-              <label class="checkbox-row">
-                <input type="checkbox" id="siteHumanApproval" />
-                Pedir aprobación humana antes de publicar en vivo
-              </label>
-              <label class="checkbox-row">
-                <input type="checkbox" id="sitePublishConfirmation" />
-                Confirmar publicaciones programadas (super-admin)
-              </label>
-            </div>
-            <fieldset class="channel-fieldset">
-              <legend>Canales del pack de redes</legend>
-              <p class="field-help">Elige qué piezas genera el agente y muestra el pack admin de cada post.</p>
-              <div class="channel-grid">
+              <fieldset class="switch-row form-reading">
+                <label>
+                  <input type="checkbox" id="siteBlogEnabled" role="switch" />
+                  Blog en la web pública
+                </label>
+                <small class="field-help">Apágalo y el siguiente rebuild quita /blog del sitio. Los borradores siguen aquí.</small>
+              </fieldset>
+              <div class="approval-row form-reading">
                 <label class="checkbox-row">
-                  <input type="checkbox" id="channelSubstack" data-channel-key="substack" />
-                  Substack
+                  <input type="checkbox" id="siteHumanApproval" />
+                  Pedir aprobación humana antes de publicar en vivo
                 </label>
                 <label class="checkbox-row">
-                  <input type="checkbox" id="channelLinkedin" data-channel-key="linkedin" />
-                  LinkedIn
-                </label>
-                <label class="checkbox-row">
-                  <input type="checkbox" id="channelX" data-channel-key="x" />
-                  X
-                </label>
-                <label class="checkbox-row">
-                  <input type="checkbox" id="channelVideoScript" data-channel-key="videoScript" />
-                  Guion de vídeo
-                </label>
-                <label class="checkbox-row">
-                  <input type="checkbox" id="channelInstagram" data-channel-key="instagramCarousel" />
-                  Carrusel Instagram
+                  <input type="checkbox" id="sitePublishConfirmation" />
+                  Confirmar publicaciones programadas (super-admin)
                 </label>
               </div>
-            </fieldset>
-            <div class="actions" id="siteAdminActions">
-              <button type="button" class="btn btn-primary" id="saveSite">Guardar sitio</button>
-              <button type="button" class="btn" id="testRebuild">Probar webhook</button>
+              <fieldset class="channel-fieldset form-reading">
+                <legend>Canales del pack de redes</legend>
+                <p class="field-help">Piezas que genera el agente y muestra el pack de cada post.</p>
+                <div class="channel-grid">
+                  <label class="checkbox-row">
+                    <input type="checkbox" id="channelSubstack" data-channel-key="substack" />
+                    Substack
+                  </label>
+                  <label class="checkbox-row">
+                    <input type="checkbox" id="channelLinkedin" data-channel-key="linkedin" />
+                    LinkedIn
+                  </label>
+                  <label class="checkbox-row">
+                    <input type="checkbox" id="channelX" data-channel-key="x" />
+                    X
+                  </label>
+                  <label class="checkbox-row">
+                    <input type="checkbox" id="channelVideoScript" data-channel-key="videoScript" />
+                    Guion de vídeo
+                  </label>
+                  <label class="checkbox-row">
+                    <input type="checkbox" id="channelInstagram" data-channel-key="instagramCarousel" />
+                    Carrusel Instagram
+                  </label>
+                </div>
+              </fieldset>
+              <div class="actions form-reading" id="siteAdminActions">
+                <button type="button" class="btn btn-primary" id="saveSite">Guardar sitio</button>
+                <button type="button" class="btn" id="testRebuild">Probar webhook</button>
+              </div>
+              <pre id="rebuildResult" class="result form-reading"></pre>
             </div>
-            <pre id="rebuildResult" class="result"></pre>
-          </div>
 
-          <div class="card" id="siteAccessCard">
-            <h2 class="card-title">Token de acceso del cliente</h2>
-            <p class="card-desc">Genera un token solo para este sitio. El cliente entra al dashboard o MCP con ese token y solo ve este handle.</p>
-            <p class="field-help" id="siteAccessStatus">Sin token de cliente todavía.</p>
-            <div class="actions">
-              <button type="button" class="btn btn-primary" id="generateSiteToken">Generar token</button>
-              <button type="button" class="btn" id="clearSiteToken">Revocar token</button>
-            </div>
-            <div id="siteAccessResult" class="access-token-panel" hidden>
-              <p class="access-token-label">Token (cópialo ahora, solo se muestra una vez)</p>
-              <pre id="siteAccessTokenValue" class="result"></pre>
-              <div class="access-mcp-block">
-                <p class="access-token-label">URL MCP para ChatGPT y Claude</p>
-                <p class="field-help" id="siteMcpUrl"></p>
-                <p class="field-help" id="siteMcpHint"></p>
+            <aside class="page-surface site-access-card" id="siteAccessCard">
+              <h3 class="surface-title">Token del cliente</h3>
+              <p class="surface-desc">Acceso a este sitio en el dashboard o MCP.</p>
+              <p class="field-help" id="siteAccessStatus">Sin token de cliente todavía.</p>
+              <div class="actions">
+                <button type="button" class="btn btn-primary" id="generateSiteToken">Generar token</button>
+                <button type="button" class="btn" id="clearSiteToken">Revocar token</button>
               </div>
-              <div class="access-icon-block" id="siteAgentIconBlock">
-                <p class="access-token-label">Icono del agente (PNG &lt; 10 KB)</p>
-                <div class="access-icon-row">
-                  <img id="siteAgentIconPreview" class="access-icon-preview" alt="Icono del sitio" hidden width="64" height="64" />
-                  <div>
-                    <p class="field-help" id="siteAgentIconStatus"></p>
-                    <a id="siteAgentIconLink" class="btn btn-sm" href="#" download="agent-icon.png" hidden>Descargar icono PNG</a>
+              <div id="siteAccessResult" class="access-token-panel" hidden>
+                <p class="access-token-label">Token (cópialo ahora, solo se muestra una vez)</p>
+                <pre id="siteAccessTokenValue" class="result"></pre>
+                <div class="access-mcp-block">
+                  <p class="access-token-label">URL MCP para ChatGPT y Claude</p>
+                  <p class="field-help" id="siteMcpUrl"></p>
+                  <p class="field-help" id="siteMcpHint"></p>
+                </div>
+                <div class="access-icon-block" id="siteAgentIconBlock">
+                  <p class="access-token-label">Icono del agente (PNG &lt; 10 KB)</p>
+                  <div class="access-icon-row">
+                    <img id="siteAgentIconPreview" class="access-icon-preview" alt="Icono del sitio" hidden width="64" height="64" />
+                    <div>
+                      <p class="field-help" id="siteAgentIconStatus"></p>
+                      <a id="siteAgentIconLink" class="btn btn-sm" href="#" download="agent-icon.png" hidden>Descargar icono PNG</a>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-            <div class="access-mcp-static" id="siteMcpStatic">
-              <p class="access-token-label">Conexión MCP (ChatGPT y Claude)</p>
-              <p class="field-help" id="siteMcpStaticUrl">Se completa al cargar el sitio.</p>
-              <p class="field-help">Autenticación OAuth. Al conectar pega el token de este sitio o el token de administración global.</p>
-            </div>
+              <div class="access-mcp-static" id="siteMcpStatic">
+                <p class="access-token-label">Conexión MCP</p>
+                <p class="field-help" id="siteMcpStaticUrl">Se completa al cargar el sitio.</p>
+                <p class="field-help">Autenticación OAuth. Al conectar pega el token de este sitio o el de administración.</p>
+              </div>
+            </aside>
           </div>
         </section>
 
-        <section id="panel-usuarios" class="panel" data-panel="usuarios" hidden>
-          <div class="card">
-            <h2 class="card-title">Usuarios del sitio activo</h2>
-            <p class="card-desc">Cuentas con email, contraseña o token. El rol Cliente trabaja en un sitio. El rol Editor de agencia puede llevar varios sitios.</p>
-            <p class="inline-hint" id="usersSiteHint">Sitio. —</p>
-            <div class="user-table-wrap">
-              <table class="user-table" id="usersTable">
-                <thead>
-                  <tr>
-                    <th>Email</th>
-                    <th>Rol</th>
-                    <th>Sitios</th>
-                    <th>Alta</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody id="usersTableBody">
-                  <tr><td colspan="5" class="muted">Cargando…</td></tr>
-                </tbody>
-              </table>
-            </div>
-            <div id="userTokenResult" class="user-token-panel" hidden>
-              <p class="access-token-label">Token de este usuario. Cópialo ahora. Solo se muestra una vez.</p>
-              <pre id="userTokenValue" class="result"></pre>
+        <section id="panel-usuarios" class="panel page-shell" data-panel="usuarios" hidden>
+          <div class="page-head">
+            <div class="page-head-copy">
+              <h2 class="card-title">Usuarios</h2>
+              <p class="page-head-meta" id="usersSiteHint">Sitio activo</p>
             </div>
           </div>
-          <div class="card">
-            <h2 class="card-title">Crear usuario</h2>
-            <p class="card-desc">Puedes enviar un email de alta con Resend, poner una contraseña ahora, o generar un token después de crear la cuenta.</p>
-            <form id="createUserForm" class="form-stack">
-              <div class="form-grid form-grid--2">
+          <div class="users-layout">
+            <div class="page-surface users-table-card">
+              <h3 class="surface-title">Cuentas del sitio</h3>
+              <p class="surface-desc">Cliente en un sitio. Editor de agencia en varios.</p>
+              <div class="user-table-wrap">
+                <table class="user-table" id="usersTable">
+                  <thead>
+                    <tr>
+                      <th>Email</th>
+                      <th>Rol</th>
+                      <th>Sitios</th>
+                      <th>Alta</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="usersTableBody">
+                    <tr><td colspan="5" class="muted">Cargando…</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div id="userTokenResult" class="user-token-panel" hidden>
+                <p class="access-token-label">Token de este usuario. Cópialo ahora. Solo se muestra una vez.</p>
+                <pre id="userTokenValue" class="result"></pre>
+              </div>
+            </div>
+            <aside class="page-surface users-create-card">
+              <h3 class="surface-title">Crear usuario</h3>
+              <p class="surface-desc">Email de alta, contraseña ahora o token después.</p>
+              <form id="createUserForm" class="form-stack">
                 <div>
                   <label for="newUserEmail">Email</label>
                   <input id="newUserEmail" type="email" autocomplete="off" required />
@@ -969,32 +998,32 @@
                     <option value="agency_admin">Editor de agencia (varios sitios)</option>
                   </select>
                 </div>
-              </div>
-              <div id="newUserSitesWrap" hidden>
-                <p class="field-help">Sitios que podrá gestionar este editor.</p>
-                <div class="site-checkboxes" id="newUserSites"></div>
-              </div>
-              <div>
-                <label for="newUserMethod">Cómo entra</label>
-                <select id="newUserMethod">
-                  <option value="invite">Enviar email de alta (elige su contraseña)</option>
-                  <option value="password">Crear ahora con contraseña</option>
-                </select>
-              </div>
-              <div id="newUserPasswordWrap" class="form-grid form-grid--2" hidden>
-                <div>
-                  <label for="newUserPassword">Contraseña</label>
-                  <input id="newUserPassword" type="password" autocomplete="new-password" minlength="8" />
+                <div id="newUserSitesWrap" hidden>
+                  <p class="field-help">Sitios que podrá gestionar este editor.</p>
+                  <div class="site-checkboxes" id="newUserSites"></div>
                 </div>
                 <div>
-                  <label for="newUserPassword2">Repetir contraseña</label>
-                  <input id="newUserPassword2" type="password" autocomplete="new-password" minlength="8" />
+                  <label for="newUserMethod">Cómo entra</label>
+                  <select id="newUserMethod">
+                    <option value="invite">Enviar email de alta</option>
+                    <option value="password">Crear ahora con contraseña</option>
+                  </select>
                 </div>
-              </div>
-              <div class="actions">
-                <button type="submit" class="btn btn-primary" id="createUserBtn">Crear usuario</button>
-              </div>
-            </form>
+                <div id="newUserPasswordWrap" class="form-grid form-grid--2" hidden>
+                  <div>
+                    <label for="newUserPassword">Contraseña</label>
+                    <input id="newUserPassword" type="password" autocomplete="new-password" minlength="8" />
+                  </div>
+                  <div>
+                    <label for="newUserPassword2">Repetir contraseña</label>
+                    <input id="newUserPassword2" type="password" autocomplete="new-password" minlength="8" />
+                  </div>
+                </div>
+                <div class="actions">
+                  <button type="submit" class="btn btn-primary" id="createUserBtn">Crear usuario</button>
+                </div>
+              </form>
+            </aside>
           </div>
         </section>
       </div>
@@ -1038,6 +1067,6 @@
     <p class="media-lightbox-caption" id="mediaLightboxCaption"></p>
   </div>
 
-  <script src="/admin.js?v=28"></script>
+  <script src="/admin.js?v=32"></script>
 </body>
 </html>

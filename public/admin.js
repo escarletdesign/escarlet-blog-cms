@@ -2273,6 +2273,14 @@ async function loadPosts() {
   renderLocalInbox()
   loadQuotaChip().catch(() => {})
   const posts = status ? cachedPosts.filter((p) => p.status === status) : cachedPosts
+  const countMeta = document.getElementById('postsCountMeta')
+  if (countMeta) {
+    const total = cachedPosts.length
+    const shown = posts.length
+    countMeta.textContent = status
+      ? `${shown} de ${total} · ${statusLabel(status)}`
+      : `${total} entradas en este sitio`
+  }
   const localSlugs = new Set(
     listLocalDrafts(site).filter((item) => isMeaningfulLocalDraft(item)).map((item) => item.slug)
   )
@@ -2283,7 +2291,7 @@ async function loadPosts() {
       empty.innerHTML = `<p>Ninguna entrada en este estado.</p><button type="button" class="btn" id="clearFilter">Ver todas</button>`
       list.appendChild(empty)
       document.getElementById('clearFilter')?.addEventListener('click', () => {
-        statusFilter.value = ''
+        setPostsStatusFilter('')
         loadPosts()
       })
     } else {
@@ -2307,11 +2315,42 @@ async function loadPosts() {
     const localHint = localSlugs.has(p.slug)
       ? '<span class="post-local-badge">En este navegador</span>'
       : ''
+    const thumbSrc = mediaSrc({ url: p.imageUrl || p.coverUrl || '' })
+    let thumb
+    if (thumbSrc) {
+      thumb = document.createElement('img')
+      thumb.className = 'post-item-thumb'
+      thumb.src = thumbSrc
+      thumb.alt = ''
+      thumb.loading = 'lazy'
+      thumb.onerror = () => {
+        const empty = document.createElement('div')
+        empty.className = 'post-item-thumb post-item-thumb--empty'
+        empty.setAttribute('aria-hidden', 'true')
+        thumb.replaceWith(empty)
+      }
+    } else {
+      thumb = document.createElement('div')
+      thumb.className = 'post-item-thumb post-item-thumb--empty'
+      thumb.setAttribute('aria-hidden', 'true')
+    }
+
     const main = document.createElement('div')
     main.className = 'post-item-main'
-    main.innerHTML = `<div><strong>${escapeHtml(p.title)}</strong><span class="badge ${p.status}">${statusLabel(p.status)}</span>${localHint}<div class="post-meta">${escapeHtml(p.slug)}</div>${statusHint}</div>`
+    main.innerHTML = `<div class="post-item-title-row"><strong>${escapeHtml(p.title)}</strong>${localHint}</div><div class="post-meta">${escapeHtml(p.slug)}</div>${statusHint}`
     main.style.cursor = 'pointer'
     main.onclick = () => openPostWorkspace(p, 'escribir')
+
+    const statusEl = document.createElement('span')
+    statusEl.className = `badge ${p.status} post-item-status`
+    statusEl.textContent = statusLabel(p.status)
+
+    const dateEl = document.createElement('span')
+    dateEl.className = 'post-item-date'
+    const rawDate = p.datePublished || p.dateModified || p.publishAt || ''
+    dateEl.textContent = rawDate
+      ? new Date(rawDate).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
+      : ''
 
     const actions = document.createElement('div')
     actions.className = 'actions post-actions'
@@ -2410,9 +2449,27 @@ async function loadPosts() {
     moreWrap.append(moreBtn, menu)
     actions.append(moreWrap)
 
-    li.append(main, actions)
+    li.append(thumb, main, statusEl, dateEl, actions)
     list.appendChild(li)
   }
+}
+
+function setPostsStatusFilter(status) {
+  if (statusFilter) statusFilter.value = status || ''
+  document.querySelectorAll('#postsStatusPills .status-pill').forEach((el) => {
+    const on = (el.dataset.status || '') === (status || '')
+    el.classList.toggle('is-on', on)
+    el.setAttribute('aria-pressed', on ? 'true' : 'false')
+  })
+}
+
+function setLibraryKindFilter(kind) {
+  if (libraryKindFilter) libraryKindFilter.value = kind || ''
+  document.querySelectorAll('#libraryKindPills .status-pill').forEach((el) => {
+    const on = (el.dataset.kind || '') === (kind || '')
+    el.classList.toggle('is-on', on)
+    el.setAttribute('aria-pressed', on ? 'true' : 'false')
+  })
 }
 
 function escapeHtml(str) {
@@ -2447,6 +2504,18 @@ document.getElementById('deletePost')?.addEventListener('click', () => {
 
 document.getElementById('reloadPosts').onclick = () => loadPosts().catch((e) => toast(e.message))
 statusFilter.onchange = () => loadPosts().catch((e) => toast(e.message))
+document.getElementById('postsStatusPills')?.addEventListener('click', (event) => {
+  const btn = event.target.closest('[data-status]')
+  if (!btn) return
+  setPostsStatusFilter(btn.dataset.status || '')
+  loadPosts().catch((e) => toast(e.message))
+})
+document.getElementById('libraryKindPills')?.addEventListener('click', (event) => {
+  const btn = event.target.closest('[data-kind]')
+  if (!btn) return
+  setLibraryKindFilter(btn.dataset.kind || '')
+  loadLibrary().catch((e) => toast(e.message))
+})
 form.imageUrl.addEventListener('input', updateImagePreview)
 form.title?.addEventListener('input', () => {
   if (workspaceTitle) workspaceTitle.textContent = form.title.value.trim() || 'Nueva entrada'
@@ -3488,6 +3557,7 @@ document.getElementById('uploadForm').onsubmit = async (e) => {
 }
 
 libraryKindFilter?.addEventListener('change', () => {
+  setLibraryKindFilter(libraryKindFilter.value || '')
   loadLibrary().catch((e) => toast(e.message))
 })
 
@@ -4149,7 +4219,7 @@ async function loadUsers() {
   const body = document.getElementById('usersTableBody')
   const hint = document.getElementById('usersSiteHint')
   const site = currentSite()
-  if (hint) hint.textContent = `Sitio. ${site}`
+  if (hint) hint.textContent = `Sitio activo · ${site}`
   syncUserFormMode()
   if (!body) return
   if (!isAgencySession()) {

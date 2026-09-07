@@ -13,6 +13,27 @@ Definidos en `:root` de `admin.css`.
 - Texto. `--text` `#1c1c1a`
 - Fuente. DM Sans
 
+## Page shell (Lumina)
+
+Patrón de pantalla. Sustituye la «tarjeta blanca gigante» en paneles de lista y ajustes.
+
+| Clase | Uso |
+|-------|-----|
+| `.page-shell` | Contenedor del panel (columna con gap) |
+| `.page-head` | Título + meta + herramientas |
+| `.page-toolbar` | Filtros (status-pills / seg) bajo el head |
+| `.page-surface` | Superficie blanca con sombra suave (lista, form, aside) |
+| `.surface-title` / `.surface-desc` | Título corto dentro de una surface |
+| `.seg` / `.seg-btn` | Control segmentado (vista, columnas) |
+| `.status-pills` / `.status-pill` | Filtro por estado (Published / Draft / Scheduled) |
+| `.form-reading` | Ancho de lectura para inputs largos (~40rem) |
+
+Layouts de dos columnas en desktop. `.media-layout`, `.brand-layout`, `.site-config-layout`, `.users-layout` (stack en &lt;980px).
+
+Social Pack. `.pack-toolbar` une filtros y controles sobre la parrilla. Las columnas de tarjetas usan `repeat(N, minmax(0, 1fr))` para llenar el ancho.
+
+File drop dentro de `.pico`. No uses `role="button"` en `.file-drop-surface` (Pico lo pinta como botón primario verde). El CSS fuerza fondo claro `#faf8f4`.
+
 ## Botones
 
 | Clase | Uso |
