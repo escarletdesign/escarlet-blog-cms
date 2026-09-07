@@ -7,7 +7,7 @@
   <title>Escarlet Blog CMS</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/vendor/pico.conditional.min.css" />
-  <link rel="stylesheet" href="/admin.css?v=32" />
+  <link rel="stylesheet" href="/admin.css?v=36" />
   <link rel="stylesheet" href="https://uicdn.toast.com/editor/3.2.2/toastui-editor.min.css" />
 </head>
 <body>
@@ -151,6 +151,18 @@
               <button type="button" class="status-pill" data-status="scheduled" aria-pressed="false">Programado</button>
               <button type="button" class="status-pill" data-status="published" aria-pressed="false">Publicado</button>
             </div>
+            <div class="page-head-tools">
+              <div class="seg" role="group" aria-label="Vista de entradas">
+                <button type="button" class="seg-btn is-on" id="postsViewList" aria-pressed="true" title="Lista">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
+                  <span>Lista</span>
+                </button>
+                <button type="button" class="seg-btn" id="postsViewCards" aria-pressed="false" title="Tarjetas">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/></svg>
+                  <span>Tarjetas</span>
+                </button>
+              </div>
+            </div>
             <label class="visually-hidden" for="statusFilter">Filtrar por estado</label>
             <select id="statusFilter" class="visually-hidden" tabindex="-1" aria-hidden="true">
               <option value="">Todos</option>
@@ -162,8 +174,8 @@
               <option value="published">Publicado</option>
             </select>
           </div>
-          <div class="page-surface">
-            <ul class="post-list" id="list" aria-live="polite"></ul>
+          <div class="page-surface page-surface--posts">
+            <ul class="post-list is-list" id="list" aria-live="polite"></ul>
           </div>
         </section>
 
@@ -275,6 +287,9 @@
                 <p class="page-head-meta" id="socialPackCount"></p>
                 <p class="inline-hint" id="socialPackSourceHint" hidden>Fuente · CMS</p>
               </div>
+              <div class="page-head-tools">
+                <a class="btn" id="openSocialPackIndex" href="/admin/blog-packs" target="_blank" rel="noopener noreferrer">Ver packs fuera del CMS</a>
+              </div>
             </div>
             <div class="page-toolbar pack-toolbar">
               <div class="status-pills" role="group" aria-label="Estado" id="socialPackStatusPills">
@@ -331,7 +346,7 @@
             <div class="pack-drawer-foot">
               <button type="button" class="btn btn-primary" id="copySocialPackChannel">Copiar canal</button>
               <button type="button" class="btn" id="editSocialPackPost">Editar entrada</button>
-              <a class="btn btn-ghost" id="openSocialPackFull" href="/admin/blog-packs" target="_blank" rel="noopener noreferrer">Pack completo</a>
+              <a class="btn btn-ghost" id="openSocialPackFull" href="/admin/blog-packs" target="_blank" rel="noopener noreferrer">Ver pack fuera del CMS</a>
             </div>
           </aside>
         </section>
@@ -354,7 +369,7 @@
               </button>
               <button type="button" class="step-btn" data-step="portada" id="stepPortada">
                 <span class="step-num">2</span>
-                <span class="step-label">Fotos y redes</span>
+                <span class="step-label">Fotos</span>
               </button>
               <button type="button" class="step-btn" data-step="revisar" id="stepRevisar">
                 <span class="step-num">3</span>
@@ -420,7 +435,7 @@
                   <label for="fieldImageAlt">Texto alternativo de la portada</label>
                   <input id="fieldImageAlt" name="imageAlt" />
                 </div>
-                <p class="inline-hint">La foto de portada se elige en el paso Fotos y redes.</p>
+                <p class="inline-hint">La foto de portada se elige en el paso Fotos.</p>
                 <div class="field-reading">
                   <label for="fieldRelated">Entradas relacionadas (slugs separados por coma)</label>
                   <input id="fieldRelated" name="relatedSlugs" />
@@ -462,80 +477,89 @@
 
           <div id="step-portada" class="step-panel">
             <div class="card">
-              <h3 class="card-title">Fotos y redes</h3>
-              <p class="card-desc">Dos usos distintos. La portada es la foto del artículo. El carrusel es Instagram. Cada uno tiene su sitio.</p>
-              <div class="visual-split">
-                <section class="visual-block">
-                  <h4 class="visual-block-title">Foto de portada</h4>
-                  <p class="inline-hint">Sale en el listado del blog y arriba del artículo. En la parrilla, el recuadro la elige.</p>
-                  <div id="imagePreview" class="image-preview" hidden></div>
-                </section>
+              <h3 class="card-title">Fotos</h3>
+              <p class="card-desc">Elige la portada del artículo. Las piezas para redes son opcionales y se abren solo si las necesitas.</p>
+              <div class="portada-layout">
+                <aside class="portada-upload">
+                  <h4 class="visual-block-title">Subir imagen</h4>
+                  <form id="uploadForm" class="upload-panel upload-panel--compact">
+                    <div
+                      class="file-drop"
+                      data-file-drop
+                      data-accept="image/*"
+                      data-max-mb="12"
+                      data-kind="image"
+                    >
+                      <input type="file" id="uploadFile" accept="image/*" class="visually-hidden" />
+                      <div class="file-drop-surface" tabindex="0" aria-controls="uploadFile">
+                        <div class="file-drop-empty">
+                          <span class="file-drop-icon" aria-hidden="true">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+                          </span>
+                          <p class="file-drop-title">Suelta la foto aquí</p>
+                          <p class="file-drop-hint">JPG, PNG o WebP · máx. 12 MB</p>
+                          <span class="btn file-drop-browse">Elegir archivo</span>
+                        </div>
+                        <div class="file-drop-preview" hidden>
+                          <img class="file-drop-thumb" alt="" />
+                          <div class="file-drop-file-icon" hidden aria-hidden="true"></div>
+                          <div class="file-drop-meta">
+                            <strong class="file-drop-name"></strong>
+                            <span class="file-drop-size"></span>
+                          </div>
+                          <button type="button" class="file-drop-clear" aria-label="Quitar archivo">×</button>
+                        </div>
+                      </div>
+                      <p class="file-drop-error" hidden role="alert"></p>
+                    </div>
+                    <div class="upload-panel-fields">
+                      <div class="field-narrow">
+                        <label for="uploadAlt">Texto alternativo</label>
+                        <input id="uploadAlt" />
+                      </div>
+                      <div class="field-narrow" id="uploadKindField">
+                        <label for="uploadKind">Uso al subir</label>
+                        <select id="uploadKind">
+                          <option value="post">Portada de entrada</option>
+                          <option value="social">Slide Instagram</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="actions">
+                      <button type="submit" class="btn btn-primary" id="uploadBtn">Subir y usar</button>
+                    </div>
+                  </form>
+                </aside>
+                <div class="portada-main">
+                  <section class="visual-block">
+                    <h4 class="visual-block-title">Foto de portada <span class="req-mark" title="Obligatoria">*</span></h4>
+                    <p class="inline-hint">Sale en el listado del blog y arriba del artículo. En la parrilla, el recuadro la elige.</p>
+                    <div id="imagePreview" class="image-preview" hidden></div>
+                  </section>
+                  <div class="toolbar posts-toolbar portada-media-toolbar">
+                    <div class="topbar-field status-field">
+                      <label for="portadaMediaFilter">Mostrar en la parrilla</label>
+                      <select id="portadaMediaFilter">
+                        <option value="">Todas</option>
+                        <option value="post">Portadas</option>
+                        <option value="social">Slides Instagram</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="media-grid" id="mediaGrid"></div>
+                </div>
+              </div>
+              <details class="social-opt-in" id="socialOptIn">
+                <summary>Generar piezas para redes (opcional)</summary>
+                <p class="inline-hint social-opt-in-hint">Hoy solo Instagram. Más adelante cabrán otras redes sin mezclarlas con la portada.</p>
                 <section class="visual-block" id="carouselEditor" data-channel="instagramCarousel">
                   <h4 class="visual-block-title">Carrusel de Instagram</h4>
-                  <p class="inline-hint">Hasta 7 fotos para el pack de redes. En la parrilla, el más la añade. La cruz la quita.</p>
+                  <p class="inline-hint">Hasta 7 fotos. En la parrilla, el más añade una slide. La cruz la quita.</p>
                   <label for="fieldInstagramCaptionVisible">Texto del carrusel</label>
                   <textarea id="fieldInstagramCaptionVisible" name="instagramCaption" rows="3" form="form"></textarea>
                   <div class="carousel-strip" id="carouselStrip"></div>
                 </section>
-              </div>
-              <form id="uploadForm" class="upload-panel">
-                <div
-                  class="file-drop"
-                  data-file-drop
-                  data-accept="image/*"
-                  data-max-mb="12"
-                  data-kind="image"
-                >
-                  <input type="file" id="uploadFile" accept="image/*" class="visually-hidden" />
-                  <div class="file-drop-surface" tabindex="0" aria-controls="uploadFile">
-                    <div class="file-drop-empty">
-                      <span class="file-drop-icon" aria-hidden="true">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
-                      </span>
-                      <p class="file-drop-title">Suelta la foto aquí</p>
-                      <p class="file-drop-hint">JPG, PNG o WebP · máx. 12 MB</p>
-                      <span class="btn file-drop-browse">Elegir archivo</span>
-                    </div>
-                    <div class="file-drop-preview" hidden>
-                      <img class="file-drop-thumb" alt="" />
-                      <div class="file-drop-file-icon" hidden aria-hidden="true"></div>
-                      <div class="file-drop-meta">
-                        <strong class="file-drop-name"></strong>
-                        <span class="file-drop-size"></span>
-                      </div>
-                      <button type="button" class="file-drop-clear" aria-label="Quitar archivo">×</button>
-                    </div>
-                  </div>
-                  <p class="file-drop-error" hidden role="alert"></p>
-                </div>
-                <div class="upload-panel-fields">
-                  <div class="field-narrow">
-                    <label for="uploadAlt">Texto alternativo</label>
-                    <input id="uploadAlt" />
-                  </div>
-                  <div class="field-narrow">
-                    <label for="uploadKind">Uso al subir</label>
-                    <select id="uploadKind">
-                      <option value="post">Portada de entrada</option>
-                      <option value="social">Slide Instagram</option>
-                    </select>
-                  </div>
-                </div>
-                <div class="actions">
-                  <button type="submit" class="btn btn-primary" id="uploadBtn">Subir y usar</button>
-                </div>
-              </form>
-              <div class="toolbar posts-toolbar">
-                <div class="topbar-field status-field">
-                  <label for="portadaMediaFilter">Mostrar en la parrilla</label>
-                  <select id="portadaMediaFilter">
-                    <option value="">Todas</option>
-                    <option value="post">Portadas</option>
-                    <option value="social">Slides Instagram</option>
-                  </select>
-                </div>
-              </div>
-              <div class="media-grid" id="mediaGrid"></div>
+              </details>
             </div>
           </div>
 
@@ -565,27 +589,27 @@
             </div>
           </div>
           <div class="brand-layout">
-            <div class="page-surface brand-editor-card">
-              <div class="brand-file-row">
-                <label for="brandFile">Qué editas</label>
-                <select id="brandFile">
-                  <option value="voice.md" data-secret-brand>Voz de marca</option>
-                  <option value="visual-style.md" data-secret-brand>Estilo de imágenes</option>
-                  <option value="image-guide.md" data-secret-brand>Nombres y alt SEO</option>
-                  <option value="image-spec.json" data-secret-brand>Spec de imágenes (JSON)</option>
-                  <option value="keywords.md">Keywords</option>
-                  <option value="AGENT.md">Reglas del agente</option>
-                </select>
+            <div class="brand-top">
+              <div class="page-surface brand-editor-card">
+                <div class="brand-file-row">
+                  <label for="brandFile">Qué editas</label>
+                  <select id="brandFile">
+                    <option value="voice.md" data-secret-brand>Voz de marca</option>
+                    <option value="visual-style.md" data-secret-brand>Estilo de imágenes</option>
+                    <option value="image-guide.md" data-secret-brand>Nombres y alt SEO</option>
+                    <option value="image-spec.json" data-secret-brand>Spec de imágenes (JSON)</option>
+                    <option value="keywords.md">Keywords</option>
+                    <option value="AGENT.md">Reglas del agente</option>
+                  </select>
+                </div>
+                <label for="brandContent" class="visually-hidden">Contenido</label>
+                <textarea id="brandContent" class="mono brand-textarea" rows="18"></textarea>
+                <div id="brandEditorMount" class="toast-mount" hidden></div>
+                <div class="actions">
+                  <button type="button" class="btn btn-primary" id="saveBrand">Guardar texto</button>
+                </div>
               </div>
-              <label for="brandContent" class="visually-hidden">Contenido</label>
-              <textarea id="brandContent" class="mono brand-textarea" rows="18"></textarea>
-              <div id="brandEditorMount" class="toast-mount" hidden></div>
-              <div class="actions">
-                <button type="button" class="btn btn-primary" id="saveBrand">Guardar texto</button>
-              </div>
-            </div>
-            <aside class="brand-side">
-              <div class="page-surface" id="brandZipCard" data-super-admin-only>
+              <div class="page-surface brand-zip-card" id="brandZipCard" data-super-admin-only>
                 <h3 class="surface-title">Importar ZIP</h3>
                 <p class="surface-desc">Markdown, JSON de specs e imágenes de referencia.</p>
                 <form id="brandZipForm" class="upload-panel upload-panel--compact">
@@ -626,52 +650,52 @@
                 </form>
                 <pre id="brandZipResult" class="result" hidden></pre>
               </div>
-              <div class="page-surface">
-                <h3 class="surface-title">Referencias</h3>
-                <p class="surface-desc">Moodboard para portadas.</p>
-                <form id="refUploadForm" class="upload-panel upload-panel--compact">
-                  <div
-                    class="file-drop"
-                    data-file-drop
-                    data-accept="image/*"
-                    data-max-mb="12"
-                    data-kind="image"
-                  >
-                    <input type="file" id="refFile" accept="image/*" class="visually-hidden" />
-                    <div class="file-drop-surface file-drop-surface--sm" tabindex="0" aria-controls="refFile">
-                      <div class="file-drop-empty">
-                        <span class="file-drop-icon" aria-hidden="true">
-                          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
-                        </span>
-                        <p class="file-drop-title">Suelta la referencia</p>
-                        <p class="file-drop-hint">JPG, PNG o WebP · máx. 12 MB</p>
-                        <span class="btn file-drop-browse">Elegir archivo</span>
-                      </div>
-                      <div class="file-drop-preview" hidden>
-                        <img class="file-drop-thumb" alt="" />
-                        <div class="file-drop-file-icon" hidden aria-hidden="true"></div>
-                        <div class="file-drop-meta">
-                          <strong class="file-drop-name"></strong>
-                          <span class="file-drop-size"></span>
-                        </div>
-                        <button type="button" class="file-drop-clear" aria-label="Quitar archivo">×</button>
-                      </div>
+            </div>
+            <div class="page-surface brand-refs-card">
+              <h3 class="surface-title">Referencias</h3>
+              <p class="surface-desc">Moodboard para portadas.</p>
+              <form id="refUploadForm" class="upload-panel upload-panel--compact">
+                <div
+                  class="file-drop"
+                  data-file-drop
+                  data-accept="image/*"
+                  data-max-mb="12"
+                  data-kind="image"
+                >
+                  <input type="file" id="refFile" accept="image/*" class="visually-hidden" />
+                  <div class="file-drop-surface file-drop-surface--sm" tabindex="0" aria-controls="refFile">
+                    <div class="file-drop-empty">
+                      <span class="file-drop-icon" aria-hidden="true">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+                      </span>
+                      <p class="file-drop-title">Suelta la referencia</p>
+                      <p class="file-drop-hint">JPG, PNG o WebP · máx. 12 MB</p>
+                      <span class="btn file-drop-browse">Elegir archivo</span>
                     </div>
-                    <p class="file-drop-error" hidden role="alert"></p>
-                  </div>
-                  <div class="upload-panel-fields">
-                    <div>
-                      <label for="refAlt">Qué muestra</label>
-                      <input id="refAlt" placeholder="Foto de taller con luz cálida" />
+                    <div class="file-drop-preview" hidden>
+                      <img class="file-drop-thumb" alt="" />
+                      <div class="file-drop-file-icon" hidden aria-hidden="true"></div>
+                      <div class="file-drop-meta">
+                        <strong class="file-drop-name"></strong>
+                        <span class="file-drop-size"></span>
+                      </div>
+                      <button type="button" class="file-drop-clear" aria-label="Quitar archivo">×</button>
                     </div>
                   </div>
-                  <div class="actions">
-                    <button type="submit" class="btn btn-primary" id="refUploadBtn">Subir referencia</button>
+                  <p class="file-drop-error" hidden role="alert"></p>
+                </div>
+                <div class="upload-panel-fields">
+                  <div>
+                    <label for="refAlt">Qué muestra</label>
+                    <input id="refAlt" placeholder="Foto de taller con luz cálida" />
                   </div>
-                </form>
-                <div class="media-grid media-grid--refs" id="refGrid"></div>
-              </div>
-            </aside>
+                </div>
+                <div class="actions">
+                  <button type="submit" class="btn btn-primary" id="refUploadBtn">Subir referencia</button>
+                </div>
+              </form>
+              <div class="media-grid media-grid--refs" id="refGrid"></div>
+            </div>
           </div>
         </section>
 
@@ -1067,6 +1091,6 @@
     <p class="media-lightbox-caption" id="mediaLightboxCaption"></p>
   </div>
 
-  <script src="/admin.js?v=32"></script>
+  <script src="/admin.js?v=36"></script>
 </body>
 </html>

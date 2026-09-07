@@ -18,9 +18,16 @@ const STATUS_LABELS = {
 }
 
 const STEP_HINTS = {
-  escribir: 'Paso 1 de 3. Escribe. El navegador guarda solo. Un Guardar envía todo al CMS.',
-  portada: 'Paso 2 de 3. La portada es el artículo. El carrusel es Instagram. El recuadro elige portada. El más mete la slide.',
+  escribir: 'Paso 1 de 3. Título, slug y cuerpo son obligatorios antes de pasar a Fotos.',
+  portada: 'Paso 2 de 3. La portada es obligatoria. El carrusel de redes es opcional.',
   revisar: 'Paso 3 de 3. La vista previa lee el CMS. Guardar primero. Publicar actualiza la web.'
+}
+
+const STEP_ORDER = ['escribir', 'portada', 'revisar']
+const STEP_LABELS = {
+  escribir: 'Texto',
+  portada: 'Fotos',
+  revisar: 'Revisar'
 }
 
 const login = document.getElementById('login')
@@ -115,6 +122,7 @@ let cachedPackDetail = null
 let packStatusFilter = ''
 let packViewMode = localStorage.getItem('escarlet_cms_pack_view') === 'list' ? 'list' : 'cards'
 let packCols = Number(localStorage.getItem('escarlet_cms_pack_cols') || 3)
+let postsViewMode = localStorage.getItem('escarlet_cms_posts_view') === 'cards' ? 'cards' : 'list'
 let editingOriginalSlug = ''
 let currentStep = 'escribir'
 let currentRoute = { view: 'entradas' }
@@ -498,7 +506,7 @@ function collectFormState() {
     metaTitleEs: form.metaTitleEs.value,
     metaDescriptionEs: form.metaDescriptionEs.value,
     excerptEs: form.excerptEs.value,
-    imageUrl: form.imageUrl.value,
+    imageUrl: sanitizeCoverUrl(form.imageUrl.value),
     imageAlt: form.imageAlt.value,
     relatedSlugs: form.relatedSlugs.value,
     substackTitle: form.substackTitle.value,
@@ -620,8 +628,9 @@ function applyFormState(state) {
     form.metaTitleEs.value = state.metaTitleEs || ''
     form.metaDescriptionEs.value = state.metaDescriptionEs || ''
     form.excerptEs.value = state.excerptEs || ''
-    form.imageUrl.value = state.imageUrl || ''
-    form.imageAlt.value = state.imageAlt || ''
+    const cover = sanitizeCoverUrl(state.imageUrl || '')
+    form.imageUrl.value = cover
+    form.imageAlt.value = cover ? (state.imageAlt || '') : ''
     form.relatedSlugs.value = state.relatedSlugs || ''
     form.substackTitle.value = state.substackTitle || ''
     form.substackBody.value = state.substackBody || ''
@@ -662,7 +671,10 @@ function updateDockNav() {
     if (prev) prev.hidden = true
     if (next) {
       next.hidden = false
-      next.textContent = 'Fotos y redes'
+      next.textContent = 'Fotos'
+      const ready = stepMissingFields('escribir').length === 0
+      next.disabled = !ready
+      next.title = ready ? '' : 'Completa título, slug y cuerpo para seguir'
     }
   } else if (currentStep === 'portada') {
     if (prev) {
@@ -672,13 +684,20 @@ function updateDockNav() {
     if (next) {
       next.hidden = false
       next.textContent = 'Revisar'
+      const ready = stepMissingFields('portada').length === 0
+      next.disabled = !ready
+      next.title = ready ? '' : 'Elige una foto de portada para seguir'
     }
   } else {
     if (prev) {
       prev.hidden = false
-      prev.textContent = 'Fotos y redes'
+      prev.textContent = 'Fotos'
     }
-    if (next) next.hidden = true
+    if (next) {
+      next.hidden = true
+      next.disabled = false
+      next.title = ''
+    }
   }
   if (saveBtn) {
     saveBtn.classList.toggle('btn-primary', currentStep !== 'revisar')
@@ -874,6 +893,7 @@ function renderCarouselStrip() {
   el.innerHTML = ''
   if (!slides.length) {
     el.innerHTML = '<p class="empty carousel-empty">El carrusel está vacío. En una foto de abajo, pulsa el más.</p>'
+    syncSocialOptIn()
     return
   }
   slides.forEach((slide, index) => {
@@ -899,9 +919,12 @@ function renderCarouselStrip() {
       writeCarouselSlides(next)
       loadMedia().catch(() => {})
     }
-    item.append(img, indexBadge, remove)
+    item.appendChild(indexBadge)
+    item.appendChild(img)
+    item.appendChild(remove)
     el.appendChild(item)
   })
+  syncSocialOptIn()
 }
 
 function rebuildSaveMessage(data, fallback = 'Entrada guardada en el CMS') {
@@ -939,13 +962,92 @@ function mediaSrc(item) {
   const path = item.path || ''
   if (path.startsWith('/media/')) return path
   const url = item.url || item.imageUrl || ''
+  if (!url) return ''
   if (url.startsWith('/media/')) return url
   const match = String(url).match(/(\/media\/[^\s?#]+)/)
   if (match) return match[1]
-  const filename = String(url).split('/').pop()?.split('?')[0]
-  if (filename) return `/media/${siteFilter.value.trim() || 'escarlet'}/${filename}`
   if (/^https?:\/\//i.test(url) && !/localhost|127\.0\.0\.1/i.test(url)) return url
-  return url
+  // Placeholder histórico de borradores. No es una portada real.
+  if (/^\/images\/blog\//i.test(url)) return ''
+  const filename = String(url).split('/').pop()?.split('?')[0]
+  if (filename && !url.includes('/') && !url.includes('://')) {
+    return `/media/${siteFilter.value.trim() || 'escarlet'}/${filename}`
+  }
+  return ''
+}
+
+function sanitizeCoverUrl(url) {
+  const raw = String(url || '').trim()
+  if (!raw) return ''
+  if (/^\/images\/blog\//i.test(raw)) return ''
+  const src = mediaSrc({ url: raw })
+  return src || ''
+}
+
+function plainBodyText(html = bodyValue()) {
+  return String(html || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function stepMissingFields(step) {
+  if (step === 'escribir') {
+    const missing = []
+    if (!(form.title?.value || '').trim()) missing.push('el título')
+    if (!(form.slug?.value || '').trim()) missing.push('el slug')
+    if (plainBodyText().length < 40) missing.push('el cuerpo del artículo')
+    return missing
+  }
+  if (step === 'portada') {
+    const cover = sanitizeCoverUrl(imageUrlInput?.value || form.imageUrl?.value || '')
+    if (!cover) return ['la foto de portada']
+    return []
+  }
+  return []
+}
+
+function firstBlockedStep(targetStep) {
+  const targetIdx = STEP_ORDER.indexOf(targetStep)
+  if (targetIdx <= 0) return null
+  for (let i = 0; i < targetIdx; i++) {
+    const step = STEP_ORDER[i]
+    if (stepMissingFields(step).length) return step
+  }
+  return null
+}
+
+function explainStepBlock(step) {
+  const missing = stepMissingFields(step)
+  if (!missing.length) return ''
+  const label = STEP_LABELS[step] || step
+  if (missing.length === 1) return `En ${label} falta ${missing[0]}.`
+  return `En ${label} faltan ${missing.slice(0, -1).join(', ')} y ${missing.at(-1)}.`
+}
+
+function syncSocialOptIn() {
+  const details = document.getElementById('socialOptIn')
+  const kindField = document.getElementById('uploadKindField')
+  const kindSelect = document.getElementById('uploadKind')
+  if (!details) return
+  const slides = readCarouselSlides()
+  const hasSlides = slides.length > 0
+  const caption = (document.getElementById('fieldInstagramCaptionVisible')?.value || form.instagramCaption?.value || '').trim()
+  if ((hasSlides || caption) && !details.open) details.open = true
+  const open = details.open
+  if (kindField) kindField.hidden = !open
+  if (kindSelect && !open) kindSelect.value = 'post'
+  const socialFilter = document.getElementById('portadaMediaFilter')
+  if (socialFilter) {
+    const socialOpt = socialFilter.querySelector('option[value="social"]')
+    if (socialOpt) socialOpt.hidden = !open
+    if (!open && socialFilter.value === 'social') {
+      socialFilter.value = ''
+      loadMedia().catch(() => {})
+    }
+  }
 }
 
 function uploadMediaForm({ file, filename, alt, kind, site }) {
@@ -1196,6 +1298,7 @@ function ensureBodyEditor() {
     bodyEditor.on('change', () => {
       if (skipLocalSave || skipEditorChange) return
       scheduleLocalSave()
+      updateDockNav()
     })
   } catch {
     /* editor sin eventos */
@@ -1240,11 +1343,21 @@ function setBrandValue(text) {
 }
 
 function updateImagePreview() {
-  const src = mediaSrc({ url: imageUrlInput?.value || form.imageUrl?.value || '' })
+  const raw = imageUrlInput?.value || form.imageUrl?.value || ''
+  const cleaned = sanitizeCoverUrl(raw)
+  if (cleaned && cleaned !== raw) {
+    if (imageUrlInput) imageUrlInput.value = cleaned
+    if (form.imageUrl) form.imageUrl.value = cleaned
+  } else if (!cleaned && raw) {
+    if (imageUrlInput) imageUrlInput.value = ''
+    if (form.imageUrl) form.imageUrl.value = ''
+  }
+  const src = cleaned
   if (!imagePreview) return
   if (!src) {
     imagePreview.hidden = false
-    imagePreview.innerHTML = '<p class="empty">Elige la portada en la parrilla. El recuadro la marca.</p>'
+    imagePreview.innerHTML = '<p class="empty">Aún no hay portada. Súbela a la izquierda o elígela en la parrilla.</p>'
+    updateDockNav()
     return
   }
   imagePreview.hidden = false
@@ -1257,6 +1370,7 @@ function updateImagePreview() {
         '<p class="image-preview-error">Esta portada no se puede mostrar. El archivo está incompleto o roto. Súbelo otra vez desde Media.</p>'
     }
   }
+  updateDockNav()
 }
 
 function closeSidebar() {
@@ -1475,7 +1589,22 @@ function applyRoute(route) {
 }
 
 function showStep(step) {
-  currentStep = step || 'escribir'
+  let next = step || 'escribir'
+  const blocked = firstBlockedStep(next)
+  if (blocked) {
+    next = blocked
+    toast(explainStepBlock(blocked))
+    if (blocked !== step) {
+      navigate({
+        view: 'entrada',
+        slug: editingOriginalSlug || null,
+        isNew: !editingOriginalSlug,
+        step: blocked
+      }, { replace: true })
+      return
+    }
+  }
+  currentStep = next
   document.querySelectorAll('.step-btn').forEach((b) => {
     b.classList.toggle('active', b.dataset.step === currentStep)
   })
@@ -1492,6 +1621,7 @@ function showStep(step) {
     }, 50)
   }
   if (currentStep === 'portada') {
+    syncSocialOptIn()
     loadMedia().catch((e) => toast(e.message))
   }
   if (currentStep === 'revisar') {
@@ -1530,11 +1660,27 @@ async function prepareReviewPreview() {
 }
 
 function goToStep(step, { replace = false } = {}) {
+  const target = STEP_ORDER.includes(step) ? step : 'escribir'
+  const blocked = firstBlockedStep(target)
+  if (blocked) {
+    toast(explainStepBlock(blocked))
+    if (blocked !== currentStep) {
+      navigate({
+        view: 'entrada',
+        slug: editingOriginalSlug || null,
+        isNew: !editingOriginalSlug,
+        step: blocked
+      }, { replace: true })
+    } else {
+      updateDockNav()
+    }
+    return
+  }
   navigate({
     view: 'entrada',
     slug: editingOriginalSlug || null,
     isNew: !editingOriginalSlug,
-    step
+    step: target
   }, { replace })
 }
 
@@ -1572,8 +1718,9 @@ function fillFormFields(p) {
   form.metaTitleEs.value = p.metaTitle?.es || ''
   form.metaDescriptionEs.value = p.metaDescription?.es || ''
   form.excerptEs.value = p.excerptEs || ''
-  form.imageUrl.value = p.imageUrl || ''
-  form.imageAlt.value = p.imageAlt || ''
+  const cover = sanitizeCoverUrl(p.imageUrl || '')
+  form.imageUrl.value = cover
+  form.imageAlt.value = cover ? (p.imageAlt || '') : ''
   form.relatedSlugs.value = (p.relatedSlugs || []).join(', ')
   form.substackTitle.value = p.socialPack?.substackTitle || ''
   form.substackBody.value = p.socialPack?.substackBody || ''
@@ -2264,6 +2411,7 @@ function renderLocalInbox() {
 async function loadPosts() {
   const site = currentSite()
   const status = statusFilter.value
+  applyPostsView()
   list.innerHTML = '<li class="empty">Cargando entradas…</li>'
   const data = await api('/api/admin/posts?' + new URLSearchParams({ site }))
   list.innerHTML = ''
@@ -2302,157 +2450,203 @@ async function loadPosts() {
     return
   }
   for (const p of posts) {
-    const li = document.createElement('li')
-    li.className = 'post-item'
-    const statusHint =
-      p.status === 'review'
-        ? '<div class="post-meta">Pendiente de publicar en vivo</div>'
-        : p.status === 'pending_schedule'
-          ? `<div class="post-meta">Espera confirmación · ${escapeHtml(p.publishAt || '')}</div>`
-          : p.status === 'scheduled'
-            ? `<div class="post-meta">Se publica el ${escapeHtml(p.publishAt || '')}</div>`
-            : ''
-    const localHint = localSlugs.has(p.slug)
-      ? '<span class="post-local-badge">En este navegador</span>'
-      : ''
-    const thumbSrc = mediaSrc({ url: p.imageUrl || p.coverUrl || '' })
-    let thumb
-    if (thumbSrc) {
-      thumb = document.createElement('img')
-      thumb.className = 'post-item-thumb'
-      thumb.src = thumbSrc
-      thumb.alt = ''
-      thumb.loading = 'lazy'
-      thumb.onerror = () => {
-        const empty = document.createElement('div')
-        empty.className = 'post-item-thumb post-item-thumb--empty'
-        empty.setAttribute('aria-hidden', 'true')
-        thumb.replaceWith(empty)
-      }
-    } else {
-      thumb = document.createElement('div')
-      thumb.className = 'post-item-thumb post-item-thumb--empty'
-      thumb.setAttribute('aria-hidden', 'true')
-    }
-
-    const main = document.createElement('div')
-    main.className = 'post-item-main'
-    main.innerHTML = `<div class="post-item-title-row"><strong>${escapeHtml(p.title)}</strong>${localHint}</div><div class="post-meta">${escapeHtml(p.slug)}</div>${statusHint}`
-    main.style.cursor = 'pointer'
-    main.onclick = () => openPostWorkspace(p, 'escribir')
-
-    const statusEl = document.createElement('span')
-    statusEl.className = `badge ${p.status} post-item-status`
-    statusEl.textContent = statusLabel(p.status)
-
-    const dateEl = document.createElement('span')
-    dateEl.className = 'post-item-date'
-    const rawDate = p.datePublished || p.dateModified || p.publishAt || ''
-    dateEl.textContent = rawDate
-      ? new Date(rawDate).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
-      : ''
-
-    const actions = document.createElement('div')
-    actions.className = 'actions post-actions'
-    actions.appendChild(createIconBtn({
-      className: 'icon-btn icon-btn--accent',
-      title: 'Abrir',
-      icon: ICONS.editor,
-      onClick: () => openPostWorkspace(p, 'escribir')
-    }))
-    actions.appendChild(createIconBtn({
-      className: 'icon-btn icon-btn--accent',
-      title: 'Revisar',
-      icon: ICONS.preview,
-      onClick: () => openPostWorkspace(p, 'revisar')
-    }))
-
-    const moreWrap = document.createElement('div')
-    moreWrap.className = 'more-menu'
-    const moreBtn = document.createElement('button')
-    moreBtn.type = 'button'
-    moreBtn.className = 'icon-btn icon-btn--accent'
-    moreBtn.setAttribute('aria-label', 'Más acciones')
-    moreBtn.title = 'Más acciones'
-    moreBtn.innerHTML = ICONS.more
-    const menu = document.createElement('div')
-    menu.className = 'more-menu-panel'
-    menu.hidden = true
-
-    if (p.status === 'review' || p.status === 'draft') {
-      const pub = document.createElement('button')
-      pub.type = 'button'
-      pub.className = 'more-item'
-      pub.textContent = p.status === 'review' ? 'Publicar en vivo' : 'Enviar a revisión'
-      pub.onclick = (e) => {
-        e.stopPropagation()
-        menu.hidden = true
-        publishSlug(p.slug)
-      }
-      menu.appendChild(pub)
-    }
-    if (p.status === 'pending_schedule' && isSuperAdminSession()) {
-      const conf = document.createElement('button')
-      conf.type = 'button'
-      conf.className = 'more-item'
-      conf.textContent = 'Confirmar programación'
-      conf.onclick = (e) => {
-        e.stopPropagation()
-        menu.hidden = true
-        confirmScheduleSlug(p.slug)
-      }
-      menu.appendChild(conf)
-    }
-    if (p.status === 'pending_schedule' || p.status === 'scheduled') {
-      const cancel = document.createElement('button')
-      cancel.type = 'button'
-      cancel.className = 'more-item'
-      cancel.textContent = 'Cancelar programación'
-      cancel.onclick = (e) => {
-        e.stopPropagation()
-        menu.hidden = true
-        cancelScheduleSlug(p.slug)
-      }
-      menu.appendChild(cancel)
-    }
-
-    if (p.status === 'published') {
-      const unpub = document.createElement('button')
-      unpub.type = 'button'
-      unpub.className = 'more-item'
-      unpub.textContent = 'Despublicar'
-      unpub.onclick = (e) => {
-        e.stopPropagation()
-        menu.hidden = true
-        unpublishSlug(p.slug)
-      }
-      menu.appendChild(unpub)
-    }
-
-    const del = document.createElement('button')
-    del.type = 'button'
-    del.className = 'more-item more-item-danger'
-    del.textContent = 'Eliminar'
-    del.onclick = (e) => {
-      e.stopPropagation()
-      menu.hidden = true
-      deleteSlug(p.slug)
-    }
-    menu.appendChild(del)
-
-    moreBtn.onclick = (e) => {
-      e.stopPropagation()
-      const open = menu.hidden
-      document.querySelectorAll('.more-menu-panel').forEach((m) => { m.hidden = true })
-      menu.hidden = !open
-    }
-    moreWrap.append(moreBtn, menu)
-    actions.append(moreWrap)
-
-    li.append(thumb, main, statusEl, dateEl, actions)
-    list.appendChild(li)
+    list.appendChild(buildPostItem(p, localSlugs))
   }
 }
+
+function applyPostsView() {
+  if (!list) return
+  list.classList.toggle('is-list', postsViewMode === 'list')
+  list.classList.toggle('is-cards', postsViewMode === 'cards')
+  const cardsBtn = document.getElementById('postsViewCards')
+  const listBtn = document.getElementById('postsViewList')
+  cardsBtn?.classList.toggle('is-on', postsViewMode === 'cards')
+  listBtn?.classList.toggle('is-on', postsViewMode === 'list')
+  cardsBtn?.setAttribute('aria-pressed', postsViewMode === 'cards' ? 'true' : 'false')
+  listBtn?.setAttribute('aria-pressed', postsViewMode === 'list' ? 'true' : 'false')
+  const surface = list.closest('.page-surface--posts')
+  surface?.classList.toggle('is-cards', postsViewMode === 'cards')
+}
+
+function setPostsView(view) {
+  postsViewMode = view === 'cards' ? 'cards' : 'list'
+  localStorage.setItem('escarlet_cms_posts_view', postsViewMode)
+  applyPostsView()
+  loadPosts().catch((e) => toast(e.message))
+}
+
+function buildPostItem(p, localSlugs) {
+  const li = document.createElement('li')
+  const isCards = postsViewMode === 'cards'
+  li.className = 'post-item' + (isCards ? ' post-card' : '')
+  const statusHint =
+    p.status === 'review'
+      ? '<div class="post-meta">Pendiente de publicar en vivo</div>'
+      : p.status === 'pending_schedule'
+        ? `<div class="post-meta">Espera confirmación · ${escapeHtml(p.publishAt || '')}</div>`
+        : p.status === 'scheduled'
+          ? `<div class="post-meta">Se publica el ${escapeHtml(p.publishAt || '')}</div>`
+          : ''
+  const localHint = localSlugs.has(p.slug)
+    ? '<span class="post-local-badge">En este navegador</span>'
+    : ''
+  const thumbSrc = mediaSrc({ url: p.imageUrl || p.coverUrl || '' })
+  let thumb
+  if (thumbSrc) {
+    thumb = document.createElement('img')
+    thumb.className = isCards ? 'post-card-cover' : 'post-item-thumb'
+    thumb.src = thumbSrc
+    thumb.alt = ''
+    thumb.loading = 'lazy'
+    thumb.onerror = () => {
+      const empty = document.createElement('div')
+      empty.className = isCards
+        ? 'post-card-cover post-card-cover--empty'
+        : 'post-item-thumb post-item-thumb--empty'
+      empty.setAttribute('aria-hidden', 'true')
+      thumb.replaceWith(empty)
+    }
+  } else {
+    thumb = document.createElement('div')
+    thumb.className = isCards
+      ? 'post-card-cover post-card-cover--empty'
+      : 'post-item-thumb post-item-thumb--empty'
+    thumb.setAttribute('aria-hidden', 'true')
+  }
+
+  const statusEl = document.createElement('span')
+  statusEl.className = `badge ${p.status} post-item-status`
+  statusEl.textContent = statusLabel(p.status)
+
+  const rawDate = p.datePublished || p.dateModified || p.publishAt || ''
+  const dateText = rawDate
+    ? new Date(rawDate).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
+    : ''
+
+  const main = document.createElement('div')
+  main.className = isCards ? 'post-card-body' : 'post-item-main'
+  if (isCards) {
+    main.innerHTML = `<div class="post-card-top">${statusEl.outerHTML}${dateText ? `<span class="post-item-date">${escapeHtml(dateText)}</span>` : ''}</div>
+      <div class="post-item-title-row"><strong>${escapeHtml(p.title)}</strong>${localHint}</div>
+      <div class="post-meta">${escapeHtml(p.slug)}</div>${statusHint}`
+  } else {
+    main.innerHTML = `<div class="post-item-title-row"><strong>${escapeHtml(p.title)}</strong>${localHint}</div><div class="post-meta">${escapeHtml(p.slug)}</div>${statusHint}`
+  }
+  main.style.cursor = 'pointer'
+  main.onclick = () => openPostWorkspace(p, 'escribir')
+  if (isCards) {
+    thumb.style.cursor = 'pointer'
+    thumb.onclick = () => openPostWorkspace(p, 'escribir')
+  }
+
+  const dateEl = document.createElement('span')
+  dateEl.className = 'post-item-date'
+  dateEl.textContent = dateText
+
+  const actions = document.createElement('div')
+  actions.className = 'actions post-actions'
+  actions.appendChild(createIconBtn({
+    className: 'icon-btn icon-btn--accent',
+    title: 'Abrir',
+    icon: ICONS.editor,
+    onClick: () => openPostWorkspace(p, 'escribir')
+  }))
+  actions.appendChild(createIconBtn({
+    className: 'icon-btn icon-btn--accent',
+    title: 'Revisar',
+    icon: ICONS.preview,
+    onClick: () => openPostWorkspace(p, 'revisar')
+  }))
+
+  const moreWrap = document.createElement('div')
+  moreWrap.className = 'more-menu'
+  const moreBtn = document.createElement('button')
+  moreBtn.type = 'button'
+  moreBtn.className = 'icon-btn icon-btn--accent'
+  moreBtn.setAttribute('aria-label', 'Más acciones')
+  moreBtn.title = 'Más acciones'
+  moreBtn.innerHTML = ICONS.more
+  const menu = document.createElement('div')
+  menu.className = 'more-menu-panel'
+  menu.hidden = true
+
+  if (p.status === 'review' || p.status === 'draft') {
+    const pub = document.createElement('button')
+    pub.type = 'button'
+    pub.className = 'more-item'
+    pub.textContent = p.status === 'review' ? 'Publicar en vivo' : 'Enviar a revisión'
+    pub.onclick = (e) => {
+      e.stopPropagation()
+      menu.hidden = true
+      publishSlug(p.slug)
+    }
+    menu.appendChild(pub)
+  }
+  if (p.status === 'pending_schedule' && isSuperAdminSession()) {
+    const conf = document.createElement('button')
+    conf.type = 'button'
+    conf.className = 'more-item'
+    conf.textContent = 'Confirmar programación'
+    conf.onclick = (e) => {
+      e.stopPropagation()
+      menu.hidden = true
+      confirmScheduleSlug(p.slug)
+    }
+    menu.appendChild(conf)
+  }
+  if (p.status === 'pending_schedule' || p.status === 'scheduled') {
+    const cancel = document.createElement('button')
+    cancel.type = 'button'
+    cancel.className = 'more-item'
+    cancel.textContent = 'Cancelar programación'
+    cancel.onclick = (e) => {
+      e.stopPropagation()
+      menu.hidden = true
+      cancelScheduleSlug(p.slug)
+    }
+    menu.appendChild(cancel)
+  }
+  if (p.status === 'published') {
+    const unpub = document.createElement('button')
+    unpub.type = 'button'
+    unpub.className = 'more-item'
+    unpub.textContent = 'Despublicar'
+    unpub.onclick = (e) => {
+      e.stopPropagation()
+      menu.hidden = true
+      unpublishSlug(p.slug)
+    }
+    menu.appendChild(unpub)
+  }
+
+  const del = document.createElement('button')
+  del.type = 'button'
+  del.className = 'more-item more-item-danger'
+  del.textContent = 'Eliminar'
+  del.onclick = (e) => {
+    e.stopPropagation()
+    menu.hidden = true
+    deleteSlug(p.slug)
+  }
+  menu.appendChild(del)
+
+  moreBtn.onclick = (e) => {
+    e.stopPropagation()
+    const open = menu.hidden
+    document.querySelectorAll('.more-menu-panel').forEach((m) => { m.hidden = true })
+    menu.hidden = !open
+  }
+  moreWrap.append(moreBtn, menu)
+  actions.append(moreWrap)
+
+  if (isCards) {
+    li.append(thumb, main, actions)
+  } else {
+    li.append(thumb, main, statusEl, dateEl, actions)
+  }
+  return li
+}
+
 
 function setPostsStatusFilter(status) {
   if (statusFilter) statusFilter.value = status || ''
@@ -2504,6 +2698,8 @@ document.getElementById('deletePost')?.addEventListener('click', () => {
 
 document.getElementById('reloadPosts').onclick = () => loadPosts().catch((e) => toast(e.message))
 statusFilter.onchange = () => loadPosts().catch((e) => toast(e.message))
+document.getElementById('postsViewCards')?.addEventListener('click', () => setPostsView('cards'))
+document.getElementById('postsViewList')?.addEventListener('click', () => setPostsView('list'))
 document.getElementById('postsStatusPills')?.addEventListener('click', (event) => {
   const btn = event.target.closest('[data-status]')
   if (!btn) return
@@ -3002,13 +3198,26 @@ document.getElementById('flushLocalDrafts')?.addEventListener('click', () => {
   flushAllLocalDrafts().catch((err) => toast(err.message))
 })
 
-form.addEventListener('input', () => scheduleLocalSave())
-form.addEventListener('change', () => scheduleLocalSave())
+form.addEventListener('input', () => {
+  scheduleLocalSave()
+  updateDockNav()
+})
+form.addEventListener('change', () => {
+  scheduleLocalSave()
+  updateDockNav()
+})
 document.getElementById('fieldInstagramCaptionVisible')?.addEventListener('input', () => {
   if (form.instagramCaption && form.instagramCaption !== document.getElementById('fieldInstagramCaptionVisible')) {
     form.instagramCaption.value = document.getElementById('fieldInstagramCaptionVisible').value
   }
   scheduleLocalSave()
+})
+
+document.getElementById('socialOptIn')?.addEventListener('toggle', () => {
+  syncSocialOptIn()
+  if (document.getElementById('socialOptIn')?.open) {
+    loadMedia().catch(() => {})
+  }
 })
 
 document.getElementById('validateSeo').onclick = async () => {
@@ -3315,16 +3524,21 @@ function renderSocialPacks() {
       ? `<img class="social-pack-card-cover" src="${escapePackHtml(item.thumbUrl || item.imageUrl)}" alt="" loading="lazy" />`
       : `<div class="social-pack-card-cover social-pack-card-cover--empty" aria-hidden="true"></div>`
     const dateLabel = formatPackDate(item.datePublished)
+    const packUrl = `/admin/blog-packs/${encodeURIComponent(item.slug)}?site=${encodeURIComponent(currentSite())}`
     card.innerHTML = `${cover}
       <div class="social-pack-card-scrim" aria-hidden="true"></div>
       <span class="pack-flag is-${kind}">${escapePackHtml(statusLabel(item.status))}</span>
+      <a class="pack-external-link" href="${escapePackHtml(packUrl)}" target="_blank" rel="noopener noreferrer" title="Ver pack fuera del CMS" aria-label="Ver pack fuera del CMS">↗</a>
       <div class="social-pack-card-body">
         <strong class="social-pack-item-title">${escapePackHtml(item.title)}</strong>
         ${dateLabel ? `<span class="social-pack-item-meta">${escapePackHtml(dateLabel)}</span>` : ''}
         <div class="social-pack-chips">${chips.map((c) => `<span class="social-pack-chip">${escapePackHtml(c)}</span>`).join('')}</div>
       </div>`
     const open = () => navigate({ view: 'social-pack', slug: item.slug })
-    card.onclick = open
+    card.onclick = (event) => {
+      if (event.target.closest('.pack-external-link')) return
+      open()
+    }
     card.onkeydown = (event) => {
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault()
@@ -3339,6 +3553,10 @@ async function loadSocialPacks() {
   const listEl = document.getElementById('socialPackList')
   if (!listEl || !authSession?.productRestructureV1) return
   const site = currentSite()
+  const indexLink = document.getElementById('openSocialPackIndex')
+  if (indexLink) {
+    indexLink.href = `/admin/blog-packs?site=${encodeURIComponent(site)}`
+  }
   const data = await api('/api/admin/social-pack?' + new URLSearchParams({ site }))
   cachedSocialPacks = data.packs || []
   const sourceHint = document.getElementById('socialPackSourceHint')
