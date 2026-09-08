@@ -1285,8 +1285,7 @@ function createToastEditor(mountId, height) {
       ['heading', 'bold', 'italic'],
       ['hr', 'quote'],
       ['ul', 'ol', 'task'],
-      ['link'],
-      ['scrollSync']
+      ['link']
     ]
   })
 }
