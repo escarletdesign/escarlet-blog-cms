@@ -4,14 +4,17 @@
   "version": "2.0.0",
   "type": "module",
   "scripts": {
-    "dev": "node server.mjs",
+    "dev": "vite --config apps/pwa/vite.config.ts",
     "start": "node server.mjs",
     "mcp": "node mcp/index.mjs",
     "test": "node --test lib/**/*.test.mjs mcp/**/*.test.mjs",
     "import:escarlet": "node scripts/import-escarlet.mjs",
     "site:init": "node scripts/init-site.mjs",
     "docker:up": "docker compose up -d --build",
-    "docker:down": "docker compose down"
+    "docker:down": "docker compose down",
+    "dev:server": "node server.mjs",
+    "build": "vite build --config apps/pwa/vite.config.ts",
+    "preview": "vite preview --config apps/pwa/vite.config.ts"
   },
   "engines": {
     "node": ">=20"
@@ -22,6 +25,18 @@
     "jimp": "^0.22.12",
     "jszip": "^3.10.1",
     "marked": "^15.0.12",
-    "pg": "^8.23.0"
+    "pg": "^8.23.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-router-dom": "^7.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2",
+    "vite-plugin-pwa": "^1.3.0"
   }
 }

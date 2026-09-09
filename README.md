@@ -19,6 +19,22 @@ npm run docker:up
 
 Dashboard. http://localhost:3040/admin
 
+### PWA de contenidos
+
+La nueva interfaz cliente vive en `/app/` (la ruta `/` también sirve la PWA cuando existe
+el build) y mantiene `/admin` para operaciones legacy. En desarrollo puedes levantar el
+frontend con Vite y el CMS en paralelo:
+
+```bash
+npm run dev:server   # API en :3040
+npm run dev          # Vite en :5173, proxy /api → :3040
+```
+
+La imagen Docker ejecuta `npm run build` durante el build, por lo que `server.mjs` sirve
+`apps/pwa/dist` en producción. Activa `PRODUCT_RESTRUCTURE_V1=1` para magic links,
+roles cliente y endpoints de IA/Stripe. Las claves `OPENAI_API_KEY` y `STRIPE_SECRET_KEY`
+se quedan siempre en el servidor; consulta `.env.example` para el catálogo de precios.
+
 ## Nuevo sitio / onboarding
 
 Guía completa. [docs/ONBOARDING.md](docs/ONBOARDING.md)

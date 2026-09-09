@@ -3,7 +3,10 @@ FROM node:20-alpine
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+# Build the Vite PWA during the image build, then remove toolchain dependencies
+# from the final node_modules tree. This keeps runtime images small while making
+# apps/pwa/dist available to server.mjs in production.
+RUN npm ci && npm run build && npm prune --omit=dev
 
 COPY . .
 

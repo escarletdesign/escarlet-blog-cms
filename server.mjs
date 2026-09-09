@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
-import { dirname, join, extname } from 'node:path'
+import { dirname, join, extname, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   readDb,
@@ -76,6 +76,11 @@ import {
   buildPaymentLinkHints
 } from './lib/stripe-webhook.mjs'
 import {
+  getPwaBillingSnapshot,
+  createPwaCheckoutSession,
+  createPwaPortalSession
+} from './lib/pwa-billing.mjs'
+import {
   isPasswordAuthEnabled,
   registerPasswordUser,
   loginPasswordUser,
@@ -113,6 +118,7 @@ import {
   getQuotaSnapshot as cmsGetQuotaSnapshot
 } from './lib/cms-ops.mjs'
 import { mediaForClient, repairMediaInDb, repairPostsInDb, resolveImageSrc, resolvePostImageSrc, inspectImageBuffer } from './lib/media-url.mjs'
+import { runChat as runAiChat, runGenerateOperation, splitSseChunks, recordPublicationMemory } from './lib/ai-gateway.mjs'
 import { generateThumbBuffer } from './lib/media-optimize.mjs'
 import { parseMultipart, isMultipartRequest } from './lib/multipart.mjs'
 import { withPostLinks } from './lib/preview-url.mjs'
@@ -294,6 +300,53 @@ function serveAdmin(res, extraHeaders = {}) {
     'no-store, no-cache, must-revalidate',
     extraHeaders
   )
+}
+
+
+// The Vite bundle is optional during development before `npm run build`; legacy /admin
+// remains available regardless. Only paths below /app (and the root SPA entry) reach here.
+const pwaDist = join(root, 'apps', 'pwa', 'dist')
+const pwaTypes = {
+  '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8',
+  '.webmanifest': 'application/manifest+json; charset=utf-8', '.svg': 'image/svg+xml',
+  '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.map': 'application/json; charset=utf-8'
+}
+
+function servePwa(req, res, path) {
+  if (!existsSync(pwaDist) || (path !== '/' && path !== '/app' && !path.startsWith('/app/'))) return false
+  // Magic consumption is a server route, not an SPA route.
+  if (path === '/app/magic/consume') return false
+  let suffix = ''
+  try {
+    suffix = path === '/' || path === '/app' ? '' : decodeURIComponent(path.slice('/app/'.length))
+  } catch {
+    json(res, 400, { message: 'Ruta inválida' })
+    return true
+  }
+  const requested = suffix || 'index.html'
+  const filePath = resolvePath(pwaDist, requested)
+  const distPrefix = `${resolvePath(pwaDist)}/`
+  if (filePath !== resolvePath(pwaDist) && !filePath.startsWith(distPrefix)) {
+    json(res, 400, { message: 'Ruta inválida' })
+    return true
+  }
+  const hasExtension = Boolean(extname(requested))
+  if (existsSync(filePath) && hasExtension) {
+    const cache = requested === 'index.html' || requested.endsWith('.webmanifest') ? 'no-cache' : 'public, max-age=31536000, immutable'
+    serveStaticFile(res, filePath, pwaTypes[extname(requested)] || 'application/octet-stream', req.method, cache)
+    return true
+  }
+  if (hasExtension) {
+    json(res, 404, { message: 'Archivo PWA no encontrado' })
+    return true
+  }
+  serveStaticFile(res, join(pwaDist, 'index.html'), 'text/html; charset=utf-8', req.method, 'no-cache')
+  return true
+}
+
+function pwaMagicBootstrapHtml() {
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="robots" content="noindex,nofollow"><meta http-equiv="refresh" content="0;url=/app/"><title>Entrando a Escarlet…</title></head><body><p>Entrando a Escarlet…</p><script>location.replace('/app/')</script></body></html>`
 }
 
 function absoluteCmsOrigin(req) {
@@ -603,7 +656,11 @@ const server = createServer(async (req, res) => {
     return
   }
 
-  if (req.method === 'GET' && (path === '/admin' || path === '/')) {
+  if ((req.method === 'GET' || req.method === 'HEAD') && servePwa(req, res, path)) {
+    return
+  }
+
+  if (req.method === 'GET' && path === '/admin') {
     const auth = resolveRequestAuth(req, url)
     const embed = url.searchParams.get('embed') === '1'
     const extra = {}
@@ -730,7 +787,7 @@ const server = createServer(async (req, res) => {
         next: sanitizeNext(body.next)
       })
       const origin = absoluteCmsOrigin(req)
-      const link = `${origin}/api/magic/consume?token=${encodeURIComponent(minted.token)}`
+      const link = `${origin}/app/magic/consume?token=${encodeURIComponent(minted.token)}`
       const delivery = await sendMagicLinkEmail({ to: email, link, site })
       json(res, 200, {
         ok: true,
@@ -745,7 +802,7 @@ const server = createServer(async (req, res) => {
     return
   }
 
-  if (isProductRestructureV1() && req.method === 'GET' && path === '/api/magic/consume') {
+  if (isProductRestructureV1() && req.method === 'GET' && (path === '/api/magic/consume' || path === '/app/magic/consume')) {
     const token = url.searchParams.get('token') || ''
     const result = consumeMagicToken(token, {
       origin: req.headers.origin,
@@ -771,7 +828,9 @@ const server = createServer(async (req, res) => {
     html(
       res,
       200,
-      embedBootstrapHtml({ next, site: result.session.site, token: bearer.token }),
+      path === '/app/magic/consume'
+        ? pwaMagicBootstrapHtml()
+        : embedBootstrapHtml({ next, site: result.session.site, token: bearer.token }),
       { 'Set-Cookie': cookie, 'Cache-Control': 'no-store' }
     )
     return
@@ -1242,6 +1301,118 @@ const server = createServer(async (req, res) => {
     return
   }
 
+  // PWA billing routes use the same session auth and site ACL as AI routes. They are
+  // aliases of the admin integration so the PWA never needs access to legacy admin URLs.
+  if (isProductRestructureV1() && [
+    '/api/billing/snapshot',
+    '/api/billing/checkout',
+    '/api/billing/portal'
+  ].includes(path)) {
+    const auth = requireAuth(req, url, res)
+    if (!auth) return
+    const db = readDb()
+    try {
+      const body = req.method === 'POST' ? await parseBody(req) : {}
+      const site = siteFrom(auth, (req.method === 'GET' ? url.searchParams.get('site') : body.site) || DEFAULT_SITE)
+      assertSiteAccess(auth, site)
+      const siteConfig = loadSiteConfig(site)
+      if (!siteConfig) throw Object.assign(new Error('Sitio no encontrado'), { status: 404 })
+
+      if (req.method === 'GET' && path === '/api/billing/snapshot') {
+        json(res, 200, getPwaBillingSnapshot(site, { db, siteConfig }))
+        return
+      }
+      if (req.method === 'POST' && path === '/api/billing/checkout') {
+        const origin = absoluteCmsOrigin(req)
+        const result = await createPwaCheckoutSession({
+          site,
+          kind: body.kind,
+          planId: body.planId,
+          packId: body.packId,
+          successUrl: `${origin}/app/billing?checkout=success`,
+          cancelUrl: `${origin}/app/billing?checkout=cancel`
+        })
+        // Return only hosted-session facts; price IDs, Stripe secrets and config stay server-side.
+        json(res, 200, {
+          site,
+          configured: result.configured,
+          reason: result.reason,
+          sessionId: result.sessionId || null,
+          url: result.url || null
+        })
+        return
+      }
+      if (req.method === 'POST' && path === '/api/billing/portal') {
+        const result = await createPwaPortalSession({
+          customerId: db.aiCredits?.[site]?.stripeCustomerId || body.customerId,
+          returnUrl: `${absoluteCmsOrigin(req)}/app/billing`
+        })
+        json(res, 200, { site, configured: result.configured, reason: result.reason, url: result.url || null })
+        return
+      }
+      json(res, 405, { message: 'Método no permitido' })
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message })
+    }
+    return
+  }
+
+  // PWA AI endpoints. Keep these outside /api/admin so the new client can use
+  // the same session auth while still applying the existing per-site ACL.
+  if (path === '/api/ai/chat' || path === '/api/ai/generate') {
+    const auth = requireAuth(req, url, res)
+    if (!auth) return
+    if (req.method !== 'POST') {
+      json(res, 405, { message: 'Usa POST' })
+      return
+    }
+    try {
+      const body = await parseBody(req)
+      const site = siteFrom(auth, body.site || DEFAULT_SITE)
+      assertSiteAccess(auth, site)
+
+      if (path === '/api/ai/generate') {
+        const result = await runGenerateOperation({
+          site,
+          auth,
+          operation: body.operation,
+          prompt: body.prompt || body.message || '',
+          post: body.post && typeof body.post === 'object' ? body.post : {},
+          provider: body.provider,
+          model: body.model
+        })
+        json(res, 200, { site, ...result })
+        return
+      }
+
+      // The provider may answer non-streaming upstream, but delivery to the PWA is
+      // always SSE so clients can render tokens incrementally and recover on done.
+      const result = await runAiChat({
+        site,
+        auth,
+        message: body.message || body.prompt || '',
+        provider: body.provider,
+        model: body.model
+      })
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
+        'Access-Control-Allow-Origin': '*'
+      })
+      res.write(`event: meta\ndata: ${JSON.stringify({ site, provider: result.provider, mode: result.mode, quota: result.quota })}\n\n`)
+      for (const delta of splitSseChunks(result.content)) {
+        res.write(`event: delta\ndata: ${JSON.stringify({ delta })}\n\n`)
+      }
+      res.write(`event: done\ndata: ${JSON.stringify({ operation: result.operation, provider: result.provider, mode: result.mode, quota: result.quota })}\n\n`)
+      res.end()
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
+    }
+    return
+  }
+
   if (path.startsWith('/api/admin')) {
     const auth = requireAuth(req, url, res)
     if (!auth) return
@@ -1270,6 +1441,69 @@ const server = createServer(async (req, res) => {
         json(res, 200, buildPaymentLinkHints())
       } catch (err) {
         json(res, err.status || 403, { message: err.message })
+      }
+      return
+    }
+
+    // PWA billing is intentionally feature-gated with the existing quota/payment APIs.
+    // Snapshots and checkout actions are always constrained to the caller's site ACL.
+    if (isProductRestructureV1() && req.method === 'GET' && path === '/api/admin/billing') {
+      const site = siteFrom(auth, url.searchParams.get('site') || DEFAULT_SITE)
+      try {
+        assertSiteAccess(auth, site)
+        const siteConfig = loadSiteConfig(site)
+        if (!siteConfig) throw Object.assign(new Error('Sitio no encontrado'), { status: 404 })
+        json(res, 200, getPwaBillingSnapshot(site, { db, siteConfig }))
+      } catch (err) {
+        json(res, err.status || 403, { message: err.message, ...(err.extra || {}) })
+      }
+      return
+    }
+
+    if (isProductRestructureV1() && req.method === 'POST' && path === '/api/admin/billing/checkout') {
+      try {
+        const body = await parseBody(req)
+        const site = siteFrom(auth, body.site || DEFAULT_SITE)
+        assertSiteAccess(auth, site)
+        if (!loadSiteConfig(site)) throw Object.assign(new Error('Sitio no encontrado'), { status: 404 })
+        const origin = absoluteCmsOrigin(req)
+        const result = await createPwaCheckoutSession({
+          site,
+          kind: body.kind,
+          planId: body.planId,
+          packId: body.packId,
+          // Keep Stripe redirects on this application instead of accepting arbitrary URLs.
+          successUrl: `${origin}/app/billing?checkout=success`,
+          cancelUrl: `${origin}/app/billing?checkout=cancel`
+        })
+        // Do not return the resolved Stripe price ID (or any server configuration) to the PWA.
+        json(res, 200, {
+          site,
+          configured: result.configured,
+          reason: result.reason,
+          sessionId: result.sessionId || null,
+          url: result.url || null
+        })
+      } catch (err) {
+        json(res, err.status || 400, { message: err.message })
+      }
+      return
+    }
+
+    if (isProductRestructureV1() && req.method === 'POST' && path === '/api/admin/billing/portal') {
+      try {
+        assertAgencyOps(auth)
+        const body = await parseBody(req)
+        const site = siteFrom(auth, body.site || DEFAULT_SITE)
+        assertSiteAccess(auth, site)
+        if (!loadSiteConfig(site)) throw Object.assign(new Error('Sitio no encontrado'), { status: 404 })
+        const result = await createPwaPortalSession({
+          customerId: db.aiCredits?.[site]?.stripeCustomerId || body.customerId,
+          returnUrl: `${absoluteCmsOrigin(req)}/app/billing`
+        })
+        json(res, 200, { site, configured: result.configured, reason: result.reason, url: result.url || null })
+      } catch (err) {
+        json(res, err.status || 400, { message: err.message })
       }
       return
     }
@@ -1934,6 +2168,7 @@ const server = createServer(async (req, res) => {
           publishAt: body.publishAt,
           skipQuota: Boolean(auth.capabilities?.includes('quota:override'))
         })
+        if (result.published && result.post) recordPublicationMemory(site, result.post)
         json(res, 200, result)
       } catch (error) {
         const status = error.status || 500

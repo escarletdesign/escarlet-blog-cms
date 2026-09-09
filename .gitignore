@@ -8,3 +8,4 @@ data/oauth/
 data/embed-sessions.json
 .DS_Store
 .cursor/mcp.json
+apps/pwa/dist/
