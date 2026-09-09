@@ -864,6 +864,21 @@ const server = createServer(async (req, res) => {
     return
   }
 
+  if (req.method === 'GET' && path === '/pack-recorder.css') {
+    servePublic(res, 'pack-recorder.css', 'text/css; charset=utf-8', 'no-store, no-cache, must-revalidate')
+    return
+  }
+
+  if (req.method === 'GET' && path === '/pack-recorder.js') {
+    servePublic(
+      res,
+      'pack-recorder.js',
+      'application/javascript; charset=utf-8',
+      'no-store, no-cache, must-revalidate'
+    )
+    return
+  }
+
   const mediaMatch = path.match(/^\/media\/([^/]+)(?:\/reference)?\/([^/]+)$/)
   if ((req.method === 'GET' || req.method === 'HEAD') && mediaMatch) {
     const [, site, filename] = mediaMatch

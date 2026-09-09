@@ -3614,6 +3614,12 @@ function renderPackChannelBody(pack) {
     pushField('Tuit', sp.x, 'sp-x')
   } else if (channel === 'videoScript') {
     pushField('Guion', sp.videoScript, 'sp-video')
+    if (String(sp.videoScript || '').trim()) {
+      blocks.push(`<div class="pack-record-actions">
+      <button type="button" class="btn btn-record" id="btn-record" data-slug="${escapePackHtml(pack.slug || '')}">Grabar</button>
+      <p class="muted">Abre la cámara y lee el guion en pantalla. Luego descarga el vídeo para el reel.</p>
+    </div>`)
+    }
   } else if (channel === 'instagramCarousel') {
     pushField('Caption', sp.instagramCaption, 'sp-ig-caption')
     const slides = (sp.instagramSlides || [])
@@ -4580,5 +4586,16 @@ document.getElementById('createUserForm')?.addEventListener('submit', async (e) 
     await loadUsers()
   })
 })
+
+if (window.EscarletPackRecorder) {
+  window.EscarletPackRecorder.init({
+    getScript() {
+      return String(cachedPackDetail?.socialPack?.videoScript || '').trim()
+    },
+    getSlug() {
+      return selectedSocialPackSlug || cachedPackDetail?.slug || 'guion'
+    }
+  })
+}
 
 initFileDrops()
