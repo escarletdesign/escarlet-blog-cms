@@ -1,11 +1,15 @@
 const CMS_URL = (process.env.CMS_URL || 'http://localhost:3040').replace(/\/$/, '')
-const CMS_ADMIN_TOKEN = process.env.CMS_ADMIN_TOKEN || process.env.ADMIN_TOKEN || 'cambia-esto'
+function cmsAdminToken() {
+  return String(process.env.CMS_ADMIN_TOKEN || process.env.ADMIN_TOKEN || '').trim()
+}
 
 async function request(method, path, body) {
+  const token = cmsAdminToken()
+  if (!token) throw new Error('CMS_ADMIN_TOKEN o ADMIN_TOKEN es obligatorio para usar el cliente MCP.')
   const res = await fetch(`${CMS_URL}${path}`, {
     method,
     headers: {
-      Authorization: `Bearer ${CMS_ADMIN_TOKEN}`,
+      Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json'
     },
     body: body ? JSON.stringify(body) : undefined

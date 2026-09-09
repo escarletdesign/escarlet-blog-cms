@@ -35,7 +35,15 @@ const baseApi = {
     request<{ site: string; configured: boolean; reason?: string; url: string | null }>('/api/admin/billing/portal', { method: 'POST', body: JSON.stringify(input) }),
   sites: () => request<{ sites: Array<{ handle?: string; id?: string; name?: string }>; handles: string[]; role: string }>('/api/admin/sites'),
   brand: (site: string) => request<{ summary?: string; files?: string[] }>(`/api/admin/brand-kit/${encodeURIComponent(site)}`),
-  paymentLinks: () => request<Record<string, unknown>>('/api/admin/payment-links')
+  paymentLinks: () => request<Record<string, unknown>>('/api/admin/payment-links'),
+  aiProviders: () => request<{ providers: Array<{ provider: string; name: string; enabled: boolean; model: string; apiKeyConfigured: boolean; credentialSource: string }> }>('/api/admin/ai/providers'),
+  saveAiProvider: (input: { provider: string; enabled: boolean; model: string; apiKey?: string; clearApiKey?: boolean }) =>
+    request<{ provider: Record<string, unknown> }>('/api/admin/ai/providers', { method: 'POST', body: JSON.stringify(input) }),
+  testAiProvider: (provider: string) => request<{ result: { ok: boolean; reason?: string; latencyMs?: number; model?: string } }>(`/api/admin/ai/providers/${encodeURIComponent(provider)}/test`, { method: 'POST' }),
+  creditPacks: () => request<{ packs: Array<{ id: string; name: string; tokenCredits: number; configured: boolean }> }>('/api/admin/billing/credit-packs'),
+  saveCreditPack: (input: { id: string; name: string; tokenCredits: number; enabled?: boolean; priceId?: string; clearPriceId?: boolean }) =>
+    request<{ pack: Record<string, unknown> }>('/api/admin/billing/credit-packs', { method: 'POST', body: JSON.stringify(input) }),
+  deleteCreditPack: (id: string) => request<{ id: string; deleted: boolean }>(`/api/admin/billing/credit-packs/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
 export type AiGeneration = {

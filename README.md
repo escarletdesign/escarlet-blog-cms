@@ -32,8 +32,8 @@ npm run dev          # Vite en :5173, proxy /api → :3040
 
 La imagen Docker ejecuta `npm run build` durante el build, por lo que `server.mjs` sirve
 `apps/pwa/dist` en producción. Activa `PRODUCT_RESTRUCTURE_V1=1` para magic links,
-roles cliente y endpoints de IA/Stripe. Las claves `OPENAI_API_KEY` y `STRIPE_SECRET_KEY`
-se quedan siempre en el servidor; consulta `.env.example` para el catálogo de precios.
+roles cliente y endpoints de IA/Stripe. Las claves `OPENAI_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY` y `STRIPE_SECRET_KEY`
+se quedan siempre en el servidor. `ADMIN_TOKEN` es obligatorio (no hay token por defecto). Para guardar claves desde **Administración → IA y Billing**, configura también `AI_CONNECTOR_ENCRYPTION_KEY` con un secreto aleatorio de al menos 32 bytes; las claves se cifran con AES-256-GCM en `data/db.json`, que se escribe con modo `0600`. Consulta `.env.example` para el catálogo de precios y la migración explícita de instalaciones antiguas.
 
 ## Nuevo sitio / onboarding
 

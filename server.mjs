@@ -77,9 +77,17 @@ import {
 } from './lib/stripe-webhook.mjs'
 import {
   getPwaBillingSnapshot,
+  getPwaCreditPackCatalog,
+  savePwaCreditPack,
+  deletePwaCreditPack,
   createPwaCheckoutSession,
   createPwaPortalSession
 } from './lib/pwa-billing.mjs'
+import {
+  listPublicAiProviderConnectors,
+  saveAiProviderConnector,
+  testAiProviderConnector
+} from './lib/ai-admin.mjs'
 import {
   isPasswordAuthEnabled,
   registerPasswordUser,
@@ -181,7 +189,7 @@ function loadEnv() {
 loadEnv()
 
 const PORT = Number(process.env.PORT || 3040)
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'cambia-esto'
+const ADMIN_TOKEN = String(process.env.ADMIN_TOKEN || '').trim()
 const DEFAULT_SITE = process.env.DEFAULT_SITE || 'escarlet'
 const CMS_PUBLIC_URL = (process.env.CMS_PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/$/, '')
 
@@ -1331,7 +1339,7 @@ const server = createServer(async (req, res) => {
           packId: body.packId,
           successUrl: `${origin}/app/billing?checkout=success`,
           cancelUrl: `${origin}/app/billing?checkout=cancel`
-        })
+        }, { db })
         // Return only hosted-session facts; price IDs, Stripe secrets and config stay server-side.
         json(res, 200, {
           site,
@@ -1424,6 +1432,70 @@ const server = createServer(async (req, res) => {
       return
     }
 
+    // AI connector credentials and billing catalogs are global operational settings.
+    // They require the global admin role; no secret is ever serialized in responses.
+    if (path === '/api/admin/ai/providers') {
+      try {
+        assertSuperAdmin(auth)
+        if (req.method === 'GET') {
+          json(res, 200, { providers: listPublicAiProviderConnectors({ db }) })
+          return
+        }
+        if (req.method === 'POST') {
+          const body = await parseBody(req)
+          const provider = saveAiProviderConnector(body.provider, body, { db })
+          writeDb(db)
+          json(res, 200, { provider })
+          return
+        }
+        json(res, 405, { message: 'Usa GET o POST' })
+      } catch (err) {
+        json(res, err.status || 400, { message: err.message })
+      }
+      return
+    }
+
+    const providerTestMatch = path.match(/^\/api\/admin\/ai\/providers\/([a-z0-9_-]+)\/test$/i)
+    if (providerTestMatch) {
+      try {
+        assertSuperAdmin(auth)
+        if (req.method !== 'POST') throw Object.assign(new Error('Usa POST'), { status: 405 })
+        const result = await testAiProviderConnector(providerTestMatch[1], { db })
+        json(res, result.ok ? 200 : 422, { result })
+      } catch (err) {
+        json(res, err.status || 400, { message: err.message })
+      }
+      return
+    }
+
+    const packMatch = path.match(/^\/api\/admin\/billing\/credit-packs(?:\/([a-z0-9-]+))?$/i)
+    if (packMatch) {
+      try {
+        assertSuperAdmin(auth)
+        if (req.method === 'GET') {
+          json(res, 200, { packs: getPwaCreditPackCatalog({ db }) })
+          return
+        }
+        if (req.method === 'POST' || req.method === 'PUT') {
+          const body = await parseBody(req)
+          const pack = savePwaCreditPack({ ...body, id: packMatch[1] || body.id }, { db })
+          writeDb(db)
+          json(res, 200, { pack })
+          return
+        }
+        if (req.method === 'DELETE') {
+          const result = deletePwaCreditPack(packMatch[1], { db })
+          writeDb(db)
+          json(res, 200, result)
+          return
+        }
+        json(res, 405, { message: 'Método no permitido' })
+      } catch (err) {
+        json(res, err.status || 400, { message: err.message })
+      }
+      return
+    }
+
     if (isProductRestructureV1() && req.method === 'GET' && path === '/api/admin/quota') {
       const site = siteFrom(auth, url.searchParams.get('site') || DEFAULT_SITE)
       try {
@@ -1475,7 +1547,7 @@ const server = createServer(async (req, res) => {
           // Keep Stripe redirects on this application instead of accepting arbitrary URLs.
           successUrl: `${origin}/app/billing?checkout=success`,
           cancelUrl: `${origin}/app/billing?checkout=cancel`
-        })
+        }, { db })
         // Do not return the resolved Stripe price ID (or any server configuration) to the PWA.
         json(res, 200, {
           site,
