@@ -238,8 +238,15 @@ function requireAuth(req, url, res) {
 }
 
 function siteFrom(auth, preferred) {
-  if (isSiteScopedRole(auth.role)) return auth.site
-  return preferred || DEFAULT_SITE
+  const requested = String(preferred || '').trim()
+  if (isSiteScopedRole(auth.role)) {
+    // Multi-site client and agency users can switch between the sites assigned
+    // to their account. Keep the fallback scoped to their first assigned site
+    // so a missing or stale selector can never broaden access.
+    if (requested && canAccessSite(auth, requested)) return requested
+    return auth.site || (Array.isArray(auth.sites) ? auth.sites[0] : '') || DEFAULT_SITE
+  }
+  return requested || DEFAULT_SITE
 }
 
 const MAX_BODY_BYTES = 15 * 1024 * 1024
@@ -1495,11 +1502,7 @@ const server = createServer(async (req, res) => {
 
   // PWA billing routes use the same session auth and site ACL as AI routes. They are
   // aliases of the admin integration so the PWA never needs access to legacy admin URLs.
-  if (isProductRestructureV1() && [
-    '/api/billing/snapshot',
-    '/api/billing/checkout',
-    '/api/billing/portal'
-  ].includes(path)) {
+  if (['/api/billing/snapshot', ...(isProductRestructureV1() ? ['/api/billing/checkout', '/api/billing/portal'] : [])].includes(path)) {
     const auth = requireAuth(req, url, res)
     if (!auth) return
     const db = readDb()

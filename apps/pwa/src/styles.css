@@ -179,6 +179,18 @@
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 .back-link { display: inline-flex; border: 0; padding: 0; margin: 0 0 14px; color: var(--muted); background: transparent; font-size: .84rem; }.back-link:hover { color: var(--accent); }
 .credit-indicator { display: flex; align-items: center; gap: 8px; margin: 0 6px 12px; padding: 8px 10px; border: 1px solid #33463c; border-radius: 10px; background: #18221f; }.credit-indicator > span:first-child { color: var(--accent); }.credit-indicator b, .credit-indicator small { display: block; }.credit-indicator b { font-size: .78rem; }.credit-indicator small { color: var(--muted); font-size: .67rem; margin-top: 2px; }
+
+.chat-top-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.chat-history-panel { margin: -8px 0 24px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: #151e1b; }
+.chat-history-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 9px; }
+.chat-history-heading strong { font-size: .82rem; }
+.chat-history-heading small { color: var(--muted); font-size: .7rem; }
+.chat-history-list { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; }
+.chat-history-item { min-width: 175px; max-width: 230px; display: grid; gap: 5px; text-align: left; color: var(--text); background: #1c2823; border: 1px solid #34453e; border-radius: 10px; padding: 9px 11px; }
+.chat-history-item:hover, .chat-history-item.active { border-color: var(--accent); background: #27372c; }
+.chat-history-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .78rem; }
+.chat-history-item small { color: var(--muted); font-size: .66rem; }
+@media (min-width: 760px) { .chat-history-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: visible; } .chat-history-item { min-width: 0; max-width: none; } }
 .calendar-picker { border: 1px solid #3b4d45; border-radius: 13px; padding: 12px; background: #121b19; }.calendar-picker-head { display: flex; align-items: center; justify-content: space-between; gap: 9px; margin-bottom: 10px; text-transform: capitalize; }.calendar-picker-head .icon-button { min-width: 32px; min-height: 32px; }.calendar-weekdays, .calendar-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }.calendar-weekdays span { color: var(--muted); text-align: center; font-size: .68rem; text-transform: uppercase; }.calendar-days button, .calendar-days > span { min-height: 35px; }.calendar-days button { border: 1px solid transparent; border-radius: 9px; color: var(--text); background: transparent; }.calendar-days button:hover:not(:disabled) { border-color: #5b775f; background: #233229; }.calendar-days button.selected { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); font-weight: 800; }.calendar-days button:disabled { color: #536059; cursor: not-allowed; }
 .brand { flex-wrap: wrap; }
 .brand-name { white-space: nowrap; }

@@ -727,7 +727,7 @@ function CreditIndicator({ site }: { site: string }) {
     api.billingSnapshot(site).then((data) => active && setSnapshot(data)).catch(() => active && setSnapshot(null));
     return () => { active = false; };
   }, [site]);
-  const available = Number(snapshot?.ai?.available);
+  const available = Number(snapshot?.ai?.tokenCredits?.available);
   const hasCredits = Number.isFinite(available);
   return (
     <NavLink className="credit-indicator" to="/billing" title={t("billing.available")}>
@@ -816,18 +816,121 @@ function RecentPosts() {
   );
 }
 
+type ChatMessage = { role: "assistant" | "user"; text: string };
+type ChatThread = {
+  id: string;
+  title: string;
+  messages: ChatMessage[];
+  updatedAt: string;
+};
+
+const chatThreadId = () => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+};
+
 function Chat() {
   const nav = useNavigate();
   const { t } = useI18n();
-  const [messages, setMessages] = useState<
-    Array<{ role: "assistant" | "user"; text: string }>
-  >([{ role: "assistant", text: t("chat.greeting") }]);
+  const [messages, setMessages] = useState<ChatMessage[]>([{ role: "assistant", text: t("chat.greeting") }]);
+  const [threads, setThreads] = useState<ChatThread[]>([]);
+  const [activeThreadId, setActiveThreadId] = useState("");
   const [value, setValue] = useState("");
   const [creating, setCreating] = useState(false);
   const [lastBrief, setLastBrief] = useState("");
   const [batchCount, setBatchCount] = useState("3");
   const { site } = useApp();
   const { showToast } = useToast();
+  const hydrationRequestRef = useRef("");
+
+  const storageKey = `escarlet_chat_threads:${site}`;
+  const activeKey = `escarlet_chat_active:${site}`;
+  useEffect(() => {
+    hydrationRequestRef.current = site;
+    let saved: ChatThread[] = [];
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(storageKey) || "[]");
+      if (Array.isArray(parsed)) {
+        saved = parsed.filter((thread) => thread && typeof thread.id === "string" && Array.isArray(thread.messages));
+      }
+    } catch {
+      saved = [];
+    }
+    const activeId = window.localStorage.getItem(activeKey) || "";
+    const selected = saved.find((thread) => thread.id === activeId) || saved[0];
+    if (selected) {
+      setThreads(saved);
+      setActiveThreadId(selected.id);
+      setMessages(selected.messages);
+      setLastBrief([...selected.messages].reverse().find((message) => message.role === "user")?.text || "");
+      window.localStorage.setItem(activeKey, selected.id);
+      return;
+    }
+    const first: ChatThread = {
+      id: chatThreadId(),
+      title: t("chat.newConversation"),
+      messages: [{ role: "assistant", text: t("chat.greeting") }],
+      updatedAt: new Date().toISOString(),
+    };
+    setThreads([first]);
+    setActiveThreadId(first.id);
+    setMessages(first.messages);
+    setLastBrief("");
+    window.localStorage.setItem(storageKey, JSON.stringify([first]));
+    window.localStorage.setItem(activeKey, first.id);
+  }, [site]);
+
+  // Keep every conversation available after navigating away, reloading, or
+  // returning to the assistant later. This is intentionally site-scoped.
+  useEffect(() => {
+    if (!activeThreadId || !site) return;
+    // The hydration effect above and this persistence effect run in the same
+    // commit after a site switch. Skip that first pass so the previous site's
+    // messages cannot be written into the newly selected site's storage.
+    if (hydrationRequestRef.current === site) {
+      hydrationRequestRef.current = "";
+      return;
+    }
+    setThreads((current) => {
+      const index = current.findIndex((thread) => thread.id === activeThreadId);
+      if (index < 0) return current;
+      const existing = current[index];
+      const firstUser = messages.find((message) => message.role === "user")?.text || "";
+      const nextThread: ChatThread = {
+        ...existing,
+        title: firstUser ? firstUser.slice(0, 64) : existing.title,
+        messages,
+        updatedAt: new Date().toISOString(),
+      };
+      const next = [...current];
+      next[index] = nextThread;
+      window.localStorage.setItem(storageKey, JSON.stringify(next));
+      window.localStorage.setItem(activeKey, activeThreadId);
+      return next;
+    });
+  }, [messages, activeThreadId, site]);
+
+  const newConversation = () => {
+    const thread: ChatThread = {
+      id: chatThreadId(),
+      title: t("chat.newConversation"),
+      messages: [{ role: "assistant", text: t("chat.greeting") }],
+      updatedAt: new Date().toISOString(),
+    };
+    setThreads((current) => [thread, ...current]);
+    setActiveThreadId(thread.id);
+    setMessages(thread.messages);
+    setLastBrief("");
+    setValue("");
+  };
+
+  const selectConversation = (thread: ChatThread) => {
+    setActiveThreadId(thread.id);
+    setMessages(thread.messages);
+    setLastBrief([...thread.messages].reverse().find((message) => message.role === "user")?.text || "");
+    setValue("");
+  };
+
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     const brief = value.trim();
@@ -931,16 +1034,33 @@ function Chat() {
           <p className="eyebrow">{t("chat.eyebrow")}</p>
           <h1>{t("chat.title")}</h1>
         </div>
-        <button
-          className="ghost"
-          onClick={() => {
+        <div className="chat-top-actions">
+          <button className="ghost" type="button" onClick={newConversation}>{t("chat.newConversation")}</button>
+          <button className="ghost" type="button" onClick={() => {
             setLastBrief("");
             setMessages([{ role: "assistant", text: t("chat.reset") }]);
-          }}
-        >
-          {t("chat.clear")}
-        </button>
+          }}>{t("chat.clear")}</button>
+        </div>
       </div>
+      <section className="chat-history-panel" aria-label={t("chat.history")}>
+        <div className="chat-history-heading">
+          <strong>{t("chat.history")}</strong>
+          <small>{t("chat.savedLocally")}</small>
+        </div>
+        <div className="chat-history-list">
+          {threads.map((thread) => (
+            <button
+              type="button"
+              key={thread.id}
+              className={`chat-history-item ${thread.id === activeThreadId ? "active" : ""}`}
+              onClick={() => selectConversation(thread)}
+            >
+              <span>{thread.title || t("chat.newConversation")}</span>
+              <small>{readableDate(thread.updatedAt)}</small>
+            </button>
+          ))}
+        </div>
+      </section>
       <div className="messages">
         {messages.map((message, index) => (
           <div key={index} className={`message ${message.role}`}>

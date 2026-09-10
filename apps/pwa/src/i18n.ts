@@ -235,6 +235,9 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "chat.eyebrow": "ASISTENTE ESCARLET",
     "chat.title": "Nueva conversación",
     "chat.clear": "Limpiar",
+    "chat.newConversation": "Nueva conversación",
+    "chat.history": "Conversaciones recientes",
+    "chat.savedLocally": "Guardadas en este dispositivo",
     "chat.you": "Tú",
     "chat.greeting":
       "Hola. Cuéntame el objetivo, la audiencia y la idea que quieres convertir en post.",
@@ -746,6 +749,9 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "chat.eyebrow": "ESCARLET ASSISTANT",
     "chat.title": "New conversation",
     "chat.clear": "Clear",
+    "chat.newConversation": "New conversation",
+    "chat.history": "Recent conversations",
+    "chat.savedLocally": "Saved on this device",
     "chat.you": "You",
     "chat.greeting":
       "Hi. Tell me the goal, audience and idea you want to turn into a post.",
