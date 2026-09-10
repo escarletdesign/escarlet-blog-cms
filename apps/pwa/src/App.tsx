@@ -3477,7 +3477,13 @@ function Billing() {
     setBusy(input.planId || input.packId || input.kind);
     try {
       const result = await api.billingCheckout({ site, ...input });
-      if (result.url) window.location.assign(result.url);
+      if (result.testMode && result.credited) {
+        const credited = Number(result.tokenCredits || 0).toLocaleString(language === "en" ? "en-GB" : "es-ES");
+        const next = await api.billingSnapshot(site);
+        setSnapshot(next);
+        setMessage(`${t("billing.testCreditsAdded")} ${credited}.`);
+        showToast(`${t("billing.testCreditsAdded")} ${credited}.`);
+      } else if (result.url) window.location.assign(result.url);
       else { setMessage(t("billing.paymentNotConfigured")); showToast(t("billing.paymentNotConfigured"), "info"); }
     } catch (e) {
       setMessage(e instanceof Error ? e.message : t("billing.checkoutFailed"));
@@ -3500,6 +3506,7 @@ function Billing() {
     }
   };
   const ai = snapshot?.ai?.tokenCredits;
+  const testCreditsEnabled = Boolean(snapshot?.stripe?.testCreditsEnabled);
   const packs = (snapshot?.creditPacks || []) as Array<{
     id: string;
     name: string;
@@ -3534,6 +3541,12 @@ function Billing() {
               {t("billing.plan")}:{" "}
               {snapshot?.plan?.name || snapshot?.plan?.id || "—"}
             </p>
+            {testCreditsEnabled && (
+              <div className="temporary-flag-warning billing-test-banner" role="status">
+                <strong>{t("billing.testModeTitle")}</strong>
+                <span>{t("billing.testModeHelp")}</span>
+              </div>
+            )}
           </>
         ) : (
           <p className="muted">{t("common.loading")}</p>
@@ -3566,11 +3579,13 @@ function Billing() {
               </p>
               <button
                 className="secondary"
-                disabled={Boolean(busy) || !pack.configured}
+                disabled={Boolean(busy) || (!pack.configured && !testCreditsEnabled)}
                 onClick={() => checkout({ kind: "credits", packId: pack.id })}
               >
                 {busy === pack.id
                   ? t("billing.opening")
+                  : testCreditsEnabled
+                    ? t("billing.addTestCredits")
                   : pack.configured
                     ? t("billing.buyPack")
                     : t("billing.comingSoon")}
@@ -3673,6 +3688,8 @@ function Admin() {
   const [pendingDeletePack, setPendingDeletePack] = useState<string | null>(
     null,
   );
+  const [billingTestMode, setBillingTestMode] = useState(false);
+  const [billingTestSaving, setBillingTestSaving] = useState(false);
   const [busy, setBusy] = useState("");
   const report = (value: string, kind: "success" | "error" = "success") => {
     setMessageKind(kind);
@@ -3681,13 +3698,15 @@ function Admin() {
   };
   const loadAiBilling = async () => {
     try {
-      const [providerData, packData, billingData] = await Promise.all([
+      const [providerData, packData, billingData, featureFlagData] = await Promise.all([
         api.aiProviders(),
         api.creditPacks(),
         api.billing(site).catch(() => ({ models: [] })),
+        api.featureFlags(),
       ]);
       setProviders(providerData.providers);
       setPacks(packData.packs);
+      setBillingTestMode(Boolean(featureFlagData.flags?.creditCheckoutWithoutStripe));
       setModelCatalog(
         ((billingData as Record<string, any>).models || []).map((model: any) => ({
           id: String(model.id || ""),
@@ -4039,6 +4058,18 @@ function Admin() {
       report(err instanceof Error ? err.message : t("common.error"), "error");
     } finally {
       setBusy("");
+    }
+  };
+  const saveBillingTestMode = async () => {
+    setBillingTestSaving(true);
+    try {
+      const result = await api.saveFeatureFlags({ creditCheckoutWithoutStripe: billingTestMode });
+      setBillingTestMode(Boolean(result.flags?.creditCheckoutWithoutStripe));
+      report(t("admin.savedBillingTestMode"));
+    } catch (err) {
+      report(err instanceof Error ? err.message : t("common.error"), "error");
+    } finally {
+      setBillingTestSaving(false);
     }
   };
   const removePack = async (id: string) => {
@@ -4514,6 +4545,31 @@ function Admin() {
               </button>
             </form>
           </div>
+          <section className="card temporary-flag-card">
+            <p className="eyebrow">{t("admin.temporaryFlags")}</p>
+            <h2>{t("admin.billingTestTitle")}</h2>
+            <p className="muted">{t("admin.billingTestHelp")}</p>
+            <div className="temporary-flag-warning" role="note">
+              <strong>{t("admin.billingTestWarningTitle")}</strong>
+              <span>{t("admin.billingTestWarning")}</span>
+            </div>
+            <label className="switch-row">
+              <span>
+                <b>{t("admin.billingTestToggle")}</b>
+                <small>{billingTestMode ? t("admin.billingTestOn") : t("admin.billingTestOff")}</small>
+              </span>
+              <input
+                type="checkbox"
+                checked={billingTestMode}
+                onChange={(event) => setBillingTestMode(event.target.checked)}
+              />
+            </label>
+            <div className="form-actions">
+              <button className="primary" type="button" disabled={billingTestSaving} onClick={() => void saveBillingTestMode()}>
+                {billingTestSaving ? t("admin.saving") : t("admin.saveFeatureFlag")}
+              </button>
+            </div>
+          </section>
         </section>
       ) : (
         <section className="card">

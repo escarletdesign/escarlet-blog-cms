@@ -241,4 +241,9 @@
 .invite-result { display: grid; gap: 14px; justify-items: start; }
 .invite-result-icon { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 15px; color: var(--accent-ink); background: var(--accent); font-size: 1.4rem; font-weight: 800; }
 .invite-result.error .invite-result-icon { color: #fff; background: var(--danger); }
+.temporary-flag-card { margin-top: 20px; border-color: #765c35; background: linear-gradient(140deg, #2d281e, #1b211d); }
+.temporary-flag-card h2 { margin-bottom: 8px; }
+.temporary-flag-warning { display: grid; gap: 3px; margin: 13px 0; padding: 12px 14px; border: 1px solid #8b6b39; border-radius: 11px; color: #ffda81; background: rgba(81, 60, 24, .48); font-size: .82rem; line-height: 1.45; }
+.temporary-flag-warning span { color: #ead7a7; }
+.temporary-flag-card .form-actions { margin-top: 0; }
 @media (max-width: 600px) { .onboarding-page { padding: 10px; }.onboarding-shell { border-radius: 20px; }.onboarding-actions { margin-top: 20px; } }

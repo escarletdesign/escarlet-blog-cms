@@ -78,6 +78,10 @@ import {
 import {
   getPwaBillingSnapshot,
   getPwaCreditPackCatalog,
+  getBillingTestFlags,
+  setBillingTestFlags,
+  isBillingTestCreditsEnabled,
+  grantPwaTestCredits,
   savePwaCreditPack,
   deletePwaCreditPack,
   createPwaCheckoutSession,
@@ -1501,6 +1505,12 @@ const server = createServer(async (req, res) => {
         return
       }
       if (req.method === 'POST' && path === '/api/billing/checkout') {
+        if (body.kind === 'credits' && isBillingTestCreditsEnabled(db)) {
+          const grant = grantPwaTestCredits(site, body.packId, { db, actorId: auth.userId || auth.role })
+          writeDb(db)
+          json(res, 200, { site, configured: true, testMode: true, credited: true, ...grant })
+          return
+        }
         const origin = absoluteCmsOrigin(req)
         const result = await createPwaCheckoutSession({
           site,
@@ -1514,6 +1524,7 @@ const server = createServer(async (req, res) => {
         json(res, 200, {
           site,
           configured: result.configured,
+          testMode: false,
           reason: result.reason,
           sessionId: result.sessionId || null,
           url: result.url || null
@@ -1599,6 +1610,31 @@ const server = createServer(async (req, res) => {
 
     if (req.method === 'GET' && path === '/api/admin/session') {
       json(res, 200, publicAuthSession(auth))
+      return
+    }
+
+    if (isProductRestructureV1() && path === '/api/admin/feature-flags') {
+      try {
+        assertSuperAdmin(auth)
+        if (req.method === 'GET') {
+          json(res, 200, { flags: getBillingTestFlags(db) })
+          return
+        }
+        if (req.method === 'POST') {
+          const body = await parseBody(req)
+          const flags = setBillingTestFlags({
+            db,
+            creditCheckoutWithoutStripe: body.creditCheckoutWithoutStripe === true,
+            actorId: auth.userId || auth.role
+          })
+          writeDb(db)
+          json(res, 200, { ok: true, flags })
+          return
+        }
+        json(res, 405, { message: 'Usa GET o POST' })
+      } catch (err) {
+        json(res, err.status || 400, { message: err.message })
+      }
       return
     }
 
@@ -1708,6 +1744,12 @@ const server = createServer(async (req, res) => {
         const site = siteFrom(auth, body.site || DEFAULT_SITE)
         assertSiteAccess(auth, site)
         if (!loadSiteConfig(site)) throw Object.assign(new Error('Sitio no encontrado'), { status: 404 })
+        if (body.kind === 'credits' && isBillingTestCreditsEnabled(db)) {
+          const grant = grantPwaTestCredits(site, body.packId, { db, actorId: auth.userId || auth.role })
+          writeDb(db)
+          json(res, 200, { site, configured: true, testMode: true, credited: true, ...grant })
+          return
+        }
         const origin = absoluteCmsOrigin(req)
         const result = await createPwaCheckoutSession({
           site,
@@ -1722,6 +1764,7 @@ const server = createServer(async (req, res) => {
         json(res, 200, {
           site,
           configured: result.configured,
+          testMode: false,
           reason: result.reason,
           sessionId: result.sessionId || null,
           url: result.url || null

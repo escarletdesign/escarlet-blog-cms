@@ -368,6 +368,18 @@ const baseApi = {
       };
     };
   },
+  featureFlags: () =>
+    request<{
+      flags: { creditCheckoutWithoutStripe: boolean; updatedAt?: string | null };
+    }>('/api/admin/feature-flags'),
+  saveFeatureFlags: (input: { creditCheckoutWithoutStripe: boolean }) =>
+    request<{
+      ok: boolean;
+      flags: { creditCheckoutWithoutStripe: boolean; updatedAt?: string | null };
+    }>('/api/admin/feature-flags', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
   creditPacks: () =>
     request<{
       packs: Array<{
@@ -484,7 +496,15 @@ async function billingCheckout(input: {
   planId?: string;
   packId?: string;
 }) {
-  return request<{ url?: string; configured?: boolean; reason?: string }>(
+  return request<{
+    url?: string;
+    configured?: boolean;
+    reason?: string;
+    testMode?: boolean;
+    credited?: boolean;
+    tokenCredits?: number;
+    balance?: number;
+  }>(
     "/api/billing/checkout",
     { method: "POST", body: JSON.stringify(input) },
   );
