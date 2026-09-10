@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
-import { dirname, join, extname, basename, resolve as resolvePath } from 'node:path'
+import { dirname, join, extname, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   readDb,
@@ -1709,9 +1709,12 @@ const server = createServer(async (req, res) => {
       if (!connector.apiKey) throw Object.assign(new Error('Configura una API key de OpenAI para generar imágenes.'), { status: 503 })
       const prompt = assertSafeAiPrompt(body.prompt, { field: 'prompt', maxChars: 4_000 })
       if (!prompt) throw Object.assign(new Error('Falta el prompt de la imagen.'), { status: 400 })
-      // Keep brand files private from the client while still applying the full
-      // visual system to generated imagery. Reference metadata gives the model
-      // the intended motifs even when the image endpoint cannot attach files.
+      const imageRole = String(body.imageRole || '').trim().slice(0, 80)
+      const allowText = imageRole === 'instagram-carousel' && Boolean(body.allowText)
+      const backgroundStyle = String(body.backgroundStyle || '').trim().slice(0, 120)
+      // Keep brand files private from the client while applying the complete
+      // visual system to generated imagery. The provider receives this context
+      // only server-side, never in the PWA response.
       const imageBrand = getBrandContext(site, { auth: { role: 'admin' } })
       const referenceHints = (imageBrand.referenceImages || [])
         .slice(0, 8)
@@ -1719,19 +1722,33 @@ const server = createServer(async (req, res) => {
         .join('; ')
       const imageStyle = String(imageBrand.visualStyle || '').slice(0, 1_300)
       const imageGuide = String(imageBrand.imageGuide || '').slice(0, 1_300)
+      const imageSpec = imageBrand.imageSpec ? JSON.stringify(imageBrand.imageSpec).slice(0, 4_500) : ''
+      const brandVoice = String(imageBrand.voice || '').slice(0, 1_600)
+      const agentRules = String(imageBrand.agentRules || '').slice(0, 2_200)
       const imageReferences = referenceHints.slice(0, 800)
+      const textRule = allowText
+        ? 'PARA ESTE CARRUSEL DE INSTAGRAM SE PERMITE TEXTO DISEÑADO: usa solamente el texto breve proporcionado por el usuario, con ortografía exacta, buena legibilidad y jerarquía tipográfica. No inventes palabras, números ni logotipos. No conviertas el texto en una textura ilegible.'
+        : 'REGLA PRIORITARIA: no generes ningún texto, palabra, letra, número, etiqueta, logo ni tipografía dentro de la imagen. Comunica únicamente mediante composición, color, formas y elementos visuales. Respeta colores, composición y contraste de la marca.'
       const enrichedPrompt = assertSafeAiPrompt([
-        prompt,
+        'OBJETIVO DEL USUARIO:', prompt,
+        imageRole ? `TIPO DE PIEZA: ${imageRole}` : '',
+        backgroundStyle ? `TRATAMIENTO DE FONDO: ${backgroundStyle}` : '',
+        'CONTEXTO PRIVADO DEL BRAND KIT (aplícalo, no lo muestres):',
+        brandVoice ? `Voz y tono: ${brandVoice}` : '',
         imageStyle ? `Dirección visual del brand kit (interna): ${imageStyle}` : '',
         imageGuide ? `Guía de imagen interna: ${imageGuide}` : '',
+        imageSpec ? `Especificaciones estructuradas de imagen: ${imageSpec}` : '',
+        agentRules ? `Reglas operativas del agente: ${agentRules}` : '',
         imageReferences ? `Referencias visuales disponibles: ${imageReferences}` : '',
-        'Respeta colores, composición, tipografía y nivel de contraste de la marca. No incluyas texto ilegible ni logotipos inventados.'
-      ].filter(Boolean).join('\n\n'), { field: 'prompt', maxChars: 8_000 })
-      const imageModel = String(process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1')
+        textRule
+      ].filter(Boolean).join('\n\n'), { field: 'prompt', maxChars: 14_000 })
+      // GPT Image 2 is the current stable image model. Keep an environment
+      // override for controlled rollouts or a future dated snapshot.
+      const imageModel = String(process.env.OPENAI_IMAGE_MODEL || 'gpt-image-2')
       const referenceFiles = (imageBrand.referenceImages || [])
-        .slice(0, 3)
+        .slice(0, 6)
         .map((item) => {
-          const filename = basename(String(item?.path || item?.filename || item?.url || ''))
+          const filename = String(item?.filename || item?.path || item?.url || '').replace(/\\/g, '/').split('/').pop()
           if (!filename) return null
           const filePath = join(mediaDir, site, 'reference', filename)
           if (!existsSync(filePath)) return null
@@ -1740,22 +1757,24 @@ const server = createServer(async (req, res) => {
         .filter(Boolean)
       let response
       if (referenceFiles.length) {
-        // Passing the actual reference bytes through the edits endpoint keeps
-        // the generated cover/carousel assets visually aligned with the kit;
-        // textual hints alone are not enough for image consistency.
-        const form = new FormData()
-        form.append('model', imageModel)
-        form.append('prompt', enrichedPrompt)
-        form.append('size', '1024x1024')
-        form.append('quality', 'medium')
-        form.append('output_format', 'png')
-        for (const reference of referenceFiles) {
-          form.append('image[]', new Blob([readFileSync(reference.filePath)], { type: reference.type }), reference.filename)
-        }
+        // GPT Image edits accepts up to 16 reference images. Sending the
+        // locally stored bytes as data URLs avoids exposing internal media URLs
+        // and keeps the request compatible with the current JSON API.
+        const images = referenceFiles.map((reference) => ({
+          image_url: `data:${reference.type};base64,${readFileSync(reference.filePath).toString('base64')}`
+        }))
         response = await fetch('https://api.openai.com/v1/images/edits', {
           method: 'POST',
-          headers: { Authorization: `Bearer ${connector.apiKey}` },
-          body: form
+          headers: { Authorization: `Bearer ${connector.apiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: imageModel,
+            images,
+            prompt: enrichedPrompt,
+            size: '1024x1024',
+            quality: 'high',
+            input_fidelity: 'high',
+            output_format: 'png'
+          })
         })
       } else {
         response = await fetch('https://api.openai.com/v1/images/generations', {
@@ -1787,7 +1806,11 @@ const server = createServer(async (req, res) => {
         site,
         filename: `${slug}-cover.png`,
         contentBase64: `data:image/png;base64,${contentBase64}`,
-        alt: body.alt || body.title || prompt,
+        alt: String(body.alt || body.title || prompt)
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 140) || `Imagen de portada para ${site}`,
         kind: 'post'
       })
       // Never return the internal brand context to the browser; it is only

@@ -122,22 +122,28 @@ async function enrichSocialPackWithImages(
         { headline: "Cómo aplicarlo", body: plainBody.slice(420, 660) || post.title },
         { headline: "Para recordar", body: plainBody.slice(660, 900) || post.excerptEs || post.title },
       ];
+  const slideCount = Math.min(sourceSlides.length, 4);
   const slides = await Promise.all(
-    sourceSlides.slice(0, 4).map(async (slide: any, index: number) => {
+    sourceSlides.slice(0, slideCount).map(async (slide: any, index: number) => {
       const headline = cleanGeneratedTitle(String(slide?.headline || slide?.title || post.title), 80) || post.title;
       const body = String(slide?.body || slide?.text || "").replace(/\s+/g, " ").trim().slice(0, 240);
+      const isEdgeSlide = index === 0 || index === slideCount - 1;
+      const backgroundStyle = isEdgeSlide ? "brand-color" : "light-or-grayscale";
       try {
         const result = await api.generateImage({
           site,
-          prompt: `Pieza ${index + 1} de un carrusel editorial para Instagram. Tema: ${headline}. Contexto: ${body}. Composición visual clara, sin texto ilegible ni logotipos inventados; aplica las referencias visuales del brand kit del sitio.`,
+          prompt: `Pieza ${index + 1} de ${slideCount} de un carrusel editorial para Instagram. Tema exacto: ${headline}. Texto breve que puede aparecer en la pieza: ${body}. Se permite texto diseñado para Instagram: usa únicamente esos textos, con ortografía exacta, jerarquía clara y tipografía legible; no inventes palabras ni logotipos. Tratamiento de fondo obligatorio: ${isEdgeSlide ? "usa color de marca, bloques o gradiente suave" : "usa fondo claro, crema o escala de grises y evita colores saturados"}. Aplica las referencias visuales del brand kit del sitio y conserva una composición editorial consistente.`,
           slug: `${post.slug || slugify(post.title)}-carousel-${index + 1}`,
           title: headline,
           alt: headline,
+          allowText: true,
+          imageRole: "instagram-carousel",
+          backgroundStyle,
         });
         const imageUrl = result.media?.url || result.media?.path || slide?.imageUrl || "";
-        return { ...slide, headline, body, imageUrl, alt: slide?.alt || headline };
+        return { ...slide, headline, body, imageUrl, alt: slide?.alt || headline, backgroundStyle };
       } catch {
-        return { ...slide, headline, body, imageUrl: slide?.imageUrl || "", alt: slide?.alt || headline };
+        return { ...slide, headline, body, imageUrl: slide?.imageUrl || "", alt: slide?.alt || headline, backgroundStyle };
       }
     }),
   );
@@ -2019,6 +2025,7 @@ function ManualPost() {
         "imageThumbUrl",
         result.media.thumbUrl || result.media.thumbPath || "",
       );
+      update("imageAlt", result.media.alt || draft.imageAlt || draft.title || file.name.replace(/\.[^.]+$/, ""));
     } catch (e) {
       setError(e instanceof Error ? e.message : t("common.error"));
     } finally {
@@ -2055,6 +2062,7 @@ function ManualPost() {
         "imageThumbUrl",
         result.media.thumbUrl || result.media.thumbPath || "",
       );
+      update("imageAlt", result.media.alt || draft.imageAlt || draft.title || t("editor.imageAltPlaceholder"));
       setShowImageModal(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("common.error"));

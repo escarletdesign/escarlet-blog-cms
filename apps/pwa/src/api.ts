@@ -315,6 +315,9 @@ const baseApi = {
     slug?: string;
     alt?: string;
     title?: string;
+    allowText?: boolean;
+    imageRole?: string;
+    backgroundStyle?: string;
   }) =>
     request<{ media: MediaItem; prompt: string }>("/api/ai/image", {
       method: "POST",

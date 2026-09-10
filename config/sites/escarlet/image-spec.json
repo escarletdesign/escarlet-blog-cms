@@ -1,0 +1,25 @@
+{
+  "global": {
+    "avoidEmbeddedText": true,
+    "referenceFidelity": "high",
+    "altText": "Describe la escena de forma breve, concreta y fiel a la pieza."
+  },
+  "instagramCarousel": {
+    "slides": 4,
+    "dimensions": "1080x1350",
+    "allowText": true,
+    "textGuidance": "Usa únicamente el headline y body que entrega el CMS. Mantén el texto breve, legible y con ortografía exacta; no inventes palabras ni logotipos.",
+    "firstSlide": {
+      "background": "brand-color",
+      "allowGradients": true
+    },
+    "middleSlides": {
+      "background": "light-or-grayscale",
+      "avoidSaturatedColors": true
+    },
+    "lastSlide": {
+      "background": "brand-color",
+      "allowGradients": true
+    }
+  }
+}

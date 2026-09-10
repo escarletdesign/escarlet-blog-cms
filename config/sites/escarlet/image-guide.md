@@ -41,6 +41,8 @@ Convención del sitio alineada con el curso de SEO. Aplica a portadas, fotos de 
 
 Si el site tiene `instagramCarousel` activo, el agente genera 4–7 slides (1080×1350), las sube al CMS con `kind` `social` (`{slug}-ig-01.jpg` …) y las enlaza en `socialPack.instagramSlides`. ChatGPT envía el PNG en `contentBase64` o a trozos. El CMS comprime. El pack admin solo descarga las URLs del CMS.
 
+Regla visual del carrusel: la primera y la última slide pueden usar colores de marca o gradientes suaves. Las slides centrales usan fondos claros, crema o escala de grises y evitan colores saturados. En las piezas de Instagram sí se permite texto, pero debe limitarse al `headline` y `body` entregados por el CMS, con ortografía exacta, jerarquía clara y tipografía legible. Esta configuración vive también en `image-spec.json` para que el agente y el generador la apliquen de forma consistente.
+
 ## Lead magnets
 
 Cada guía tiene PDF en `public/leads/` y portada en `public/images/leads/` con el mismo kebab-case.
