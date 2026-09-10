@@ -26,6 +26,8 @@ export interface Post {
   imageUrl?: string;
   imageThumbUrl?: string;
   imageAlt?: string;
+  /** Images generated for this post, kept so a later option can be reused. */
+  imageGallery?: GeneratedImage[];
   authorName?: string;
   datePublished?: string;
   dateModified?: string;
@@ -55,4 +57,9 @@ export interface MediaItem {
   filename?: string;
   alt?: string;
   kind?: string;
+}
+
+export interface GeneratedImage extends MediaItem {
+  generatedAt?: string;
+  prompt?: string;
 }

@@ -1704,6 +1704,14 @@ const server = createServer(async (req, res) => {
       const site = siteFrom(auth, body.site || DEFAULT_SITE)
       assertSiteAccess(auth, site)
       assertAiRateLimit(aiRateLimitKey(auth, site, requestIp(req)), { limit: 8 })
+      const requestedPostSlug = String(body.postSlug || '').trim()
+      if (requestedPostSlug) {
+        const currentDb = readDb()
+        const currentPost = findPost(currentDb, site, requestedPostSlug)
+        if (currentPost && !canMutatePostForAuth(currentPost, auth, site)) {
+          throw Object.assign(new Error('No tienes acceso a guardar imágenes en este post.'), { status: 403 })
+        }
+      }
       const connector = getAiProviderConnector('openai', { db: readDb() })
       if (!connector.apiKey) throw Object.assign(new Error('Configura una API key de OpenAI para generar imágenes.'), { status: 503 })
       const prompt = assertSafeAiPrompt(body.prompt, { field: 'prompt', maxChars: 4_000 })
@@ -1754,66 +1762,102 @@ const server = createServer(async (req, res) => {
           return { filename, filePath, type: extname(filename).toLowerCase() === '.webp' ? 'image/webp' : extname(filename).toLowerCase() === '.jpg' || extname(filename).toLowerCase() === '.jpeg' ? 'image/jpeg' : 'image/png' }
         })
         .filter(Boolean)
-      let response
-      if (referenceFiles.length) {
-        // GPT Image edits accepts up to 16 reference images. Sending the
-        // locally stored bytes as data URLs avoids exposing internal media URLs
-        // and keeps the request compatible with the current JSON API.
-        const images = referenceFiles.map((reference) => ({
-          image_url: `data:${reference.type};base64,${readFileSync(reference.filePath).toString('base64')}`
-        }))
-        response = await fetch('https://api.openai.com/v1/images/edits', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${connector.apiKey}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: imageModel,
-            images,
-            prompt: enrichedPrompt,
-            size: '1024x1024',
-            quality: 'high',
-            output_format: 'png'
-          })
-        })
-      } else {
-        response = await fetch('https://api.openai.com/v1/images/generations', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${connector.apiKey}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: imageModel,
-            prompt: enrichedPrompt,
-            size: '1024x1024',
-            quality: 'medium',
-            output_format: 'png'
-          })
-        })
-      }
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        const reason = payload?.error?.message || 'OpenAI rechazó la generación de imagen.'
-        throw Object.assign(new Error(reason), { status: response.status >= 500 ? 502 : 422 })
-      }
-      let contentBase64 = String(payload?.data?.[0]?.b64_json || '').trim()
-      if (!contentBase64 && payload?.data?.[0]?.url) {
-        const imageResponse = await fetch(payload.data[0].url)
-        if (!imageResponse.ok) throw Object.assign(new Error('No se pudo descargar la imagen generada.'), { status: 502 })
-        contentBase64 = Buffer.from(await imageResponse.arrayBuffer()).toString('base64')
-      }
-      if (!contentBase64) throw Object.assign(new Error('OpenAI no devolvió una imagen.'), { status: 502 })
       const slug = String(body.slug || 'post').trim().replace(/[^a-z0-9-]+/gi, '-').replace(/^-+|-+$/g, '') || 'post'
-      const result = await uploadMedia({
-        site,
-        filename: `${slug}-cover.png`,
-        contentBase64: `data:image/png;base64,${contentBase64}`,
-        alt: String(body.alt || body.title || prompt)
-          .replace(/<[^>]+>/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim()
-          .slice(0, 140) || `Imagen de portada para ${site}`,
-        kind: 'post'
-      })
+      const optionCount = Math.max(1, Math.min(3, Math.floor(Number(body.optionCount) || 1)))
+      const alt = String(body.alt || body.title || prompt)
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 140) || `Imagen de portada para ${site}`
+      const mediaOptions = []
+      for (let optionIndex = 0; optionIndex < optionCount; optionIndex += 1) {
+        let response
+        if (referenceFiles.length) {
+          // GPT Image edits accepts up to 16 reference images. Sending the
+          // locally stored bytes as data URLs avoids exposing internal media URLs
+          // and keeps the request compatible with the current JSON API.
+          const images = referenceFiles.map((reference) => ({
+            image_url: `data:${reference.type};base64,${readFileSync(reference.filePath).toString('base64')}`
+          }))
+          response = await fetch('https://api.openai.com/v1/images/edits', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${connector.apiKey}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: imageModel,
+              images,
+              prompt: enrichedPrompt,
+              size: '1024x1024',
+              quality: 'high',
+              output_format: 'png'
+            })
+          })
+        } else {
+          response = await fetch('https://api.openai.com/v1/images/generations', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${connector.apiKey}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: imageModel,
+              prompt: enrichedPrompt,
+              size: '1024x1024',
+              quality: 'medium',
+              output_format: 'png'
+            })
+          })
+        }
+        const payload = await response.json().catch(() => ({}))
+        if (!response.ok) {
+          const reason = payload?.error?.message || 'OpenAI rechazó la generación de imagen.'
+          throw Object.assign(new Error(reason), { status: response.status >= 500 ? 502 : 422 })
+        }
+        let contentBase64 = String(payload?.data?.[0]?.b64_json || '').trim()
+        if (!contentBase64 && payload?.data?.[0]?.url) {
+          const imageResponse = await fetch(payload.data[0].url)
+          if (!imageResponse.ok) throw Object.assign(new Error('No se pudo descargar la imagen generada.'), { status: 502 })
+          contentBase64 = Buffer.from(await imageResponse.arrayBuffer()).toString('base64')
+        }
+        if (!contentBase64) throw Object.assign(new Error('OpenAI no devolvió una imagen.'), { status: 502 })
+        const result = await uploadMedia({
+          site,
+          filename: `${slug}-cover${optionCount > 1 ? `-option-${optionIndex + 1}` : ''}-${Date.now()}.png`,
+          contentBase64: `data:image/png;base64,${contentBase64}`,
+          alt,
+          kind: 'post'
+        })
+        mediaOptions.push({
+          ...result.media,
+          generatedAt: new Date().toISOString(),
+          prompt: prompt.slice(0, 2_000)
+        })
+      }
+
+      let gallery = null
+      if (requestedPostSlug) {
+        const db = readDb()
+        const post = findPost(db, site, requestedPostSlug)
+        if (post) {
+          const previous = Array.isArray(post.imageGallery) ? post.imageGallery : []
+          post.imageGallery = [...previous, ...mediaOptions].slice(-30)
+          if (!post.imageUrl && mediaOptions[0]) {
+            post.imageUrl = mediaOptions[0].url || mediaOptions[0].path || ''
+            post.imageThumbUrl = mediaOptions[0].thumbUrl || mediaOptions[0].thumbPath || ''
+            post.imageAlt = mediaOptions[0].alt || alt
+          }
+          post.dateModified = new Date().toISOString().slice(0, 10)
+          upsertPost(db, post)
+          writeDb(db)
+          gallery = post.imageGallery
+        }
+      }
       // Never return the internal brand context to the browser; it is only
       // used while preparing the provider request.
-      json(res, 200, { ...result, prompt })
+      json(res, 200, {
+        ok: true,
+        media: mediaOptions[0],
+        mediaOptions,
+        gallery,
+        persisted: Boolean(gallery),
+        prompt
+      })
     } catch (error) {
       json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
     }

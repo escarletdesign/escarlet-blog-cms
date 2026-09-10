@@ -1,4 +1,4 @@
-import type { Author, MediaItem, Post, Session } from "./types";
+import type { Author, GeneratedImage, MediaItem, Post, Session } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -313,13 +313,21 @@ const baseApi = {
     site?: string;
     prompt: string;
     slug?: string;
+    postSlug?: string;
+    optionCount?: number;
     alt?: string;
     title?: string;
     allowText?: boolean;
     imageRole?: string;
     backgroundStyle?: string;
   }) =>
-    request<{ media: MediaItem; prompt: string }>("/api/ai/image", {
+    request<{
+      media: MediaItem;
+      mediaOptions?: GeneratedImage[];
+      gallery?: GeneratedImage[];
+      persisted?: boolean;
+      prompt: string;
+    }>("/api/ai/image", {
       method: "POST",
       body: JSON.stringify(input),
     }),

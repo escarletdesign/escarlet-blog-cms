@@ -1710,12 +1710,14 @@ function ImageGenerationModal({
   onGenerate: (
     mode: "content" | "description" | "both",
     prompt: string,
+    optionCount: number,
   ) => void;
   busy: boolean;
 }) {
   const { t } = useI18n();
   const [mode, setMode] = useState<"content" | "description" | "both">("both");
   const [prompt, setPrompt] = useState("");
+  const [optionCount, setOptionCount] = useState(1);
   const choices = [
     {
       id: "content" as const,
@@ -1738,7 +1740,7 @@ function ImageGenerationModal({
       className="modal-backdrop"
       role="presentation"
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget && !busy) onClose();
       }}
     >
       <section
@@ -1756,6 +1758,7 @@ function ImageGenerationModal({
             className="icon-button"
             type="button"
             onClick={onClose}
+            disabled={busy}
             aria-label={t("editor.close")}
           >
             ×
@@ -1786,8 +1789,25 @@ function ImageGenerationModal({
             />
           </label>
         )}
+        <fieldset className="image-option-picker">
+          <legend>{t("editor.imageOptions")}</legend>
+          <p className="optional">{t("editor.imageOptionsHelp")}</p>
+          <div className="choice-pills" role="radiogroup" aria-label={t("editor.imageOptions")}>
+            {[1, 2, 3].map((count) => (
+              <button
+                key={count}
+                type="button"
+                className={`choice-pill ${optionCount === count ? "selected" : ""}`}
+                aria-pressed={optionCount === count}
+                onClick={() => setOptionCount(count)}
+              >
+                {count}
+              </button>
+            ))}
+          </div>
+        </fieldset>
         <div className="form-actions">
-          <button className="ghost" type="button" onClick={onClose}>
+          <button className="ghost" type="button" onClick={onClose} disabled={busy}>
             {t("editor.close")}
           </button>
           <button
@@ -1797,7 +1817,7 @@ function ImageGenerationModal({
               busy ||
               ((mode === "description" || mode === "both") && !prompt.trim())
             }
-            onClick={() => onGenerate(mode, prompt)}
+            onClick={() => onGenerate(mode, prompt, optionCount)}
           >
             {busy ? t("editor.saving") : t("editor.generate")}
           </button>
@@ -1878,6 +1898,11 @@ function ManualPost() {
   const [imageBusy, setImageBusy] = useState(false);
   const [slugEdited, setSlugEdited] = useState(Boolean(editSlug));
   const [draftRecovered, setDraftRecovered] = useState(false);
+  const serverDraftKey = `${storageKey}_server`;
+  const [serverDraftSlug, setServerDraftSlug] = useState(() =>
+    typeof window === "undefined" ? "" : window.localStorage.getItem(serverDraftKey) || "",
+  );
+  const [galleryQuery, setGalleryQuery] = useState("");
   const [scheduleDate, setScheduleDate] = useState("");
   const [scheduleTime, setScheduleTime] = useState("09:00");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -1952,7 +1977,7 @@ function ManualPost() {
     };
   }, [editSlug, site, storageKey]);
   useEffect(() => {
-    if (draft.title || draft.excerptEs || draft.bodyHtml !== "<p></p>")
+    if (draft.title || draft.excerptEs || draft.bodyHtml !== "<p></p>" || draft.imageGallery?.length || draft.imageUrl)
       localStorage.setItem(storageKey, JSON.stringify(draft));
   }, [draft, storageKey]);
   const update = (key: keyof Draft, value: unknown) =>
@@ -1999,7 +2024,9 @@ function ManualPost() {
           es: (result.content || "").slice(0, 180),
         });
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("common.error"));
+      const message = e instanceof Error ? e.message : t("common.error");
+      setError(message);
+      showToast(message, "error");
     } finally {
       setGenerating(null);
       setAiPromptOperation(null);
@@ -2029,15 +2056,40 @@ function ManualPost() {
         result.media.thumbUrl || result.media.thumbPath || "",
       );
       update("imageAlt", result.media.alt || draft.imageAlt || draft.title || file.name.replace(/\.[^.]+$/, ""));
+      update("imageGallery", [...(draft.imageGallery || []), result.media]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("common.error"));
+      const message = e instanceof Error ? e.message : t("common.error");
+      setError(message);
+      showToast(message, "error");
     } finally {
       setImageBusy(false);
     }
   };
+  const ensureServerDraft = async () => {
+    if (editSlug) return editSlug;
+    if (serverDraftSlug) return serverDraftSlug;
+    const title = draft.title.trim() || t("editor.imageDraftTitle");
+    const slug = draft.slug || slugify(title) || `borrador-${Date.now()}`;
+    const created = await api.createDraft({
+      site,
+      title,
+      slug,
+      authorName: draft.authorName || authors[0]?.name || session.displayName || session.email || "Escarlet",
+      contentSource: "client",
+    });
+    setServerDraftSlug(created.post.slug);
+    localStorage.setItem(serverDraftKey, created.post.slug);
+    setDraft((current) => ({
+      ...current,
+      slug: current.slug || created.post.slug,
+      status: created.post.status,
+    }));
+    return created.post.slug;
+  };
   const generateImage = async (
     mode: "content" | "description" | "both",
     description: string,
+    optionCount = 1,
   ) => {
     setImageBusy(true);
     setError("");
@@ -2053,22 +2105,42 @@ function ManualPost() {
           : mode === "description"
             ? description
             : `${content}\nDirección adicional: ${description}`;
+      const postSlug = await ensureServerDraft();
       const result = await api.generateImage({
         site,
         prompt,
         slug: draft.slug || slugify(draft.title),
+        postSlug,
+        optionCount,
         title: draft.title,
         alt: draft.imageAlt || draft.title,
       });
-      update("imageUrl", result.media.url || result.media.path || "");
-      update(
-        "imageThumbUrl",
-        result.media.thumbUrl || result.media.thumbPath || "",
-      );
-      update("imageAlt", result.media.alt || draft.imageAlt || draft.title || t("editor.imageAltPlaceholder"));
+      const options = result.mediaOptions?.length ? result.mediaOptions : [result.media];
+      const first = options[0];
+      setDraft((current) => {
+        const existing = current.imageGallery || [];
+        const merged = [...existing, ...options]
+          .filter((item, index, list) => {
+            const key = item.url || item.path || item.id;
+            return key
+              ? list.findIndex((candidate) => (candidate.url || candidate.path || candidate.id) === key) === index
+              : true;
+          })
+          .slice(-30);
+        return {
+          ...current,
+          imageUrl: current.imageUrl || first?.url || first?.path || "",
+          imageThumbUrl: current.imageThumbUrl || first?.thumbUrl || first?.thumbPath || "",
+          imageAlt: current.imageAlt || first?.alt || current.title || t("editor.imageAltPlaceholder"),
+          imageGallery: result.gallery?.length ? result.gallery : merged,
+        };
+      });
       setShowImageModal(false);
+      showToast(options.length > 1 ? t("editor.imagesReady", `${options.length} imágenes listas para elegir.`) : t("editor.imageReady"));
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("common.error"));
+      const message = e instanceof Error ? e.message : t("common.error");
+      setError(message);
+      showToast(message, "error");
     } finally {
       setImageBusy(false);
     }
@@ -2092,6 +2164,21 @@ function ManualPost() {
       setSeoMessage(e instanceof Error ? e.message : t("common.error"));
     }
   };
+  const galleryImages = (draft.imageGallery || []).filter((image) => {
+    const query = galleryQuery.trim().toLowerCase();
+    if (!query) return true;
+    return [image.alt, image.filename, image.prompt, image.generatedAt]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase()
+      .includes(query);
+  });
+  const useGalleryImage = (image: NonNullable<Draft["imageGallery"]>[number]) => {
+    update("imageUrl", image.url || image.path || "");
+    update("imageThumbUrl", image.thumbUrl || image.thumbPath || "");
+    update("imageAlt", image.alt || draft.title || t("editor.imageAltPlaceholder"));
+    showToast(t("editor.imageSelected"));
+  };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setSaving(true);
@@ -2103,15 +2190,16 @@ function ManualPost() {
         ? new Date(`${scheduleDate}T${scheduleTime || "09:00"}`).toISOString()
         : draft.publishAt;
       let saved: { post: Post };
-      if (editSlug)
+      const originalSlug = editSlug || serverDraftSlug;
+      if (originalSlug)
         saved = await api.updatePost({
           ...draft,
           site,
-          originalSlug: editSlug,
+          originalSlug,
           slug,
           direct: true,
           publishAt: nextPublishAt,
-          status: editSlug && draft.status === "published" ? "draft" : draft.status,
+          status: originalSlug && draft.status === "published" ? "draft" : draft.status,
           title: draft.title,
           authorName: draft.authorName || authors[0]?.name || session.displayName || session.email || "Escarlet",
           bodyHtml: draft.bodyHtml,
@@ -2140,6 +2228,7 @@ function ManualPost() {
         });
       }
       localStorage.removeItem(storageKey);
+      localStorage.removeItem(serverDraftKey);
       showToast(t("editor.saved"));
       nav(`/preview/${encodeURIComponent(saved.post.slug)}`);
     } catch (e) {
@@ -2169,6 +2258,7 @@ function ManualPost() {
             className="danger-link"
             onClick={() => {
               localStorage.removeItem(storageKey);
+              localStorage.removeItem(serverDraftKey);
               setDraft({ title: "", slug: "", excerptEs: "", bodyHtml: "<p></p>", metaDescription: { es: "" }, authorName: "" });
               setDraftRecovered(false);
             }}
@@ -2359,6 +2449,43 @@ function ManualPost() {
               <small>{t("editor.imageHelp")}</small>
             </button>
           )}
+          {draft.imageGallery?.length ? (
+            <section className="generated-gallery" aria-labelledby="generated-gallery-title">
+              <div className="field-heading">
+                <div>
+                  <label id="generated-gallery-title">{t("editor.imageGallery")}</label>
+                  <p className="optional">{t("editor.imageGalleryHelp")}</p>
+                </div>
+                <span className="tiny">{draft.imageGallery.length}</span>
+              </div>
+              <input
+                className="gallery-search"
+                value={galleryQuery}
+                onChange={(event) => setGalleryQuery(event.target.value)}
+                placeholder={t("editor.imageGallerySearch")}
+                aria-label={t("editor.imageGallerySearch")}
+              />
+              {galleryImages.length ? (
+                <div className="generated-gallery-grid">
+                  {galleryImages.map((image, index) => {
+                    const imageSrc = image.thumbUrl || image.thumbPath || image.url || image.path || "";
+                    const selected = imageSrc && imageSrc === (draft.imageThumbUrl || draft.imageUrl);
+                    return (
+                      <article className={`generated-image-card ${selected ? "selected" : ""}`} key={image.url || image.path || image.id || `${image.generatedAt}-${index}`}>
+                        {imageSrc ? <img src={imageSrc} alt={image.alt || ""} /> : <div className="generated-image-empty">{t("editor.imageUnavailable")}</div>}
+                        <div className="generated-image-card-body">
+                          <span className="tiny">{image.generatedAt ? readableDate(image.generatedAt) : t("editor.imageUploaded")}</span>
+                          <button type="button" className="ghost" onClick={() => useGalleryImage(image)} disabled={!imageSrc}>
+                            {selected ? t("editor.imageSelectedLabel") : t("editor.useImage")}
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : <p className="optional">{t("editor.imageGalleryEmpty")}</p>}
+            </section>
+          ) : null}
           <label>
             {t("editor.imageAlt")}
             <input
@@ -2414,7 +2541,7 @@ function ManualPost() {
       {showImageModal && (
         <ImageGenerationModal
           onClose={() => setShowImageModal(false)}
-          onGenerate={(mode, prompt) => void generateImage(mode, prompt)}
+          onGenerate={(mode, prompt, optionCount) => void generateImage(mode, prompt, optionCount)}
           busy={imageBusy}
         />
       )}
