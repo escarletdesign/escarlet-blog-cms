@@ -202,6 +202,19 @@
 .onboarding-skip:hover { color: var(--text); }
 .profile-settings-card { display: grid; gap: 12px; }
 .profile-settings-card h2 { margin: 0; }
+.text-link { display: inline-flex; align-items: center; width: fit-content; border: 0; padding: 0; color: var(--accent); background: transparent; cursor: pointer; text-align: left; }
+.settings-card input:not([type="checkbox"]):not([type="file"]), .settings-card textarea, .onboarding-slide input:not([type="checkbox"]):not([type="file"]), .onboarding-slide textarea { width: 100%; color: var(--text); background: #17201e; border: 1px solid #3c4a46; border-radius: 10px; outline: 0; padding: 12px; }
+.settings-card input:not([type="checkbox"]):not([type="file"]):focus, .settings-card textarea:focus, .onboarding-slide input:not([type="checkbox"]):not([type="file"]):focus, .onboarding-slide textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(185,245,98,.12); }
+.onboarding-slide label { display: grid; gap: 7px; font-size: .9rem; font-weight: 650; }
+.profile-avatar-field { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: #121a18; }
+.profile-avatar-button { width: 88px; height: 88px; flex: 0 0 88px; }
+.profile-avatar-button > span { font-size: .85rem; }
+.profile-avatar-copy { display: grid; gap: 6px; min-width: 0; }
+.profile-avatar-copy strong { font-size: .95rem; }
+.profile-avatar-copy .muted { margin: 0; font-size: .78rem; line-height: 1.4; }
+.profile-avatar-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+.profile-avatar-actions .secondary { padding: 8px 11px; font-size: .8rem; }
+.profile-avatar-actions .danger-link { padding: 5px 0; color: var(--danger); font-size: .78rem; }
 .invite-result { display: grid; gap: 14px; justify-items: start; }
 .invite-result-icon { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 15px; color: var(--accent-ink); background: var(--accent); font-size: 1.4rem; font-weight: 800; }
 .invite-result.error .invite-result-icon { color: #fff; background: var(--danger); }

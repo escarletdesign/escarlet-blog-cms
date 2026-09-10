@@ -294,7 +294,7 @@ function App() {
             }}
           >
             <Routes>
-              {session.role === "client" && session.userId && session.profileComplete === false ? (
+              {session.userId && session.profileComplete === false ? (
                 <>
                   <Route path="/onboarding" element={<Onboarding />} />
                   <Route path="*" element={<Navigate to="/onboarding" replace />} />
@@ -422,6 +422,65 @@ function UserAvatar({ src, name, size = "md" }: { src?: string; name?: string; s
   );
 }
 
+function ProfileAvatarField({
+  src,
+  name,
+  label,
+  help,
+  chooseLabel,
+  removeLabel,
+  onChange,
+  onRemove,
+}: {
+  src?: string;
+  name?: string;
+  label: string;
+  help: string;
+  chooseLabel: string;
+  removeLabel: string;
+  onChange: (file?: File) => void | Promise<void>;
+  onRemove: () => void;
+}) {
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  return (
+    <div className="profile-avatar-field">
+      <button
+        type="button"
+        className="avatar-upload profile-avatar-button"
+        onClick={() => fileRef.current?.click()}
+        aria-label={chooseLabel}
+      >
+        <UserAvatar src={src} name={name} size="lg" />
+        <span aria-hidden="true">✎</span>
+      </button>
+      <div className="profile-avatar-copy">
+        <strong>{label}</strong>
+        <p className="muted">{help}</p>
+        <div className="profile-avatar-actions">
+          <button type="button" className="secondary" onClick={() => fileRef.current?.click()}>
+            {chooseLabel}
+          </button>
+          {src && (
+            <button type="button" className="text-link danger-link" onClick={onRemove}>
+              {removeLabel}
+            </button>
+          )}
+        </div>
+      </div>
+      <input
+        ref={fileRef}
+        hidden
+        type="file"
+        accept="image/*"
+        onChange={(event) => {
+          void onChange(event.target.files?.[0]);
+          event.currentTarget.value = "";
+        }}
+      />
+    </div>
+  );
+}
+
 function Onboarding() {
   const { session, refresh } = useApp();
   const { t } = useI18n();
@@ -433,7 +492,6 @@ function Onboarding() {
   const [avatarDataUrl, setAvatarDataUrl] = useState(session.avatarUrl || "");
   const [allowPublishingAs, setAllowPublishingAs] = useState(Boolean(session.allowPublishingAs));
   const [busy, setBusy] = useState(false);
-  const fileRef = useRef<HTMLInputElement | null>(null);
   const save = async (complete = true) => {
     setBusy(true);
     try {
@@ -470,14 +528,16 @@ function Onboarding() {
               <h2>{t("onboarding.profileTitle")}</h2>
               <p className="muted">{t("onboarding.profileHelp")}</p>
             </div>
-            <div className="onboarding-avatar-picker">
-              <button type="button" className="avatar-upload" onClick={() => fileRef.current?.click()} aria-label={t("settings.avatarChoose")}>
-                <UserAvatar src={avatarDataUrl} name={displayName || session.email} size="lg" />
-                <span>＋</span>
-              </button>
-              <input ref={fileRef} hidden type="file" accept="image/*" onChange={(event) => void chooseAvatar(event.target.files?.[0])} />
-              <button type="button" className="text-link" onClick={() => fileRef.current?.click()}>{t("settings.avatarChoose")}</button>
-            </div>
+            <ProfileAvatarField
+              src={avatarDataUrl}
+              name={displayName || session.email}
+              label={t("settings.avatar")}
+              help={t("settings.avatarHelp")}
+              chooseLabel={t("settings.avatarChoose")}
+              removeLabel={t("settings.avatarRemove")}
+              onChange={chooseAvatar}
+              onRemove={() => setAvatarDataUrl("")}
+            />
             <label>{t("settings.displayName")}<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder={t("settings.displayNamePlaceholder")} autoFocus /></label>
             <label>{t("settings.bio")}<textarea value={bio} onChange={(event) => setBio(event.target.value)} placeholder={t("settings.bioPlaceholder")} rows={4} /></label>
           </section>
@@ -3162,7 +3222,6 @@ function Settings() {
   const [avatarDataUrl, setAvatarDataUrl] = useState(session.avatarUrl || "");
   const [allowPublishingAs, setAllowPublishingAs] = useState(Boolean(session.allowPublishingAs));
   const [profileSaving, setProfileSaving] = useState(false);
-  const profileFileRef = useRef<HTMLInputElement | null>(null);
   const [authorLinkBusy, setAuthorLinkBusy] = useState(false);
   const save = () => {
     localStorage.setItem("escarlet_model", model);
@@ -3230,18 +3289,16 @@ function Settings() {
           <p className="eyebrow">{t("settings.profileEyebrow")}</p>
           <h2>{t("settings.profileTitle")}</h2>
           <p className="muted">{t("settings.profileHelp")}</p>
-          <div className="profile-editor-head">
-            <button type="button" className="avatar-upload" onClick={() => profileFileRef.current?.click()} aria-label={t("settings.avatarChoose")}>
-              <UserAvatar src={avatarDataUrl} name={displayName || session.email} size="lg" />
-              <span>＋</span>
-            </button>
-            <div>
-              <b>{t("settings.avatar")}</b>
-              <button type="button" className="text-link" onClick={() => profileFileRef.current?.click()}>{t("settings.avatarChoose")}</button>
-              {avatarDataUrl && <button type="button" className="text-link danger-link" onClick={() => setAvatarDataUrl("")}>{t("settings.avatarRemove")}</button>}
-              <input ref={profileFileRef} hidden type="file" accept="image/*" onChange={(event) => void chooseProfileAvatar(event.target.files?.[0])} />
-            </div>
-          </div>
+          <ProfileAvatarField
+            src={avatarDataUrl}
+            name={displayName || session.email}
+            label={t("settings.avatar")}
+            help={t("settings.avatarHelp")}
+            chooseLabel={t("settings.avatarChoose")}
+            removeLabel={t("settings.avatarRemove")}
+            onChange={chooseProfileAvatar}
+            onRemove={() => setAvatarDataUrl("")}
+          />
           <label>{t("settings.displayName")}<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder={t("settings.displayNamePlaceholder")} /></label>
           <label>{t("settings.bio")}<textarea value={bio} onChange={(event) => setBio(event.target.value)} placeholder={t("settings.bioPlaceholder")} rows={4} /></label>
           <label className="switch-row"><span><b>{t("settings.authorPermission")}</b><small>{t("settings.authorPermissionHelp")}</small></span><input type="checkbox" checked={allowPublishingAs} onChange={(event) => setAllowPublishingAs(event.target.checked)} /></label>
