@@ -874,7 +874,12 @@ function NavIcon({ kind }: { kind: string }) {
     );
   }
   if (kind === "admin") {
-    return <span className="nav-icon nav-icon-glyph" aria-hidden="true">⚙</span>;
+    return (
+      <svg className="nav-icon" viewBox="0 0 20 20" aria-hidden="true">
+        <path d="M8.1 3.4 8.6 2h2.8l.5 1.4 1.2.7 1.4-.4 2 2-0.5 1.4.7 1.2 1.4.5v2.8l-1.4.5-.7 1.2.5 1.4-2 2-1.4-.4-1.2.7-.5 1.4H8.6l-.5-1.4-1.2-.7-1.4.4-2-2 .5-1.4-.7-1.2-1.4-.5V8.3l1.4-.5.7-1.2-.5-1.4 2-2 1.4.4 1.2-.7Z" />
+        <circle cx="10" cy="9.7" r="2.5" />
+      </svg>
+    );
   }
   return <span className="nav-icon nav-icon-glyph" aria-hidden="true">✦</span>;
 }

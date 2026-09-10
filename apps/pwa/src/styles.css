@@ -250,6 +250,10 @@
   .mobile-head .brand-icon { width: 31px; height: 31px; border-radius: 50%; }
   .mobile-version { display: inline-flex; align-items: center; min-height: 22px; padding: 3px 8px; border: 1px solid #5c7f42; border-radius: 99px; background: #22301f; }
   .workspace { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
+  .page, .chat-page { padding-bottom: calc(105px + env(safe-area-inset-bottom)); }
+  .preview-page { padding-bottom: calc(160px + env(safe-area-inset-bottom)); }
+  .sticky-actions { bottom: calc(62px + env(safe-area-inset-bottom)); }
+  .composer { bottom: calc(72px + env(safe-area-inset-bottom)); }
   .mobile-bottom-nav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); position: fixed; z-index: 30; left: 0; right: 0; bottom: 0; min-height: 62px; padding: 7px 8px max(7px, env(safe-area-inset-bottom)); border-top: 1px solid #35423e; background: rgba(17, 24, 23, .95); backdrop-filter: blur(14px); }
   .mobile-bottom-link, .mobile-menu-toggle { min-width: 0; display: grid; place-items: center; align-content: center; gap: 3px; padding: 4px 2px; color: var(--muted); background: transparent; border: 0; border-radius: 10px; font-size: .62rem; }
   .mobile-bottom-link.active, .mobile-menu-toggle.open { color: var(--accent); background: #25342c; }
