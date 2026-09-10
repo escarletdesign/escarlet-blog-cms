@@ -1772,7 +1772,6 @@ const server = createServer(async (req, res) => {
             prompt: enrichedPrompt,
             size: '1024x1024',
             quality: 'high',
-            input_fidelity: 'high',
             output_format: 'png'
           })
         })

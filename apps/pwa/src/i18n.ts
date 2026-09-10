@@ -3,7 +3,7 @@ export type Language = "es" | "en";
 const dictionaries: Record<Language, Record<string, string>> = {
   es: {
     "app.loading": "Abriendo Escarlet…",
-    "app.beta": "Beta 0.2.8",
+    "app.beta": "Beta 0.2.9",
     "nav.home": "Inicio",
     "nav.assistant": "Asistente",
     "nav.posts": "Posts",
@@ -135,7 +135,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "preview.edit": "Editar",
     "preview.schedule": "Programar",
     "preview.publish": "Publicar →",
-    "preview.socialPack": "Abrir Social Pack",
+    "preview.socialPack": "Social Pack",
     "settings.eyebrow": "CUENTA",
     "settings.title": "Ajustes",
     "settings.description": "Personaliza cómo trabajas en Escarlet.",
@@ -310,7 +310,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "social.description":
       "Copia, descarga o graba el guion desde este espacio.",
     "social.generate": "✦ Generar Social Pack",
-    "social.regenerate": "Regenerar",
+    "social.regenerate": "Regenerar Social Pack",
     "social.articleUrl": "Enlace del artículo",
     "social.copyUrl": "Copiar enlace",
     "social.copied": "Copiado",
@@ -549,7 +549,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
   },
   en: {
     "app.loading": "Opening Escarlet…",
-    "app.beta": "Beta 0.2.8",
+    "app.beta": "Beta 0.2.9",
     "nav.home": "Home",
     "nav.assistant": "Assistant",
     "nav.posts": "Posts",
@@ -679,7 +679,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "preview.edit": "Edit",
     "preview.schedule": "Schedule",
     "preview.publish": "Publish →",
-    "preview.socialPack": "Open Social Pack",
+    "preview.socialPack": "Social Pack",
     "settings.eyebrow": "ACCOUNT",
     "settings.title": "Settings",
     "settings.description": "Customize how you work in Escarlet.",
@@ -852,7 +852,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "social.description":
       "Copy, download or record the script from this space.",
     "social.generate": "✦ Generate Social Pack",
-    "social.regenerate": "Regenerate",
+    "social.regenerate": "Regenerate Social Pack",
     "social.articleUrl": "Article link",
     "social.copyUrl": "Copy link",
     "social.copied": "Copied",

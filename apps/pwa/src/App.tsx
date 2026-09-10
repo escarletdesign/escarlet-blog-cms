@@ -3075,18 +3075,22 @@ function SocialPack() {
             >
               {t("social.download")}
             </button>
-            <button
-              className="primary"
-              onClick={() => void generatePack()}
-              disabled={busy}
-            >
-              {busy
-                ? t("publish.preparing")
-                : Object.keys(socialPack).length
-                  ? t("social.regenerate")
-                  : t("social.generate")}
-            </button>
           </div>
+        </div>
+      )}
+      {post && (
+        <div className="social-pack-generation-actions">
+          <button
+            className="primary"
+            onClick={() => void generatePack()}
+            disabled={busy}
+          >
+            {busy
+              ? t("publish.preparing")
+              : Object.keys(socialPack).length
+                ? t("social.regenerate")
+                : t("social.generate")}
+          </button>
         </div>
       )}
       {post && (
