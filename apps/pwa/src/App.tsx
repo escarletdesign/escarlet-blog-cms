@@ -701,7 +701,11 @@ function Shell() {
 
 function SidebarConversations({ site }: { site: string }) {
   const { t } = useI18n();
+  const { showToast } = useToast();
+  const nav = useNavigate();
+  const location = useLocation();
   const [conversations, setConversations] = useState<AiConversation[]>([]);
+  const [deleting, setDeleting] = useState("");
   useEffect(() => {
     let active = true;
     const load = () => api.aiConversations(site)
@@ -713,22 +717,72 @@ function SidebarConversations({ site }: { site: string }) {
       if (!detail?.site || detail.site === site) void load();
     };
     window.addEventListener("escarlet:conversation-saved", onSaved);
-    return () => { active = false; window.removeEventListener("escarlet:conversation-saved", onSaved); };
+    const onDeleted = (event: Event) => {
+      const detail = (event as CustomEvent<{ site?: string }>).detail;
+      if (!detail?.site || detail.site === site) void load();
+    };
+    window.addEventListener("escarlet:conversation-deleted", onDeleted);
+    return () => {
+      active = false;
+      window.removeEventListener("escarlet:conversation-saved", onSaved);
+      window.removeEventListener("escarlet:conversation-deleted", onDeleted);
+    };
   }, [site]);
   if (!conversations.length) return null;
+  const removeConversation = async (event: React.MouseEvent, id: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (deleting) return;
+    if (!window.confirm(t("chat.deleteConfirm"))) return;
+    setDeleting(id);
+    try {
+      await api.deleteAiConversation(id, site);
+      setConversations((current) => current.filter((conversation) => conversation.id !== id));
+      try {
+        const storageKey = `escarlet_chat_threads:${site}`;
+        const local = JSON.parse(window.localStorage.getItem(storageKey) || "[]");
+        if (Array.isArray(local)) {
+          window.localStorage.setItem(storageKey, JSON.stringify(local.filter((thread) => thread?.id !== id)));
+        }
+        if (new URLSearchParams(location.search).get("conversation") === id) {
+          window.localStorage.removeItem(`escarlet_chat_active:${site}`);
+        }
+      } catch {
+        // Online deletion is authoritative; local fallback cleanup is best effort.
+      }
+      window.dispatchEvent(new CustomEvent("escarlet:conversation-deleted", { detail: { site, id } }));
+      if (new URLSearchParams(location.search).get("conversation") === id) nav("/chat");
+      showToast(t("chat.deleted"));
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : t("common.error"), "error");
+    } finally {
+      setDeleting("");
+    }
+  };
   return (
     <div className="sidebar-conversations">
       <span className="sidebar-conversations-label">{t("chat.history")}</span>
       {conversations.slice(0, 6).map((conversation) => (
-        <NavLink
-          key={conversation.id}
-          to={`/chat?conversation=${encodeURIComponent(conversation.id)}`}
-          className="sidebar-conversation"
-          title={conversation.title}
-        >
-          <span>·</span>
-          <span>{conversation.title || t("chat.newConversation")}</span>
-        </NavLink>
+        <div className="sidebar-conversation-row" key={conversation.id}>
+          <NavLink
+            to={`/chat?conversation=${encodeURIComponent(conversation.id)}`}
+            className="sidebar-conversation"
+            title={conversation.title}
+          >
+            <span>·</span>
+            <span>{conversation.title || t("chat.newConversation")}</span>
+          </NavLink>
+          <button
+            type="button"
+            className="sidebar-conversation-delete"
+            aria-label={`${t("chat.delete")} ${conversation.title || t("chat.newConversation")}`}
+            title={t("chat.delete")}
+            disabled={deleting === conversation.id}
+            onClick={(event) => void removeConversation(event, conversation.id)}
+          >
+            ×
+          </button>
+        </div>
       ))}
     </div>
   );
@@ -884,12 +938,13 @@ function Chat() {
   const [value, setValue] = useState("");
   const [creating, setCreating] = useState(false);
   const [lastBrief, setLastBrief] = useState("");
-  const [batchCount, setBatchCount] = useState("3");
+  const [conversationTitle, setConversationTitle] = useState(t("chat.newConversation"));
   const { site } = useApp();
   const { showToast } = useToast();
   const hydrationRequestRef = useRef("");
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const location = useLocation();
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const requestedConversationId = new URLSearchParams(location.search).get("conversation") || "";
 
   const storageKey = `escarlet_chat_threads:${site}`;
@@ -949,6 +1004,7 @@ function Chat() {
       if (!summaries.some((thread) => thread.id === selected?.id)) summaries.unshift({ ...selected, messages: [] });
       setThreads(summaries.length ? summaries : [selected]);
       setActiveThreadId(selected.id);
+      setConversationTitle(selected.title || t("chat.newConversation"));
       setMessages(selected.messages?.length ? selected.messages : [{ role: "assistant", text: t("chat.greeting") }]);
       setLastBrief([...selected.messages].reverse().find((message) => message.role === "user")?.text || "");
       window.localStorage.setItem(activeKey, selected.id);
@@ -969,12 +1025,11 @@ function Chat() {
       hydrationRequestRef.current = "";
       return;
     }
-    const firstUser = messages.find((message) => message.role === "user")?.text || "";
     const existing = threads.find((thread) => thread.id === activeThreadId);
     const nextThread: ChatThread = {
       id: activeThreadId,
       site,
-      title: firstUser ? firstUser.slice(0, 64) : existing?.title || t("chat.newConversation"),
+      title: conversationTitle || existing?.title || t("chat.newConversation"),
       messages,
       updatedAt: new Date().toISOString(),
     };
@@ -995,7 +1050,12 @@ function Chat() {
         });
     }, 280);
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
-  }, [messages, activeThreadId, site, requestedConversationId]);
+  }, [messages, activeThreadId, site, requestedConversationId, conversationTitle]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => messagesEndRef.current?.scrollIntoView({ behavior: "auto", block: "end" }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [messages, activeThreadId]);
 
   const newConversation = () => {
     const thread: ChatThread = {
@@ -1006,6 +1066,7 @@ function Chat() {
     };
     setThreads((current) => [thread, ...current]);
     setActiveThreadId(thread.id);
+    setConversationTitle(thread.title || t("chat.newConversation"));
     setMessages(thread.messages);
     setLastBrief("");
     setValue("");
@@ -1014,6 +1075,7 @@ function Chat() {
 
   const selectConversation = (thread: ChatThread) => {
     setActiveThreadId(thread.id);
+    setConversationTitle(thread.title || t("chat.newConversation"));
     if (thread.messages.length) {
       setMessages(thread.messages);
       setLastBrief([...thread.messages].reverse().find((message) => message.role === "user")?.text || "");
@@ -1034,8 +1096,9 @@ function Chat() {
     setValue("");
     setCreating(true);
     setLastBrief(brief);
+    const shouldGenerateTitle = !messages.some((message) => message.role === "user");
     try {
-      await api.aiChat(
+      const assistantText = await api.aiChat(
         {
           site,
           message: brief,
@@ -1051,6 +1114,25 @@ function Chat() {
           );
         },
       );
+      if (shouldGenerateTitle && assistantText.trim()) {
+        try {
+          const titleResult = await api.aiGenerate({
+            site,
+            operation: "title",
+            prompt: `Crea un título breve (máximo 60 caracteres) para esta conversación editorial. Devuelve solo el título, sin comillas ni explicación. Idea del usuario: ${brief}`,
+            model: localStorage.getItem("escarlet_model") || undefined,
+          });
+          const generatedTitle = String(titleResult.content || "")
+            .split(/\r?\n/)[0]
+            .replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "")
+            .replace(/^['"“”]+|['"“”]+$/g, "")
+            .trim()
+            .slice(0, 120);
+          if (generatedTitle && !/^título sugerido/i.test(generatedTitle)) setConversationTitle(generatedTitle);
+        } catch {
+          // El texto de la conversación sigue disponible aunque el título no pueda generarse.
+        }
+      }
     } catch (e) {
       showToast(e instanceof Error ? e.message : t("common.error"), "error");
       setMessages((prev) =>
@@ -1071,13 +1153,72 @@ function Chat() {
     if (!lastBrief) return;
     setCreating(true);
     try {
-      const title = lastBrief.slice(0, 72);
+      const assistantText = [...messages].reverse().find((message) => message.role === "assistant" && message.text.trim())?.text || "";
+      const title = (conversationTitle && conversationTitle !== t("chat.newConversation") ? conversationTitle : lastBrief)
+        .replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "")
+        .trim()
+        .slice(0, 72);
+      const prompt = `Convierte esta conversación en un artículo completo y útil. Idea inicial: ${lastBrief}\nRespuesta editorial del asistente: ${assistantText}`;
+      const bodyResult = await api.aiGenerate({
+        site,
+        operation: "body",
+        prompt: `${prompt}\nDevuelve el cuerpo en Markdown, con subtítulos y varios párrafos. No incluyas comentarios sobre el proceso.`,
+        model: localStorage.getItem("escarlet_model") || undefined,
+      });
+      const summaryResult = await api.aiGenerate({
+        site,
+        operation: "summary",
+        prompt: `${prompt}\nDevuelve un extracto de 1 o 2 frases para el listado.`,
+        model: localStorage.getItem("escarlet_model") || undefined,
+      });
+      const metaResult = await api.aiGenerate({
+        site,
+        operation: "meta-description",
+        prompt: `${prompt}\nDevuelve una meta descripción SEO de máximo 155 caracteres.`,
+        model: localStorage.getItem("escarlet_model") || undefined,
+      });
       const result = await api.createDraft({
         site,
         title,
         slug: slugify(title),
         contentSource: "client",
       });
+      const bodyHtml = String(bodyResult.content || assistantText || `<p>${lastBrief}</p>`).trim();
+      const excerptEs = String(summaryResult.content || lastBrief).trim().slice(0, 500);
+      const metaDescriptionEs = String(metaResult.content || excerptEs).replace(/^['"“”]+|['"“”]+$/g, "").trim().slice(0, 180);
+      await api.updatePost({
+        ...result.post,
+        site,
+        originalSlug: result.post.slug,
+        slug: result.post.slug,
+        bodyHtml,
+        excerptEs,
+        metaDescription: { ...(result.post.metaDescription || {}), es: metaDescriptionEs },
+        direct: true,
+      });
+      try {
+        const generatedImage = await api.generateImage({
+          site,
+          prompt: `${title}. ${excerptEs}`,
+          slug: result.post.slug,
+          title,
+          alt: title,
+        });
+        const imageUrl = generatedImage.media?.url || generatedImage.media?.path || "";
+        if (imageUrl) {
+          await api.updatePost({
+            site,
+            originalSlug: result.post.slug,
+            slug: result.post.slug,
+            imageUrl,
+            imageAlt: title,
+            direct: true,
+          });
+        }
+      } catch {
+        showToast(t("chat.imageUnavailable"), "info");
+      }
+      showToast(t("chat.draftCreated"));
       nav(`/preview/${encodeURIComponent(result.post.slug)}`);
     } catch (e) {
       showToast(e instanceof Error ? e.message : t("common.error"), "error");
@@ -1092,38 +1233,12 @@ function Chat() {
       setCreating(false);
     }
   };
-  const createBatch = async () => {
-    if (!lastBrief) return;
-    setCreating(true);
-    try {
-      const count = Number(batchCount) || 3;
-      const result = await api.aiGenerate({
-        site,
-        operation: "title",
-        prompt: `Propón ${count} títulos independientes para una serie de posts sobre esta idea. Devuelve solo un título por línea, sin numeración: ${lastBrief}`,
-        model: localStorage.getItem("escarlet_model") || undefined,
-      });
-      const titles = (result.content || "")
-        .split(/\n+/)
-        .map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim())
-        .filter(Boolean)
-        .slice(0, count);
-      const fallback = Array.from({ length: count }, (_, index) => `${lastBrief.slice(0, 58)} · ${index + 1}`);
-      const created = await Promise.all((titles.length ? titles : fallback).map((title) => api.createDraft({ site, title, slug: slugify(title), contentSource: "client" })));
-      showToast(`${created.length} ${t("chat.batchCreated")}`);
-      nav("/posts");
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : t("common.error"), "error");
-    } finally {
-      setCreating(false);
-    }
-  };
   return (
     <main className="chat-page">
       <div className="chat-top">
         <div>
           <p className="eyebrow">{t("chat.eyebrow")}</p>
-          <h1>{t("chat.title")}</h1>
+          <h1>{conversationTitle || t("chat.title")}</h1>
         </div>
         <div className="chat-top-actions">
           <button className="ghost" type="button" onClick={newConversation}>{t("chat.newConversation")}</button>
@@ -1133,25 +1248,6 @@ function Chat() {
           }}>{t("chat.clear")}</button>
         </div>
       </div>
-      <section className="chat-history-panel" aria-label={t("chat.history")}>
-        <div className="chat-history-heading">
-          <strong>{t("chat.history")}</strong>
-          <small>{t("chat.savedOnline")}</small>
-        </div>
-        <div className="chat-history-list">
-          {threads.map((thread) => (
-            <button
-              type="button"
-              key={thread.id}
-              className={`chat-history-item ${thread.id === activeThreadId ? "active" : ""}`}
-              onClick={() => selectConversation(thread)}
-            >
-              <span>{thread.title || t("chat.newConversation")}</span>
-              <small>{readableDate(thread.updatedAt)}</small>
-            </button>
-          ))}
-        </div>
-      </section>
       <div className="messages">
         {messages.map((message, index) => (
           <div key={index} className={`message ${message.role}`}>
@@ -1161,24 +1257,13 @@ function Chat() {
             <p>{message.text || "…"}</p>
           </div>
         ))}
+        <div ref={messagesEndRef} aria-hidden="true" />
       </div>
       {lastBrief && (
         <div className="chat-actions">
           <button className="secondary draft-from-chat" disabled={creating} onClick={createDraft}>
             {t("chat.convert")}
           </button>
-          <div className="batch-create">
-            <span>{t("chat.batchLabel")}</span>
-            <ChoicePills
-              value={batchCount}
-              ariaLabel={t("chat.batchLabel")}
-              onChange={setBatchCount}
-              options={["2", "3", "5"].map((value) => ({ value, label: value }))}
-            />
-            <button className="ghost" disabled={creating} onClick={() => void createBatch()}>
-              {t("chat.batchAction")}
-            </button>
-          </div>
         </div>
       )}
       <form className="composer" onSubmit={submit}>
@@ -4382,8 +4467,19 @@ function Admin() {
           {message}
         </div>
       )}
+      <div className="admin-scope-summary">
+        <div>
+          <p className="admin-scope-kicker">{t("admin.workspaceScope")}</p>
+          <p>{t("admin.workspaceScopeHelp")}</p>
+        </div>
+        <div>
+          <p className="admin-scope-kicker">{t("admin.siteScope")}</p>
+          <p>{t("admin.siteScopeHelp")}</p>
+        </div>
+      </div>
       <div className="admin-grid">
-        <section className="card">
+        <section className="card admin-workspace-card">
+          <p className="admin-scope-kicker">{t("admin.workspaceScope")}</p>
           <h2>{t("admin.sites")}</h2>
           {sites.length ? (
             <ul>
@@ -4395,7 +4491,8 @@ function Admin() {
             <p className="muted">{t("common.loading")}</p>
           )}
         </section>
-        <section className="card">
+        <section className="card admin-site-card">
+          <p className="admin-scope-kicker">{t("admin.siteScope")}</p>
           <div className="section-title">
             <h2>{t("admin.brand")}</h2>
             {session.role === "admin" && (
@@ -4514,7 +4611,8 @@ function Admin() {
             )}
           </div>
         </section>
-        <section className="card">
+        <section className="card admin-workspace-card">
+          <p className="admin-scope-kicker">{t("admin.workspaceScope")}</p>
           <div className="section-title">
             <h2>{t("admin.users")}</h2>
             <button
@@ -4587,7 +4685,8 @@ function Admin() {
             </form>
           )}
         </section>
-        <section className="card">
+        <section className="card admin-site-card">
+          <p className="admin-scope-kicker">{t("admin.siteScope")}</p>
           <h2>{t("admin.connection")}</h2>
           <p className="connection-state">
             <span
@@ -4642,7 +4741,8 @@ function Admin() {
         <section className="admin-ai">
           <div className="section-title">
             <div>
-              <p className="eyebrow">{t("admin.aiBilling")}</p>
+              <p className="eyebrow">{t("admin.workspaceScope")}</p>
+              <p className="admin-scope-kicker">{t("admin.aiBilling")}</p>
               <h2>{t("admin.connectors")}</h2>
             </div>
             <button

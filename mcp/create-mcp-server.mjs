@@ -14,6 +14,7 @@ import {
 import { openaiFileDefs, connectorFileMeta } from '../lib/openai-file.mjs'
 import { assertSiteAccess, assertSuperAdmin, allowedSiteHandles, isSiteScopedRole } from '../lib/auth.mjs'
 import { isSecretBrandFile } from '../lib/brand-kit.mjs'
+import { assertChatToolAllowed, assertSafeToolArguments } from '../lib/ai-security.mjs'
 
 const DEFAULT_SITE = process.env.DEFAULT_SITE || 'escarlet'
 
@@ -480,7 +481,7 @@ export function buildToolList(auth) {
 /**
  * @param {{ role: 'admin' } | { role: 'site', site: string }} [auth]
  */
-export function createMcpServer(auth = { role: 'admin' }) {
+export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = false, source = 'mcp' } = {}) {
   const server = new Server(
     { name: 'escarlet-blog-cms', version: MCP_SERVER_VERSION, title: 'Escarlet Blog CMS' },
     { capabilities: { tools: {}, resources: {} }, instructions: MCP_INSTRUCTIONS }
@@ -529,6 +530,11 @@ export function createMcpServer(auth = { role: 'admin' }) {
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args = {} } = request.params
     try {
+      // Every transport shares the same argument boundary. The optional
+      // mutation restriction is enabled only for app/chat bridges; the
+      // authenticated external MCP transport keeps its explicit workflow.
+      assertSafeToolArguments(name, args, { source })
+      if (restrictMutations) assertChatToolAllowed(name, args)
       switch (name) {
         case 'blog_list_sites': {
           const all = await cms.listSites()
@@ -686,4 +692,22 @@ export function createMcpServer(auth = { role: 'admin' }) {
   })
 
   return server
+}
+
+/**
+ * In-process bridge for the PWA. It invokes the exact same MCP tools and
+ * permission checks as Streamable HTTP, without creating a second action layer.
+ * Keeping this bridge here makes /app and external MCP clients share one
+ * contract while the transport remains private to the HTTP handler.
+ */
+export async function invokeMcpTool(
+  name,
+  args = {},
+  auth = { role: 'admin' },
+  { restrictMutations = false, source = 'bridge' } = {}
+) {
+  const server = createMcpServer(auth, { restrictMutations, source })
+  const handler = server._requestHandlers.get('tools/call')
+  if (typeof handler !== 'function') throw new Error('El servidor MCP no registró tools/call.')
+  return handler({ method: 'tools/call', params: { name, arguments: args } })
 }

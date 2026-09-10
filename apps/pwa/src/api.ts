@@ -446,6 +446,13 @@ async function saveAiConversation(input: AiConversation & { site?: string }) {
   });
 }
 
+async function deleteAiConversation(id: string, site?: string) {
+  return request<{ deleted: boolean }>(
+    `/api/ai/conversations/${encodeURIComponent(id)}${site ? `?site=${encodeURIComponent(site)}` : ""}`,
+    { method: "DELETE" },
+  );
+}
+
 async function aiChat(
   input: { site?: string; message: string; model?: string },
   onDelta?: (text: string) => void,
@@ -514,6 +521,17 @@ async function aiGenerate(input: {
   });
 }
 
+async function aiTools() {
+  return request<{ protocol: string; version: string; tools: Array<Record<string, unknown>> }>("/api/ai/tools");
+}
+
+async function aiToolCall(name: string, args: Record<string, unknown> = {}) {
+  return request<{ protocol: string; version: string; content?: Array<{ type: string; text?: string }>; isError?: boolean }>("/api/ai/tools/call", {
+    method: "POST",
+    body: JSON.stringify({ name, arguments: args }),
+  });
+}
+
 async function billingSnapshot(site?: string) {
   return request<Record<string, any>>(
     `/api/billing/snapshot${site ? `?site=${encodeURIComponent(site)}` : ""}`,
@@ -548,9 +566,12 @@ async function billingPortal(input: { site?: string }) {
 export const api = Object.assign(baseApi, {
   aiChat,
   aiGenerate,
+  aiTools,
+  aiToolCall,
   aiConversations,
   aiConversation,
   saveAiConversation,
+  deleteAiConversation,
   billingSnapshot,
   billingCheckout,
   billingPortal,

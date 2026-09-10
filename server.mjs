@@ -90,7 +90,8 @@ import {
 import {
   listPublicAiProviderConnectors,
   saveAiProviderConnector,
-  testAiProviderConnector
+  testAiProviderConnector,
+  getAiProviderConnector
 } from './lib/ai-admin.mjs'
 import {
   isPasswordAuthEnabled,
@@ -138,12 +139,19 @@ import {
 } from './lib/cms-ops.mjs'
 import { mediaForClient, repairMediaInDb, repairPostsInDb, resolveImageSrc, resolvePostImageSrc, inspectImageBuffer } from './lib/media-url.mjs'
 import { runChat as runAiChat, runGenerateOperation, splitSseChunks, recordPublicationMemory } from './lib/ai-gateway.mjs'
-import { conversationOwner, getConversation, listConversations, saveConversation } from './lib/ai-conversations.mjs'
+import { conversationOwner, deleteConversation, getConversation, listConversations, saveConversation } from './lib/ai-conversations.mjs'
 import { generateThumbBuffer } from './lib/media-optimize.mjs'
 import { parseMultipart, isMultipartRequest } from './lib/multipart.mjs'
 import { withPostLinks } from './lib/preview-url.mjs'
 import { escapeHtml, renderPostBody } from './lib/content-render.mjs'
 import { handleMcpHttp, sendMcpCors } from './mcp/http-handler.mjs'
+import { buildToolList, invokeMcpTool } from './mcp/create-mcp-server.mjs'
+import {
+  aiRateLimitKey,
+  assertAiRateLimit,
+  assertSafeAiPrompt,
+  isChatToolAllowedName
+} from './lib/ai-security.mjs'
 import { MCP_SERVER_VERSION, MEDIA_UPLOAD_TOOL } from './lib/media-upload-contract.mjs'
 import {
   RUNTIME_CHANNEL,
@@ -290,6 +298,12 @@ function parseBody(req) {
       throw new Error('JSON inválido')
     }
   })
+}
+
+function requestIp(req) {
+  // Use the socket address instead of trusting a user-controlled forwarding
+  // header. A reverse proxy can still rate-limit upstream before this layer.
+  return req.socket?.remoteAddress || 'unknown'
 }
 
 function serveStaticFile(
@@ -707,6 +721,7 @@ const server = createServer(async (req, res) => {
       return
     }
     try {
+      assertAiRateLimit(aiRateLimitKey(auth, url.searchParams.get('site') || '', requestIp(req)), { limit: 120 })
       const parsedBody = req.method === 'POST' ? await parseBody(req) : undefined
       await handleMcpHttp(req, res, parsedBody, auth)
     } catch (error) {
@@ -1572,6 +1587,7 @@ const server = createServer(async (req, res) => {
       const body = req.method === 'POST' ? await parseBody(req) : {}
       const site = siteFrom(auth, (req.method === 'GET' ? url.searchParams.get('site') : body.site) || DEFAULT_SITE)
       assertSiteAccess(auth, site)
+      assertAiRateLimit(aiRateLimitKey(auth, site, requestIp(req)), { limit: 120 })
       const db = readDb()
       const ownerId = conversationOwner(auth)
       if (req.method === 'GET' && conversationMatch) {
@@ -1585,6 +1601,16 @@ const server = createServer(async (req, res) => {
       }
       if (req.method === 'GET') {
         json(res, 200, { conversations: listConversations({ db, site, ownerId }) })
+        return
+      }
+      if (req.method === 'DELETE' && conversationMatch) {
+        const deleted = deleteConversation({ db, site, ownerId, id: decodeURIComponent(conversationMatch[1]) })
+        if (!deleted) {
+          json(res, 404, { message: 'Conversación no encontrada' })
+          return
+        }
+        writeDb(db)
+        json(res, 200, { deleted: true })
         return
       }
       if (req.method === 'POST' && path === '/api/ai/conversations') {
@@ -1602,6 +1628,91 @@ const server = createServer(async (req, res) => {
 
   // PWA AI endpoints. Keep these outside /api/admin so the new client can use
   // the same session auth while still applying the existing per-site ACL.
+  if (path === '/api/ai/tools' || path === '/api/ai/tools/call') {
+    const auth = requireAuth(req, url, res)
+    if (!auth) return
+    try {
+      const appHiddenTools = new Set(['blog_get_brand_context', 'blog_update_brand_file', 'blog_import_brand_zip'])
+      if (path === '/api/ai/tools' && req.method === 'GET') {
+        assertAiRateLimit(aiRateLimitKey(auth, url.searchParams.get('site') || DEFAULT_SITE, requestIp(req)), { limit: 60 })
+        const tools = buildToolList(auth)
+          .filter((tool) => isChatToolAllowedName(tool.name))
+          .filter((tool) => isSuperAdmin(auth) || !appHiddenTools.has(tool.name))
+        json(res, 200, { protocol: 'mcp', version: MCP_SERVER_VERSION, tools })
+        return
+      }
+      if (path === '/api/ai/tools/call' && req.method === 'POST') {
+        const body = await parseBody(req)
+        if (!body.name || typeof body.name !== 'string') throw Object.assign(new Error('Falta el nombre de la tool MCP.'), { status: 400 })
+        const site = body.arguments?.site || DEFAULT_SITE
+        assertAiRateLimit(aiRateLimitKey(auth, site, requestIp(req)), { limit: 45 })
+        if (!isSuperAdmin(auth) && appHiddenTools.has(body.name)) throw Object.assign(new Error('Esta tool está reservada al espacio/agencia.'), { status: 403 })
+        if (!isChatToolAllowedName(body.name)) throw Object.assign(new Error('Esta acción no está disponible desde el asistente.'), { status: 403, extra: { code: 'AI_CHAT_TOOL_BLOCKED' } })
+        const result = await invokeMcpTool(body.name, body.arguments || {}, auth, { restrictMutations: true, source: 'app' })
+        json(res, 200, { protocol: 'mcp', version: MCP_SERVER_VERSION, ...result })
+        return
+      }
+      json(res, 405, { message: 'Usa GET para listar tools o POST para ejecutarlas.' })
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
+    }
+    return
+  }
+
+  if (path === '/api/ai/image') {
+    const auth = requireAuth(req, url, res)
+    if (!auth) return
+    if (req.method !== 'POST') {
+      json(res, 405, { message: 'Usa POST' })
+      return
+    }
+    try {
+      const body = await parseBody(req)
+      const site = siteFrom(auth, body.site || DEFAULT_SITE)
+      assertSiteAccess(auth, site)
+      assertAiRateLimit(aiRateLimitKey(auth, site, requestIp(req)), { limit: 8 })
+      const connector = getAiProviderConnector('openai', { db: readDb() })
+      if (!connector.apiKey) throw Object.assign(new Error('Configura una API key de OpenAI para generar imágenes.'), { status: 503 })
+      const prompt = assertSafeAiPrompt(body.prompt, { field: 'prompt', maxChars: 4_000 })
+      if (!prompt) throw Object.assign(new Error('Falta el prompt de la imagen.'), { status: 400 })
+      const response = await fetch('https://api.openai.com/v1/images/generations', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${connector.apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: String(process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1'),
+          prompt,
+          size: '1024x1024',
+          quality: 'medium',
+          output_format: 'png'
+        })
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        const reason = payload?.error?.message || 'OpenAI rechazó la generación de imagen.'
+        throw Object.assign(new Error(reason), { status: response.status >= 500 ? 502 : 422 })
+      }
+      let contentBase64 = String(payload?.data?.[0]?.b64_json || '').trim()
+      if (!contentBase64 && payload?.data?.[0]?.url) {
+        const imageResponse = await fetch(payload.data[0].url)
+        if (!imageResponse.ok) throw Object.assign(new Error('No se pudo descargar la imagen generada.'), { status: 502 })
+        contentBase64 = Buffer.from(await imageResponse.arrayBuffer()).toString('base64')
+      }
+      if (!contentBase64) throw Object.assign(new Error('OpenAI no devolvió una imagen.'), { status: 502 })
+      const slug = String(body.slug || 'post').trim().replace(/[^a-z0-9-]+/gi, '-').replace(/^-+|-+$/g, '') || 'post'
+      const result = await uploadMedia({
+        site,
+        filename: `${slug}-cover.png`,
+        contentBase64: `data:image/png;base64,${contentBase64}`,
+        alt: body.alt || body.title || prompt,
+        kind: 'post'
+      })
+      json(res, 200, { ...result, prompt })
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
+    }
+    return
+  }
+
   if (path === '/api/ai/chat' || path === '/api/ai/generate') {
     const auth = requireAuth(req, url, res)
     if (!auth) return
@@ -1613,6 +1724,7 @@ const server = createServer(async (req, res) => {
       const body = await parseBody(req)
       const site = siteFrom(auth, body.site || DEFAULT_SITE)
       assertSiteAccess(auth, site)
+      assertAiRateLimit(aiRateLimitKey(auth, site, requestIp(req)), { limit: 30 })
 
       if (path === '/api/ai/generate') {
         const result = await runGenerateOperation({
