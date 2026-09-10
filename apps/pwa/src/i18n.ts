@@ -33,7 +33,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "login.eyebrow": "CMS DE CONTENIDO",
     "login.title": "Tu próxima idea empieza aquí.",
     "login.description":
-      "Recibe un enlace mágico y entra sin contraseña. La sesión se activará automáticamente.",
+      "Introduce tu token de acceso para entrar. Si lo has perdido, puedes pedir un enlace mágico.",
     "login.email": "Tu email",
     "login.emailPlaceholder": "tu@email.com",
     "login.magic": "Enviar enlace mágico",
@@ -42,6 +42,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "login.signInError": "No se pudo iniciar sesión.",
     "login.magicError": "No se pudo enviar el enlace.",
     "login.magicNote": "✦ ¿Ya abriste un enlace? Recarga esta página.",
+    "login.magicRecovery": "¿Perdiste tu token? Usa un enlace mágico",
     "login.tokenAccess": "Acceso con token",
     "login.token": "Token de acceso",
     "login.tokenPlaceholder": "Pega tu token",
@@ -545,7 +546,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "login.eyebrow": "CONTENT CMS",
     "login.title": "Your next idea starts here.",
     "login.description":
-      "Receive a magic link and enter without a password. Your session will activate automatically.",
+      "Enter your access token to continue. If you lost it, you can request a magic link.",
     "login.email": "Your email",
     "login.emailPlaceholder": "you@email.com",
     "login.magic": "Send magic link",
@@ -554,6 +555,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "login.signInError": "Sign in failed.",
     "login.magicError": "The link could not be sent.",
     "login.magicNote": "✦ Already opened a link? Reload this page.",
+    "login.magicRecovery": "Lost your token? Use a magic link",
     "login.tokenAccess": "Token access",
     "login.token": "Access token",
     "login.tokenPlaceholder": "Paste your token",

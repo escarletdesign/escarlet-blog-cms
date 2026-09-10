@@ -109,7 +109,9 @@ BLOG_CMS_URL=http://localhost:3040 BLOG_CMS_SITE=escarlet npm run blog:sync
 Plantilla genérica. `templates/frontend/escarlet-blog.mjs` baja sync y packs desde `/runtime/v1/`.
 Build incluye sync automático. Ver [docs/ONBOARDING.md](docs/ONBOARDING.md).
 
-**WordPress.** Plugin cliente en `_plugins/escarlet-blog-client` (fuera de este repo, carpeta Escarlet `_plugins`). Sync a posts nativos + webhook + SSO al dashboard. Packs en el CMS (sin HTML estático). Sección **C2** en ONBOARDING.
+**WordPress.** El plugin principal es [`integrations/wordpress-blog-client`](integrations/wordpress-blog-client): publica posts e imágenes nativas para Gutenberg. El bridge Elementor en [`integrations/wordpress`](integrations/wordpress) es opcional para páginas construidas con Elementor. Ambos se documentan en [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md).
+
+**SEO multi-tecnología.** [`integrations/seo/index.mjs`](integrations/seo/index.mjs) comparte el contrato de metadatos, JSON-LD, sitemap, robots y navegación para landings Vite/Vue, HTML estático y adaptadores WordPress. La página debe entregar contenido semántico y `h1` en el HTML inicial; el CMS no sustituye ese ownership.
 
 ## Migración (escarlet)
 
@@ -124,6 +126,8 @@ cd ../escarlet-blog-cms && npm run import:escarlet
 config/sites/{handle}/     # seed site.json + brand kit
 templates/site/            # stubs para site:init
 templates/frontend/        # hook escarlet-blog + runtime sync/packs
+integrations/wordpress/     # plugin Elementor Bridge integrado y empaquetable
+integrations/seo/           # contrato SEO común para landings y adaptadores
 lib/                       # SEO, DB, brand kit, onboarding
 mcp/                       # Servidor MCP
 data/db.json               # Posts (gitignored)

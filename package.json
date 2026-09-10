@@ -10,10 +10,12 @@
     "test": "node --test lib/**/*.test.mjs mcp/**/*.test.mjs",
     "import:escarlet": "node scripts/import-escarlet.mjs",
     "site:init": "node scripts/init-site.mjs",
+    "integration:install": "node scripts/install-frontend-integration.mjs",
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down",
     "dev:server": "node server.mjs",
     "build": "vite build --config apps/pwa/vite.config.ts",
+    "seo:build": "node scripts/build-seo-artifacts.mjs",
     "preview": "vite preview --config apps/pwa/vite.config.ts"
   },
   "engines": {

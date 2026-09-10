@@ -1,0 +1,35 @@
+.escarlet-blog-wrap .escarlet-lead {
+	max-width: 52rem;
+	font-size: 1.05em;
+}
+
+.escarlet-blog-wrap .escarlet-cards {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+	gap: 1rem;
+	margin: 1.5rem 0;
+}
+
+.escarlet-blog-wrap .escarlet-card {
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-radius: 4px;
+	padding: 1rem 1.25rem 1.25rem;
+}
+
+.escarlet-blog-wrap .escarlet-card h2 {
+	margin-top: 0;
+	font-size: 1.15em;
+}
+
+.escarlet-blog-wrap .escarlet-warn {
+	color: #b32d2e;
+}
+
+.escarlet-blog-wrap .escarlet-code {
+	display: inline-block;
+	max-width: 100%;
+	padding: 0.4rem 0.6rem;
+	word-break: break-all;
+	background: #f0f0f1;
+}

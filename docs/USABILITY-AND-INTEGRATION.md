@@ -58,7 +58,7 @@ Skill de integración: `~/.cursor/skills/escarlet-blog-integrate/SKILL.md` (o `e
 
 ## Plugin WordPress
 
-Código: `Documents/Escarlet/_plugins/escarlet-blog-client` (fuera del repo CMS). Documentado en [ONBOARDING.md](./ONBOARDING.md) sección C2.
+Código histórico: `Documents/Escarlet/_plugins/escarlet-blog-client`. El bridge Elementor recuperado y versionado está en [`../integrations/wordpress`](../integrations/wordpress). El contrato SEO común está en [`INTEGRATIONS.md`](./INTEGRATIONS.md).
 
 ### Qué hace hoy
 

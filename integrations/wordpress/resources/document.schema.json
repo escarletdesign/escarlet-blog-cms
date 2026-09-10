@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.escarlet.dev/elementor-bridge/document-1.0.json",
+  "title": "Escarlet Elementor Bridge Document",
+  "type": "object",
+  "required": ["schemaVersion", "document"],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "document": { "$ref": "#/$defs/document" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "document": {
+      "type": "object",
+      "required": ["id", "type", "title", "status", "settings", "children"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "const": "page" },
+        "title": { "type": "string", "maxLength": 200 },
+        "status": { "enum": ["draft", "publish", "pending", "private"] },
+        "settings": { "type": "object", "additionalProperties": true },
+        "children": { "type": "array", "items": { "$ref": "#/$defs/node" } },
+        "extensions": { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": true
+    },
+    "node": {
+      "type": "object",
+      "required": ["id", "type", "settings", "children"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "enum": ["container", "widget"] },
+        "widget": { "type": "string", "minLength": 1 },
+        "semanticRole": { "type": "string" },
+        "settings": { "type": "object", "additionalProperties": true },
+        "responsive": { "type": "object", "additionalProperties": true },
+        "children": { "type": "array", "items": { "$ref": "#/$defs/node" } },
+        "extensions": { "type": "object", "additionalProperties": true }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "widget" } } },
+          "then": { "required": ["widget"] }
+        }
+      ],
+      "additionalProperties": true
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "site": "https://www.example.com",
+  "name": "Example Local Business",
+  "language": "es-ES",
+  "primaryAction": { "label": "Contactar", "url": "https://www.example.com/contacto" },
+  "pages": [
+    {
+      "canonical": "https://www.example.com/",
+      "title": "Servicio local | Example",
+      "description": "Descripción de 70 a 180 caracteres con la intención de búsqueda principal.",
+      "h1": "Servicio local para tu negocio",
+      "priority": "1.0",
+      "changefreq": "weekly"
+    }
+  ],
+  "sections": [],
+  "legal": []
+}

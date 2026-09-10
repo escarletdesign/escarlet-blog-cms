@@ -277,9 +277,12 @@ function App() {
   if (loading)
     return (
       <I18nContext.Provider value={{ language, setLanguage, t }}>
-        <div className="splash">
-          <div className="brand"><AppBrand /></div>
-          <p>{t("app.loading")}</p>
+        <div className="splash" role="status" aria-live="polite">
+          <div className="splash-card">
+            <div className="brand splash-brand"><AppBrand /></div>
+            <div className="splash-loader" aria-hidden="true"><span /></div>
+            <p>{t("app.loading")}</p>
+          </div>
         </div>
       </I18nContext.Provider>
     );
@@ -338,32 +341,33 @@ function Login({ onLogin }: { onLogin: () => Promise<void> }) {
   const { t } = useI18n();
   const [token, setToken] = useState("");
   const [email, setEmail] = useState("");
-  const [error, setError] = useState("");
+  const [tokenError, setTokenError] = useState("");
+  const [magicError, setMagicError] = useState("");
   const [magicSent, setMagicSent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    setError("");
+    setTokenError("");
     setSubmitting(true);
     try {
       await api.loginWithToken(token.trim());
       await onLogin();
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("login.signInError"));
+      setTokenError(e instanceof Error ? e.message : t("login.signInError"));
     } finally {
       setSubmitting(false);
     }
   };
   const sendMagic = async (event: FormEvent) => {
     event.preventDefault();
-    setError("");
+    setMagicError("");
     setMagicSent(false);
     setSubmitting(true);
     try {
       await api.requestMagicLink(email.trim());
       setMagicSent(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("login.magicError"));
+      setMagicError(e instanceof Error ? e.message : t("login.magicError"));
     } finally {
       setSubmitting(false);
     }
@@ -377,41 +381,43 @@ function Login({ onLogin }: { onLogin: () => Promise<void> }) {
         <p className="eyebrow">{t("login.eyebrow")}</p>
         <h1>{t("login.title")}</h1>
         <p className="muted">{t("login.description")}</p>
-        <form onSubmit={sendMagic}>
+        <form className="login-token-form" onSubmit={submit}>
           <label>
-            {t("login.email")}
+            {t("login.token")}
             <input
               required
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder={t("login.emailPlaceholder")}
-              autoComplete="email"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder={t("login.tokenPlaceholder")}
+              autoComplete="off"
             />
           </label>
+          {tokenError && <p className="error">{tokenError}</p>}
           <button className="primary" disabled={submitting}>
-            {submitting ? "…" : t("login.magic")}
+            {submitting ? "…" : t("login.enter")}
           </button>
         </form>
-        {magicSent && <p className="success">{t("login.sent")}</p>}
-        <div className="magic-note">{t("login.magicNote")}</div>
-        <details>
-          <summary>{t("login.tokenAccess")}</summary>
-          <form onSubmit={submit}>
+        <details className="login-recovery">
+          <summary>{t("login.magicRecovery")}</summary>
+          <div className="magic-note">{t("login.magicNote")}</div>
+          <form onSubmit={sendMagic}>
             <label>
-              {t("login.token")}
+              {t("login.email")}
               <input
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                placeholder={t("login.tokenPlaceholder")}
-                autoComplete="off"
+                required
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder={t("login.emailPlaceholder")}
+                autoComplete="email"
               />
             </label>
-            {error && <p className="error">{error}</p>}
+            {magicError && <p className="error">{magicError}</p>}
             <button className="primary" disabled={submitting}>
-              {submitting ? "…" : t("login.enter")}
+              {submitting ? "…" : t("login.magic")}
             </button>
           </form>
+          {magicSent && <p className="success">{t("login.sent")}</p>}
         </details>
         <p className="tiny">{t("login.invited")}</p>
       </section>

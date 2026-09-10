@@ -11,3 +11,5 @@ data/users.json
 .DS_Store
 .cursor/mcp.json
 apps/pwa/dist/
+integrations/wordpress/build/
+integrations/wordpress-blog-client/build/

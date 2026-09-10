@@ -136,7 +136,7 @@ Detalle de volumen del CMS y variables. [DEPLOY.md](./DEPLOY.md).
 
 Mismo CMS. En lugar de Coolify + `escarlet-blog.mjs`, el sitio público es WordPress.
 
-Plugin. `escarlet-blog-client` en `_plugins/escarlet-blog-client` (o el ZIP que despliegues en el WP del cliente).
+Plugin principal. [`../integrations/wordpress-blog-client`](../integrations/wordpress-blog-client) sincroniza posts e imágenes como contenido nativo Gutenberg. El cliente histórico está en `_plugins/escarlet-blog-client`. Para editar páginas Elementor con REST/MCP usa el bridge opcional en [`../integrations/wordpress`](../integrations/wordpress).
 
 ### Qué hace el plugin
 
