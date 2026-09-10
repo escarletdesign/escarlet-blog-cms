@@ -1,4 +1,5 @@
 import { createServer } from 'node:http'
+import { randomUUID } from 'node:crypto'
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { dirname, join, extname, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -141,7 +142,8 @@ import {
 import { mediaForClient, repairMediaInDb, repairPostsInDb, resolveImageSrc, resolvePostImageSrc, inspectImageBuffer } from './lib/media-url.mjs'
 import { runChat as runAiChat, runGenerateOperation, splitSseChunks, recordPublicationMemory } from './lib/ai-gateway.mjs'
 import { generateImageOptions } from './lib/ai-image.mjs'
-import { conversationOwner, deleteConversation, getConversation, listConversations, saveConversation } from './lib/ai-conversations.mjs'
+import { archiveConversation, conversationOwner, deleteConversation, getConversation, listConversations, saveConversation } from './lib/ai-conversations.mjs'
+import { getWorkflowFlags, setWorkflowFlags } from './lib/workflow-flags.mjs'
 import { generateThumbBuffer } from './lib/media-optimize.mjs'
 import { parseMultipart, isMultipartRequest } from './lib/multipart.mjs'
 import { withPostLinks } from './lib/preview-url.mjs'
@@ -697,6 +699,61 @@ async function generateSocialPackImages({ site, post, socialPack }) {
     socialPack: { ...(socialPack || {}), instagramSlides: slides },
     warnings
   }
+}
+
+// Image generation can take longer than the reverse proxy timeout when a
+// Social Pack contains several Instagram slides. Keep the text pack request
+// responsive and finish the image work in a server-owned job instead of
+// leaving the browser waiting on a long fetch.
+const socialPackJobs = new Map()
+const SOCIAL_PACK_JOB_TTL_MS = 15 * 60 * 1000
+
+function pruneSocialPackJobs(now = Date.now()) {
+  for (const [id, job] of socialPackJobs) {
+    if (now - job.createdAt > SOCIAL_PACK_JOB_TTL_MS) socialPackJobs.delete(id)
+  }
+}
+
+function queueSocialPackImages({ site, post, socialPack, auth }) {
+  pruneSocialPackJobs()
+  const job = {
+    id: randomUUID(),
+    site,
+    slug: post.slug,
+    status: 'processing',
+    warnings: [],
+    createdAt: Date.now(),
+    updatedAt: new Date().toISOString()
+  }
+  socialPackJobs.set(job.id, job)
+  void generateSocialPackImages({ site, post, socialPack })
+    .then(async (completed) => {
+      const latestDb = readDb()
+      const currentPost = findPost(latestDb, site, post.slug)
+      if (!currentPost) throw Object.assign(new Error('El post ya no existe.'), { status: 404 })
+      const saved = await cmsUpdatePost({
+        site,
+        originalSlug: post.slug,
+        slug: post.slug,
+        socialPack: completed.socialPack,
+        direct: true,
+        // Updating generated assets must never demote a published or scheduled
+        // post just because the image job completed asynchronously.
+        keepPublished: true,
+        ownerId: auth?.userId || currentPost.ownerId || ''
+      })
+      job.status = 'completed'
+      job.warnings = completed.warnings || []
+      job.socialPack = completed.socialPack
+      job.post = saved.post
+      job.updatedAt = new Date().toISOString()
+    })
+    .catch((error) => {
+      job.status = 'error'
+      job.message = error instanceof Error ? error.message : 'No se pudo generar el Social Pack.'
+      job.updatedAt = new Date().toISOString()
+    })
+  return job
 }
 
 const server = createServer(async (req, res) => {
@@ -1727,6 +1784,21 @@ const server = createServer(async (req, res) => {
     return
   }
 
+  // Workflow visibility is readable by every authenticated app user. Billing
+  // test flags remain behind /api/admin/feature-flags and super-admin ACLs.
+  if (req.method === 'GET' && path === '/api/app/feature-flags') {
+    const auth = requireAuth(req, url, res)
+    if (!auth) return
+    try {
+      const site = siteFrom(auth, url.searchParams.get('site') || DEFAULT_SITE)
+      assertSiteAccess(auth, site)
+      json(res, 200, { flags: getWorkflowFlags(readDb()) })
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message })
+    }
+    return
+  }
+
   // PWA AI endpoints. Keep these outside /api/admin so the new client can use
   // the same session auth while still applying the existing per-site ACL.
   if (path === '/api/ai/tools' || path === '/api/ai/tools/call') {
@@ -1932,6 +2004,86 @@ const server = createServer(async (req, res) => {
     return
   }
 
+  if (path === '/api/ai/transcribe') {
+    const auth = requireAuth(req, url, res)
+    if (!auth) return
+    if (req.method !== 'POST') {
+      json(res, 405, { message: 'Usa POST' })
+      return
+    }
+    try {
+      const body = await parseBody(req)
+      const site = siteFrom(auth, body.site || DEFAULT_SITE)
+      assertSiteAccess(auth, site)
+      assertAiRateLimit(aiRateLimitKey(auth, site, requestIp(req)), { limit: 12 })
+      const raw = String(body.audioBase64 || '').trim()
+      const encoded = raw.includes(',') ? raw.split(',').pop() : raw
+      if (!encoded || encoded.length > 13_000_000) {
+        throw Object.assign(new Error('El audio está vacío o supera el límite permitido.'), { status: 413 })
+      }
+      const audio = Buffer.from(encoded, 'base64')
+      if (!audio.length) throw Object.assign(new Error('No se pudo leer el audio.'), { status: 400 })
+      const connector = getAiProviderConnector('openai', { db: readDb() })
+      if (!connector.apiKey) {
+        throw Object.assign(new Error('Configura una API key de OpenAI para transcribir audio.'), { status: 503 })
+      }
+      const mimeType = String(body.mimeType || 'audio/webm').split(';')[0].trim() || 'audio/webm'
+      const form = new FormData()
+      form.append('file', new Blob([audio], { type: mimeType }), String(body.filename || 'escarlet-voice-note.webm'))
+      form.append('model', String(process.env.OPENAI_TRANSCRIBE_MODEL || 'whisper-1'))
+      const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${connector.apiKey}` },
+        body: form
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        const reason = payload?.error?.message || 'OpenAI rechazó la transcripción.'
+        throw Object.assign(new Error(reason), { status: response.status >= 500 ? 502 : 422 })
+      }
+      const text = String(payload?.text || '').trim()
+      if (!text) throw Object.assign(new Error('OpenAI no devolvió texto transcrito.'), { status: 502 })
+      json(res, 200, { text: text.slice(0, 12_000), model: String(process.env.OPENAI_TRANSCRIBE_MODEL || 'whisper-1') })
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message })
+    }
+    return
+  }
+
+  const socialPackJobMatch = path.match(/^\/api\/ai\/social-pack\/jobs\/([^/]+)$/)
+  if (socialPackJobMatch) {
+    const auth = requireAuth(req, url, res)
+    if (!auth) return
+    if (req.method !== 'GET') {
+      json(res, 405, { message: 'Usa GET' })
+      return
+    }
+    try {
+      const jobId = decodeURIComponent(socialPackJobMatch[1])
+      const job = socialPackJobs.get(jobId)
+      if (!job) {
+        json(res, 404, { message: 'Generación de Social Pack no encontrada.' })
+        return
+      }
+      assertSiteAccess(auth, job.site)
+      assertAiRateLimit(aiRateLimitKey(auth, job.site, requestIp(req)), { limit: 120 })
+      json(res, 200, {
+        jobId: job.id,
+        site: job.site,
+        slug: job.slug,
+        status: job.status,
+        warnings: job.warnings || [],
+        message: job.message || '',
+        ...(job.socialPack ? { socialPack: job.socialPack } : {}),
+        ...(job.post ? { post: normalizePostForClient(job.post) } : {}),
+        updatedAt: job.updatedAt
+      })
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message })
+    }
+    return
+  }
+
   if (path === '/api/ai/chat' || path === '/api/ai/generate') {
     const auth = requireAuth(req, url, res)
     if (!auth) return
@@ -1971,25 +2123,41 @@ const server = createServer(async (req, res) => {
                 : value
             ])
           )
-          const completed = await generateSocialPackImages({
-            site,
-            post: currentPost || body.post || {},
-            socialPack: canonicalPack
-          })
-          result.socialPack = completed.socialPack
-          result.socialPackWarnings = completed.warnings
-          if (currentPost) {
-            const saved = await cmsUpdatePost({
+          const asyncImages = body.asyncImages === true && Boolean(currentPost)
+          if (asyncImages) {
+            const job = queueSocialPackImages({
               site,
-              originalSlug: requestedSlug,
-              slug: requestedSlug,
-              socialPack: completed.socialPack,
-              direct: true,
-              keepPublished: true,
-              ownerId: auth.userId || ''
+              post: currentPost,
+              socialPack: canonicalPack,
+              auth
             })
-            result.post = saved.post
-            result.socialPackPersisted = true
+            result.socialPack = canonicalPack
+            result.socialPackWarnings = []
+            result.socialPackJobId = job.id
+            result.socialPackStatus = job.status
+            result.socialPackPersisted = false
+            result.post = normalizePostForClient(currentPost)
+          } else {
+            const completed = await generateSocialPackImages({
+              site,
+              post: currentPost || body.post || {},
+              socialPack: canonicalPack
+            })
+            result.socialPack = completed.socialPack
+            result.socialPackWarnings = completed.warnings
+            if (currentPost) {
+              const saved = await cmsUpdatePost({
+                site,
+                originalSlug: requestedSlug,
+                slug: requestedSlug,
+                socialPack: completed.socialPack,
+                direct: true,
+                keepPublished: true,
+                ownerId: auth.userId || ''
+              })
+              result.post = saved.post
+              result.socialPackPersisted = true
+            }
           }
         }
         json(res, 200, { site, ...result })
@@ -2037,20 +2205,27 @@ const server = createServer(async (req, res) => {
 
     if (isProductRestructureV1() && path === '/api/admin/feature-flags') {
       try {
-        assertSuperAdmin(auth)
         if (req.method === 'GET') {
-          json(res, 200, { flags: getBillingTestFlags(db) })
+          assertSuperAdmin(auth)
+          json(res, 200, { flags: { ...getBillingTestFlags(db), ...getWorkflowFlags(db) } })
           return
         }
         if (req.method === 'POST') {
+          assertSuperAdmin(auth)
           const body = await parseBody(req)
-          const flags = setBillingTestFlags({
+          const billingFlags = setBillingTestFlags({
             db,
-            creditCheckoutWithoutStripe: body.creditCheckoutWithoutStripe === true,
+            creditCheckoutWithoutStripe: body.creditCheckoutWithoutStripe,
+            actorId: auth.userId || auth.role
+          })
+          const workflowFlags = setWorkflowFlags({
+            db,
+            assistantEnabled: body.assistantEnabled,
+            blogWizardEnabled: body.blogWizardEnabled,
             actorId: auth.userId || auth.role
           })
           writeDb(db)
-          json(res, 200, { ok: true, flags })
+          json(res, 200, { ok: true, flags: { ...billingFlags, ...workflowFlags } })
           return
         }
         json(res, 405, { message: 'Usa GET o POST' })
@@ -2923,7 +3098,20 @@ const server = createServer(async (req, res) => {
           ignoreSeo: Boolean(body.ignoreSeo),
           direct: Boolean(body.direct)
         })
-        if (result.published && result.post) recordPublicationMemory(site, result.post)
+        if (result.published && result.post) {
+          recordPublicationMemory(site, result.post)
+          const conversationId = String(result.post.assistantConversationId || '').trim()
+          if (conversationId) {
+            const publicationDb = readDb()
+            if (archiveConversation({
+              db: publicationDb,
+              site,
+              ownerId: conversationOwner(auth),
+              id: conversationId,
+              publishedSlug: result.post.slug
+            })) writeDb(publicationDb)
+          }
+        }
         json(res, 200, result)
       } catch (error) {
         const status = error.status || 500

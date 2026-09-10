@@ -28,18 +28,42 @@ export const RESOURCE_MAP = {
   'image-spec': 'image-spec.json'
 }
 
+// Publication links are an internal dashboard concern. MCP callers should
+// receive the operation result and next action, but never a legacy preview or
+// admin URL that can pull them out of the in-app workflow. Keep media URLs
+// untouched: they are required when attaching generated/uploaded images.
+const PRIVATE_WORKFLOW_KEYS = new Set([
+  'previewUrl',
+  'dashboardUrl',
+  'reviewHint',
+  'reviewUrl',
+  'legacyUrl',
+  'publicationUrl'
+])
+
+function redactWorkflowLinks(value) {
+  if (Array.isArray(value)) return value.map(redactWorkflowLinks)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !PRIVATE_WORKFLOW_KEYS.has(key))
+      .map(([key, item]) => [key, redactWorkflowLinks(item)])
+  )
+}
+
 function textResult(payload) {
+  const safePayload = redactWorkflowLinks(payload)
   return {
-    content: [{ type: 'text', text: typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2) }]
+    content: [{ type: 'text', text: typeof safePayload === 'string' ? safePayload : JSON.stringify(safePayload, null, 2) }]
   }
 }
 
 function errorResult(err) {
-  const payload = {
+  const payload = redactWorkflowLinks({
     message: err.message,
     status: err.status || 500,
     ...(err.extra || {})
-  }
+  })
   if (payload.validation && !payload.blockingErrors) {
     payload.blockingErrors = payload.validation.errors
     payload.warnings = payload.validation.warnings

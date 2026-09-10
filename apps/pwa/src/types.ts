@@ -33,6 +33,7 @@ export interface Post {
   dateModified?: string;
   publishAt?: string;
   contentSource?: string;
+  assistantConversationId?: string;
   socialPack?: Record<string, any>;
 }
 

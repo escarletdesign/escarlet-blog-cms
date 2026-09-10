@@ -20,15 +20,17 @@ import {
   useParams,
 } from "react-router-dom";
 import { api } from "./api";
-import type { AiConversation } from "./api";
+import type { AiConversation, SocialPackJobResult } from "./api";
 import { getInitialLanguage, Language, translate } from "./i18n";
 import type { Author, MediaItem, Post, Session } from "./types";
 
 type Draft = Partial<Post> & { title: string; slug?: string };
+type WorkflowFlags = { assistantEnabled: boolean; blogWizardEnabled: boolean };
 type AppState = {
   session: Session;
   site: string;
   sites: string[];
+  workflowFlags: WorkflowFlags;
   setSite: (site: string) => void;
   refresh: () => Promise<void>;
 };
@@ -73,9 +75,14 @@ const uiStatus = (status?: string) => {
 const hasSocialPack = (post?: Partial<Post> | null) => {
   const pack = post?.socialPack;
   if (!pack || typeof pack !== "object") return false;
-  return Object.values(pack).some((value) =>
-    Array.isArray(value) ? value.length > 0 : typeof value === "string" ? Boolean(value.trim()) : Boolean(value),
+  const meaningfulText = ["substackBody", "linkedin", "x", "videoScript", "instagramCaption"].some((key) => {
+    const value = pack[key];
+    return typeof value === "string" && value.trim() && !/^(?:escribe aquí|write here|añade aquí|add here)/i.test(value.trim());
+  });
+  const meaningfulSlides = Array.isArray(pack.instagramSlides) && pack.instagramSlides.some((slide: any) =>
+    Boolean(slide?.imageUrl || slide?.url || slide?.headline || slide?.body),
   );
+  return meaningfulText || meaningfulSlides;
 };
 const readableDate = (value?: string, language: Language = "es") =>
   value
@@ -111,6 +118,25 @@ const fileAsBase64 = (file: File) =>
     reader.onerror = () => reject(reader.error || new Error("No se pudo leer el archivo."));
     reader.readAsDataURL(file);
   });
+
+async function waitForSocialPackJob(
+  jobId: string,
+  site: string,
+  onStatus?: (status: SocialPackJobResult) => void,
+) {
+  for (let attempt = 0; attempt < 90; attempt += 1) {
+    const status = await api.socialPackJob(jobId, site);
+    onStatus?.(status);
+    if (status.status === "completed") return status;
+    if (status.status === "error") {
+      throw new Error(status.message || "No se pudo generar el Social Pack.");
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 2000));
+  }
+  throw new Error(
+    "La generación del Social Pack sigue en curso. Puedes volver a abrirlo en unos instantes.",
+  );
+}
 
 function ChoicePills({
   value,
@@ -243,6 +269,7 @@ function ToastProvider({ children }: { children: ReactNode }) {
 function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [workflowFlags, setWorkflowFlags] = useState<WorkflowFlags>({ assistantEnabled: true, blogWizardEnabled: true });
   const [language, setLanguageState] = useState<Language>(getInitialLanguage);
   const [site, setSiteState] = useState("");
   const setLanguage = (next: Language) => {
@@ -253,7 +280,17 @@ function App() {
     translate(language, key, fallback);
   const refresh = async () => {
     try {
-      setSession(await api.session());
+      const nextSession = await api.session();
+      setSession(nextSession);
+      try {
+        const nextFlags = await api.workflowFlags(nextSession.site || nextSession.sites?.[0]);
+        setWorkflowFlags({
+          assistantEnabled: nextFlags.flags?.assistantEnabled !== false,
+          blogWizardEnabled: nextFlags.flags?.blogWizardEnabled !== false,
+        });
+      } catch {
+        setWorkflowFlags({ assistantEnabled: true, blogWizardEnabled: true });
+      }
     } catch {
       setSession(null);
     } finally {
@@ -319,6 +356,7 @@ function App() {
               sites: session.sites?.length
                 ? session.sites
                 : [session.site || "escarlet"],
+              workflowFlags,
               setSite,
               refresh,
             }}
@@ -331,7 +369,8 @@ function App() {
                 </>
               ) : <Route element={<Shell />}>
                 <Route path="/" element={<Home />} />
-                <Route path="/chat" element={<Chat />} />
+                {workflowFlags.assistantEnabled && <Route path="/chat" element={<Chat />} />}
+                {workflowFlags.blogWizardEnabled && <Route path="/quick-create" element={<QuickCreate />} />}
                 <Route path="/manual/:slug?" element={<ManualPost />} />
                 <Route path="/preview/:slug" element={<Preview />} />
                 <Route path="/schedule/:slug" element={<Schedule />} />
@@ -611,7 +650,7 @@ function Onboarding() {
 }
 
 function Shell() {
-  const { session, site, sites, setSite } = useApp();
+  const { session, site, sites, setSite, workflowFlags } = useApp();
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const nav = useNavigate();
@@ -619,7 +658,7 @@ function Shell() {
   useEffect(() => setOpen(false), [location.pathname]);
   const links = [
     { to: "/", label: t("nav.home"), icon: "home" },
-    { to: "/chat", label: t("nav.assistant"), icon: "assistant" },
+    ...(workflowFlags.assistantEnabled ? [{ to: "/chat", label: t("nav.assistant"), icon: "assistant" }] : []),
     { to: "/posts", label: t("nav.posts"), icon: "posts" },
   ];
   return (
@@ -651,9 +690,11 @@ function Shell() {
           )}
         </div>
         <CreditIndicator site={site} />
-        <button className="new-chat" onClick={() => nav("/chat")}>
-          {t("nav.newChat")}
-        </button>
+        {workflowFlags.assistantEnabled && (
+          <button className="new-chat" onClick={() => nav("/chat")}>
+            {t("nav.newChat")}
+          </button>
+        )}
         <nav>
           {links.map((link) => (
             <div className="nav-group" key={link.to}>
@@ -751,11 +792,17 @@ function SidebarConversations({ site }: { site: string }) {
       const detail = (event as CustomEvent<{ site?: string }>).detail;
       if (!detail?.site || detail.site === site) void load();
     };
+    const onArchived = (event: Event) => {
+      const detail = (event as CustomEvent<{ site?: string }>).detail;
+      if (!detail?.site || detail.site === site) void load();
+    };
     window.addEventListener("escarlet:conversation-deleted", onDeleted);
+    window.addEventListener("escarlet:conversation-archived", onArchived);
     return () => {
       active = false;
       window.removeEventListener("escarlet:conversation-saved", onSaved);
       window.removeEventListener("escarlet:conversation-deleted", onDeleted);
+      window.removeEventListener("escarlet:conversation-archived", onArchived);
     };
   }, [site]);
   if (!conversations.length) return null;
@@ -883,7 +930,7 @@ function CreditIndicator({ site }: { site: string }) {
 
 function Home() {
   const nav = useNavigate();
-  const { session, site } = useApp();
+  const { session, site, workflowFlags } = useApp();
   const { t } = useI18n();
   return (
     <main className="page home">
@@ -893,12 +940,22 @@ function Home() {
         <p className="muted">{t("home.description")}</p>
       </div>
       <div className="choice-grid">
-        <button className="choice-card ai" onClick={() => nav("/chat")}>
-          <span>✦</span>
-          <strong>{t("home.ai.title")}</strong>
-          <small>{t("home.ai.description")}</small>
-          <b>{t("home.ai.action")}</b>
-        </button>
+        {workflowFlags.assistantEnabled && (
+          <button className="choice-card ai" onClick={() => nav("/chat")}>
+            <span className="assistant-stars home-assistant-stars" aria-hidden="true"><i>✦</i><i>✦</i><i>✦</i></span>
+            <strong>{t("home.ai.title")}</strong>
+            <small>{t("home.ai.description")}</small>
+            <b>{t("home.ai.action")}</b>
+          </button>
+        )}
+        {workflowFlags.blogWizardEnabled && (
+          <button className="choice-card wizard" onClick={() => nav("/quick-create")}>
+            <span>◉</span>
+            <strong>{t("home.wizard.title")}</strong>
+            <small>{t("home.wizard.description")}</small>
+            <b>{t("home.wizard.action")}</b>
+          </button>
+        )}
         <button className="choice-card" onClick={() => nav("/manual")}>
           <span>✎</span>
           <strong>{t("home.manual.title")}</strong>
@@ -1227,6 +1284,7 @@ function Chat() {
         title,
         slug: slugify(title),
         contentSource: "client",
+        assistantConversationId: activeThreadId,
       });
       const bodyHtml = bodyContent;
       const excerptEs = String(summaryResult.content || lastBrief).trim().slice(0, 500);
@@ -1325,6 +1383,317 @@ function Chat() {
           </button>
         </div>
       </form>
+    </main>
+  );
+}
+
+type QuickStep = 0 | 1 | 2 | 3;
+
+function QuickCreate() {
+  const { site } = useApp();
+  const { t } = useI18n();
+  const { showToast } = useToast();
+  const nav = useNavigate();
+  const [step, setStep] = useState<QuickStep>(0);
+  const [idea, setIdea] = useState("");
+  const [draft, setDraft] = useState<Post | null>(null);
+  const [socialPack, setSocialPack] = useState<Record<string, any> | null>(null);
+  const [busy, setBusy] = useState<"draft" | "edit" | "image" | "publish" | "social" | "">("");
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const recordContextRef = useRef<"idea" | "edit">("idea");
+
+  const stopStream = () => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+  };
+
+  const transcribeBlob = async (blob: Blob) => {
+    setTranscribing(true);
+    setError("");
+    try {
+      const audioBase64 = await fileAsBase64(new File([blob], "escarlet-voice-note.webm", { type: blob.type || "audio/webm" }));
+      const result = await api.transcribe({ site, audioBase64, mimeType: blob.type || "audio/webm", filename: "escarlet-voice-note.webm" });
+      const text = result.text.trim();
+      if (!text) return;
+      if (recordContextRef.current === "idea") {
+        setIdea((current) => `${current}${current ? " " : ""}${text}`.trim());
+      } else {
+        await reviseDraft(text);
+      }
+    } catch (value) {
+      const reason = value instanceof Error ? value.message : t("wizard.error");
+      setError(reason);
+      showToast(reason, "error");
+    } finally {
+      setTranscribing(false);
+    }
+  };
+
+  const startRecording = async (context: "idea" | "edit") => {
+    if (recording) {
+      recorderRef.current?.stop();
+      return;
+    }
+    if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      const reason = t("wizard.voiceUnavailable", "Este navegador no permite dictado por voz.");
+      setError(reason);
+      showToast(reason, "error");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"].find((candidate) => MediaRecorder.isTypeSupported(candidate)) || "";
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      recordContextRef.current = context;
+      chunksRef.current = [];
+      streamRef.current = stream;
+      recorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) chunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        setRecording(false);
+        stopStream();
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || mimeType || "audio/webm" });
+        chunksRef.current = [];
+        if (blob.size) void transcribeBlob(blob);
+      };
+      recorder.start();
+      setRecording(true);
+      setError("");
+    } catch (value) {
+      stopStream();
+      const reason = value instanceof Error ? value.message : t("wizard.voiceError", "No se pudo acceder al micrófono.");
+      setError(reason);
+      showToast(reason, "error");
+    }
+  };
+
+  useEffect(() => () => {
+    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
+    stopStream();
+  }, []);
+
+  const generateDraft = async () => {
+    const brief = idea.trim();
+    if (!brief) {
+      setError(t("wizard.noIdea"));
+      showToast(t("wizard.noIdea"), "error");
+      return;
+    }
+    setBusy("draft");
+    setError("");
+    try {
+      const model = localStorage.getItem("escarlet_model") || undefined;
+      const titleResult = await api.aiGenerate({ site, operation: "title", prompt: `Crea un título concreto de máximo 72 caracteres para este artículo. Devuelve solo el título, sin comillas ni etiquetas. Idea: ${brief}`, model });
+      const title = cleanGeneratedTitle(String(titleResult.content || brief));
+      const bodyResult = await api.aiGenerate({ site, operation: "body", prompt: `Redacta un artículo completo en Markdown, con subtítulos y varios párrafos. Mantén exactamente esta idea y no hables del proceso: ${brief}\nTítulo: ${title}`, model });
+      const body = String(bodyResult.content || brief).trim();
+      const summaryResult = await api.aiGenerate({ site, operation: "summary", prompt: `Escribe un resumen de una o dos frases, fiel y sin inventar, para este artículo. Título: ${title}\nContenido: ${body}`, model });
+      const excerpt = String(summaryResult.content || brief).trim().slice(0, 500);
+      const metaResult = await api.aiGenerate({ site, operation: "meta-description", prompt: `Escribe una meta descripción SEO de máximo 155 caracteres para este artículo. Título: ${title}\nResumen: ${excerpt}\nContenido: ${body}`, model });
+      const meta = String(metaResult.content || excerpt).replace(/^['"“”]+|['"“”]+$/g, "").trim().slice(0, 180);
+      const created = await api.createDraft({ site, title, slug: slugify(title) || `borrador-${Date.now()}`, contentSource: "client" });
+      const saved = await api.updatePost({
+        ...created.post,
+        site,
+        originalSlug: created.post.slug,
+        slug: created.post.slug,
+        title,
+        bodyHtml: body.split(/\n{2,}/).map((paragraph) => `<p>${paragraph.replace(/\n/g, " ").trim()}</p>`).join(""),
+        excerptEs: excerpt,
+        metaDescription: { ...(created.post.metaDescription || {}), es: meta },
+        direct: true,
+      });
+      setDraft(saved.post);
+      setStep(1);
+      setMessage(t("wizard.saved"));
+      showToast(t("wizard.saved"));
+    } catch (value) {
+      const reason = value instanceof Error ? value.message : t("wizard.error");
+      setError(reason);
+      showToast(reason, "error");
+    } finally {
+      setBusy("");
+    }
+  };
+
+  async function reviseDraft(instruction: string) {
+    if (!draft || !instruction.trim()) return;
+    setBusy("edit");
+    setError("");
+    try {
+      const model = localStorage.getItem("escarlet_model") || undefined;
+      const context = `Título actual: ${draft.title}\nResumen actual: ${draft.excerptEs || ""}\nContenido actual:\n${String(draft.bodyHtml || "").replace(/<[^>]+>/g, " ")}\nCorrección solicitada: ${instruction}`;
+      const titleResult = await api.aiGenerate({ site, operation: "title", prompt: `${context}\nDevuelve solo un título concreto de máximo 72 caracteres.`, model });
+      const title = cleanGeneratedTitle(String(titleResult.content || draft.title));
+      const bodyResult = await api.aiGenerate({ site, operation: "body", prompt: `${context}\nReescribe el artículo completo incorporando la corrección. Devuelve Markdown, sin comentarios.`, model });
+      const body = String(bodyResult.content || draft.bodyHtml || "").trim();
+      const summaryResult = await api.aiGenerate({ site, operation: "summary", prompt: `Resume fielmente este artículo en una o dos frases. Título: ${title}\nContenido: ${body}`, model });
+      const excerpt = String(summaryResult.content || draft.excerptEs || "").trim().slice(0, 500);
+      const saved = await api.updatePost({
+        ...draft,
+        site,
+        originalSlug: draft.slug,
+        slug: draft.slug,
+        title,
+        bodyHtml: body.split(/\n{2,}/).map((paragraph) => `<p>${paragraph.replace(/\n/g, " ").trim()}</p>`).join(""),
+        excerptEs: excerpt,
+        direct: true,
+      });
+      setDraft(saved.post);
+      setMessage(t("wizard.saved"));
+      showToast(t("wizard.saved"));
+    } catch (value) {
+      const reason = value instanceof Error ? value.message : t("wizard.error");
+      setError(reason);
+      showToast(reason, "error");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  const createImage = async () => {
+    if (!draft?.slug) return;
+    setBusy("image");
+    setError("");
+    try {
+      const prompt = `${draft.title}. ${draft.excerptEs || ""}. ${String(draft.bodyHtml || "").replace(/<[^>]+>/g, " ").slice(0, 600)}`;
+      const result = await api.generateImage({ site, postSlug: draft.slug, slug: draft.slug, title: draft.title, prompt, alt: draft.title, optionCount: 1 });
+      const first = result.mediaOptions?.[0] || result.media;
+      const refreshed = await api.post(draft.slug, site).catch(() => {
+        const fallbackPost = { ...draft, imageUrl: first?.url || first?.path, imageAlt: first?.alt || draft.title } as Post;
+        return { post: fallbackPost };
+      });
+      setDraft(refreshed.post);
+      setStep(2);
+      setMessage(t("wizard.imageTitle"));
+      showToast(t("wizard.imageTitle"));
+    } catch (value) {
+      const reason = value instanceof Error ? value.message : t("wizard.error");
+      setError(reason);
+      showToast(reason, "error");
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const publish = async () => {
+    if (!draft?.slug) return;
+    setBusy("publish");
+    setError("");
+    try {
+      const result = await api.publish(draft.slug, site, undefined, { ignoreSeo: true, direct: true });
+      setDraft(result.post);
+      setStep(3);
+      setMessage(t("wizard.publishedTitle"));
+      showToast(t("wizard.publishedTitle"));
+    } catch (value) {
+      const reason = value instanceof Error ? value.message : t("wizard.error");
+      setError(reason);
+      showToast(reason, "error");
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const generateSocial = async () => {
+    if (!draft) return;
+    setBusy("social");
+    setError("");
+    try {
+      const onboarding = await api.onboarding(site).catch(() => ({}));
+      const domain = String((onboarding as any)?.site?.domain || window.location.origin).replace(/\/$/, "");
+      const articleUrl = `${domain}/blog/${draft.slug}`;
+      const result = await api.aiGenerate({
+        site,
+        operation: "social-pack",
+        prompt: `Genera el Social Media para el post publicado «${draft.title}». Incluye este enlace canónico donde corresponda: ${articleUrl}. No devuelvas enlaces de navegación ni explicaciones.`,
+        post: { ...draft, articleUrl },
+        asyncImages: true,
+      });
+      setSocialPack(result.socialPack || null);
+      if (result.post) setDraft(result.post);
+      if (result.socialPackJobId) {
+        setMessage(t("social.generatingImages", "Generando imágenes del carrusel…"));
+        const job = await waitForSocialPackJob(result.socialPackJobId, site);
+        setSocialPack(job.socialPack || result.socialPack || null);
+        if (job.post) setDraft(job.post);
+        const warnings = job.warnings || [];
+        const readyMessage = warnings.length ? warnings.join(" ") : t("wizard.socialReady");
+        setMessage(readyMessage);
+        showToast(readyMessage, warnings.length ? "error" : "success");
+      } else {
+        setMessage(t("wizard.socialReady"));
+        showToast(t("wizard.socialReady"));
+      }
+    } catch (value) {
+      const reason = value instanceof Error ? value.message : t("wizard.error");
+      setError(reason);
+      showToast(reason, "error");
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const updateDraftField = (key: "title" | "excerptEs" | "bodyHtml", value: string) => {
+    setDraft((current) => current ? { ...current, [key]: key === "title" ? value.slice(0, MAX_EDITOR_TITLE_CHARS) : value } : current);
+  };
+  const stepLabels = [t("wizard.stepIdea"), t("wizard.stepReview"), t("wizard.stepImage"), t("wizard.stepPublish")];
+  return (
+    <main className="page narrow quick-create-page">
+      <PageTitle eyebrow={t("wizard.eyebrow")} title={t("wizard.title")} description={t("wizard.description")} back />
+      <div className="quick-progress" aria-label={stepLabels.join(", ")}>
+        {stepLabels.map((label, index) => <span key={label} className={index <= step ? "active" : ""}><b>{index + 1}</b>{label}</span>)}
+      </div>
+      {step === 0 && (
+        <section className="card quick-step-card">
+          <label><b>{t("wizard.ideaLabel")}</b><textarea value={idea} onChange={(event) => setIdea(event.target.value)} rows={7} placeholder={t("wizard.ideaPlaceholder")} /></label>
+          <div className="quick-record-row">
+            <button type="button" className={recording ? "danger" : "secondary"} onClick={() => void startRecording("idea")} disabled={transcribing}>{recording ? t("wizard.stop") : t("wizard.record")}</button>
+            {transcribing && <span className="muted">{t("wizard.transcribing")}</span>}
+          </div>
+          <button type="button" className="primary" onClick={() => void generateDraft()} disabled={busy !== "" || transcribing || !idea.trim()}>{busy === "draft" ? t("chat.thinking") : t("wizard.continue")}</button>
+        </section>
+      )}
+      {step === 1 && draft && (
+        <section className="card quick-step-card">
+          <h2>{t("wizard.reviewTitle")}</h2>
+          <p className="muted">{t("wizard.reviewHelp")}</p>
+          <label><b>{t("wizard.titleLabel")}</b><input value={draft.title} maxLength={MAX_EDITOR_TITLE_CHARS} onChange={(event) => updateDraftField("title", event.target.value)} /></label>
+          <label><b>{t("wizard.summaryLabel")}</b><textarea value={draft.excerptEs || ""} rows={3} onChange={(event) => updateDraftField("excerptEs", event.target.value)} /></label>
+          <label><b>{t("wizard.bodyLabel")}</b><textarea className="wizard-body-input" value={String(draft.bodyHtml || "").replace(/<[^>]+>/g, " ").replace(/\s{2,}/g, " ").trim()} rows={12} onChange={(event) => updateDraftField("bodyHtml", event.target.value)} /></label>
+          <div className="quick-record-row">
+            <button type="button" className={recording ? "danger" : "secondary"} onClick={() => void startRecording("edit")} disabled={busy !== "" || transcribing}>{recording ? t("wizard.stop") : t("wizard.editVoice")}</button>
+            <input className="quick-edit-input" placeholder={t("wizard.editPlaceholder")} onKeyDown={(event) => { if (event.key === "Enter" && event.currentTarget.value.trim()) { void reviseDraft(event.currentTarget.value.trim()); event.currentTarget.value = ""; } }} />
+          </div>
+          <div className="form-actions"><button type="button" className="ghost" onClick={() => nav("/posts")}>{t("common.back")}</button><button type="button" className="primary" disabled={Boolean(busy) || transcribing} onClick={() => void createImage()}>{busy === "image" ? t("chat.thinking") : t("wizard.createImage")}</button></div>
+        </section>
+      )}
+      {step === 2 && draft && (
+        <section className="card quick-step-card">
+          <h2>{t("wizard.imageTitle")}</h2>
+          <p className="muted">{t("wizard.imageHelp")}</p>
+          {draft.imageUrl && <img className="quick-cover-image" src={draft.imageUrl} alt={draft.imageAlt || draft.title} />}
+          <div className="form-actions"><button type="button" className="ghost" onClick={() => setStep(1)}>{t("common.back")}</button><button type="button" className="primary" disabled={Boolean(busy)} onClick={() => void publish()}>{busy === "publish" ? t("publish.publishing") : t("wizard.publish")}</button></div>
+        </section>
+      )}
+      {step === 3 && draft && (
+        <section className="card quick-step-card">
+          <h2>{t("wizard.publishedTitle")}</h2>
+          <p className="muted">{t("wizard.publishedHelp")}</p>
+          <div className="form-actions"><button type="button" className="secondary" disabled={Boolean(busy)} onClick={() => void generateSocial()}>{busy === "social" ? t("publish.preparing") : t("wizard.generateSocial")}</button>{socialPack && <button type="button" className="ghost" onClick={() => nav(`/social-pack/${encodeURIComponent(draft.slug)}`)}>{t("wizard.openSocial")}</button>}</div>
+          {socialPack && <div className="quick-social-preview">{Object.entries(socialPack).filter(([, value]) => typeof value === "string").slice(0, 3).map(([key, value]) => <article key={key}><b>{key}</b><p>{String(value)}</p></article>)}</div>}
+        </section>
+      )}
+      {message && <p className="success">{message}</p>}
+      {error && <p className="error">{error}</p>}
     </main>
   );
 }
@@ -2878,11 +3247,19 @@ function PublishSocial() {
         operation: "social-pack",
         prompt: `Genera un social pack para ${post.title}. Incluye este enlace canónico en los textos que admitan enlaces: ${articleUrl}`,
         post: { ...post, articleUrl },
+        asyncImages: true,
       });
       const completePack = result.socialPack || {};
       setPost(result.post || { ...post, socialPack: completePack });
       setSocialPack(completePack);
-      const warnings = result.socialPackWarnings || [];
+      let warnings = result.socialPackWarnings || [];
+      if (result.socialPackJobId) {
+        setMessage(t("social.generatingImages", "Generando imágenes del carrusel…"));
+        const job = await waitForSocialPackJob(result.socialPackJobId, site);
+        setPost(job.post || result.post || { ...post, socialPack: job.socialPack || completePack });
+        setSocialPack(job.socialPack || completePack);
+        warnings = job.warnings || [];
+      }
       setMessage(warnings.length ? warnings.join(" ") : result.content || t("publish.ready"));
       if (warnings.length) showToast(warnings.join(" "), "error");
       else showToast(t("publish.ready"));
@@ -2902,6 +3279,7 @@ function PublishSocial() {
         result.message ||
           t("publish.published"),
       );
+      window.dispatchEvent(new CustomEvent("escarlet:conversation-archived", { detail: { site } }));
       showToast(result.message || t("publish.published"));
       setTimeout(() => nav("/posts"), 900);
     } catch (e) {
@@ -3019,12 +3397,20 @@ function SocialPack() {
         operation: "social-pack",
         prompt: `Genera un social pack para ${post.title}. Incluye este enlace canónico en los textos que admitan enlaces: ${articleUrl}`,
         post: { ...post, articleUrl },
+        asyncImages: true,
       });
       const completePack = result.socialPack || {};
       setPost(result.post || { ...post, socialPack: completePack });
       setSocialPack(completePack);
       setActiveSlide(0);
-      const warnings = result.socialPackWarnings || [];
+      let warnings = result.socialPackWarnings || [];
+      if (result.socialPackJobId) {
+        setMessage(t("social.generatingImages", "Generando imágenes del carrusel…"));
+        const job = await waitForSocialPackJob(result.socialPackJobId, site);
+        setPost(job.post || result.post || { ...post, socialPack: job.socialPack || completePack });
+        setSocialPack(job.socialPack || completePack);
+        warnings = job.warnings || [];
+      }
       setMessage(warnings.length ? warnings.join(" ") : t("publish.ready"));
       if (warnings.length) showToast(warnings.join(" "), "error");
       else showToast(t("publish.ready"));
@@ -4288,7 +4674,7 @@ function AdminGate() {
   return isAdmin(session.role) ? <Admin /> : <Navigate to="/" replace />;
 }
 function Admin() {
-  const { site, session } = useApp();
+  const { site, session, refresh } = useApp();
   const { t } = useI18n();
   const { showToast } = useToast();
   const canIssueSiteToken = session.role === "admin";
@@ -4359,6 +4745,9 @@ function Admin() {
   );
   const [billingTestMode, setBillingTestMode] = useState(false);
   const [billingTestSaving, setBillingTestSaving] = useState(false);
+  const [assistantEnabled, setAssistantEnabled] = useState(true);
+  const [blogWizardEnabled, setBlogWizardEnabled] = useState(true);
+  const [workflowSaving, setWorkflowSaving] = useState(false);
   const [busy, setBusy] = useState("");
   const report = (value: string, kind: "success" | "error" = "success") => {
     setMessageKind(kind);
@@ -4376,6 +4765,8 @@ function Admin() {
       setProviders(providerData.providers);
       setPacks(packData.packs);
       setBillingTestMode(Boolean(featureFlagData.flags?.creditCheckoutWithoutStripe));
+      setAssistantEnabled(featureFlagData.flags?.assistantEnabled !== false);
+      setBlogWizardEnabled(featureFlagData.flags?.blogWizardEnabled !== false);
       setModelCatalog(
         ((billingData as Record<string, any>).models || []).map((model: any) => ({
           id: String(model.id || ""),
@@ -4739,6 +5130,20 @@ function Admin() {
       report(err instanceof Error ? err.message : t("common.error"), "error");
     } finally {
       setBillingTestSaving(false);
+    }
+  };
+  const saveWorkflowFlags = async () => {
+    setWorkflowSaving(true);
+    try {
+      const result = await api.saveFeatureFlags({ assistantEnabled, blogWizardEnabled });
+      setAssistantEnabled(result.flags?.assistantEnabled !== false);
+      setBlogWizardEnabled(result.flags?.blogWizardEnabled !== false);
+      report(t("admin.savedWorkflowFlags"));
+      await refresh();
+    } catch (err) {
+      report(err instanceof Error ? err.message : t("common.error"), "error");
+    } finally {
+      setWorkflowSaving(false);
     }
   };
   const removePack = async (id: string) => {
@@ -5260,6 +5665,30 @@ function Admin() {
             <div className="form-actions">
               <button className="primary" type="button" disabled={billingTestSaving} onClick={() => void saveBillingTestMode()}>
                 {billingTestSaving ? t("admin.saving") : t("admin.saveFeatureFlag")}
+              </button>
+            </div>
+          </section>
+          <section className="card temporary-flag-card workflow-flags-card">
+            <p className="eyebrow">{t("admin.workflowFlagsEyebrow")}</p>
+            <h2>{t("admin.workflowFlagsTitle")}</h2>
+            <p className="muted">{t("admin.workflowFlagsHelp")}</p>
+            <label className="switch-row">
+              <span>
+                <b>{t("admin.assistantFlag")}</b>
+                <small>{assistantEnabled ? t("admin.workflowFlagOn") : t("admin.workflowFlagOff")}</small>
+              </span>
+              <input type="checkbox" checked={assistantEnabled} onChange={(event) => setAssistantEnabled(event.target.checked)} />
+            </label>
+            <label className="switch-row">
+              <span>
+                <b>{t("admin.blogWizardFlag")}</b>
+                <small>{blogWizardEnabled ? t("admin.workflowFlagOn") : t("admin.workflowFlagOff")}</small>
+              </span>
+              <input type="checkbox" checked={blogWizardEnabled} onChange={(event) => setBlogWizardEnabled(event.target.checked)} />
+            </label>
+            <div className="form-actions">
+              <button className="primary" type="button" disabled={workflowSaving} onClick={() => void saveWorkflowFlags()}>
+                {workflowSaving ? t("admin.saving") : t("admin.saveWorkflowFlags")}
               </button>
             </div>
           </section>

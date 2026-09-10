@@ -97,6 +97,11 @@ const baseApi = {
       method: "POST",
       body: JSON.stringify(post),
     }),
+  transcribe: (input: { site?: string; audioBase64: string; mimeType?: string; filename?: string }) =>
+    request<{ text: string; model?: string }>("/api/ai/transcribe", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   updatePost: (
     post: Partial<Post> & {
       slug: string;
@@ -386,16 +391,34 @@ const baseApi = {
   },
   featureFlags: () =>
     request<{
-      flags: { creditCheckoutWithoutStripe: boolean; updatedAt?: string | null };
+      flags: {
+        creditCheckoutWithoutStripe: boolean;
+        assistantEnabled: boolean;
+        blogWizardEnabled: boolean;
+        updatedAt?: string | null;
+      };
     }>('/api/admin/feature-flags'),
-  saveFeatureFlags: (input: { creditCheckoutWithoutStripe: boolean }) =>
+  saveFeatureFlags: (input: {
+    creditCheckoutWithoutStripe?: boolean;
+    assistantEnabled?: boolean;
+    blogWizardEnabled?: boolean;
+  }) =>
     request<{
       ok: boolean;
-      flags: { creditCheckoutWithoutStripe: boolean; updatedAt?: string | null };
+      flags: {
+        creditCheckoutWithoutStripe: boolean;
+        assistantEnabled: boolean;
+        blogWizardEnabled: boolean;
+        updatedAt?: string | null;
+      };
     }>('/api/admin/feature-flags', {
       method: 'POST',
       body: JSON.stringify(input),
     }),
+  workflowFlags: (site?: string) =>
+    request<{
+      flags: { assistantEnabled: boolean; blogWizardEnabled: boolean; updatedAt?: string | null };
+    }>(`/api/app/feature-flags${site ? `?site=${encodeURIComponent(site)}` : ""}`),
   creditPacks: () =>
     request<{
       packs: Array<{
@@ -431,9 +454,23 @@ export type AiGeneration = {
   mode?: string;
   socialPack?: Record<string, any>;
   socialPackWarnings?: string[];
+  socialPackJobId?: string;
+  socialPackStatus?: "processing" | "completed" | "error";
   socialPackPersisted?: boolean;
   post?: Post;
   quota?: Record<string, unknown>;
+};
+
+export type SocialPackJobResult = {
+  jobId: string;
+  site: string;
+  slug: string;
+  status: "processing" | "completed" | "error";
+  warnings?: string[];
+  message?: string;
+  socialPack?: Record<string, any>;
+  post?: Post;
+  updatedAt?: string;
 };
 
 export type AiConversationMessage = { role: "assistant" | "user"; text: string };
@@ -442,6 +479,8 @@ export type AiConversation = {
   site: string;
   title: string;
   updatedAt: string;
+  archivedAt?: string;
+  publishedSlug?: string;
   messageCount?: number;
   messages?: AiConversationMessage[];
 };
@@ -533,11 +572,18 @@ async function aiGenerate(input: {
   prompt: string;
   post?: Partial<Post>;
   model?: string;
+  asyncImages?: boolean;
 }) {
   return request<AiGeneration>("/api/ai/generate", {
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+async function socialPackJob(jobId: string, site?: string) {
+  return request<SocialPackJobResult>(
+    `/api/ai/social-pack/jobs/${encodeURIComponent(jobId)}${site ? `?site=${encodeURIComponent(site)}` : ""}`,
+  );
 }
 
 async function aiTools() {
@@ -585,6 +631,7 @@ async function billingPortal(input: { site?: string }) {
 export const api = Object.assign(baseApi, {
   aiChat,
   aiGenerate,
+  socialPackJob,
   aiTools,
   aiToolCall,
   aiConversations,
