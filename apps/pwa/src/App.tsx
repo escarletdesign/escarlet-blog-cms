@@ -4014,7 +4014,7 @@ function Admin() {
       .then((data) => setReferenceMedia(data.media || []))
       .catch(() => setReferenceMedia([]));
     api
-      .users(site)
+      .users(site, session.role === "admin")
       .then((data) => {
         setUsers(data.users || []);
         setTeamUnavailable(false);
@@ -4149,7 +4149,7 @@ function Admin() {
     let invitationMessage = "";
     try {
       if (userForm.id) {
-        await api.updateUser({ id: userForm.id, role: userForm.role, sites: userForm.sites, allowPublishingAs: userForm.allowPublishingAs });
+        await api.updateUser({ id: userForm.id, email: userForm.email, role: userForm.role, sites: userForm.sites, allowPublishingAs: userForm.allowPublishingAs });
       } else {
         const result = await api.registerUser({ email: userForm.email, role: userForm.role, sites: userForm.sites, invite: true });
         if (result.invite?.link) {
@@ -4159,7 +4159,7 @@ function Admin() {
           invitationMessage = t("admin.magicLinkSent");
         }
       }
-      const data = await api.users(site);
+      const data = await api.users(site, session.role === "admin");
       setUsers(data.users || []);
       setUserForm(null);
       report(invitationMessage || t("admin.userSaved"));
@@ -4553,7 +4553,7 @@ function Admin() {
               <h3>{userForm.id ? t("admin.editUser") : t("admin.addUser")}</h3>
               <label>
                 {t("admin.userEmail")}
-                <input type="email" required disabled={Boolean(userForm.id)} value={userForm.email} onChange={(event) => setUserForm({ ...userForm, email: event.target.value })} />
+                <input type="email" required value={userForm.email} onChange={(event) => setUserForm({ ...userForm, email: event.target.value })} autoComplete="email" />
               </label>
               <label>
                 {t("admin.userRole")}

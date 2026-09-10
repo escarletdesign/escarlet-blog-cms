@@ -240,9 +240,9 @@ const baseApi = {
       `/api/admin/site-config/${encodeURIComponent(site)}/access-token`,
       { method: "POST", body: JSON.stringify({ refreshIcon }) },
     ),
-  users: (site: string) =>
+  users: (site: string, all = false) =>
     request<{ users: Array<Record<string, any>>; site: string }>(
-      `/api/auth/users?site=${encodeURIComponent(site)}`,
+      `/api/auth/users?site=${encodeURIComponent(site)}${all ? "&all=1" : ""}`,
     ),
   registerUser: (input: {
     email: string;
@@ -255,7 +255,7 @@ const baseApi = {
       "/api/auth/register",
       { method: "POST", body: JSON.stringify({ ...input, invite: input.invite !== false }) },
     ),
-  updateUser: (input: { id: string; role: string; sites: string[]; allowPublishingAs?: boolean }) =>
+  updateUser: (input: { id: string; email?: string; role: string; sites: string[]; allowPublishingAs?: boolean }) =>
     request<{ user: Record<string, any> }>("/api/auth/users/update", {
       method: "POST",
       body: JSON.stringify(input),

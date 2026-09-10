@@ -1337,7 +1337,9 @@ const server = createServer(async (req, res) => {
       assertAgencyOps(auth)
       const site = siteFrom(auth, url.searchParams.get('site') || DEFAULT_SITE)
       assertSiteAccess(auth, site)
-      const users = listPasswordUsers({ site })
+      const users = auth.role === 'admin' && url.searchParams.get('all') === '1'
+        ? listPasswordUsers()
+        : listPasswordUsers({ site })
       json(res, 200, { users, site })
     } catch (error) {
       json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
@@ -1414,7 +1416,7 @@ const server = createServer(async (req, res) => {
         }
         sites.forEach((site) => assertSiteAccess(auth, site))
       }
-      const user = updatePasswordUser({ id: body.id, sites, role: body.role, allowPublishingAs: body.allowPublishingAs })
+      const user = updatePasswordUser({ id: body.id, email: body.email, sites, role: body.role, allowPublishingAs: body.allowPublishingAs })
       json(res, 200, { ok: true, user })
     } catch (error) {
       json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
