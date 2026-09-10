@@ -417,6 +417,35 @@ export type AiGeneration = {
   quota?: Record<string, unknown>;
 };
 
+export type AiConversationMessage = { role: "assistant" | "user"; text: string };
+export type AiConversation = {
+  id: string;
+  site: string;
+  title: string;
+  updatedAt: string;
+  messageCount?: number;
+  messages?: AiConversationMessage[];
+};
+
+async function aiConversations(site?: string) {
+  return request<{ conversations: AiConversation[] }>(
+    `/api/ai/conversations${site ? `?site=${encodeURIComponent(site)}` : ""}`,
+  );
+}
+
+async function aiConversation(id: string, site?: string) {
+  return request<{ conversation: AiConversation }>(
+    `/api/ai/conversations/${encodeURIComponent(id)}${site ? `?site=${encodeURIComponent(site)}` : ""}`,
+  );
+}
+
+async function saveAiConversation(input: AiConversation & { site?: string }) {
+  return request<{ conversation: AiConversation }>("/api/ai/conversations", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 async function aiChat(
   input: { site?: string; message: string; model?: string },
   onDelta?: (text: string) => void,
@@ -519,6 +548,9 @@ async function billingPortal(input: { site?: string }) {
 export const api = Object.assign(baseApi, {
   aiChat,
   aiGenerate,
+  aiConversations,
+  aiConversation,
+  saveAiConversation,
   billingSnapshot,
   billingCheckout,
   billingPortal,

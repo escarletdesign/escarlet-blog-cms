@@ -138,6 +138,7 @@ import {
 } from './lib/cms-ops.mjs'
 import { mediaForClient, repairMediaInDb, repairPostsInDb, resolveImageSrc, resolvePostImageSrc, inspectImageBuffer } from './lib/media-url.mjs'
 import { runChat as runAiChat, runGenerateOperation, splitSseChunks, recordPublicationMemory } from './lib/ai-gateway.mjs'
+import { conversationOwner, getConversation, listConversations, saveConversation } from './lib/ai-conversations.mjs'
 import { generateThumbBuffer } from './lib/media-optimize.mjs'
 import { parseMultipart, isMultipartRequest } from './lib/multipart.mjs'
 import { withPostLinks } from './lib/preview-url.mjs'
@@ -1550,6 +1551,44 @@ const server = createServer(async (req, res) => {
           returnUrl: `${absoluteCmsOrigin(req)}/app/billing`
         })
         json(res, 200, { site, configured: result.configured, reason: result.reason, url: result.url || null })
+        return
+      }
+      json(res, 405, { message: 'Método no permitido' })
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message })
+    }
+    return
+  }
+
+  // Durable PWA assistant conversations. They are scoped by both site and
+  // authenticated user so changing sites never leaks another site's drafts.
+  const conversationMatch = path.match(/^\/api\/ai\/conversations\/([^/]+)$/)
+  if (path === '/api/ai/conversations' || conversationMatch) {
+    const auth = requireAuth(req, url, res)
+    if (!auth) return
+    try {
+      const body = req.method === 'POST' ? await parseBody(req) : {}
+      const site = siteFrom(auth, (req.method === 'GET' ? url.searchParams.get('site') : body.site) || DEFAULT_SITE)
+      assertSiteAccess(auth, site)
+      const db = readDb()
+      const ownerId = conversationOwner(auth)
+      if (req.method === 'GET' && conversationMatch) {
+        const conversation = getConversation({ db, site, ownerId, id: decodeURIComponent(conversationMatch[1]) })
+        if (!conversation) {
+          json(res, 404, { message: 'Conversación no encontrada' })
+          return
+        }
+        json(res, 200, { conversation })
+        return
+      }
+      if (req.method === 'GET') {
+        json(res, 200, { conversations: listConversations({ db, site, ownerId }) })
+        return
+      }
+      if (req.method === 'POST' && path === '/api/ai/conversations') {
+        const conversation = saveConversation({ db, site, ownerId, conversation: body })
+        writeDb(db)
+        json(res, 200, { conversation })
         return
       }
       json(res, 405, { message: 'Método no permitido' })

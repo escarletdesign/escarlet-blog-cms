@@ -20,6 +20,7 @@ import {
   useParams,
 } from "react-router-dom";
 import { api } from "./api";
+import type { AiConversation } from "./api";
 import { getInitialLanguage, Language, translate } from "./i18n";
 import type { Author, MediaItem, Post, Session } from "./types";
 
@@ -635,15 +636,17 @@ function Shell() {
         </button>
         <nav>
           {links.map((link) => (
-            <NavLink
-              key={link.to}
-              to={link.to}
-              end={link.to === "/"}
-              className="nav-link"
-            >
-              <NavIcon kind={link.icon} />
-              {link.label}
-            </NavLink>
+            <div className="nav-group" key={link.to}>
+              <NavLink
+                to={link.to}
+                end={link.to === "/"}
+                className="nav-link"
+              >
+                <NavIcon kind={link.icon} />
+                {link.label}
+              </NavLink>
+              {link.icon === "assistant" && <SidebarConversations site={site} />}
+            </div>
           ))}
           {isAdmin(session.role) && (
             <NavLink to="/admin" className="nav-link">
@@ -696,6 +699,41 @@ function Shell() {
   );
 }
 
+function SidebarConversations({ site }: { site: string }) {
+  const { t } = useI18n();
+  const [conversations, setConversations] = useState<AiConversation[]>([]);
+  useEffect(() => {
+    let active = true;
+    const load = () => api.aiConversations(site)
+      .then((result) => active && setConversations(result.conversations || []))
+      .catch(() => active && setConversations([]));
+    void load();
+    const onSaved = (event: Event) => {
+      const detail = (event as CustomEvent<{ site?: string }>).detail;
+      if (!detail?.site || detail.site === site) void load();
+    };
+    window.addEventListener("escarlet:conversation-saved", onSaved);
+    return () => { active = false; window.removeEventListener("escarlet:conversation-saved", onSaved); };
+  }, [site]);
+  if (!conversations.length) return null;
+  return (
+    <div className="sidebar-conversations">
+      <span className="sidebar-conversations-label">{t("chat.history")}</span>
+      {conversations.slice(0, 6).map((conversation) => (
+        <NavLink
+          key={conversation.id}
+          to={`/chat?conversation=${encodeURIComponent(conversation.id)}`}
+          className="sidebar-conversation"
+          title={conversation.title}
+        >
+          <span>·</span>
+          <span>{conversation.title || t("chat.newConversation")}</span>
+        </NavLink>
+      ))}
+    </div>
+  );
+}
+
 function NavIcon({ kind }: { kind: string }) {
   if (kind === "posts") {
     return (
@@ -722,19 +760,26 @@ function NavIcon({ kind }: { kind: string }) {
 function CreditIndicator({ site }: { site: string }) {
   const { t, language } = useI18n();
   const [snapshot, setSnapshot] = useState<Record<string, any> | null>(null);
+  const [loading, setLoading] = useState(true);
   useEffect(() => {
     let active = true;
-    api.billingSnapshot(site).then((data) => active && setSnapshot(data)).catch(() => active && setSnapshot(null));
+    setLoading(true);
+    setSnapshot(null);
+    api.billingSnapshot(site)
+      .then((data) => active && setSnapshot(data))
+      .catch(() => active && setSnapshot(null))
+      .finally(() => active && setLoading(false));
     return () => { active = false; };
   }, [site]);
   const available = Number(snapshot?.ai?.tokenCredits?.available);
   const hasCredits = Number.isFinite(available);
+  const displayCredits = hasCredits ? available.toLocaleString(language === "en" ? "en-GB" : "es-ES") : loading ? "…" : "—";
   return (
     <NavLink className="credit-indicator" to="/billing" title={t("billing.available")}>
       <span>✦</span>
       <span>
-        <b>{hasCredits ? available.toLocaleString(language === "en" ? "en-GB" : "es-ES") : "—"}</b>
-        <small>{hasCredits ? t("billing.creditsLeft") : t("billing.creditsLoading")}</small>
+        <b>{displayCredits}</b>
+        <small>{hasCredits ? t("billing.creditsLeft") : loading ? t("billing.creditsLoading") : t("billing.creditsUnavailable")}</small>
       </span>
     </NavLink>
   );
@@ -819,6 +864,7 @@ function RecentPosts() {
 type ChatMessage = { role: "assistant" | "user"; text: string };
 type ChatThread = {
   id: string;
+  site?: string;
   title: string;
   messages: ChatMessage[];
   updatedAt: string;
@@ -842,43 +888,75 @@ function Chat() {
   const { site } = useApp();
   const { showToast } = useToast();
   const hydrationRequestRef = useRef("");
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const location = useLocation();
+  const requestedConversationId = new URLSearchParams(location.search).get("conversation") || "";
 
   const storageKey = `escarlet_chat_threads:${site}`;
   const activeKey = `escarlet_chat_active:${site}`;
   useEffect(() => {
     hydrationRequestRef.current = site;
-    let saved: ChatThread[] = [];
+    let active = true;
+    let localThreads: ChatThread[] = [];
     try {
       const parsed = JSON.parse(window.localStorage.getItem(storageKey) || "[]");
       if (Array.isArray(parsed)) {
-        saved = parsed.filter((thread) => thread && typeof thread.id === "string" && Array.isArray(thread.messages));
+        localThreads = parsed.filter((thread) => thread && typeof thread.id === "string" && Array.isArray(thread.messages));
       }
     } catch {
-      saved = [];
+      localThreads = [];
     }
-    const activeId = window.localStorage.getItem(activeKey) || "";
-    const selected = saved.find((thread) => thread.id === activeId) || saved[0];
-    if (selected) {
-      setThreads(saved);
+    const hydrate = async () => {
+      let online: AiConversation[] = [];
+      try {
+        online = (await api.aiConversations(site)).conversations || [];
+        // Migrate conversations created by the previous local-only version on
+        // first visit, preserving their messages while moving the source of
+        // truth to the server.
+        const onlineIds = new Set(online.map((thread) => thread.id));
+        const pending = localThreads.filter((thread) => !onlineIds.has(thread.id) && thread.messages.length);
+        if (pending.length) {
+          const migrated = await Promise.allSettled(pending.map((thread) => api.saveAiConversation({ ...thread, site })));
+          for (const result of migrated) {
+            if (result.status === "fulfilled") online = [result.value.conversation, ...online.filter((item) => item.id !== result.value.conversation.id)];
+          }
+        }
+      } catch {
+        // Keep a local fallback when the network is temporarily unavailable.
+        online = [];
+      }
+      if (!active) return;
+      const summaries: ChatThread[] = online.map((thread) => ({ ...thread, messages: [] }));
+      const activeId = requestedConversationId || window.localStorage.getItem(activeKey) || online[0]?.id || localThreads[0]?.id || "";
+      const localSelected = localThreads.find((thread) => thread.id === activeId);
+      let selected: ChatThread | null = localSelected || null;
+      if (activeId && !localSelected) {
+        try {
+          const result = await api.aiConversation(activeId, site);
+          if (result.conversation) selected = { ...result.conversation, messages: result.conversation.messages || [] };
+        } catch {
+          selected = null;
+        }
+      }
+      if (!selected) {
+        selected = {
+          id: activeId || chatThreadId(),
+          title: t("chat.newConversation"),
+          messages: [{ role: "assistant", text: t("chat.greeting") }],
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      if (!summaries.some((thread) => thread.id === selected?.id)) summaries.unshift({ ...selected, messages: [] });
+      setThreads(summaries.length ? summaries : [selected]);
       setActiveThreadId(selected.id);
-      setMessages(selected.messages);
+      setMessages(selected.messages?.length ? selected.messages : [{ role: "assistant", text: t("chat.greeting") }]);
       setLastBrief([...selected.messages].reverse().find((message) => message.role === "user")?.text || "");
       window.localStorage.setItem(activeKey, selected.id);
-      return;
-    }
-    const first: ChatThread = {
-      id: chatThreadId(),
-      title: t("chat.newConversation"),
-      messages: [{ role: "assistant", text: t("chat.greeting") }],
-      updatedAt: new Date().toISOString(),
+      if (localThreads.length) window.localStorage.setItem(storageKey, JSON.stringify(localThreads));
     };
-    setThreads([first]);
-    setActiveThreadId(first.id);
-    setMessages(first.messages);
-    setLastBrief("");
-    window.localStorage.setItem(storageKey, JSON.stringify([first]));
-    window.localStorage.setItem(activeKey, first.id);
-  }, [site]);
+    void hydrate();
+    return () => { active = false; };
+  }, [site, requestedConversationId]);
 
   // Keep every conversation available after navigating away, reloading, or
   // returning to the assistant later. This is intentionally site-scoped.
@@ -891,24 +969,33 @@ function Chat() {
       hydrationRequestRef.current = "";
       return;
     }
+    const firstUser = messages.find((message) => message.role === "user")?.text || "";
+    const existing = threads.find((thread) => thread.id === activeThreadId);
+    const nextThread: ChatThread = {
+      id: activeThreadId,
+      site,
+      title: firstUser ? firstUser.slice(0, 64) : existing?.title || t("chat.newConversation"),
+      messages,
+      updatedAt: new Date().toISOString(),
+    };
     setThreads((current) => {
       const index = current.findIndex((thread) => thread.id === activeThreadId);
-      if (index < 0) return current;
-      const existing = current[index];
-      const firstUser = messages.find((message) => message.role === "user")?.text || "";
-      const nextThread: ChatThread = {
-        ...existing,
-        title: firstUser ? firstUser.slice(0, 64) : existing.title,
-        messages,
-        updatedAt: new Date().toISOString(),
-      };
+      if (index < 0) return [nextThread, ...current];
       const next = [...current];
-      next[index] = nextThread;
-      window.localStorage.setItem(storageKey, JSON.stringify(next));
-      window.localStorage.setItem(activeKey, activeThreadId);
+      next[index] = { ...next[index], ...nextThread };
       return next;
     });
-  }, [messages, activeThreadId, site]);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      void api.saveAiConversation(nextThread)
+        .then(() => window.dispatchEvent(new CustomEvent("escarlet:conversation-saved", { detail: { site } })))
+        .catch(() => {
+          // Keep a recoverable local copy if the server is briefly unavailable.
+          window.localStorage.setItem(storageKey, JSON.stringify([nextThread]));
+        });
+    }, 280);
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
+  }, [messages, activeThreadId, site, requestedConversationId]);
 
   const newConversation = () => {
     const thread: ChatThread = {
@@ -922,13 +1009,17 @@ function Chat() {
     setMessages(thread.messages);
     setLastBrief("");
     setValue("");
+    nav("/chat");
   };
 
   const selectConversation = (thread: ChatThread) => {
     setActiveThreadId(thread.id);
-    setMessages(thread.messages);
-    setLastBrief([...thread.messages].reverse().find((message) => message.role === "user")?.text || "");
+    if (thread.messages.length) {
+      setMessages(thread.messages);
+      setLastBrief([...thread.messages].reverse().find((message) => message.role === "user")?.text || "");
+    }
     setValue("");
+    nav(`/chat?conversation=${encodeURIComponent(thread.id)}`);
   };
 
   const submit = async (event: FormEvent) => {
@@ -1045,7 +1136,7 @@ function Chat() {
       <section className="chat-history-panel" aria-label={t("chat.history")}>
         <div className="chat-history-heading">
           <strong>{t("chat.history")}</strong>
-          <small>{t("chat.savedLocally")}</small>
+          <small>{t("chat.savedOnline")}</small>
         </div>
         <div className="chat-history-list">
           {threads.map((thread) => (

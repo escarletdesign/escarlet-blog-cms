@@ -238,6 +238,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "chat.newConversation": "Nueva conversación",
     "chat.history": "Conversaciones recientes",
     "chat.savedLocally": "Guardadas en este dispositivo",
+    "chat.savedOnline": "Guardadas online",
     "chat.you": "Tú",
     "chat.greeting":
       "Hola. Cuéntame el objetivo, la audiencia y la idea que quieres convertir en post.",
@@ -331,6 +332,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "billing.available": "créditos disponibles",
     "billing.creditsLeft": "créditos restantes",
     "billing.creditsLoading": "cargando créditos",
+    "billing.creditsUnavailable": "créditos no disponibles",
     "billing.included": "incluidos este mes",
     "billing.plan": "Plan actual",
     "billing.manage": "Gestionar facturación",
@@ -752,6 +754,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "chat.newConversation": "New conversation",
     "chat.history": "Recent conversations",
     "chat.savedLocally": "Saved on this device",
+    "chat.savedOnline": "Saved online",
     "chat.you": "You",
     "chat.greeting":
       "Hi. Tell me the goal, audience and idea you want to turn into a post.",
@@ -844,6 +847,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "billing.available": "credits available",
     "billing.creditsLeft": "credits remaining",
     "billing.creditsLoading": "loading credits",
+    "billing.creditsUnavailable": "credits unavailable",
     "billing.included": "included this month",
     "billing.plan": "Current plan",
     "billing.manage": "Manage billing",

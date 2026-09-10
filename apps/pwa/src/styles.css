@@ -191,6 +191,13 @@
 .chat-history-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .78rem; }
 .chat-history-item small { color: var(--muted); font-size: .66rem; }
 @media (min-width: 760px) { .chat-history-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: visible; } .chat-history-item { min-width: 0; max-width: none; } }
+.nav-group { display: grid; gap: 3px; }
+.sidebar-conversations { display: grid; gap: 2px; margin: -1px 0 7px 28px; padding-left: 10px; border-left: 1px solid #34443e; }
+.sidebar-conversations-label { color: var(--muted); font-size: .64rem; text-transform: uppercase; letter-spacing: .08em; padding: 3px 8px 4px; }
+.sidebar-conversation { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 6px 8px; border-radius: 7px; color: var(--muted); font-size: .73rem; }
+.sidebar-conversation:hover, .sidebar-conversation.active { color: var(--text); background: #222c29; }
+.sidebar-conversation > span:first-child { color: var(--accent); }
+.sidebar-conversation > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .calendar-picker { border: 1px solid #3b4d45; border-radius: 13px; padding: 12px; background: #121b19; }.calendar-picker-head { display: flex; align-items: center; justify-content: space-between; gap: 9px; margin-bottom: 10px; text-transform: capitalize; }.calendar-picker-head .icon-button { min-width: 32px; min-height: 32px; }.calendar-weekdays, .calendar-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }.calendar-weekdays span { color: var(--muted); text-align: center; font-size: .68rem; text-transform: uppercase; }.calendar-days button, .calendar-days > span { min-height: 35px; }.calendar-days button { border: 1px solid transparent; border-radius: 9px; color: var(--text); background: transparent; }.calendar-days button:hover:not(:disabled) { border-color: #5b775f; background: #233229; }.calendar-days button.selected { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); font-weight: 800; }.calendar-days button:disabled { color: #536059; cursor: not-allowed; }
 .brand { flex-wrap: wrap; }
 .brand-name { white-space: nowrap; }
