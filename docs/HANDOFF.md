@@ -37,7 +37,7 @@ MCP. `blog_get_onboarding` + `blog_create_site`. Plantillas en `templates/`.
 
 - MCP con 10 tools + 4 resources brand kit
 - SEO validator + tests
-- Dashboard `/admin` (posts, preview, media, **brand kit** con voz + referencias, **sitio**)
+- App `/app` (posts, preview, media contextual, **brand kit** con voz + referencias, **sitio**); `/admin` queda solo como compatibilidad temporal
 - Docker + compose con volumen `/app/data`
 - 21 posts migrados al CMS
 - escarlet002 sync en `prebuild` y `dev`
@@ -56,7 +56,7 @@ cd escarlet002
 BLOG_CMS_URL=http://localhost:3040 npm run dev
 ```
 
-Dashboard. http://localhost:3040/admin
+App. http://localhost:3040/app
 
 ## MCP Cursor
 
@@ -67,7 +67,7 @@ El MCP es el endpoint `POST https://blog-cms.escarlet.cc/mcp` del mismo servicio
 1. Repo GitHub para `escarlet-blog-cms`
 2. Coolify app CMS (Dockerfile, volumen `/app/data`, puerto 3040)
 3. Coolify escarlet002 → env `BLOG_CMS_URL`, `BLOG_CMS_SITE=escarlet`
-4. Webhook en dashboard CMS → tab **Sitio** (no solo env var)
+4. Webhook en `/app/admin` → tab **Sitio** (no solo env var)
 5. MCP en `~/.cursor/mcp.json`
 
 ## Git deploy vs webhook de posts
@@ -90,18 +90,18 @@ En Coolify → app producción escarlet002 → Webhooks → **Deploy Webhook (au
 Ejemplo formato:
 `https://coolify.escarlet.cc/api/v1/deploy?uuid=...`
 
-Pégala en dashboard CMS → tab **Sitio** → Deploy webhook.
+Pégala en `/app/admin` → tab **Sitio** → Deploy webhook.
 
 La captura de `trino blog (localhost)` es otra app. Solo sirve si quieres rebuild de esa preview.
 
-## Webhook white-label (dashboard)
+## Webhook white-label (app)
 
 Desde v2 el webhook va en `config/sites/{handle}/site.json` → campo `rebuildWebhookUrl`.
 
-Editable en `/admin` → tab **Sitio**. Cada cliente/site tiene su URL de rebuild del frontend.
+Editable en `/app/admin` → tab **Sitio**. Cada cliente/site tiene su URL de rebuild del frontend.
 
 Prioridad al publicar:
-1. `rebuildWebhookUrl` del site (dashboard)
+1. `rebuildWebhookUrl` del site (`/app/admin`)
 2. Variable env `REBUILD_WEBHOOK_URL` (fallback global)
 
 ## Archivos clave

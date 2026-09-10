@@ -11,16 +11,12 @@ Si `missingBrand` tiene archivos, para y pide que los completen.
 
 ## Flujo MCP (crear)
 
-1. `blog_get_brand_context`
-2. Pregunta lo que falte según `postFields`
-3. `blog_create_draft` solo si el slug es nuevo
-4. Redactar con `blog_update_post`
-5. Portada con `blog_upload_media` (`kind` `post`). Envía el PNG o JPG en `contentBase64` o `blob` (2–3 MB valen). El CMS comprime a JPEG y devuelve `media.url`. Si el host recorta el base64, usa `uploadId` + `chunkIndex` + `chunkCount`.
-6. Si el site tiene Instagram activo. Carrusel 4–7 slides con `blog_upload_media` (`kind` `social`) → `socialPack.instagramSlides` + caption. Sube cada slide al CMS.
-7. Completa `socialPack` solo para canales en `socialPackChannels`
-8. `blog_validate_seo`
-9. `blog_publish` (con aprobación humana suele ir a review)
-10. Comparte el `previewUrl` absoluto (https://…)
+1. Llama `blog_get_workflow` y pregunta si el usuario prefiere `easy` o `guided`.
+2. Llama `blog_create_assisted_post` con la idea amplia. Genera contenido y portada en el servidor siguiendo el brand kit y sus referencias.
+3. En `guided`, comparte únicamente `appPreviewUrl` (`/app/preview/{slug}`) y espera la revisión. En `easy`, muestra un resumen y pide confirmación.
+4. Aplica correcciones con `blog_update_post` usando el mismo slug.
+5. Tras confirmar, llama `blog_publish` o `blog_schedule_post` con `direct: true` según la decisión del usuario. No uses la revisión legacy.
+6. Después de publicar, llama `blog_generate_social_pack` para generar copy y carrusel en el servidor.
 
 ## Flujo MCP (editar)
 
@@ -29,6 +25,7 @@ Si `missingBrand` tiene archivos, para y pide que los completen.
 3. Nunca `blog_create_draft` para editar
 4. `blog_update_post` con el mismo slug
 5. Si renombras. `originalSlug` + `slug` nuevo
+6. Comparte `appPreviewUrl` de `/app` solo cuando el usuario necesite revisar.
 
 ## Copy
 

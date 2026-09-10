@@ -142,6 +142,7 @@ import {
 import { mediaForClient, repairMediaInDb, repairPostsInDb, resolveImageSrc, resolvePostImageSrc, inspectImageBuffer } from './lib/media-url.mjs'
 import { runChat as runAiChat, runGenerateOperation, splitSseChunks, recordPublicationMemory } from './lib/ai-gateway.mjs'
 import { generateImageOptions } from './lib/ai-image.mjs'
+import { generateSocialPackImages } from './lib/ai-workflows.mjs'
 import { archiveConversation, conversationOwner, deleteConversation, getConversation, listConversations, saveConversation } from './lib/ai-conversations.mjs'
 import { getWorkflowFlags, setWorkflowFlags } from './lib/workflow-flags.mjs'
 import { generateThumbBuffer } from './lib/media-optimize.mjs'
@@ -632,73 +633,6 @@ function canMutatePostForAuth(post, auth, site) {
     requesterId: auth?.userId,
     requesterRole: auth?.role
   })
-}
-
-async function generateSocialPackImages({ site, post, socialPack }) {
-  const plainBody = String(post?.bodyHtml || '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-  const sourceSlides = Array.isArray(socialPack?.instagramSlides) && socialPack.instagramSlides.length
-    ? socialPack.instagramSlides
-    : [
-        { headline: post?.title, body: post?.excerptEs || plainBody.slice(0, 180) },
-        { headline: 'La idea clave', body: plainBody.slice(180, 420) || post?.excerptEs || post?.title },
-        { headline: 'Cómo aplicarlo', body: plainBody.slice(420, 660) || post?.title },
-        { headline: 'Para recordar', body: plainBody.slice(660, 900) || post?.excerptEs || post?.title }
-      ]
-  const slideCount = Math.min(sourceSlides.length, 4)
-  const slides = []
-  const warnings = []
-  for (let index = 0; index < slideCount; index += 1) {
-    const source = sourceSlides[index] || {}
-    const headline = String(source.headline || source.title || post?.title || '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 80) || String(post?.title || 'Idea editorial')
-    const body = String(source.body || source.text || '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 240)
-    const isEdgeSlide = index === 0 || index === slideCount - 1
-    const backgroundStyle = isEdgeSlide ? 'brand-color' : 'light-or-grayscale'
-    try {
-      const generated = await generateImageOptions({
-        site,
-        prompt: `Crea la slide ${index + 1} de ${slideCount} de un carrusel editorial para Instagram. Tema: ${headline}. Texto breve exacto que puede aparecer en la pieza: ${body}. Se permite texto diseñado para Instagram: usa únicamente esos textos, con ortografía exacta y buena legibilidad. No inventes palabras ni logotipos. Tratamiento de fondo obligatorio: ${isEdgeSlide ? 'usa color de marca, bloques o gradiente suave' : 'usa fondo claro, crema o escala de grises y evita colores saturados'}.`,
-        slug: `${post?.slug || 'post'}-carousel-${index + 1}`,
-        title: headline,
-        alt: headline,
-        allowText: true,
-        imageRole: 'instagram-carousel',
-        backgroundStyle,
-        optionCount: 1
-      })
-      const image = generated.mediaOptions?.[0]
-      slides.push({
-        ...source,
-        headline,
-        body,
-        imageUrl: image?.url || image?.path || source.imageUrl || '',
-        alt: source.alt || headline,
-        backgroundStyle
-      })
-    } catch (error) {
-      warnings.push(`Slide ${index + 1}: ${error instanceof Error ? error.message : 'No se pudo generar la imagen.'}`)
-      slides.push({
-        ...source,
-        headline,
-        body,
-        imageUrl: source.imageUrl || '',
-        alt: source.alt || headline,
-        backgroundStyle
-      })
-    }
-  }
-  return {
-    socialPack: { ...(socialPack || {}), instagramSlides: slides },
-    warnings
-  }
 }
 
 // Image generation can take longer than the reverse proxy timeout when a

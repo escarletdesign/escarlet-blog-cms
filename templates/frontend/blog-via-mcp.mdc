@@ -13,7 +13,7 @@ Los posts viven en el CMS. El frontend solo sincroniza en build y pinta el HTML.
 
 - El CMS guarda título, `bodyHtml`, portada, metas y `socialPack`.
 - El **look** de `/blog` y `/blog/{slug}` se define en **esta landing** (vista SPA, o `generate-blog-pages.mjs` + CSS si es HTML estático).
-- El preview de `blog-cms.escarlet.cc` es solo revisión. No es la web pública.
+- La revisión humana vive en `https://blog-cms.escarlet.cc/app/preview/{slug}`. No uses superficies `/admin` ni generadores legacy.
 - En `bodyHtml` manda solo contenido semántico (párrafos, títulos, listas). Sin nav, footer ni layout de página.
 
 Si el humano pide cambiar cómo se ve la ficha del post. edita el generador/vista y el CSS de esta landing, luego rebuild. No edites el CMS para eso.
@@ -21,20 +21,22 @@ Detalle. skill global `escarlet-blog-integrate` (sección Headless).
 
 ## Encender o apagar el blog
 
-CMS `/admin` → Sitio → interruptor **Blog en la web pública**. Guardar dispara rebuild.
+CMS `/app/admin` → Sitio → interruptor **Blog en la web pública**. Guardar dispara rebuild.
 Apagado. la API pública no lista posts, el sync no genera `/blog`, el menú pierde el enlace. Los borradores siguen en el CMS.
 Env `BLOG_ENABLED=false` en local fuerza apagado. El interruptor del CMS manda en producción.
 
 ## Antes de redactar
 
 1. Si el site es nuevo o dudas del setup. `blog_get_onboarding` con `site: {{handle}}`
-2. `blog_get_brand_context` con `site: {{handle}}`
-3. Lee `socialPackChannels`, resources `brand://{{handle}}/voice`, `keywords`, `agent`, `image-guide`
+2. `blog_get_workflow` con `site: {{handle}}` y pregunta `easy` o `guided`
+3. `blog_get_brand_context` con `site: {{handle}}`
+4. Lee `socialPackChannels`, resources `brand://{{handle}}/voice`, `keywords`, `agent`, `image-guide`
 
 ## Crear post
 
-1. `blog_create_draft` (title + author)
-2. `blog_update_post` con bodyHtml, metas, imagen y **socialPack** de canales activos:
+1. `blog_create_assisted_post` con la idea del usuario y `mode: easy` o `mode: guided`
+2. En `guided`, comparte `appPreviewUrl` y espera la revisión. En `easy`, pide confirmación antes de publicar.
+3. `blog_update_post` con bodyHtml, metas o correcciones del usuario:
 
 ```js
 socialPack: {
@@ -50,11 +52,10 @@ socialPack: {
 }
 ```
 
-3. Portada. `blog_upload_media` (`kind` `post`) → URL del CMS en `imageUrl`
-4. Si Instagram está activo. Genera slides → `blog_upload_media` (`kind` `social`) → URLs del CMS en `instagramSlides`. Sube todas las slides.
-5. `blog_validate_seo`
-6. `blog_publish`
-7. Tras el rebuild. indicar `https://{{domain}}/admin/blog-packs/{slug}`
+4. Si hay que regenerar la portada. `blog_generate_post_image` con `source: content`, `description` o `both`.
+5. `blog_publish` o `blog_schedule_post` con `direct: true` después de la confirmación. No uses la revisión legacy.
+6. Después de publicar. `blog_generate_social_pack` genera y guarda copy + carrusel en el servidor.
+7. Tras el rebuild. indicar `appSocialPackUrl` (`/app/social-pack/{slug}`) para copiar o descargar el pack.
 
 ## Editar post
 
@@ -80,7 +81,7 @@ El look de `/blog` sigue en esta landing.
 ## Tras publicar
 
 El CMS dispara el Deploy Webhook de Coolify del frontend. El sync baja posts y regenera packs (y páginas HTML si aplica).
-Comparte el `previewUrl` del CMS (revisión) y la URL pública del post.
+Comparte `appPreviewUrl` solo durante la revisión guiada. El MCP no devuelve enlaces legacy.
 
 ## Prohibido
 

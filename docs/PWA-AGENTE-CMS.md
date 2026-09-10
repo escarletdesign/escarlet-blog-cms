@@ -2,7 +2,7 @@
 
 Plan de reestructuración. Rama propuesta: `feature/pwa-agent` desde `master`.
 
-**Resumen.** Nueva PWA Vite+React mobile-first (shell tipo ChatGPT), gateway IA en el CMS Node existente, flujos duales AI/manual hasta preview → publicar/programar, billing Stripe y admin interno. MCP queda en hold.
+**Resumen.** Nueva PWA Vite+React mobile-first (shell tipo ChatGPT), gateway IA en el CMS Node existente, flujos duales AI/manual hasta preview → publicar/programar, billing Stripe y admin interno. El MCP externo comparte los mismos flujos y operaciones server-side.
 
 ## Checklist
 
@@ -17,7 +17,7 @@ Plan de reestructuración. Rama propuesta: `feature/pwa-agent` desde `master`.
 
 ## Decisiones cerradas
 
-- **Producto:** PWA instalable. MCP externo en **hold** (código se mantiene, sin nuevas features ni docs de conexión ChatGPT).
+- **Producto:** PWA instalable + MCP externo. La conexión ChatGPT usa `POST /mcp` y las mismas operaciones server-side; `/app` es la superficie de revisión humana.
 - **Frontend:** **Vite + React + TypeScript** en `apps/pwa/`, servido por el CMS en producción. El backend sigue siendo [`server.mjs`](../server.mjs) + `lib/*` (APIs, brand kit, publish, Stripe). Evitamos Next fullstack en esta fase para no reescribir ops/sync/webhook.
 - **Auth cliente:** magic link (Resend) + sesión cookie. Sin “Login with ChatGPT”. Las keys de OpenAI/Gemini/Grok son **del servidor Escarlet**, no del usuario final.
 - **Medios:** sin nav “Medios” para el cliente. Los ficheros viven **dentro del post** (y social pack del post). Admin puede reutilizar helpers existentes de media sin exponer biblioteca como producto.
@@ -97,7 +97,7 @@ flowchart TB
 | Planes / cups | [`lib/plans.mjs`](../lib/plans.mjs) | Contar tokens/generaciones del gateway; bloquear si cupo 0 |
 | Stripe | [`lib/stripe-webhook.mjs`](../lib/stripe-webhook.mjs) | Checkout/portal cliente + catálogo packs (uso + bundles) |
 | Magic link | [`lib/access-tokens.mjs`](../lib/access-tokens.mjs), [`lib/magic-email.mjs`](../lib/magic-email.mjs) | Login PWA por defecto; password opcional admin |
-| MCP | [`mcp/`](../mcp/) | Hold: no romper, no priorizar |
+| MCP | [`mcp/`](../mcp/) | Herramientas de workflow `/app`, generación server-side y publicación |
 
 **Nuevo módulo:** `lib/ai-gateway.mjs`
 
@@ -163,7 +163,6 @@ Instalable, safe areas, desktop max-width en formularios, quitar/redirect admin 
 
 ## Fuera de alcance (esta rama)
 
-- Mejoras al MCP / OAuth ChatGPT connector.
 - Migración Payload/Postgres completa.
 - Self-serve alta de clientes públicos (sigue siendo servicio Escarlet).
 - Next.js fullstack (revisable solo si la PWA Vite se queda corta en routing/SSR).

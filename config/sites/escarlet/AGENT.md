@@ -21,16 +21,12 @@ Un post, un enfoque principal. Si mezcla temas, elige autor por el objetivo del 
 
 ## Flujo MCP (crear)
 
-1. `blog_get_brand_context`
-2. Pregunta lo que falte según `postFields`
-3. `blog_create_draft` solo si el slug es nuevo
-4. Redactar. `blog_update_post` (devuelve validation y previewUrl)
-5. Portada. Genera la imagen. `blog_upload_media` (`kind` `post`). Envía el PNG en `contentBase64` o `blob`. 2–3 MB valen. El CMS comprime a JPEG. Nunca pases rutas sandbox como `imageUrl`.
-6. Si `socialPackChannels.instagramCarousel` está activo. Genera 4–7 slides (1080×1350), súbelas todas con `blog_upload_media` (`kind` `social`, filename `{slug}-ig-01.jpg` …) y guarda `socialPack.instagramSlides` + `instagramCaption` con canónico.
-7. Completa `socialPack` solo para canales activos en `socialPackChannels`
-8. `blog_validate_seo`
-9. `blog_publish` con borrador en draft envía a **review** y devuelve previewUrl absoluto
-10. Comparte siempre el `previewUrl` completo (https://...) con el humano
+1. Llama `blog_get_workflow` y pregunta si el usuario prefiere `easy` o `guided`.
+2. Llama `blog_create_assisted_post` con la idea amplia. Genera contenido y portada en el servidor usando este brand kit y sus referencias.
+3. En `guided`, comparte únicamente `appPreviewUrl` (`/app/preview/{slug}`) y espera la revisión del usuario. En `easy`, muestra un resumen y pide confirmación.
+4. Aplica correcciones con `blog_update_post` usando el mismo slug.
+5. Tras confirmar, llama `blog_publish` o `blog_schedule_post` con `direct: true` según la decisión del usuario. No uses la revisión legacy.
+6. Después de publicar, llama `blog_generate_social_pack` para generar copy y carrusel en el servidor.
 
 ## Flujo MCP (editar)
 
@@ -39,8 +35,8 @@ Un post, un enfoque principal. Si mezcla temas, elige autor por el objetivo del 
 3. **Nunca** `blog_create_draft` para editar. Eso duplica el post.
 4. `blog_update_post` con el **mismo slug**
 5. Si renombras el slug. pasa `originalSlug` (actual) y `slug` (nuevo)
-6. Con aprobación humana, un post `published` baja a `review` al actualizarlo. Un humano debe volver a publicar en vivo
-7. Comparte el `previewUrl`
+6. Si editas un post `published` y quieres mantenerlo en vivo, usa `keepPublished: true`. Si no, confirma cuándo volver a publicar.
+7. Comparte `appPreviewUrl` de `/app` solo cuando el usuario necesite revisar.
 
 ## Despublicar y eliminar
 
@@ -84,6 +80,6 @@ Recomendado (aviso, no bloquea):
 
 ## Publicación
 
-- Hermes termina en **review** con `blog_publish` y comparte previewUrl.
-- Revisión humana en previewUrl o `/admin`.
-- La publicación final en escarlet.design la hace un humano desde el dashboard cuando el SEO es válido.
+- El flujo nuevo publica desde el CMS y mantiene la experiencia humana en `/app`.
+- La revisión guiada usa `appPreviewUrl` y la edición `/app/preview/{slug}`.
+- El Social Pack se abre en `/app/social-pack/{slug}` después de publicar.
