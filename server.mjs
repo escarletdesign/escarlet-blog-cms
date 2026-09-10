@@ -102,6 +102,8 @@ import {
   getPasswordUserByEmail,
   userSites,
   updateUserProfile,
+  listPublishingDelegates,
+  setPublishingDelegate,
   listSiteAuthors,
   mintAuthorInvite,
   consumeAuthorInvite,
@@ -1261,6 +1263,31 @@ const server = createServer(async (req, res) => {
         token: invite.token,
         link: `${origin}/app/author-invite?token=${encodeURIComponent(invite.token)}`
       })
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
+    }
+    return
+  }
+
+  if (isProductRestructureV1() && (req.method === 'GET' || req.method === 'POST') && path === '/api/auth/profile/delegates') {
+    const auth = requireAuth(req, url, res)
+    if (!auth) return
+    try {
+      if (!auth.userId) throw Object.assign(new Error('Esta sesión no tiene un perfil editable'), { status: 403 })
+      const body = req.method === 'POST' ? await parseBody(req) : {}
+      const site = siteFrom(auth, (req.method === 'GET' ? url.searchParams.get('site') : body.site) || DEFAULT_SITE)
+      assertSiteAccess(auth, site)
+      if (req.method === 'GET') {
+        json(res, 200, { site, users: listPublishingDelegates({ ownerId: auth.userId, site }) })
+        return
+      }
+      const result = setPublishingDelegate({
+        ownerId: auth.userId,
+        delegateId: body.delegateId,
+        site,
+        enabled: body.enabled !== false
+      })
+      json(res, 200, { ok: true, ...result })
     } catch (error) {
       json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
     }

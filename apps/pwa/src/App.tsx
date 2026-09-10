@@ -60,6 +60,10 @@ const useToast = () => {
   return value;
 };
 const isAdmin = (role?: string) => role === "admin" || role === "agency_admin";
+const roleLabel = (role: string | undefined, t: (key: string, fallback?: string) => string) => {
+  const value = String(role || "client").trim().toLowerCase();
+  return t(`role.${value}`, value.replace(/_/g, " "));
+};
 const uiStatus = (status?: string) => {
   if (status === "pending_schedule") return "scheduled";
   if (status === "review" || status === "changes_requested") return "draft";
@@ -490,12 +494,11 @@ function Onboarding() {
   const [displayName, setDisplayName] = useState(session.displayName || "");
   const [bio, setBio] = useState(session.bio || "");
   const [avatarDataUrl, setAvatarDataUrl] = useState(session.avatarUrl || "");
-  const [allowPublishingAs, setAllowPublishingAs] = useState(Boolean(session.allowPublishingAs));
   const [busy, setBusy] = useState(false);
   const save = async (complete = true) => {
     setBusy(true);
     try {
-      await api.saveProfile({ displayName, bio, avatarDataUrl, allowPublishingAs });
+      await api.saveProfile({ displayName, bio, avatarDataUrl, allowPublishingAs: false });
       await refresh();
       showToast(t("settings.profileSaved"));
       if (complete) nav("/", { replace: true });
@@ -547,10 +550,10 @@ function Onboarding() {
             <div className="onboarding-icon">✦</div>
             <h2>{t("onboarding.permissionsTitle")}</h2>
             <p className="muted">{t("onboarding.permissionsHelp")}</p>
-            <label className="switch-row">
-              <span><b>{t("settings.authorPermission")}</b><small>{t("settings.authorPermissionHelp")}</small></span>
-              <input type="checkbox" checked={allowPublishingAs} onChange={(event) => setAllowPublishingAs(event.target.checked)} />
-            </label>
+            <div className="onboarding-delegation-note">
+              <b>{t("onboarding.delegatesTitle")}</b>
+              <p className="muted">{t("onboarding.delegatesHelp")}</p>
+            </div>
           </section>
         )}
         {step === 2 && (
@@ -645,7 +648,7 @@ function Shell() {
             <span>
               <b>{session.displayName || session.email || t("settings.workspace")}</b>
               <small>
-                {t("settings.role")}: {session.role}
+                {t("settings.role")}: {roleLabel(session.role, t)}
               </small>
             </span>
             <span>···</span>
@@ -3096,27 +3099,57 @@ function PostRow({ post }: { post: Post }) {
 function Calendar() {
   const { site } = useApp();
   const { t, language } = useI18n();
+  const nav = useNavigate();
   const [posts, setPosts] = useState<Post[]>([]);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
+  const [view, setView] = useState<"list" | "month">("list");
+  const [monthCursor, setMonthCursor] = useState(() => new Date());
   useEffect(() => {
     api
       .calendar(site)
       .then((r) => setPosts(r.posts || []))
       .catch((e) => setError(e.message));
   }, [site, retry]);
+  const scheduledPosts = useMemo(
+    () => posts
+      .filter((post) => ["pending_schedule", "scheduled"].includes(post.status) && Boolean(post.publishAt))
+      .sort((a, b) => new Date(b.publishAt || 0).getTime() - new Date(a.publishAt || 0).getTime()),
+    [posts],
+  );
   const grouped = useMemo(
     () =>
-      posts.reduce<Record<string, Post[]>>((acc, post) => {
-        const key =
-          post.publishAt || post.datePublished
-            ? (post.publishAt || post.datePublished || "").slice(0, 10)
-            : "__no_date__";
+      scheduledPosts.reduce<Record<string, Post[]>>((acc, post) => {
+        const key = (post.publishAt || "").slice(0, 10);
         (acc[key] ||= []).push(post);
         return acc;
       }, {}),
-    [posts],
+    [scheduledPosts],
   );
+  const monthDays = useMemo(() => {
+    const year = monthCursor.getFullYear();
+    const month = monthCursor.getMonth();
+    const firstWeekday = (new Date(year, month, 1).getDay() + 6) % 7;
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    return Array.from({ length: 42 }, (_, index) => {
+      const dayNumber = index - firstWeekday + 1;
+      const date = new Date(year, month, dayNumber);
+      return { date, inMonth: dayNumber >= 1 && dayNumber <= daysInMonth };
+    });
+  }, [monthCursor]);
+  const dayKey = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+  const monthLabel = new Intl.DateTimeFormat(language === "en" ? "en-GB" : "es-ES", {
+    month: "long",
+    year: "numeric",
+  }).format(monthCursor);
+  const weekDays = language === "en"
+    ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    : ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
   return (
     <main className="page">
       <PageTitle
@@ -3143,29 +3176,58 @@ function Calendar() {
           </div>
         </section>
       )}
-      <div className="calendar-list">
-        {Object.entries(grouped)
-          .sort(([a], [b]) => a.localeCompare(b))
-          .map(([date, rows]) => (
+      <div className="calendar-toolbar">
+        <p className="tiny">{t("calendar.onlyScheduled")}</p>
+        <button
+          type="button"
+          className="icon-button calendar-view-toggle"
+          onClick={() => setView((current) => current === "list" ? "month" : "list")}
+          aria-label={t(view === "list" ? "calendar.monthView" : "calendar.listView")}
+          title={t(view === "list" ? "calendar.monthView" : "calendar.listView")}
+        >
+          {view === "list" ? "▦" : "☷"}
+        </button>
+      </div>
+      {scheduledPosts.length ? (view === "list" ? (
+        <div className="calendar-list">
+          {Object.entries(grouped).map(([date, rows]) => (
             <section key={date}>
-              <h2>
-                {date === "__no_date__"
-                  ? t("common.noDate")
-                  : readableDate(date, language)}
-              </h2>
-              {rows.map((post) => (
-                <PostRow key={post.slug} post={post} />
-              ))}
+              <h2>{readableDate(date, language)}</h2>
+              {rows.map((post) => <PostRow key={post.slug} post={post} />)}
             </section>
           ))}
-        {!posts.length && !error && (
+        </div>
+      ) : (
+        <section className="calendar-month card">
+          <div className="calendar-month-head">
+            <button type="button" className="icon-button" onClick={() => setMonthCursor((date) => new Date(date.getFullYear(), date.getMonth() - 1, 1))} aria-label={t("calendar.previousMonth")}>‹</button>
+            <strong>{monthLabel}</strong>
+            <button type="button" className="icon-button" onClick={() => setMonthCursor((date) => new Date(date.getFullYear(), date.getMonth() + 1, 1))} aria-label={t("calendar.nextMonth")}>›</button>
+          </div>
+          <div className="calendar-weekdays">{weekDays.map((day) => <span key={day}>{day}</span>)}</div>
+          <div className="calendar-month-grid">
+            {monthDays.map(({ date, inMonth }) => {
+              const rows = scheduledPosts.filter((post) => dayKey(new Date(post.publishAt || "")) === dayKey(date));
+              return (
+                <div key={dayKey(date)} className={`calendar-day ${inMonth ? "" : "outside"} ${rows.length ? "has-posts" : ""}`}>
+                  <span>{date.getDate()}</span>
+                  {rows.slice(0, 2).map((post) => (
+                    <button key={post.slug} type="button" className="calendar-day-post" onClick={() => nav(`/preview/${encodeURIComponent(post.slug)}`)} title={post.title}>{post.title}</button>
+                  ))}
+                  {rows.length > 2 && <small>+{rows.length - 2}</small>}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )) : null}
+      {!scheduledPosts.length && !error && (
           <EmptyState
             title={t("calendar.empty")}
             action={t("posts.emptyAction")}
             onClick={() => window.location.assign("./manual")}
           />
-        )}
-      </div>
+      )}
     </main>
   );
 }
@@ -3220,9 +3282,15 @@ function Settings() {
   const [displayName, setDisplayName] = useState(session.displayName || "");
   const [bio, setBio] = useState(session.bio || "");
   const [avatarDataUrl, setAvatarDataUrl] = useState(session.avatarUrl || "");
-  const [allowPublishingAs, setAllowPublishingAs] = useState(Boolean(session.allowPublishingAs));
   const [profileSaving, setProfileSaving] = useState(false);
-  const [authorLinkBusy, setAuthorLinkBusy] = useState(false);
+  const [delegates, setDelegates] = useState<Array<Record<string, any>>>([]);
+  const [delegateBusy, setDelegateBusy] = useState("");
+  useEffect(() => {
+    if (!session.userId) return;
+    api.publishingDelegates(site)
+      .then((result) => setDelegates(result.users || []))
+      .catch(() => setDelegates([]));
+  }, [session.userId, site]);
   const save = () => {
     localStorage.setItem("escarlet_model", model);
     setError("");
@@ -3247,7 +3315,7 @@ function Settings() {
     event.preventDefault();
     setProfileSaving(true);
     try {
-      await api.saveProfile({ displayName, bio, avatarDataUrl, allowPublishingAs });
+      await api.saveProfile({ displayName, bio, avatarDataUrl, allowPublishingAs: false });
       await refresh();
       showToast(t("settings.profileSaved"));
     } catch (err) {
@@ -3264,16 +3332,18 @@ function Settings() {
       showToast(t("editor.readImageError"), "error");
     }
   };
-  const createAuthorLink = async () => {
-    setAuthorLinkBusy(true);
+  const toggleDelegate = async (delegate: Record<string, any>) => {
+    if (!delegate.id) return;
+    const enabled = !Boolean(delegate.enabled);
+    setDelegateBusy(delegate.id);
     try {
-      const result = await api.createAuthorInvite(site);
-      await navigator.clipboard?.writeText(result.link).catch(() => {});
-      showToast(t("settings.authorLinkCreated"));
+      await api.setPublishingDelegate({ site, delegateId: delegate.id, enabled });
+      setDelegates((current) => current.map((item) => item.id === delegate.id ? { ...item, enabled } : item));
+      showToast(t(enabled ? "settings.delegateGranted" : "settings.delegateRevoked"));
     } catch (err) {
       showToast(err instanceof Error ? err.message : t("common.error"), "error");
     } finally {
-      setAuthorLinkBusy(false);
+      setDelegateBusy("");
     }
   };
   return (
@@ -3301,10 +3371,34 @@ function Settings() {
           />
           <label>{t("settings.displayName")}<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder={t("settings.displayNamePlaceholder")} /></label>
           <label>{t("settings.bio")}<textarea value={bio} onChange={(event) => setBio(event.target.value)} placeholder={t("settings.bioPlaceholder")} rows={4} /></label>
-          <label className="switch-row"><span><b>{t("settings.authorPermission")}</b><small>{t("settings.authorPermissionHelp")}</small></span><input type="checkbox" checked={allowPublishingAs} onChange={(event) => setAllowPublishingAs(event.target.checked)} /></label>
           <button className="primary" disabled={profileSaving}>{profileSaving ? "…" : t("settings.profileSave")}</button>
-          {allowPublishingAs && <button type="button" className="secondary" disabled={authorLinkBusy} onClick={() => void createAuthorLink()}>{authorLinkBusy ? "…" : t("settings.createAuthorLink")}</button>}
         </form>
+      )}
+      {session.userId && (
+        <section className="card settings-card delegation-card">
+          <p className="eyebrow">{t("settings.delegatesEyebrow")}</p>
+          <h2>{t("settings.delegatesTitle")}</h2>
+          <p className="muted">{t("settings.delegatesHelp")}</p>
+          {delegates.length ? (
+            <div className="delegation-pills" role="group" aria-label={t("settings.delegatesTitle")}>
+              {delegates.map((delegate) => (
+                <button
+                  key={delegate.id}
+                  type="button"
+                  className={`author-pill ${delegate.enabled ? "selected" : ""}`}
+                  disabled={delegateBusy === delegate.id}
+                  onClick={() => void toggleDelegate(delegate)}
+                >
+                  <UserAvatar src={delegate.avatarUrl} name={delegate.displayName || delegate.email} size="sm" />
+                  <span>{delegate.displayName || delegate.email}</span>
+                  <small>{delegate.enabled ? t("settings.delegateActive") : t("settings.delegateInactive")}</small>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="empty">{t("settings.delegatesEmpty")}</p>
+          )}
+        </section>
       )}
       <section className="card settings-card">
         <label>
@@ -3343,7 +3437,7 @@ function Settings() {
         <p className="eyebrow">{t("settings.workspace")}</p>
         <h2>{site}</h2>
         <p className="muted">
-          {t("settings.role")}: {session.role}
+          {t("settings.role")}: {roleLabel(session.role, t)}
         </p>
         <NavLink className="text-link" to="/billing">
           {t("settings.credits")}
@@ -4129,7 +4223,7 @@ function Admin() {
                 <li key={user.id || user.email}>
                   <div>
                     <strong>{user.email || user.name || t("admin.user")}</strong>
-                    <span>{user.role || t("admin.member")} · {(user.sites || [user.site]).filter(Boolean).join(", ")}{user.allowPublishingAs ? " · ✦ autor" : ""}</span>
+                    <span>{roleLabel(user.role, t)} · {(user.sites || [user.site]).filter(Boolean).join(", ")}{user.allowPublishingAs ? " · ✦ autor" : ""}</span>
                   </div>
                   <div className="user-actions">
                     <button className="chip" type="button" onClick={() => setUserForm({ id: user.id, email: user.email || "", role: user.role || "client", sites: user.sites || [user.site || site], allowPublishingAs: Boolean(user.allowPublishingAs) })}>{t("admin.editUser")}</button>
@@ -4158,8 +4252,8 @@ function Admin() {
                   ariaLabel={t("admin.userRole")}
                   onChange={(value) => setUserForm({ ...userForm, role: value })}
                   options={[
-                    { value: "client", label: "client" },
-                    { value: "agency_admin", label: "agency_admin" },
+                    { value: "client", label: roleLabel("client", t) },
+                    { value: "agency_admin", label: roleLabel("agency_admin", t) },
                   ]}
                 />
               </label>

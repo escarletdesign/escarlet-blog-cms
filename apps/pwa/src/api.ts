@@ -53,7 +53,7 @@ const baseApi = {
     displayName: string;
     bio: string;
     avatarDataUrl?: string;
-    allowPublishingAs: boolean;
+    allowPublishingAs?: boolean;
   }) =>
     request<{ ok: boolean; profile: Record<string, any> }>("/api/auth/profile", {
       method: "POST",
@@ -69,6 +69,16 @@ const baseApi = {
       method: "POST",
       body: JSON.stringify({ token }),
     }),
+  publishingDelegates: (site?: string) =>
+    request<{
+      site: string;
+      users: Array<Record<string, any>>;
+    }>(`/api/auth/profile/delegates${site ? `?site=${encodeURIComponent(site)}` : ""}`),
+  setPublishingDelegate: (input: { site?: string; delegateId: string; enabled: boolean }) =>
+    request<{ ok: boolean; site: string; enabled: boolean; delegate: Record<string, any> }>(
+      "/api/auth/profile/delegates",
+      { method: "POST", body: JSON.stringify(input) },
+    ),
   posts: (site?: string) =>
     request<{ posts: Post[] }>(
       `/api/admin/posts${site ? `?site=${encodeURIComponent(site)}` : ""}`,
