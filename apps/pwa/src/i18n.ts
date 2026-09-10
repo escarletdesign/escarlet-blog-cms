@@ -3,7 +3,7 @@ export type Language = "es" | "en";
 const dictionaries: Record<Language, Record<string, string>> = {
   es: {
     "app.loading": "Abriendo Escarlet…",
-    "app.beta": "Beta 0.2.2",
+    "app.beta": "Beta 0.2.3",
     "nav.home": "Inicio",
     "nav.assistant": "Asistente",
     "nav.posts": "Posts",
@@ -89,6 +89,11 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "editor.meta": "Meta descripción",
     "editor.metaHelp": "Entre 70 y 180 caracteres para SEO.",
     "editor.generateMeta": "✦ Generar con IA",
+    "editor.aiSuggestionEyebrow": "ASISTENCIA IA",
+    "editor.aiSuggestionTitle": "¿Qué quieres conseguir?",
+    "editor.aiSuggestionHelp": "Describe la idea, audiencia o enfoque que debe usar la IA para este campo.",
+    "editor.aiSuggestionPrompt": "Tu indicación",
+    "editor.aiSuggestionPlaceholder": "Ej. Un post práctico para diseñadores que empiezan a usar IA…",
     "editor.metaPlaceholder": "Una descripción clara para buscadores",
     "editor.seoCheck": "Validar SEO",
     "editor.cancel": "Cancelar",
@@ -218,6 +223,9 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "posts.filter.published": "Publicados",
     "posts.noMatches": "No hay posts con estos filtros",
     "posts.clearFilters": "Limpiar filtros",
+    "posts.delete": "Eliminar post",
+    "posts.deleteConfirm": "¿Eliminar este post? Esta acción no se puede deshacer.",
+    "posts.deleted": "Post eliminado correctamente.",
     "calendar.eyebrow": "PLANIFICACIÓN",
     "calendar.title": "Calendario editorial",
     "calendar.description":
@@ -377,6 +385,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "admin.description":
       "Herramientas internas de Escarlet para gestionar sitios, IA y facturación.",
     "admin.workspaceScope": "ESPACIO / AGENCIA",
+    "admin.scopeSwitch": "Ámbito de administración",
     "admin.workspaceScopeHelp": "Usuarios, sitios, conectores, créditos y facturación global del espacio.",
     "admin.siteScope": "SITIO / APP",
     "admin.siteScopeHelp": "Brand kit, referencias y conexión del sitio seleccionado.",
@@ -531,7 +540,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
   },
   en: {
     "app.loading": "Opening Escarlet…",
-    "app.beta": "Beta 0.2.2",
+    "app.beta": "Beta 0.2.3",
     "nav.home": "Home",
     "nav.assistant": "Assistant",
     "nav.posts": "Posts",
@@ -616,6 +625,11 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "editor.meta": "Meta description",
     "editor.metaHelp": "Between 70 and 180 characters for SEO.",
     "editor.generateMeta": "✦ Generate with AI",
+    "editor.aiSuggestionEyebrow": "AI ASSIST",
+    "editor.aiSuggestionTitle": "What should it create?",
+    "editor.aiSuggestionHelp": "Describe the idea, audience or angle the AI should use for this field.",
+    "editor.aiSuggestionPrompt": "Your brief",
+    "editor.aiSuggestionPlaceholder": "E.g. A practical post for designers starting to use AI…",
     "editor.metaPlaceholder": "A clear description for search engines",
     "editor.seoCheck": "Validate SEO",
     "editor.cancel": "Cancel",
@@ -743,6 +757,9 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "posts.filter.published": "Published",
     "posts.noMatches": "No posts match these filters",
     "posts.clearFilters": "Clear filters",
+    "posts.delete": "Delete post",
+    "posts.deleteConfirm": "Delete this post? This action cannot be undone.",
+    "posts.deleted": "Post deleted successfully.",
     "calendar.eyebrow": "PLANNING",
     "calendar.title": "Editorial calendar",
     "calendar.description":
@@ -900,6 +917,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "admin.description":
       "Escarlet internal tools to manage sites, AI and billing.",
     "admin.workspaceScope": "WORKSPACE / AGENCY",
+    "admin.scopeSwitch": "Administration scope",
     "admin.workspaceScopeHelp": "Global workspace users, sites, connectors, credits and billing.",
     "admin.siteScope": "SITE / APP",
     "admin.siteScopeHelp": "Brand kit, references and connection for the selected site.",

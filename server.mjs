@@ -112,7 +112,8 @@ import {
   listSiteAuthors,
   mintAuthorInvite,
   consumeAuthorInvite,
-  assertAuthorAllowed
+  assertAuthorAllowed,
+  canViewOwnedDraft
 } from './lib/human-auth.mjs'
 import {
   notifyRebuild,
@@ -606,6 +607,28 @@ function normalizePostForClient(post) {
 
 function normalizePostsForClient(posts) {
   return (posts || []).map(normalizePostForClient)
+}
+
+function canViewPostForAuth(post, auth, site) {
+  if (!post) return false
+  if (post.status === 'published') return true
+  return canViewOwnedDraft({
+    site,
+    ownerId: post.ownerId || post.createdBy || post.authorId,
+    requesterId: auth?.userId,
+    requesterRole: auth?.role
+  })
+}
+
+function canMutatePostForAuth(post, auth, site) {
+  if (!post) return false
+  if (auth?.role === 'admin' || auth?.role === 'agency_admin') return true
+  return canViewOwnedDraft({
+    site,
+    ownerId: post.ownerId || post.createdBy || post.authorId,
+    requesterId: auth?.userId,
+    requesterRole: auth?.role
+  })
 }
 
 const server = createServer(async (req, res) => {
@@ -1532,7 +1555,18 @@ const server = createServer(async (req, res) => {
       if (!siteConfig) throw Object.assign(new Error('Sitio no encontrado'), { status: 404 })
 
       if (req.method === 'GET' && path === '/api/billing/snapshot') {
-        json(res, 200, getPwaBillingSnapshot(site, { db, siteConfig }))
+        const snapshot = getPwaBillingSnapshot(site, { db, siteConfig })
+        // A client must only see providers that are actually enabled and have a
+        // usable credential. The included model is always available.
+        if (auth.role !== 'admin') {
+          const connectors = new Map(listPublicAiProviderConnectors({ db }).map((item) => [item.provider, item]))
+          snapshot.models = (snapshot.models || []).filter((model) => {
+            if (model.provider === 'included') return true
+            const connector = connectors.get(model.provider)
+            return Boolean(connector?.enabled && connector.apiKeyConfigured)
+          })
+        }
+        json(res, 200, snapshot)
         return
       }
       if (req.method === 'POST' && path === '/api/billing/checkout') {
@@ -1675,12 +1709,27 @@ const server = createServer(async (req, res) => {
       if (!connector.apiKey) throw Object.assign(new Error('Configura una API key de OpenAI para generar imágenes.'), { status: 503 })
       const prompt = assertSafeAiPrompt(body.prompt, { field: 'prompt', maxChars: 4_000 })
       if (!prompt) throw Object.assign(new Error('Falta el prompt de la imagen.'), { status: 400 })
+      // Keep brand files private from the client while still applying the full
+      // visual system to generated imagery. Reference metadata gives the model
+      // the intended motifs even when the image endpoint cannot attach files.
+      const imageBrand = getBrandContext(site, { auth: { role: 'admin' } })
+      const referenceHints = (imageBrand.referenceImages || [])
+        .slice(0, 8)
+        .map((item) => `${item.filename || item.name || 'referencia'}: ${item.alt || ''}`)
+        .join('; ')
+      const enrichedPrompt = assertSafeAiPrompt([
+        prompt,
+        imageBrand.visualStyle ? `Dirección visual del brand kit (interna): ${imageBrand.visualStyle}` : '',
+        imageBrand.imageGuide ? `Guía de imagen interna: ${imageBrand.imageGuide}` : '',
+        referenceHints ? `Referencias visuales disponibles: ${referenceHints}` : '',
+        'Respeta colores, composición, tipografía y nivel de contraste de la marca. No incluyas texto ilegible ni logotipos inventados.'
+      ].filter(Boolean).join('\n\n'), { field: 'prompt', maxChars: 8_000 })
       const response = await fetch('https://api.openai.com/v1/images/generations', {
         method: 'POST',
         headers: { Authorization: `Bearer ${connector.apiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: String(process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1'),
-          prompt,
+          prompt: enrichedPrompt,
           size: '1024x1024',
           quality: 'medium',
           output_format: 'png'
@@ -1706,6 +1755,8 @@ const server = createServer(async (req, res) => {
         alt: body.alt || body.title || prompt,
         kind: 'post'
       })
+      // Never return the internal brand context to the browser; it is only
+      // used while preparing the provider request.
       json(res, 200, { ...result, prompt })
     } catch (error) {
       json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
@@ -2013,6 +2064,7 @@ const server = createServer(async (req, res) => {
       }
       const status = url.searchParams.get('status')
       let posts = db.posts.filter((p) => p.site === site)
+      posts = posts.filter((post) => canViewPostForAuth(post, auth, site))
       if (status) posts = posts.filter((p) => p.status === status)
       json(res, 200, { posts: normalizePostsForClient(posts) })
       return
@@ -2031,6 +2083,10 @@ const server = createServer(async (req, res) => {
       const post = findPost(db, site, slug)
       if (!post) {
         json(res, 404, { message: 'No encontrado' })
+        return
+      }
+      if (!canViewPostForAuth(post, auth, site)) {
+        json(res, 403, { message: 'No tienes acceso a este borrador.' })
         return
       }
       json(res, 200, { post: normalizePostForClient(post) })
@@ -2527,6 +2583,7 @@ const server = createServer(async (req, res) => {
         const result = await cmsCreateDraft({
           ...body,
           site,
+          ownerId: body.ownerId || auth.userId || '',
           skipQuota,
           contentSource: body.contentSource || (auth.role === 'client' ? 'client' : 'agency')
         })
@@ -2544,7 +2601,13 @@ const server = createServer(async (req, res) => {
         const site = siteFrom(auth, body.site || DEFAULT_SITE)
         assertSiteAccess(auth, site)
         assertAuthorAllowed({ site, authorName: body.authorName || body.author, requesterId: auth.userId, requesterRole: auth.role })
-        const result = await cmsUpdatePost({ ...body, site })
+        const dbNow = readDb()
+        const existing = findPost(dbNow, site, body.originalSlug || body.slug)
+        if (existing && !canMutatePostForAuth(existing, auth, site)) {
+          json(res, 403, { message: 'No tienes acceso a editar este borrador.' })
+          return
+        }
+        const result = await cmsUpdatePost({ ...body, site, ownerId: body.ownerId || auth.userId || '' })
         json(res, 200, result)
       } catch (error) {
         const status = error.status || 500
@@ -2562,6 +2625,7 @@ const server = createServer(async (req, res) => {
           url.searchParams.get('from') || '',
           url.searchParams.get('to') || ''
         )
+        result.posts = (result.posts || []).filter((post) => canViewPostForAuth(post, auth, site))
         json(res, 200, result)
       } catch (error) {
         const status = error.status || 500
@@ -2575,6 +2639,11 @@ const server = createServer(async (req, res) => {
       const site = siteFrom(auth, body.site || DEFAULT_SITE)
       try {
         assertSiteAccess(auth, site)
+        const existing = findPost(readDb(), site, body.slug)
+        if (existing && !canMutatePostForAuth(existing, auth, site)) {
+          json(res, 403, { message: 'No tienes acceso a programar este borrador.' })
+          return
+        }
         const result = await cmsSchedulePost(site, body.slug, body.publishAt, { ignoreSeo: Boolean(body.ignoreSeo), direct: Boolean(body.direct) })
         json(res, 200, result)
       } catch (error) {
@@ -2590,6 +2659,11 @@ const server = createServer(async (req, res) => {
       try {
         assertSuperAdmin(auth)
         assertSiteAccess(auth, site)
+        const existing = findPost(readDb(), site, slug)
+        if (existing && !canMutatePostForAuth(existing, auth, site)) {
+          json(res, 403, { message: 'No tienes acceso a publicar este borrador.' })
+          return
+        }
         const result = await cmsConfirmSchedule(site, body.slug)
         json(res, 200, result)
       } catch (error) {
@@ -2696,6 +2770,11 @@ const server = createServer(async (req, res) => {
         const slug = decodeURIComponent(del[1])
         try {
           assertSiteAccess(auth, site)
+          const existing = findPost(readDb(), site, slug)
+          if (existing && !canMutatePostForAuth(existing, auth, site)) {
+            json(res, 403, { message: 'No tienes permiso para eliminar este post.' })
+            return
+          }
           const result = await cmsDeletePost(site, slug)
           json(res, 200, result)
         } catch (error) {

@@ -675,6 +675,9 @@ function Shell() {
       />
       <section className="workspace">
         <header className="mobile-head">
+          <NavLink to="/" className="brand" aria-label="Escarlet CMS">
+            <AppBrand />
+          </NavLink>
           <button
             className="icon-button"
             onClick={() => setOpen(true)}
@@ -682,16 +685,6 @@ function Shell() {
           >
             ☰
           </button>
-          <NavLink to="/" className="brand">
-            <AppBrand />
-          </NavLink>
-          <NavLink
-            className="icon-button"
-            to="/settings"
-            aria-label={t("nav.settings")}
-          >
-            ◌
-          </NavLink>
         </header>
         <Outlet />
       </section>
@@ -1730,6 +1723,49 @@ function ImageGenerationModal({
   );
 }
 
+function AiSuggestionModal({
+  operation,
+  busy,
+  onClose,
+  onGenerate,
+}: {
+  operation: "title" | "summary" | "body" | "meta";
+  busy: boolean;
+  onClose: () => void;
+  onGenerate: (prompt: string) => void;
+}) {
+  const { t } = useI18n();
+  const [prompt, setPrompt] = useState("");
+  const labels: Record<typeof operation, string> = {
+    title: t("editor.title"),
+    summary: t("editor.excerpt"),
+    body: t("editor.content"),
+    meta: t("editor.meta"),
+  };
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+      <section className="modal-card compact-modal" role="dialog" aria-modal="true" aria-labelledby="ai-suggestion-title">
+        <div className="modal-head">
+          <div>
+            <p className="eyebrow">{t("editor.aiSuggestionEyebrow")}</p>
+            <h2 id="ai-suggestion-title">{t("editor.aiSuggestionTitle")} · {labels[operation]}</h2>
+            <p className="muted">{t("editor.aiSuggestionHelp")}</p>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} disabled={busy} aria-label={t("editor.close")}>×</button>
+        </div>
+        <label className="modal-field">
+          {t("editor.aiSuggestionPrompt")}
+          <textarea autoFocus rows={5} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={t("editor.aiSuggestionPlaceholder")} />
+        </label>
+        <div className="form-actions">
+          <button className="ghost" type="button" onClick={onClose} disabled={busy}>{t("editor.close")}</button>
+          <button className="primary" type="button" onClick={() => onGenerate(prompt.trim())} disabled={busy || !prompt.trim()}>{busy ? t("editor.saving") : t("editor.generate")}</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function ManualPost() {
   const nav = useNavigate();
   const { site, session } = useApp();
@@ -1754,6 +1790,7 @@ function ManualPost() {
   const [seoMessage, setSeoMessage] = useState("");
   const [seoValid, setSeoValid] = useState(false);
   const [showImageModal, setShowImageModal] = useState(false);
+  const [aiPromptOperation, setAiPromptOperation] = useState<"title" | "summary" | "body" | "meta" | null>(null);
   const [imageBusy, setImageBusy] = useState(false);
   const [slugEdited, setSlugEdited] = useState(Boolean(editSlug));
   const [draftRecovered, setDraftRecovered] = useState(false);
@@ -1844,18 +1881,17 @@ function ManualPost() {
       title,
       slug: slugEdited ? current.slug : slugify(title),
     }));
-  const generate = async (operation: "title" | "summary" | "body" | "meta") => {
+  const generate = async (operation: "title" | "summary" | "body" | "meta", requestedPrompt = "") => {
     setError("");
     setGenerating(operation);
     try {
-      const prompt =
+      const prompt = requestedPrompt || (
         operation === "meta"
           ? `Escribe una meta descripción SEO de 70 a 180 caracteres para este post. Título: ${draft.title}. Contenido: ${draft.bodyHtml}`
           : operation === "summary"
             ? `Escribe un resumen de una sola frase, claro y atractivo, para el listado del blog. Título: ${draft.title}. Contenido: ${draft.bodyHtml}`
-            : draft.title ||
-              draft.excerptEs ||
-              "Propón contenido para este post";
+            : draft.title || draft.excerptEs || "Propón contenido para este post"
+      );
       const result = await api.aiGenerate({
         site,
         operation: operation === "meta" ? "meta-description" : operation,
@@ -1880,6 +1916,7 @@ function ManualPost() {
       setError(e instanceof Error ? e.message : t("common.error"));
     } finally {
       setGenerating(null);
+      setAiPromptOperation(null);
     }
   };
   const handleUpload = async (file?: File) => {
@@ -2062,7 +2099,7 @@ function ManualPost() {
           <button
             type="button"
             className="inline-ai"
-            onClick={() => void generate("title")}
+            onClick={() => setAiPromptOperation("title")}
             disabled={Boolean(generating)}
           >
             {generating === "title" ? "…" : t("editor.suggestTitle")}
@@ -2091,7 +2128,7 @@ function ManualPost() {
           <button
             type="button"
             className="inline-ai"
-            onClick={() => void generate("summary")}
+            onClick={() => setAiPromptOperation("summary")}
             disabled={Boolean(generating)}
           >
             {generating === "summary" ? "…" : t("editor.generateExcerpt")}
@@ -2159,7 +2196,7 @@ function ManualPost() {
           <button
             type="button"
             className="inline-ai"
-            onClick={() => void generate("body")}
+            onClick={() => setAiPromptOperation("body")}
             disabled={Boolean(generating)}
           >
             {generating === "body" ? "…" : t("editor.writeWithAi")}
@@ -2251,7 +2288,7 @@ function ManualPost() {
           <button
             type="button"
             className="inline-ai"
-            onClick={() => void generate("meta")}
+            onClick={() => setAiPromptOperation("meta")}
             disabled={Boolean(generating)}
           >
             {generating === "meta" ? "…" : t("editor.generateMeta")}
@@ -2294,6 +2331,14 @@ function ManualPost() {
           onClose={() => setShowImageModal(false)}
           onGenerate={(mode, prompt) => void generateImage(mode, prompt)}
           busy={imageBusy}
+        />
+      )}
+      {aiPromptOperation && (
+        <AiSuggestionModal
+          operation={aiPromptOperation}
+          busy={Boolean(generating)}
+          onClose={() => setAiPromptOperation(null)}
+          onGenerate={(prompt) => void generate(aiPromptOperation, prompt)}
         />
       )}
     </main>
@@ -3381,8 +3426,8 @@ function Posts() {
             <Calendar embedded postsOverride={visiblePosts} />
           ) : visiblePosts.length ? (
             <div className="post-list">
-              {visiblePosts.map((post) => (
-                <PostRow key={post.slug} post={post} />
+                {visiblePosts.map((post) => (
+                <PostRow key={post.slug} post={post} onDeleted={(slug) => setPosts((current) => current.filter((item) => item.slug !== slug))} />
               ))}
             </div>
           ) : (
@@ -3406,10 +3451,12 @@ function Posts() {
     </main>
   );
 }
-function PostRow({ post }: { post: Post }) {
+function PostRow({ post, onDeleted }: { post: Post; onDeleted: (slug: string) => void }) {
   const nav = useNavigate();
   const { t, language } = useI18n();
+  const { showToast } = useToast();
   const [imageError, setImageError] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const statusKey = uiStatus(post.status);
   const status = t(`status.${statusKey}`, statusKey);
   const imageSrc = post.imageThumbUrl || post.imageUrl;
@@ -3449,6 +3496,29 @@ function PostRow({ post }: { post: Post }) {
         title={t("preview.socialPack")}
       >
         <MobileSocialIcon />
+      </button>
+      <button
+        className="post-delete-button"
+        type="button"
+        disabled={deleting}
+        onClick={async (event) => {
+          event.stopPropagation();
+          if (!window.confirm(t("posts.deleteConfirm"))) return;
+          setDeleting(true);
+          try {
+            await api.deletePost(post.slug, post.site);
+            onDeleted(post.slug);
+            showToast(t("posts.deleted"));
+          } catch (error) {
+            showToast(error instanceof Error ? error.message : t("common.error"), "error");
+          } finally {
+            setDeleting(false);
+          }
+        }}
+        aria-label={t("posts.delete")}
+        title={t("posts.delete")}
+      >
+        {deleting ? "…" : "⌫"}
       </button>
     </div>
   );
@@ -3639,6 +3709,9 @@ function Settings() {
   const [model, setModel] = useState(
     localStorage.getItem("escarlet_model") || "auto",
   );
+  const [modelOptions, setModelOptions] = useState<Array<{ value: string; label: string }>>([
+    { value: "auto", label: t("settings.modelAuto") },
+  ]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loggingOut, setLoggingOut] = useState(false);
@@ -3648,6 +3721,15 @@ function Settings() {
   const [profileSaving, setProfileSaving] = useState(false);
   const [delegates, setDelegates] = useState<Array<Record<string, any>>>([]);
   const [delegateBusy, setDelegateBusy] = useState("");
+  useEffect(() => {
+    api.billingSnapshot(site).then((snapshot) => {
+      const options = (snapshot.models || [])
+        .map((item: any) => ({ value: String(item.id || ""), label: String(item.name || item.id || "") }))
+        .filter((item: { value: string; label: string }) => item.value && item.label);
+      setModelOptions([{ value: "auto", label: t("settings.modelAuto") }, ...options]);
+      if (model !== "auto" && options.length && !options.some((item: { value: string }) => item.value === model)) setModel("auto");
+    }).catch(() => setModelOptions([{ value: "auto", label: t("settings.modelAuto") }]));
+  }, [site, t]);
   useEffect(() => {
     if (!session.userId) return;
     api.publishingDelegates(site)
@@ -3782,12 +3864,7 @@ function Settings() {
             value={model}
             ariaLabel={t("settings.model")}
             onChange={setModel}
-            options={[
-              { value: "auto", label: t("settings.modelAuto") },
-              { value: "gpt", label: t("settings.modelGpt") },
-              { value: "gemini", label: t("settings.modelGemini") },
-              { value: "grok", label: t("settings.modelGrok") },
-            ]}
+            options={modelOptions}
           />
         </label>
         <p className="tiny">{t("settings.modelHelp")}</p>
@@ -3988,6 +4065,7 @@ function Admin() {
   const { t } = useI18n();
   const { showToast } = useToast();
   const canIssueSiteToken = session.role === "admin";
+  const [adminScope, setAdminScope] = useState<"site" | "global">("site");
   const [sites, setSites] = useState<string[]>([]);
   const [brand, setBrand] = useState("");
   const [brandFiles, setBrandFiles] = useState<string[]>([]);
@@ -4455,7 +4533,7 @@ function Admin() {
     }
   };
   return (
-    <main className="page admin-page">
+    <main className={`page admin-page scope-${adminScope}`}>
       <PageTitle
         eyebrow={t("admin.eyebrow")}
         title={t("admin.title")}
@@ -4465,6 +4543,12 @@ function Admin() {
       {message && (
         <div className={`feedback-banner ${messageKind}`} role="status">
           {message}
+        </div>
+      )}
+      {session.role === "admin" && (
+        <div className="admin-scope-switch" role="tablist" aria-label={t("admin.scopeSwitch")}>
+          <button type="button" role="tab" aria-selected={adminScope === "site"} className={adminScope === "site" ? "selected" : ""} onClick={() => setAdminScope("site")}>{t("admin.siteScope")}</button>
+          <button type="button" role="tab" aria-selected={adminScope === "global"} className={adminScope === "global" ? "selected" : ""} onClick={() => setAdminScope("global")}>{t("admin.workspaceScope")}</button>
         </div>
       )}
       <div className="admin-scope-summary">

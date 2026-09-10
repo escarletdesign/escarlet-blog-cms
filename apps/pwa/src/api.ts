@@ -87,6 +87,11 @@ const baseApi = {
     request<{ post: Post }>(
       `/api/admin/posts/${encodeURIComponent(slug)}${site ? `?site=${encodeURIComponent(site)}` : ""}`,
     ),
+  deletePost: (slug: string, site?: string) =>
+    request<{ deleted: boolean; message?: string }>(
+      `/api/admin/posts/${encodeURIComponent(slug)}${site ? `?site=${encodeURIComponent(site)}` : ""}`,
+      { method: "DELETE" },
+    ),
   createDraft: (post: Partial<Post> & { title: string; site?: string }) =>
     request<{ post: Post }>("/api/admin/posts/create-draft", {
       method: "POST",
