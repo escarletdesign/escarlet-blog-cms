@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
-import { dirname, join, extname, resolve as resolvePath } from 'node:path'
+import { dirname, join, extname, basename, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   readDb,
@@ -1727,17 +1727,49 @@ const server = createServer(async (req, res) => {
         imageReferences ? `Referencias visuales disponibles: ${imageReferences}` : '',
         'Respeta colores, composición, tipografía y nivel de contraste de la marca. No incluyas texto ilegible ni logotipos inventados.'
       ].filter(Boolean).join('\n\n'), { field: 'prompt', maxChars: 8_000 })
-      const response = await fetch('https://api.openai.com/v1/images/generations', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${connector.apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: String(process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1'),
-          prompt: enrichedPrompt,
-          size: '1024x1024',
-          quality: 'medium',
-          output_format: 'png'
+      const imageModel = String(process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1')
+      const referenceFiles = (imageBrand.referenceImages || [])
+        .slice(0, 3)
+        .map((item) => {
+          const filename = basename(String(item?.path || item?.filename || item?.url || ''))
+          if (!filename) return null
+          const filePath = join(mediaDir, site, 'reference', filename)
+          if (!existsSync(filePath)) return null
+          return { filename, filePath, type: extname(filename).toLowerCase() === '.webp' ? 'image/webp' : extname(filename).toLowerCase() === '.jpg' || extname(filename).toLowerCase() === '.jpeg' ? 'image/jpeg' : 'image/png' }
         })
-      })
+        .filter(Boolean)
+      let response
+      if (referenceFiles.length) {
+        // Passing the actual reference bytes through the edits endpoint keeps
+        // the generated cover/carousel assets visually aligned with the kit;
+        // textual hints alone are not enough for image consistency.
+        const form = new FormData()
+        form.append('model', imageModel)
+        form.append('prompt', enrichedPrompt)
+        form.append('size', '1024x1024')
+        form.append('quality', 'medium')
+        form.append('output_format', 'png')
+        for (const reference of referenceFiles) {
+          form.append('image[]', new Blob([readFileSync(reference.filePath)], { type: reference.type }), reference.filename)
+        }
+        response = await fetch('https://api.openai.com/v1/images/edits', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${connector.apiKey}` },
+          body: form
+        })
+      } else {
+        response = await fetch('https://api.openai.com/v1/images/generations', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${connector.apiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: imageModel,
+            prompt: enrichedPrompt,
+            size: '1024x1024',
+            quality: 'medium',
+            output_format: 'png'
+          })
+        })
+      }
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) {
         const reason = payload?.error?.message || 'OpenAI rechazó la generación de imagen.'

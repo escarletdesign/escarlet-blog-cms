@@ -84,6 +84,19 @@ const slugify = (value: string) =>
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "");
+const MAX_EDITOR_TITLE_CHARS = 72;
+const cleanGeneratedTitle = (value: string, max = MAX_EDITOR_TITLE_CHARS) =>
+  String(value || "")
+    .split(/\r?\n/)[0]
+    .replace(/^\s*(?:#+\s*|[-*•]|\d+[.)])\s*/, "")
+    .replace(/^(?:t[ií]tulo sugerido|suggested title|propuesta editorial)\s+para\s+[^:]{1,90}:\s*/i, "")
+    .replace(/^(?:t[ií]tulo(?: sugerido| propuesto)?|suggested title|propuesta editorial)\s*[:\-]\s*/i, "")
+    .replace(/^['"“”]+|['"“”]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max)
+    .replace(/[,:;.!?\-\s]+$/, "")
+    .trim();
 const fileAsBase64 = (file: File) =>
   new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -91,6 +104,45 @@ const fileAsBase64 = (file: File) =>
     reader.onerror = () => reject(reader.error || new Error("No se pudo leer el archivo."));
     reader.readAsDataURL(file);
   });
+
+async function enrichSocialPackWithImages(
+  site: string,
+  post: Post,
+  pack: Record<string, any>,
+) {
+  const plainBody = String(post.bodyHtml || "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const sourceSlides = Array.isArray(pack.instagramSlides) && pack.instagramSlides.length
+    ? pack.instagramSlides
+    : [
+        { headline: post.title, body: post.excerptEs || plainBody.slice(0, 180) },
+        { headline: "La idea clave", body: plainBody.slice(180, 420) || post.excerptEs || post.title },
+        { headline: "Cómo aplicarlo", body: plainBody.slice(420, 660) || post.title },
+        { headline: "Para recordar", body: plainBody.slice(660, 900) || post.excerptEs || post.title },
+      ];
+  const slides = await Promise.all(
+    sourceSlides.slice(0, 4).map(async (slide: any, index: number) => {
+      const headline = cleanGeneratedTitle(String(slide?.headline || slide?.title || post.title), 80) || post.title;
+      const body = String(slide?.body || slide?.text || "").replace(/\s+/g, " ").trim().slice(0, 240);
+      try {
+        const result = await api.generateImage({
+          site,
+          prompt: `Pieza ${index + 1} de un carrusel editorial para Instagram. Tema: ${headline}. Contexto: ${body}. Composición visual clara, sin texto ilegible ni logotipos inventados; aplica las referencias visuales del brand kit del sitio.`,
+          slug: `${post.slug || slugify(post.title)}-carousel-${index + 1}`,
+          title: headline,
+          alt: headline,
+        });
+        const imageUrl = result.media?.url || result.media?.path || slide?.imageUrl || "";
+        return { ...slide, headline, body, imageUrl, alt: slide?.alt || headline };
+      } catch {
+        return { ...slide, headline, body, imageUrl: slide?.imageUrl || "", alt: slide?.alt || headline };
+      }
+    }),
+  );
+  return { ...pack, instagramSlides: slides };
+}
 
 function ChoicePills({
   value,
@@ -676,17 +728,34 @@ function Shell() {
       <section className="workspace">
         <header className="mobile-head">
           <NavLink to="/" className="brand" aria-label="Escarlet CMS">
-            <AppBrand />
+            <img className="brand-icon" src="/app/icon.png" alt="" />
           </NavLink>
-          <button
-            className="icon-button"
-            onClick={() => setOpen(true)}
-            aria-label={t("nav.open")}
-          >
-            ☰
-          </button>
+          <span className="mobile-version">{t("app.beta")}</span>
         </header>
         <Outlet />
+        <nav className="mobile-bottom-nav" aria-label={t("nav.mobile") || t("nav.open")}>
+          {links.map((link) => (
+            <NavLink
+              key={link.to}
+              to={link.to}
+              end={link.to === "/"}
+              className={({ isActive }) => `mobile-bottom-link ${isActive ? "active" : ""}`}
+            >
+              <NavIcon kind={link.icon} />
+              <span>{link.label}</span>
+            </NavLink>
+          ))}
+          <button
+            type="button"
+            className={`mobile-menu-toggle ${open ? "open" : ""}`}
+            onClick={() => setOpen((value) => !value)}
+            aria-label={open ? t("nav.close") : t("nav.open")}
+            aria-expanded={open}
+          >
+            <span className="hamburger-lines" aria-hidden="true"><i /><i /><i /></span>
+            <span>{t("nav.menu") || t("nav.open")}</span>
+          </button>
+        </nav>
       </section>
     </div>
   );
@@ -1115,13 +1184,8 @@ function Chat() {
             prompt: `Crea un título breve (máximo 60 caracteres) para esta conversación editorial. Devuelve solo el título, sin comillas ni explicación. Idea del usuario: ${brief}`,
             model: localStorage.getItem("escarlet_model") || undefined,
           });
-          const generatedTitle = String(titleResult.content || "")
-            .split(/\r?\n/)[0]
-            .replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "")
-            .replace(/^['"“”]+|['"“”]+$/g, "")
-            .trim()
-            .slice(0, 120);
-          if (generatedTitle && !/^título sugerido/i.test(generatedTitle)) setConversationTitle(generatedTitle);
+          const generatedTitle = cleanGeneratedTitle(String(titleResult.content || ""));
+          if (generatedTitle && !/^(t[ií]tulo sugerido|suggested title|propuesta editorial)/i.test(generatedTitle)) setConversationTitle(generatedTitle);
         } catch {
           // El texto de la conversación sigue disponible aunque el título no pueda generarse.
         }
@@ -1148,23 +1212,17 @@ function Chat() {
     try {
       const assistantText = [...messages].reverse().find((message) => message.role === "assistant" && message.text.trim())?.text || "";
       const prompt = `Convierte esta conversación en un artículo completo y útil. Idea inicial: ${lastBrief}\nRespuesta editorial del asistente: ${assistantText}`;
-      const cleanTitle = (value: string) => value
-        .split(/\r?\n/)[0]
-        .replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "")
-        .replace(/^['"“”]+|['"“”]+$/g, "")
-        .trim()
-        .slice(0, 72);
       const titleResult = await api.aiGenerate({
         site,
         operation: "title",
         prompt: `${prompt}\nDevuelve únicamente un título concreto, fiel al tema de la conversación, de máximo 72 caracteres. No uses etiquetas como «Título sugerido», no inventes otro tema y no añadas explicación.`,
         model: localStorage.getItem("escarlet_model") || undefined,
       });
-      const generatedTitle = cleanTitle(String(titleResult.content || ""));
-      const fallbackTitle = cleanTitle(conversationTitle && conversationTitle !== t("chat.newConversation") ? conversationTitle : lastBrief);
+      const generatedTitle = cleanGeneratedTitle(String(titleResult.content || ""));
+      const fallbackTitle = cleanGeneratedTitle(conversationTitle && conversationTitle !== t("chat.newConversation") ? conversationTitle : lastBrief);
       const title = /^(t[ií]tulo sugerido|suggested title|propuesta editorial|borrador sugerido)/i.test(generatedTitle)
-        ? (fallbackTitle || cleanTitle(lastBrief))
-        : (generatedTitle || fallbackTitle || cleanTitle(lastBrief));
+        ? (fallbackTitle || cleanGeneratedTitle(lastBrief))
+        : (generatedTitle || fallbackTitle || cleanGeneratedTitle(lastBrief));
       const bodyResult = await api.aiGenerate({
         site,
         operation: "body",
@@ -1709,6 +1767,7 @@ function ImageGenerationModal({
           <label className="modal-field image-prompt-field">
             {t("editor.imagePrompt")}
             <textarea
+              autoFocus
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               rows={4}
@@ -1892,8 +1951,8 @@ function ManualPost() {
   const updateTitle = (title: string) =>
     setDraft((current) => ({
       ...current,
-      title,
-      slug: slugEdited ? current.slug : slugify(title),
+      title: title.slice(0, MAX_EDITOR_TITLE_CHARS),
+      slug: slugEdited ? current.slug : slugify(title.slice(0, MAX_EDITOR_TITLE_CHARS)),
     }));
   const generate = async (operation: "title" | "summary" | "body" | "meta", requestedPrompt = "") => {
     setError("");
@@ -1913,7 +1972,11 @@ function ManualPost() {
         post: draft,
         model: localStorage.getItem("escarlet_model") || undefined,
       });
-      if (operation === "title") updateTitle(result.content || "");
+      if (operation === "title") {
+        const title = cleanGeneratedTitle(result.content || "");
+        if (!title) throw new Error(t("editor.titleRequired"));
+        updateTitle(title);
+      }
       else if (operation === "summary")
         update("excerptEs", (result.content || "").slice(0, 220));
       else if (operation === "body")
@@ -2079,11 +2142,7 @@ function ManualPost() {
     <main className="page form-page">
       <PageTitle
         eyebrow={t("editor.eyebrow")}
-        title={
-          editSlug
-            ? `${t("editor.title")} · ${draft.title || t("common.loading")}`
-            : t("editor.title")
-        }
+        title={t("editor.title")}
         description={t("editor.description")}
         back
       />
@@ -2120,6 +2179,7 @@ function ManualPost() {
           </button>
           <input
             required
+            maxLength={MAX_EDITOR_TITLE_CHARS}
             value={draft.title}
             onChange={(e) => updateTitle(e.target.value)}
             placeholder={t("editor.titlePlaceholder")}
@@ -2680,7 +2740,7 @@ function PublishSocial() {
   const { t } = useI18n();
   const { showToast } = useToast();
   const [post, setPost] = useState<Post | null>(null);
-  const [socialPack, setSocialPack] = useState<Record<string, string> | null>(
+  const [socialPack, setSocialPack] = useState<Record<string, any> | null>(
     null,
   );
   const [message, setMessage] = useState("");
@@ -2715,6 +2775,7 @@ function PublishSocial() {
             : value,
         ]),
       );
+      const completePack = await enrichSocialPackWithImages(site, post, generated);
       const saved = await api.updatePost({
         ...post,
         site,
@@ -2722,10 +2783,10 @@ function PublishSocial() {
         slug: post.slug,
         direct: true,
         keepPublished: post.status === "published",
-        socialPack: generated,
+        socialPack: completePack,
       });
       setPost(saved.post);
-      setSocialPack(generated);
+      setSocialPack(completePack);
       setMessage(result.content || t("publish.ready"));
     } catch (e) {
       setMessage(e instanceof Error ? e.message : t("common.error"));
@@ -2767,7 +2828,7 @@ function PublishSocial() {
           </button>
           {socialPack && (
             <div className="social-output">
-              {Object.entries(socialPack).map(([channel, text]) => (
+              {Object.entries(socialPack).filter(([, text]) => typeof text === "string").map(([channel, text]) => (
                 <article key={channel}>
                   <b>{channel}</b>
                   <p>{text}</p>
@@ -2863,6 +2924,7 @@ function SocialPack() {
           typeof value === "string" ? withCanonical(value) : value,
         ]),
       );
+      const completePack = await enrichSocialPackWithImages(site, post, generated);
       const saved = await api.updatePost({
         ...post,
         site,
@@ -2870,10 +2932,10 @@ function SocialPack() {
         slug: post.slug,
         direct: true,
         keepPublished: post.status === "published",
-        socialPack: generated,
+        socialPack: completePack,
       });
       setPost(saved.post);
-      setSocialPack(generated);
+      setSocialPack(completePack);
       setMessage(t("publish.ready"));
       showToast(t("publish.ready"));
     } catch (e) {
@@ -3090,12 +3152,6 @@ function SocialPack() {
               <article className="card social-channel-card video-script-card">
                 <div className="social-channel-head">
                   <h2>{t("social.video")}</h2>
-                  <button
-                    className="secondary"
-                    onClick={() => setShowTeleprompter(true)}
-                  >
-                    {t("social.record")}
-                  </button>
                 </div>
                 <p>{socialPack.videoScript}</p>
               </article>
@@ -3149,7 +3205,7 @@ function TeleprompterModal({
   const [playing, setPlaying] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const [currentParagraph, setCurrentParagraph] = useState(0);
-  const [speed, setSpeed] = useState(1);
+  const speed = 1;
   const [videoUrl, setVideoUrl] = useState("");
   const [error, setError] = useState("");
   useEffect(() => {
@@ -3302,17 +3358,6 @@ function TeleprompterModal({
           >
             {t("social.nextParagraph")}
           </button>
-          <div className="teleprompter-speed">
-            <ChoicePills
-              value={String(speed)}
-              ariaLabel={t("social.speed")}
-              onChange={(value) => setSpeed(Number(value))}
-              options={["0.5", "1", "1.5", "2"].map((value) => ({
-                value,
-                label: `${value}×`,
-              }))}
-            />
-          </div>
           {videoUrl && (
             <a
               className="secondary"
@@ -3441,7 +3486,7 @@ function Posts() {
           ) : visiblePosts.length ? (
             <div className="post-list">
                 {visiblePosts.map((post) => (
-                <PostRow key={post.slug} post={post} onDeleted={(slug) => setPosts((current) => current.filter((item) => item.slug !== slug))} />
+                <PostRow key={post.slug || (post as any).id} post={post} onDeleted={(slug) => setPosts((current) => current.filter((item) => String(item.slug || (item as any).id || "") !== slug))} />
               ))}
             </div>
           ) : (
@@ -3465,7 +3510,7 @@ function Posts() {
     </main>
   );
 }
-function PostRow({ post, onDeleted }: { post: Post; onDeleted: (slug: string) => void }) {
+function PostRow({ post, onDeleted }: { post: Post; onDeleted?: (slug: string) => void }) {
   const nav = useNavigate();
   const { t, language } = useI18n();
   const { showToast } = useToast();
@@ -3474,11 +3519,12 @@ function PostRow({ post, onDeleted }: { post: Post; onDeleted: (slug: string) =>
   const statusKey = uiStatus(post.status);
   const status = t(`status.${statusKey}`, statusKey);
   const imageSrc = post.imageThumbUrl || post.imageUrl;
+  const postSlug = String(post.slug || (post as any).id || "").trim();
   return (
     <div className="post-row">
       <button
         className="post-row-main"
-        onClick={() => nav(`/preview/${encodeURIComponent(post.slug)}`)}
+        onClick={() => postSlug && nav(`/preview/${encodeURIComponent(postSlug)}`)}
       >
         {imageSrc && !imageError ? (
           <img
@@ -3505,7 +3551,7 @@ function PostRow({ post, onDeleted }: { post: Post; onDeleted: (slug: string) =>
       <button
         className="post-pack-button"
         type="button"
-        onClick={() => nav(`/social-pack/${encodeURIComponent(post.slug)}`)}
+        onClick={() => postSlug && nav(`/social-pack/${encodeURIComponent(postSlug)}`)}
         aria-label={t("preview.socialPack")}
         title={t("preview.socialPack")}
       >
@@ -3518,10 +3564,14 @@ function PostRow({ post, onDeleted }: { post: Post; onDeleted: (slug: string) =>
         onClick={async (event) => {
           event.stopPropagation();
           if (!window.confirm(t("posts.deleteConfirm"))) return;
+          if (!postSlug) {
+            showToast(t("posts.deleteUnavailable"), "error");
+            return;
+          }
           setDeleting(true);
           try {
-            await api.deletePost(post.slug, post.site);
-            onDeleted(post.slug);
+            await api.deletePost(postSlug, post.site);
+            onDeleted?.(postSlug);
             showToast(t("posts.deleted"));
           } catch (error) {
             showToast(error instanceof Error ? error.message : t("common.error"), "error");
@@ -3640,7 +3690,7 @@ function Calendar({ embedded = false, postsOverride }: { embedded?: boolean; pos
           {Object.entries(grouped).map(([date, rows]) => (
             <section key={date}>
               <h2>{readableDate(date, language)}</h2>
-              {rows.map((post) => <PostRow key={post.slug} post={post} />)}
+              {rows.map((post) => <PostRow key={post.slug || (post as any).id} post={post} />)}
             </section>
           ))}
         </div>
@@ -3659,7 +3709,7 @@ function Calendar({ embedded = false, postsOverride }: { embedded?: boolean; pos
                 <div key={dayKey(date)} className={`calendar-day ${inMonth ? "" : "outside"} ${rows.length ? "has-posts" : ""}`}>
                   <span>{date.getDate()}</span>
                   {rows.slice(0, 2).map((post) => (
-                    <button key={post.slug} type="button" className="calendar-day-post" onClick={() => nav(`/preview/${encodeURIComponent(post.slug)}`)} title={post.title}>{post.title}</button>
+                    <button key={post.slug || (post as any).id} type="button" className="calendar-day-post" onClick={() => post.slug && nav(`/preview/${encodeURIComponent(post.slug)}`)} title={post.title}>{post.title}</button>
                   ))}
                   {rows.length > 2 && <small>+{rows.length - 2}</small>}
                 </div>
