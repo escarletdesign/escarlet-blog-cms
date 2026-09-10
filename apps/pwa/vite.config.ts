@@ -23,8 +23,7 @@ export default defineConfig({
         start_url: '/app/',
         scope: '/app/',
         icons: [
-          { src: '/app/favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' },
-          { src: '/app/icon.png', sizes: '512x512', type: 'image/png', purpose: 'any' }
+          { src: '/app/icon.png?v=2', sizes: '512x512', type: 'image/png', purpose: 'any' }
         ]
       },
       workbox: {

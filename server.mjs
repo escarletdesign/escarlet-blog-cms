@@ -1087,6 +1087,16 @@ const server = createServer(async (req, res) => {
     return
   }
 
+  if (req.method === 'POST' && path === '/api/logout') {
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'Set-Cookie': 'escarlet_cms=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Lax'
+    })
+    res.end(JSON.stringify({ ok: true }))
+    return
+  }
+
   if (isProductRestructureV1() && req.method === 'GET' && path === '/api/auth/status') {
     json(res, 200, {
       passwordAuth: isPasswordAuthEnabled(),

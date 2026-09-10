@@ -3624,6 +3624,7 @@ function Admin() {
   const { site, session } = useApp();
   const { t } = useI18n();
   const { showToast } = useToast();
+  const canIssueSiteToken = session.role === "admin";
   const [sites, setSites] = useState<string[]>([]);
   const [brand, setBrand] = useState("");
   const [brandFiles, setBrandFiles] = useState<string[]>([]);
@@ -4345,7 +4346,7 @@ function Admin() {
                 <button className="ghost" type="button" disabled={siteSaving} onClick={() => void testSite()}>{t("admin.testRebuild")}</button>
                 <button className="primary" disabled={siteSaving}>{siteSaving ? t("admin.saving") : t("admin.save")}</button>
               </div>
-              {session.role === "admin" && (
+              {canIssueSiteToken && (
                 <div className="site-token-box">
                   <div>
                     <strong>{t("admin.siteToken")}</strong>
