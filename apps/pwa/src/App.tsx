@@ -384,13 +384,16 @@ function Login({ onLogin }: { onLogin: () => Promise<void> }) {
         <form className="login-token-form" onSubmit={submit}>
           <label>
             {t("login.token")}
-            <input
-              required
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              placeholder={t("login.tokenPlaceholder")}
-              autoComplete="off"
-            />
+            <div className="token-input-wrap">
+              <span aria-hidden="true">⌁</span>
+              <input
+                required
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder={t("login.tokenPlaceholder")}
+                autoComplete="off"
+              />
+            </div>
           </label>
           {tokenError && <p className="error">{tokenError}</p>}
           <button className="primary" disabled={submitting}>
