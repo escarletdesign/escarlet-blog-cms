@@ -1717,11 +1717,14 @@ const server = createServer(async (req, res) => {
         .slice(0, 8)
         .map((item) => `${item.filename || item.name || 'referencia'}: ${item.alt || ''}`)
         .join('; ')
+      const imageStyle = String(imageBrand.visualStyle || '').slice(0, 1_300)
+      const imageGuide = String(imageBrand.imageGuide || '').slice(0, 1_300)
+      const imageReferences = referenceHints.slice(0, 800)
       const enrichedPrompt = assertSafeAiPrompt([
         prompt,
-        imageBrand.visualStyle ? `Dirección visual del brand kit (interna): ${imageBrand.visualStyle}` : '',
-        imageBrand.imageGuide ? `Guía de imagen interna: ${imageBrand.imageGuide}` : '',
-        referenceHints ? `Referencias visuales disponibles: ${referenceHints}` : '',
+        imageStyle ? `Dirección visual del brand kit (interna): ${imageStyle}` : '',
+        imageGuide ? `Guía de imagen interna: ${imageGuide}` : '',
+        imageReferences ? `Referencias visuales disponibles: ${imageReferences}` : '',
         'Respeta colores, composición, tipografía y nivel de contraste de la marca. No incluyas texto ilegible ni logotipos inventados.'
       ].filter(Boolean).join('\n\n'), { field: 'prompt', maxChars: 8_000 })
       const response = await fetch('https://api.openai.com/v1/images/generations', {

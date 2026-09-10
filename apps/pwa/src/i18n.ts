@@ -3,7 +3,7 @@ export type Language = "es" | "en";
 const dictionaries: Record<Language, Record<string, string>> = {
   es: {
     "app.loading": "Abriendo Escarlet…",
-    "app.beta": "Beta 0.2.3",
+    "app.beta": "Beta 0.2.4",
     "nav.home": "Inicio",
     "nav.assistant": "Asistente",
     "nav.posts": "Posts",
@@ -118,6 +118,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "editor.imagePromptPlaceholder":
       "Ej. una profesional trabajando con cerámica, luz natural y fondo crema",
     "editor.generate": "Generar imagen",
+    "editor.generateContent": "Generar contenido",
     "editor.close": "Cerrar",
     "editor.linkTitle": "Añadir enlace",
     "editor.linkDescription":
@@ -540,7 +541,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
   },
   en: {
     "app.loading": "Opening Escarlet…",
-    "app.beta": "Beta 0.2.3",
+    "app.beta": "Beta 0.2.4",
     "nav.home": "Home",
     "nav.assistant": "Assistant",
     "nav.posts": "Posts",
@@ -654,6 +655,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "editor.imagePromptPlaceholder":
       "E.g. a professional working with ceramics, natural light and a cream background",
     "editor.generate": "Generate image",
+    "editor.generateContent": "Generate content",
     "editor.close": "Close",
     "editor.linkTitle": "Add link",
     "editor.linkDescription": "Paste the URL to link from the selected text.",

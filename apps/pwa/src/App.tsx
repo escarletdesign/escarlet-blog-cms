@@ -1147,27 +1147,41 @@ function Chat() {
     setCreating(true);
     try {
       const assistantText = [...messages].reverse().find((message) => message.role === "assistant" && message.text.trim())?.text || "";
-      const title = (conversationTitle && conversationTitle !== t("chat.newConversation") ? conversationTitle : lastBrief)
+      const prompt = `Convierte esta conversación en un artículo completo y útil. Idea inicial: ${lastBrief}\nRespuesta editorial del asistente: ${assistantText}`;
+      const cleanTitle = (value: string) => value
+        .split(/\r?\n/)[0]
         .replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "")
+        .replace(/^['"“”]+|['"“”]+$/g, "")
         .trim()
         .slice(0, 72);
-      const prompt = `Convierte esta conversación en un artículo completo y útil. Idea inicial: ${lastBrief}\nRespuesta editorial del asistente: ${assistantText}`;
+      const titleResult = await api.aiGenerate({
+        site,
+        operation: "title",
+        prompt: `${prompt}\nDevuelve únicamente un título concreto, fiel al tema de la conversación, de máximo 72 caracteres. No uses etiquetas como «Título sugerido», no inventes otro tema y no añadas explicación.`,
+        model: localStorage.getItem("escarlet_model") || undefined,
+      });
+      const generatedTitle = cleanTitle(String(titleResult.content || ""));
+      const fallbackTitle = cleanTitle(conversationTitle && conversationTitle !== t("chat.newConversation") ? conversationTitle : lastBrief);
+      const title = /^(t[ií]tulo sugerido|suggested title|propuesta editorial|borrador sugerido)/i.test(generatedTitle)
+        ? (fallbackTitle || cleanTitle(lastBrief))
+        : (generatedTitle || fallbackTitle || cleanTitle(lastBrief));
       const bodyResult = await api.aiGenerate({
         site,
         operation: "body",
-        prompt: `${prompt}\nDevuelve el cuerpo en Markdown, con subtítulos y varios párrafos. No incluyas comentarios sobre el proceso.`,
+        prompt: `${prompt}\nEl título definitivo es: ${title}\nDevuelve el cuerpo en Markdown, con subtítulos y varios párrafos. Mantén exactamente el tema y no incluyas comentarios sobre el proceso.`,
         model: localStorage.getItem("escarlet_model") || undefined,
       });
+      const bodyContent = String(bodyResult.content || assistantText || `<p>${lastBrief}</p>`).trim();
       const summaryResult = await api.aiGenerate({
         site,
         operation: "summary",
-        prompt: `${prompt}\nDevuelve un extracto de 1 o 2 frases para el listado.`,
+        prompt: `Título: ${title}\nCuerpo del artículo:\n${bodyContent}\nDevuelve un resumen fiel de 1 o 2 frases para el listado. No inventes información ni cambies el tema.`,
         model: localStorage.getItem("escarlet_model") || undefined,
       });
       const metaResult = await api.aiGenerate({
         site,
         operation: "meta-description",
-        prompt: `${prompt}\nDevuelve una meta descripción SEO de máximo 155 caracteres.`,
+        prompt: `Título: ${title}\nResumen: ${String(summaryResult.content || "").trim()}\nCuerpo:\n${bodyContent}\nDevuelve una meta descripción SEO fiel de máximo 155 caracteres.`,
         model: localStorage.getItem("escarlet_model") || undefined,
       });
       const result = await api.createDraft({
@@ -1176,7 +1190,7 @@ function Chat() {
         slug: slugify(title),
         contentSource: "client",
       });
-      const bodyHtml = String(bodyResult.content || assistantText || `<p>${lastBrief}</p>`).trim();
+      const bodyHtml = bodyContent;
       const excerptEs = String(summaryResult.content || lastBrief).trim().slice(0, 500);
       const metaDescriptionEs = String(metaResult.content || excerptEs).replace(/^['"“”]+|['"“”]+$/g, "").trim().slice(0, 180);
       await api.updatePost({
@@ -1759,7 +1773,7 @@ function AiSuggestionModal({
         </label>
         <div className="form-actions">
           <button className="ghost" type="button" onClick={onClose} disabled={busy}>{t("editor.close")}</button>
-          <button className="primary" type="button" onClick={() => onGenerate(prompt.trim())} disabled={busy || !prompt.trim()}>{busy ? t("editor.saving") : t("editor.generate")}</button>
+          <button className="primary" type="button" onClick={() => onGenerate(prompt.trim())} disabled={busy || !prompt.trim()}>{busy ? t("editor.saving") : t("editor.generateContent")}</button>
         </div>
       </section>
     </div>
