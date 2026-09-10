@@ -594,10 +594,9 @@ function Shell() {
   const location = useLocation();
   useEffect(() => setOpen(false), [location.pathname]);
   const links = [
-    { to: "/", label: t("nav.home"), icon: "⌂" },
-    { to: "/chat", label: t("nav.assistant"), icon: "✦" },
-    { to: "/posts", label: t("nav.posts"), icon: "▤" },
-    { to: "/calendar", label: t("nav.calendar"), icon: "□" },
+    { to: "/", label: t("nav.home"), icon: "home" },
+    { to: "/chat", label: t("nav.assistant"), icon: "assistant" },
+    { to: "/posts", label: t("nav.posts"), icon: "posts" },
   ];
   return (
     <div className="app-shell">
@@ -639,13 +638,13 @@ function Shell() {
               end={link.to === "/"}
               className="nav-link"
             >
-              <i>{link.icon}</i>
+              <NavIcon kind={link.icon} />
               {link.label}
             </NavLink>
           ))}
           {isAdmin(session.role) && (
             <NavLink to="/admin" className="nav-link">
-              <i>⚙</i>
+              <NavIcon kind="admin" />
               {t("nav.admin")}
             </NavLink>
           )}
@@ -694,6 +693,29 @@ function Shell() {
   );
 }
 
+function NavIcon({ kind }: { kind: string }) {
+  if (kind === "posts") {
+    return (
+      <svg className="nav-icon" viewBox="0 0 20 20" aria-hidden="true">
+        <rect x="3" y="3" width="14" height="14" rx="2" />
+        <path d="M6.5 7.2h7M6.5 10h7M6.5 12.8h4.2" />
+      </svg>
+    );
+  }
+  if (kind === "home") {
+    return (
+      <svg className="nav-icon" viewBox="0 0 20 20" aria-hidden="true">
+        <path d="m3.5 9 6.5-5 6.5 5v6.2a1.3 1.3 0 0 1-1.3 1.3H4.8a1.3 1.3 0 0 1-1.3-1.3Z" />
+        <path d="M8 16.5v-4h4v4" />
+      </svg>
+    );
+  }
+  if (kind === "admin") {
+    return <span className="nav-icon nav-icon-glyph" aria-hidden="true">⚙</span>;
+  }
+  return <span className="nav-icon nav-icon-glyph" aria-hidden="true">✦</span>;
+}
+
 function CreditIndicator({ site }: { site: string }) {
   const { t, language } = useI18n();
   const [snapshot, setSnapshot] = useState<Record<string, any> | null>(null);
@@ -703,13 +725,13 @@ function CreditIndicator({ site }: { site: string }) {
     return () => { active = false; };
   }, [site]);
   const available = Number(snapshot?.ai?.available);
-  if (!snapshot || !Number.isFinite(available)) return null;
+  const hasCredits = Number.isFinite(available);
   return (
     <NavLink className="credit-indicator" to="/billing" title={t("billing.available")}>
       <span>✦</span>
       <span>
-        <b>{available.toLocaleString(language === "en" ? "en-GB" : "es-ES")}</b>
-        <small>{t("billing.creditsLeft")}</small>
+        <b>{hasCredits ? available.toLocaleString(language === "en" ? "en-GB" : "es-ES") : "—"}</b>
+        <small>{hasCredits ? t("billing.creditsLeft") : t("billing.creditsLoading")}</small>
       </span>
     </NavLink>
   );
@@ -747,7 +769,7 @@ function Home() {
         </div>
         <RecentPosts />
         <div className="quick-actions">
-          <button onClick={() => nav("/calendar")}>{t("home.calendar")}</button>
+          <button onClick={() => nav("/posts?status=scheduled&view=month")}>{t("home.calendar")}</button>
           {isAdmin(session.role) && (
             <button onClick={() => nav("/admin")}>{t("home.openAdmin")}</button>
           )}
@@ -2952,10 +2974,20 @@ function TeleprompterModal({
 function Posts() {
   const { site } = useApp();
   const { t } = useI18n();
+  const location = useLocation();
   const [posts, setPosts] = useState<Post[]>([]);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [scheduledView, setScheduledView] = useState<"list" | "month">("list");
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const requestedFilter = params.get("status");
+    if (requestedFilter && ["all", "draft", "scheduled", "published"].includes(requestedFilter)) {
+      setStatusFilter(requestedFilter);
+    }
+    if (params.get("view") === "month") setScheduledView("month");
+  }, [location.search]);
   const nav = useNavigate();
   useEffect(() => {
     api
@@ -3021,7 +3053,10 @@ function Posts() {
                     key={filter}
                     type="button"
                     className={`filter-pill ${statusFilter === filter ? "selected" : ""}`}
-                    onClick={() => setStatusFilter(filter)}
+                    onClick={() => {
+                      setStatusFilter(filter);
+                      if (filter !== "scheduled") setScheduledView("list");
+                    }}
                   >
                     {t(`posts.filter.${filter}`)}
                   </button>
@@ -3029,7 +3064,23 @@ function Posts() {
               )}
             </div>
           </div>
-          {visiblePosts.length ? (
+          {statusFilter === "scheduled" && (
+            <div className="posts-view-toolbar">
+              <span>{t("calendar.onlyScheduled")}</span>
+              <button
+                type="button"
+                className="icon-button calendar-view-toggle"
+                onClick={() => setScheduledView((current) => current === "list" ? "month" : "list")}
+                aria-label={t(scheduledView === "list" ? "calendar.monthView" : "calendar.listView")}
+                title={t(scheduledView === "list" ? "calendar.monthView" : "calendar.listView")}
+              >
+                {scheduledView === "list" ? "▦" : "☷"}
+              </button>
+            </div>
+          )}
+          {statusFilter === "scheduled" && scheduledView === "month" ? (
+            <Calendar embedded postsOverride={visiblePosts} />
+          ) : visiblePosts.length ? (
             <div className="post-list">
               {visiblePosts.map((post) => (
                 <PostRow key={post.slug} post={post} />
@@ -3104,21 +3155,26 @@ function PostRow({ post }: { post: Post }) {
   );
 }
 
-function Calendar() {
+function Calendar({ embedded = false, postsOverride }: { embedded?: boolean; postsOverride?: Post[] }) {
   const { site } = useApp();
   const { t, language } = useI18n();
   const nav = useNavigate();
   const [posts, setPosts] = useState<Post[]>([]);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
-  const [view, setView] = useState<"list" | "month">("list");
+  const [view, setView] = useState<"list" | "month">(embedded ? "month" : "list");
   const [monthCursor, setMonthCursor] = useState(() => new Date());
   useEffect(() => {
+    if (postsOverride) {
+      setPosts(postsOverride);
+      setError("");
+      return;
+    }
     api
       .calendar(site)
       .then((r) => setPosts(r.posts || []))
       .catch((e) => setError(e.message));
-  }, [site, retry]);
+  }, [site, retry, postsOverride]);
   const scheduledPosts = useMemo(
     () => posts
       .filter((post) => ["pending_schedule", "scheduled"].includes(post.status) && Boolean(post.publishAt))
@@ -3159,13 +3215,13 @@ function Calendar() {
     ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     : ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
   return (
-    <main className="page">
-      <PageTitle
-        eyebrow={t("calendar.eyebrow")}
-        title={t("calendar.title")}
-        description={t("calendar.description")}
-        back
-      />
+    <main className={`page ${embedded ? "calendar-embedded" : ""}`}>
+      {!embedded && <PageTitle
+          eyebrow={t("calendar.eyebrow")}
+          title={t("calendar.title")}
+          description={t("calendar.description")}
+          back
+        />}
       {error && (
         <section className="calendar-error card">
           <span className="calendar-error-icon">□</span>
@@ -3184,18 +3240,18 @@ function Calendar() {
           </div>
         </section>
       )}
-      <div className="calendar-toolbar">
-        <p className="tiny">{t("calendar.onlyScheduled")}</p>
-        <button
-          type="button"
-          className="icon-button calendar-view-toggle"
-          onClick={() => setView((current) => current === "list" ? "month" : "list")}
-          aria-label={t(view === "list" ? "calendar.monthView" : "calendar.listView")}
-          title={t(view === "list" ? "calendar.monthView" : "calendar.listView")}
-        >
-          {view === "list" ? "▦" : "☷"}
-        </button>
-      </div>
+      {!embedded && <div className="calendar-toolbar">
+          <p className="tiny">{t("calendar.onlyScheduled")}</p>
+          <button
+            type="button"
+            className="icon-button calendar-view-toggle"
+            onClick={() => setView((current) => current === "list" ? "month" : "list")}
+            aria-label={t(view === "list" ? "calendar.monthView" : "calendar.listView")}
+            title={t(view === "list" ? "calendar.monthView" : "calendar.listView")}
+          >
+            {view === "list" ? "▦" : "☷"}
+          </button>
+        </div>}
       {scheduledPosts.length ? (view === "list" ? (
         <div className="calendar-list">
           {Object.entries(grouped).map(([date, rows]) => (
