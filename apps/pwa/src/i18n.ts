@@ -3,7 +3,7 @@ export type Language = "es" | "en";
 const dictionaries: Record<Language, Record<string, string>> = {
   es: {
     "app.loading": "Abriendo Escarlet…",
-    "app.beta": "Beta 0.2.6",
+    "app.beta": "Beta 0.2.7",
     "nav.home": "Inicio",
     "nav.assistant": "Asistente",
     "nav.posts": "Posts",
@@ -339,6 +339,10 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "social.carouselTitle": "Piezas listas para publicar",
     "social.carouselEmpty": "Genera el pack o añade slides para ver aquí tu carrusel.",
     "social.slide": "Slide",
+    "social.previousSlide": "Slide anterior",
+    "social.nextSlide": "Siguiente slide",
+    "social.downloadSlide": "Descargar slide",
+    "social.slideDownloaded": "Slide descargada.",
     "social.recordTitle": "Graba el vídeo con guía",
     "social.recordHelp":
       "Lee el guion mientras grabas; la cámara y el teleprompter están en el mismo espacio.",
@@ -545,7 +549,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
   },
   en: {
     "app.loading": "Opening Escarlet…",
-    "app.beta": "Beta 0.2.6",
+    "app.beta": "Beta 0.2.7",
     "nav.home": "Home",
     "nav.assistant": "Assistant",
     "nav.posts": "Posts",
@@ -877,6 +881,10 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "social.carouselTitle": "Ready-to-publish slides",
     "social.carouselEmpty": "Generate the pack or add slides to see your carousel here.",
     "social.slide": "Slide",
+    "social.previousSlide": "Previous slide",
+    "social.nextSlide": "Next slide",
+    "social.downloadSlide": "Download slide",
+    "social.slideDownloaded": "Slide downloaded.",
     "social.recordTitle": "Record with a guide",
     "social.recordHelp":
       "Read the script while you record; the camera and teleprompter live in the same space.",

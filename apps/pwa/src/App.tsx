@@ -2890,6 +2890,7 @@ function SocialPack() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [showTeleprompter, setShowTeleprompter] = useState(false);
+  const [activeSlide, setActiveSlide] = useState(0);
   useEffect(() => {
     let active = true;
     Promise.all([api.post(slug, site), api.onboarding(site).catch(() => ({}))])
@@ -2944,6 +2945,7 @@ function SocialPack() {
       });
       setPost(saved.post);
       setSocialPack(completePack);
+      setActiveSlide(0);
       setMessage(t("publish.ready"));
       showToast(t("publish.ready"));
     } catch (e) {
@@ -2980,6 +2982,34 @@ function SocialPack() {
     link.click();
     URL.revokeObjectURL(url);
   };
+  const downloadSlide = async (slide: any, index: number) => {
+    const image = slide?.imageUrl || slide?.url || slide?.image || "";
+    if (!image) return;
+    const filename = `${post?.slug || "social-pack"}-instagram-${String(index + 1).padStart(2, "0")}.png`;
+    try {
+      const response = await fetch(image);
+      if (!response.ok) throw new Error("No se pudo descargar la slide.");
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      const link = document.createElement("a");
+      link.href = image;
+      link.download = filename;
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    }
+    showToast(t("social.slideDownloaded"));
+  };
   const fields = [
     { key: "substackTitle", label: t("social.substackTitle") },
     { key: "substackBody", label: t("social.substackBody") },
@@ -3000,6 +3030,14 @@ function SocialPack() {
       blogImageSrc = blogImage;
     }
   }
+  const carouselSlides = Array.isArray(socialPack.instagramSlides)
+    ? socialPack.instagramSlides
+    : [];
+  const safeSlideIndex = carouselSlides.length
+    ? Math.min(activeSlide, carouselSlides.length - 1)
+    : 0;
+  const activeCarouselSlide = carouselSlides[safeSlideIndex];
+  const activeCarouselImage = activeCarouselSlide?.imageUrl || activeCarouselSlide?.url || activeCarouselSlide?.image || "";
   return (
     <main className="page social-pack-page">
       <PageTitle
@@ -3079,38 +3117,71 @@ function SocialPack() {
                     {t("social.copy")}
                   </button>
                 </div>
-                {Array.isArray(socialPack.instagramSlides) &&
-                socialPack.instagramSlides.length > 0 ? (
-                  <div className="instagram-carousel">
-                    {socialPack.instagramSlides.map(
-                      (slide: any, index: number) => {
-                        const image =
-                          slide?.imageUrl || slide?.url || slide?.image || "";
-                        return (
-                          <figure key={slide?.id || `${image}-${index}`}>
-                            {image ? (
-                              <img
-                                src={image}
-                                alt={
-                                  slide?.alt ||
-                                  slide?.headline ||
-                                  `${t("social.slide")} ${index + 1}`
-                                }
-                              />
-                            ) : (
-                              <div className="carousel-placeholder">
-                                {index + 1}
-                              </div>
-                            )}
-                            {(slide?.headline || slide?.text) && (
-                              <figcaption>
-                                {slide.headline || slide.text}
-                              </figcaption>
-                            )}
-                          </figure>
-                        );
-                      },
-                    )}
+                {carouselSlides.length > 0 ? (
+                  <div className="instagram-carousel" role="region" aria-label={t("social.carouselTitle")}>
+                    <div className="instagram-carousel-stage">
+                      <button
+                        className="carousel-nav carousel-prev"
+                        type="button"
+                        onClick={() => setActiveSlide((safeSlideIndex - 1 + carouselSlides.length) % carouselSlides.length)}
+                        aria-label={t("social.previousSlide")}
+                        title={t("social.previousSlide")}
+                      >
+                        ‹
+                      </button>
+                      <figure>
+                        {activeCarouselImage ? (
+                          <img
+                            src={activeCarouselImage}
+                            alt={
+                              activeCarouselSlide?.alt ||
+                              activeCarouselSlide?.headline ||
+                              `${t("social.slide")} ${safeSlideIndex + 1}`
+                            }
+                          />
+                        ) : (
+                          <div className="carousel-placeholder">{safeSlideIndex + 1}</div>
+                        )}
+                        <figcaption>
+                          <span>
+                            {activeCarouselSlide?.headline || activeCarouselSlide?.text || `${t("social.slide")} ${safeSlideIndex + 1}`}
+                          </span>
+                          {activeCarouselImage && (
+                            <button
+                              className="chip"
+                              type="button"
+                              onClick={() => void downloadSlide(activeCarouselSlide, safeSlideIndex)}
+                            >
+                              {t("social.downloadSlide")}
+                            </button>
+                          )}
+                        </figcaption>
+                      </figure>
+                      <button
+                        className="carousel-nav carousel-next"
+                        type="button"
+                        onClick={() => setActiveSlide((safeSlideIndex + 1) % carouselSlides.length)}
+                        aria-label={t("social.nextSlide")}
+                        title={t("social.nextSlide")}
+                      >
+                        ›
+                      </button>
+                    </div>
+                    <div className="carousel-dots" role="tablist" aria-label={t("social.carouselTitle")}>
+                      {carouselSlides.map((slide: any, index: number) => (
+                        <button
+                          key={slide?.id || `${slide?.imageUrl || "slide"}-${index}`}
+                          className={`carousel-dot${index === safeSlideIndex ? " active" : ""}`}
+                          type="button"
+                          role="tab"
+                          aria-selected={index === safeSlideIndex}
+                          aria-label={`${t("social.slide")} ${index + 1}`}
+                          onClick={() => setActiveSlide(index)}
+                        >
+                          {index + 1}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 ) : (
                   <p className="muted carousel-empty">

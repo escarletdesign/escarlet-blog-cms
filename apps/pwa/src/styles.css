@@ -108,11 +108,18 @@
 .social-cover-card img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 12px; display: block; }
 .social-cover-card.image-missing::after { content: "✦"; min-height: 170px; display: grid; place-items: center; color: var(--accent); font-size: 2rem; border-radius: 12px; background: linear-gradient(145deg, #25342c, #121918); }
 .social-cover-card p:last-child { margin: 9px 0 0; }
-.instagram-carousel { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; }
-.instagram-carousel figure { flex: 0 0 150px; margin: 0; }
-.instagram-carousel img, .carousel-placeholder { width: 150px; aspect-ratio: 4 / 5; object-fit: cover; border-radius: 10px; background: #24302d; }
+.instagram-carousel { display: grid; gap: 12px; padding: 4px 0 2px; }
+.instagram-carousel-stage { display: grid; grid-template-columns: 38px minmax(0, 1fr) 38px; align-items: center; gap: 10px; }
+.instagram-carousel-stage figure { width: min(100%, 340px); margin: 0 auto; }
+.instagram-carousel img, .carousel-placeholder { display: block; width: 100%; aspect-ratio: 4 / 5; object-fit: cover; border-radius: 12px; background: #24302d; }
 .carousel-placeholder { display: grid; place-items: center; color: var(--accent); font-size: 1.4rem; }
-.instagram-carousel figcaption { margin-top: 6px; color: var(--muted); font-size: .75rem; line-height: 1.35; }
+.instagram-carousel figcaption { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; color: var(--muted); font-size: .75rem; line-height: 1.35; }
+.instagram-carousel figcaption > span { min-width: 0; }
+.carousel-nav { display: grid; place-items: center; width: 38px; height: 38px; padding: 0; border: 1px solid #45544e; border-radius: 50%; color: var(--text); background: #1a2521; font-size: 1.7rem; line-height: 1; }
+.carousel-nav:hover { color: var(--accent-ink); border-color: var(--accent); background: var(--accent); }
+.carousel-dots { display: flex; justify-content: center; gap: 7px; }
+.carousel-dot { min-width: 28px; height: 28px; padding: 0 7px; border: 1px solid #45544e; border-radius: 99px; color: var(--muted); background: #1a2521; font-size: .72rem; }
+.carousel-dot:hover, .carousel-dot.active { color: var(--accent-ink); border-color: var(--accent); background: var(--accent); }
 .carousel-empty { margin: 0; padding: 18px; border: 1px dashed #45574d; border-radius: 10px; }
 .teleprompter-launch-card { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 14px; border-color: #5a813f; background: linear-gradient(140deg, #253a25, #18251d); }
 .teleprompter-launch-card h2 { margin-bottom: 7px; }
