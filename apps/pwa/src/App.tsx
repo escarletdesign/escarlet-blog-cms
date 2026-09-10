@@ -155,10 +155,12 @@ function ModelPicker({
 }
 
 function AppBrand() {
+  const { t } = useI18n();
   return (
     <>
       <img className="brand-icon" src="/app/icon.png" alt="" />
-      <span>Escarlet CMS</span>
+      <span className="brand-name">Escarlet CMS</span>
+      <span className="beta-badge">{t("app.beta")}</span>
     </>
   );
 }
@@ -1793,7 +1795,7 @@ function ManualPost() {
                     aria-pressed={selected}
                     onClick={() => update("authorName", author.name)}
                   >
-                    {author.avatarUrl ? <img src={author.avatarUrl} alt="" /> : <span>{author.name.slice(0, 1).toUpperCase()}</span>}
+                    {author.avatarUrl ? <img src={author.avatarUrl} alt="" /> : <span className="author-pill-avatar">{author.name.slice(0, 1).toUpperCase()}</span>}
                     {author.name}
                   </button>
                 );
