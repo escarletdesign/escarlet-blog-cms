@@ -241,14 +241,22 @@ function App() {
     const available = session.sites?.length
       ? session.sites
       : [session.site || "escarlet"];
+    const requested = new URLSearchParams(window.location.search).get("site")?.trim().toLowerCase() || "";
+    const requestedHandle = requested
+      ? available.find((candidate) => {
+          const normalized = String(candidate).trim().toLowerCase();
+          return normalized === requested || normalized === requested.split(".")[0];
+        }) || ""
+      : "";
     const saved = window.localStorage.getItem("escarlet_site") || "";
-    const next = available.includes(saved)
+    const next = requestedHandle || (available.includes(saved)
       ? saved
       : session.site && available.includes(session.site)
         ? session.site
-        : available[0];
+        : available[0]);
+    if (requestedHandle) window.localStorage.setItem("escarlet_site", requestedHandle);
     setSiteState((current) =>
-      current && available.includes(current) ? current : next,
+      requestedHandle || (current && available.includes(current) ? current : next),
     );
   }, [session]);
   const setSite = (next: string) => {
@@ -3689,16 +3697,23 @@ function Admin() {
     event.preventDefault();
     if (!userForm) return;
     setUserBusy(true);
+    let invitationMessage = "";
     try {
       if (userForm.id) {
         await api.updateUser({ id: userForm.id, role: userForm.role, sites: userForm.sites, allowPublishingAs: userForm.allowPublishingAs });
       } else {
-        await api.registerUser({ email: userForm.email, role: userForm.role, sites: userForm.sites, invite: true });
+        const result = await api.registerUser({ email: userForm.email, role: userForm.role, sites: userForm.sites, invite: true });
+        if (result.invite?.link) {
+          await navigator.clipboard?.writeText(result.invite.link).catch(() => {});
+          invitationMessage = `${t("admin.magicLinkReady")} ${result.invite.link}`;
+        } else if (result.invite?.transport) {
+          invitationMessage = t("admin.magicLinkSent");
+        }
       }
       const data = await api.users(site);
       setUsers(data.users || []);
       setUserForm(null);
-      report(t("admin.userSaved"));
+      report(invitationMessage || t("admin.userSaved"));
     } catch (err) {
       report(err instanceof Error ? err.message : t("common.error"), "error");
     } finally {
@@ -3739,6 +3754,28 @@ function Admin() {
       await api.revokeUserToken(user.id);
       setUsers((current) => current.map((row) => row.id === user.id ? { ...row, hasLoginToken: false, loginTokenHint: "" } : row));
       report(t("admin.userTokenRevoked"));
+    } catch (err) {
+      report(err instanceof Error ? err.message : t("common.error"), "error");
+    } finally {
+      setUserBusy(false);
+    }
+  };
+  const sendUserMagicLink = async (user: Record<string, any>) => {
+    const email = String(user.email || "").trim();
+    if (!email) return;
+    setUserBusy(true);
+    try {
+      const result = await api.sendMagicLink({
+        email,
+        site,
+        role: String(user.role || "client"),
+      });
+      if (result.link) {
+        await navigator.clipboard?.writeText(result.link).catch(() => {});
+        report(`${t("admin.magicLinkReady")} ${result.link}`);
+      } else {
+        report(t("admin.magicLinkSent"));
+      }
     } catch (err) {
       report(err instanceof Error ? err.message : t("common.error"), "error");
     } finally {
@@ -4040,6 +4077,7 @@ function Admin() {
                   <div className="user-actions">
                     <button className="chip" type="button" onClick={() => setUserForm({ id: user.id, email: user.email || "", role: user.role || "client", sites: user.sites || [user.site || site], allowPublishingAs: Boolean(user.allowPublishingAs) })}>{t("admin.editUser")}</button>
                     <button className="chip" type="button" disabled={userBusy} onClick={() => user.hasLoginToken ? void revokeUserToken(user) : void issueUserToken(user)}>{user.hasLoginToken ? t("admin.revokeToken") : t("admin.issueToken")}</button>
+                    <button className="chip" type="button" disabled={userBusy} onClick={() => void sendUserMagicLink(user)}>{t("admin.magicLink")}</button>
                     <button className="danger-link" type="button" disabled={userBusy} onClick={() => setPendingDeleteUser(user)}>{t("admin.delete")}</button>
                   </div>
                 </li>

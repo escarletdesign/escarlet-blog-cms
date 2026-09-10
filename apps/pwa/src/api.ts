@@ -37,6 +37,16 @@ const baseApi = {
       method: "POST",
       body: JSON.stringify({ email }),
     }),
+  sendMagicLink: (input: { email: string; site?: string; role?: string }) =>
+    request<{
+      ok: boolean;
+      expiresAt: string;
+      transport?: string;
+      link?: string;
+    }>("/api/magic/send", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   profile: () =>
     request<{ profile: Record<string, any> }>("/api/auth/profile"),
   saveProfile: (input: {

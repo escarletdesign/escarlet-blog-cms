@@ -326,8 +326,77 @@ const pwaTypes = {
   '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.map': 'application/json; charset=utf-8'
 }
 
+function pwaSiteAlias(path, req) {
+  const match = path.match(/^\/app\/([^/]+)(?:\/(.*))?$/)
+  if (!match) {
+    if (path !== '/' && path !== '/app') return null
+    const forwardedHost = String(req.headers['x-forwarded-host'] || req.headers.host || '')
+      .split(',')[0]
+      .trim()
+    if (!forwardedHost) return null
+    let hostname = ''
+    try {
+      hostname = new URL(`http://${forwardedHost}`).hostname.toLowerCase().replace(/^www\./, '')
+    } catch {
+      return null
+    }
+    if (!hostname || hostname === 'localhost' || hostname === '127.0.0.1') return null
+    for (const handle of listSiteHandles()) {
+      const config = loadSiteConfig(handle)
+      try {
+        const domainHost = new URL(String(config?.domain || '')).hostname.toLowerCase().replace(/^www\./, '')
+        if (domainHost && (hostname === domainHost || hostname === `app.${domainHost}`)) {
+          return { site: handle, rest: '' }
+        }
+      } catch {
+        // A malformed optional domain should not prevent the PWA from loading.
+      }
+    }
+    return null
+  }
+  let raw
+  try {
+    raw = decodeURIComponent(match[1]).trim().toLowerCase()
+  } catch {
+    return null
+  }
+  if (!raw || raw === 'magic' || raw === 'assets') return null
+  const withoutProtocol = raw.replace(/^https?:\/\//, '').replace(/^www\./, '')
+  const candidates = new Set([raw, withoutProtocol, withoutProtocol.split('.')[0]])
+  for (const handle of listSiteHandles()) {
+    const config = loadSiteConfig(handle)
+    const aliases = new Set([String(handle).toLowerCase()])
+    try {
+      const host = new URL(String(config?.domain || '')).hostname.toLowerCase().replace(/^www\./, '')
+      if (host) {
+        aliases.add(host)
+        aliases.add(host.split('.')[0])
+      }
+    } catch {
+      // A malformed optional domain should not prevent the PWA from loading.
+    }
+    if ([...candidates].some((candidate) => aliases.has(candidate))) {
+      return { site: handle, rest: match[2] || '' }
+    }
+  }
+  return null
+}
+
+function redirectPwaSiteAlias(req, res, path) {
+  const alias = pwaSiteAlias(path, req)
+  if (!alias) return false
+  const query = new URL(req.url || '/', `http://127.0.0.1:${PORT}`)
+  query.searchParams.set('site', alias.site)
+  const targetPath = alias.rest ? `/app/${alias.rest}` : '/app/'
+  const location = `${targetPath}?${query.searchParams.toString()}`
+  res.writeHead(302, { Location: location, 'Cache-Control': 'no-store' })
+  res.end()
+  return true
+}
+
 function servePwa(req, res, path) {
   if (!existsSync(pwaDist) || (path !== '/' && path !== '/app' && !path.startsWith('/app/'))) return false
+  if (redirectPwaSiteAlias(req, res, path)) return true
   // Magic consumption is a server route, not an SPA route.
   if (path === '/app/magic/consume') return false
   let suffix = ''
@@ -1070,7 +1139,7 @@ const server = createServer(async (req, res) => {
           next: '#/entradas'
         })
         const origin = absoluteCmsOrigin(req)
-        const link = `${origin}/api/magic/consume?token=${encodeURIComponent(minted.token)}`
+        const link = `${origin}/app/magic/consume?token=${encodeURIComponent(minted.token)}`
         inviteMail = await sendMagicLinkEmail({
           to: user.email,
           link,
@@ -1112,7 +1181,7 @@ const server = createServer(async (req, res) => {
           next: '#/entradas'
         })
         const origin = absoluteCmsOrigin(req)
-        const link = `${origin}/api/magic/consume?token=${encodeURIComponent(minted.token)}`
+        const link = `${origin}/app/magic/consume?token=${encodeURIComponent(minted.token)}`
         await sendMagicLinkEmail({
           to: user.email,
           link,
