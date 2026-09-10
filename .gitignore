@@ -6,6 +6,8 @@ data/brand/
 data/site-config/
 data/oauth/
 data/embed-sessions.json
+data/access-tokens.json
+data/users.json
 .DS_Store
 .cursor/mcp.json
 apps/pwa/dist/

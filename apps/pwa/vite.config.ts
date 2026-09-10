@@ -15,7 +15,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
       manifest: {
         name: 'Escarlet CMS',
-        short_name: 'Escarlet',
+        short_name: 'Escarlet CMS',
         description: 'Crea, revisa y publica contenido desde Escarlet.',
         theme_color: '#101516',
         background_color: '#101516',
@@ -23,7 +23,8 @@ export default defineConfig({
         start_url: '/app/',
         scope: '/app/',
         icons: [
-          { src: '/app/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }
+          { src: '/app/favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' },
+          { src: '/app/icon.png', sizes: '512x512', type: 'image/png', purpose: 'any' }
         ]
       },
       workbox: {

@@ -100,7 +100,12 @@ import {
   revokeUserLoginToken,
   setUserPassword,
   getPasswordUserByEmail,
-  userSites
+  userSites,
+  updateUserProfile,
+  listSiteAuthors,
+  mintAuthorInvite,
+  consumeAuthorInvite,
+  assertAuthorAllowed
 } from './lib/human-auth.mjs'
 import {
   notifyRebuild,
@@ -788,10 +793,13 @@ const server = createServer(async (req, res) => {
       assertSiteAccess(auth, site)
       const email = String(body.email || '').trim()
       const role = body.role === 'agency_admin' ? 'agency_admin' : 'client'
+      const invitedUser = email ? getPasswordUserByEmail(email) : null
       const minted = createMagicToken({
         site,
+        sites: invitedUser ? userSites(invitedUser) : [site],
         role,
         email,
+        userId: invitedUser?.id,
         next: sanitizeNext(body.next)
       })
       const origin = absoluteCmsOrigin(req)
@@ -902,12 +910,12 @@ const server = createServer(async (req, res) => {
   }
 
   if (req.method === 'GET' && path === '/favicon.svg') {
-    servePublic(res, 'favicon.svg', 'image/svg+xml')
+    servePublic(res, 'escarlet-icon.png', 'image/png')
     return
   }
 
   if (req.method === 'GET' && path === '/favicon.ico') {
-    servePublic(res, 'favicon.svg', 'image/svg+xml')
+    servePublic(res, 'escarlet-icon.png', 'image/png')
     return
   }
 
@@ -1138,6 +1146,72 @@ const server = createServer(async (req, res) => {
     return
   }
 
+  if (isProductRestructureV1() && (req.method === 'GET' || req.method === 'POST') && path === '/api/auth/profile') {
+    const auth = requireAuth(req, url, res)
+    if (!auth) return
+    try {
+      if (!auth.userId) {
+        json(res, 403, { message: 'Esta sesión no tiene un perfil editable' })
+        return
+      }
+      if (req.method === 'GET') {
+        const user = listPasswordUsers().find((row) => row.id === auth.userId)
+        if (!user) throw Object.assign(new Error('Usuario no encontrado'), { status: 404 })
+        json(res, 200, { profile: user })
+        return
+      }
+      const body = await parseBody(req)
+      const profile = updateUserProfile({
+        id: auth.userId,
+        displayName: body.displayName,
+        bio: body.bio,
+        avatarDataUrl: body.avatarDataUrl,
+        allowPublishingAs: body.allowPublishingAs
+      })
+      json(res, 200, { ok: true, profile })
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
+    }
+    return
+  }
+
+  if (isProductRestructureV1() && req.method === 'POST' && path === '/api/auth/profile/publishing-link') {
+    const auth = requireAuth(req, url, res)
+    if (!auth) return
+    try {
+      if (!auth.userId) throw Object.assign(new Error('Esta sesión no tiene un perfil de autor'), { status: 403 })
+      const body = await parseBody(req)
+      const site = siteFrom(auth, body.site || DEFAULT_SITE)
+      assertSiteAccess(auth, site)
+      const invite = mintAuthorInvite({ ownerId: auth.userId, site })
+      const origin = absoluteCmsOrigin(req)
+      json(res, 200, {
+        ok: true,
+        site,
+        expiresAt: new Date(invite.expiresAt).toISOString(),
+        token: invite.token,
+        link: `${origin}/app/author-invite?token=${encodeURIComponent(invite.token)}`
+      })
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
+    }
+    return
+  }
+
+  if (isProductRestructureV1() && req.method === 'POST' && path === '/api/auth/profile/publishing-link/accept') {
+    const auth = requireAuth(req, url, res)
+    if (!auth) return
+    try {
+      if (!auth.userId) throw Object.assign(new Error('Esta sesión no tiene un perfil editable'), { status: 403 })
+      const body = await parseBody(req)
+      const result = consumeAuthorInvite({ token: body.token, userId: auth.userId })
+      json(res, 200, result)
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
+    }
+    return
+  }
+
   if (isProductRestructureV1() && req.method === 'GET' && path === '/api/auth/users') {
     const auth = requireAuth(req, url, res)
     if (!auth) return
@@ -1222,7 +1296,7 @@ const server = createServer(async (req, res) => {
         }
         sites.forEach((site) => assertSiteAccess(auth, site))
       }
-      const user = updatePasswordUser({ id: body.id, sites, role: body.role })
+      const user = updatePasswordUser({ id: body.id, sites, role: body.role, allowPublishingAs: body.allowPublishingAs })
       json(res, 200, { ok: true, user })
     } catch (error) {
       json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
@@ -1640,7 +1714,7 @@ const server = createServer(async (req, res) => {
     }
 
     const adminPostMatch = path.match(/^\/api\/admin\/posts\/([^/]+)$/)
-    if (req.method === 'GET' && adminPostMatch) {
+    if (req.method === 'GET' && adminPostMatch && adminPostMatch[1] !== 'calendar') {
       const site = siteFrom(auth, url.searchParams.get('site') || DEFAULT_SITE)
       try {
         assertSiteAccess(auth, site)
@@ -1695,7 +1769,32 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && path === '/api/admin/authors') {
-      json(res, 200, { authors: db.authors || [] })
+      const site = siteFrom(auth, url.searchParams.get('site') || DEFAULT_SITE)
+      try {
+        assertSiteAccess(auth, site)
+        const config = loadSiteConfig(site) || {}
+        const staticAuthors = Array.isArray(config.authors) && config.authors.length
+          ? config.authors
+          : (db.authors || [])
+        let userAuthors = []
+        try {
+          userAuthors = listSiteAuthors({ site, requesterId: auth.userId, requesterRole: auth.role })
+        } catch {
+          userAuthors = []
+        }
+        const authors = []
+        const seen = new Set()
+        for (const value of [...staticAuthors, ...userAuthors]) {
+          const author = typeof value === 'string' ? { name: value } : value
+          const name = String(author?.name || author?.displayName || '').trim()
+          if (!name || seen.has(name.toLowerCase())) continue
+          seen.add(name.toLowerCase())
+          authors.push({ ...author, name })
+        }
+        json(res, 200, { authors, site })
+      } catch (error) {
+        json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
+      }
       return
     }
 
@@ -2118,6 +2217,7 @@ const server = createServer(async (req, res) => {
       const site = siteFrom(auth, body.site || DEFAULT_SITE)
       try {
         assertSiteAccess(auth, site)
+        assertAuthorAllowed({ site, authorName: body.authorName || body.author, requesterId: auth.userId, requesterRole: auth.role })
         const skipQuota = Boolean(auth.capabilities?.includes('quota:override'))
         const result = await cmsCreateDraft({
           ...body,
@@ -2138,6 +2238,7 @@ const server = createServer(async (req, res) => {
       try {
         const site = siteFrom(auth, body.site || DEFAULT_SITE)
         assertSiteAccess(auth, site)
+        assertAuthorAllowed({ site, authorName: body.authorName || body.author, requesterId: auth.userId, requesterRole: auth.role })
         const result = await cmsUpdatePost({ ...body, site })
         json(res, 200, result)
       } catch (error) {
@@ -2169,7 +2270,7 @@ const server = createServer(async (req, res) => {
       const site = siteFrom(auth, body.site || DEFAULT_SITE)
       try {
         assertSiteAccess(auth, site)
-        const result = await cmsSchedulePost(site, body.slug, body.publishAt)
+        const result = await cmsSchedulePost(site, body.slug, body.publishAt, { ignoreSeo: Boolean(body.ignoreSeo), direct: Boolean(body.direct) })
         json(res, 200, result)
       } catch (error) {
         const status = error.status || 500
@@ -2218,7 +2319,7 @@ const server = createServer(async (req, res) => {
           const siteConfig = loadSiteConfig(site)
           const dbNow = readDb()
           const existing = findPost(dbNow, site, slug)
-          const needsHuman = isAgencyGate(siteConfig)
+          const needsHuman = isAgencyGate(siteConfig) && body.direct !== true
           const submitForReviewOnly =
             needsHuman &&
             (existing?.status === 'draft' || existing?.status === 'changes_requested')
@@ -2238,7 +2339,9 @@ const server = createServer(async (req, res) => {
         }
         const result = await cmsPublishPost(site, slug, {
           publishAt: body.publishAt,
-          skipQuota: Boolean(auth.capabilities?.includes('quota:override'))
+          skipQuota: Boolean(auth.capabilities?.includes('quota:override')),
+          ignoreSeo: Boolean(body.ignoreSeo),
+          direct: Boolean(body.direct)
         })
         if (result.published && result.post) recordPublicationMemory(site, result.post)
         json(res, 200, result)
