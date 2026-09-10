@@ -3,7 +3,7 @@ export type Language = "es" | "en";
 const dictionaries: Record<Language, Record<string, string>> = {
   es: {
     "app.loading": "Abriendo Escarlet…",
-    "app.beta": "Beta 0.2.11",
+    "app.beta": "Beta 0.2.12",
     "nav.home": "Inicio",
     "nav.assistant": "Asistente",
     "nav.posts": "Posts",
@@ -562,7 +562,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
   },
   en: {
     "app.loading": "Opening Escarlet…",
-    "app.beta": "Beta 0.2.11",
+    "app.beta": "Beta 0.2.12",
     "nav.home": "Home",
     "nav.assistant": "Assistant",
     "nav.posts": "Posts",

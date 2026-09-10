@@ -70,6 +70,13 @@ const uiStatus = (status?: string) => {
   if (status === "review" || status === "changes_requested") return "draft";
   return status || "draft";
 };
+const hasSocialPack = (post?: Partial<Post> | null) => {
+  const pack = post?.socialPack;
+  if (!pack || typeof pack !== "object") return false;
+  return Object.values(pack).some((value) =>
+    Array.isArray(value) ? value.length > 0 : typeof value === "string" ? Boolean(value.trim()) : Boolean(value),
+  );
+};
 const readableDate = (value?: string, language: Language = "es") =>
   value
     ? new Intl.DateTimeFormat(language === "en" ? "en-GB" : "es-ES", {
@@ -104,51 +111,6 @@ const fileAsBase64 = (file: File) =>
     reader.onerror = () => reject(reader.error || new Error("No se pudo leer el archivo."));
     reader.readAsDataURL(file);
   });
-
-async function enrichSocialPackWithImages(
-  site: string,
-  post: Post,
-  pack: Record<string, any>,
-) {
-  const plainBody = String(post.bodyHtml || "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  const sourceSlides = Array.isArray(pack.instagramSlides) && pack.instagramSlides.length
-    ? pack.instagramSlides
-    : [
-        { headline: post.title, body: post.excerptEs || plainBody.slice(0, 180) },
-        { headline: "La idea clave", body: plainBody.slice(180, 420) || post.excerptEs || post.title },
-        { headline: "Cómo aplicarlo", body: plainBody.slice(420, 660) || post.title },
-        { headline: "Para recordar", body: plainBody.slice(660, 900) || post.excerptEs || post.title },
-      ];
-  const slideCount = Math.min(sourceSlides.length, 4);
-  const slides = await Promise.all(
-    sourceSlides.slice(0, slideCount).map(async (slide: any, index: number) => {
-      const headline = cleanGeneratedTitle(String(slide?.headline || slide?.title || post.title), 80) || post.title;
-      const body = String(slide?.body || slide?.text || "").replace(/\s+/g, " ").trim().slice(0, 240);
-      const isEdgeSlide = index === 0 || index === slideCount - 1;
-      const backgroundStyle = isEdgeSlide ? "brand-color" : "light-or-grayscale";
-      try {
-        const result = await api.generateImage({
-          site,
-          prompt: `Pieza ${index + 1} de ${slideCount} de un carrusel editorial para Instagram. Tema exacto: ${headline}. Texto breve que puede aparecer en la pieza: ${body}. Se permite texto diseñado para Instagram: usa únicamente esos textos, con ortografía exacta, jerarquía clara y tipografía legible; no inventes palabras ni logotipos. Tratamiento de fondo obligatorio: ${isEdgeSlide ? "usa color de marca, bloques o gradiente suave" : "usa fondo claro, crema o escala de grises y evita colores saturados"}. Aplica las referencias visuales del brand kit del sitio y conserva una composición editorial consistente.`,
-          slug: `${post.slug || slugify(post.title)}-carousel-${index + 1}`,
-          title: headline,
-          alt: headline,
-          allowText: true,
-          imageRole: "instagram-carousel",
-          backgroundStyle,
-        });
-        const imageUrl = result.media?.url || result.media?.path || slide?.imageUrl || "";
-        return { ...slide, headline, body, imageUrl, alt: slide?.alt || headline, backgroundStyle };
-      } catch {
-        return { ...slide, headline, body, imageUrl: slide?.imageUrl || "", alt: slide?.alt || headline, backgroundStyle };
-      }
-    }),
-  );
-  return { ...pack, instagramSlides: slides };
-}
 
 function ChoicePills({
   value,
@@ -857,6 +819,13 @@ function SidebarConversations({ site }: { site: string }) {
 }
 
 function NavIcon({ kind }: { kind: string }) {
+  if (kind === "assistant") {
+    return (
+      <span className="nav-icon assistant-stars" aria-hidden="true">
+        <i>✦</i><i>✦</i><i>✦</i>
+      </span>
+    );
+  }
   if (kind === "posts") {
     return (
       <svg className="nav-icon" viewBox="0 0 20 20" aria-hidden="true">
@@ -2602,19 +2571,21 @@ function Preview() {
           dangerouslySetInnerHTML={{ __html: post.bodyHtml }}
         />
       </article>
-      <section className="card preview-social-link">
-        <div>
-          <p className="eyebrow">{t("social.eyebrow")}</p>
-          <h2>{t("preview.socialPack")}</h2>
-          <p className="muted">{t("social.description")}</p>
-        </div>
-        <button
-          className="secondary"
-          onClick={() => nav(`/social-pack/${encodeURIComponent(post.slug)}`)}
-        >
-          {t("preview.socialPack")}
-        </button>
-      </section>
+      {hasSocialPack(post) && (
+        <section className="card preview-social-link">
+          <div>
+            <p className="eyebrow">{t("social.eyebrow")}</p>
+            <h2>{t("preview.socialPack")}</h2>
+            <p className="muted">{t("social.description")}</p>
+          </div>
+          <button
+            className="secondary"
+            onClick={() => nav(`/social-pack/${encodeURIComponent(post.slug)}`)}
+          >
+            {t("preview.socialPack")}
+          </button>
+        </section>
+      )}
       <div className="sticky-actions">
         <button
           className="ghost"
@@ -2622,12 +2593,14 @@ function Preview() {
         >
           {t("preview.edit")}
         </button>
-        <button
-          className="secondary"
-          onClick={() => nav(`/social-pack/${encodeURIComponent(post.slug)}`)}
-        >
-          {t("preview.socialPack")}
-        </button>
+        {hasSocialPack(post) && (
+          <button
+            className="secondary"
+            onClick={() => nav(`/social-pack/${encodeURIComponent(post.slug)}`)}
+          >
+            {t("preview.socialPack")}
+          </button>
+        )}
         {post.status !== "published" && post.status !== "scheduled" && post.status !== "pending_schedule" && (
           <button
             className="secondary"
@@ -2888,6 +2861,7 @@ function PublishSocial() {
     Promise.all([api.post(slug, site), api.onboarding(site).catch(() => ({}))])
       .then(([r, onboarding]) => {
         setPost(r.post);
+        setSocialPack(r.post.socialPack || null);
         const domain = String(
           (onboarding as any)?.site?.domain || window.location.origin,
         ).replace(/\/$/, "");
@@ -2905,29 +2879,17 @@ function PublishSocial() {
         prompt: `Genera un social pack para ${post.title}. Incluye este enlace canónico en los textos que admitan enlaces: ${articleUrl}`,
         post: { ...post, articleUrl },
       });
-      const generated = Object.fromEntries(
-        Object.entries(result.socialPack || {}).map(([key, value]) => [
-          key,
-          typeof value === "string" && articleUrl && !value.includes(articleUrl)
-            ? `${value}\n\n${articleUrl}`
-            : value,
-        ]),
-      );
-      const completePack = await enrichSocialPackWithImages(site, post, generated);
-      const saved = await api.updatePost({
-        ...post,
-        site,
-        originalSlug: post.slug,
-        slug: post.slug,
-        direct: true,
-        keepPublished: post.status === "published",
-        socialPack: completePack,
-      });
-      setPost(saved.post);
+      const completePack = result.socialPack || {};
+      setPost(result.post || { ...post, socialPack: completePack });
       setSocialPack(completePack);
-      setMessage(result.content || t("publish.ready"));
+      const warnings = result.socialPackWarnings || [];
+      setMessage(warnings.length ? warnings.join(" ") : result.content || t("publish.ready"));
+      if (warnings.length) showToast(warnings.join(" "), "error");
+      else showToast(t("publish.ready"));
     } catch (e) {
-      setMessage(e instanceof Error ? e.message : t("common.error"));
+      const message = e instanceof Error ? e.message : t("common.error");
+      setMessage(message);
+      showToast(message, "error");
     } finally {
       setBusy(false);
     }
@@ -2949,6 +2911,7 @@ function PublishSocial() {
       setBusy(false);
     }
   };
+  const hasPack = Boolean(socialPack && Object.keys(socialPack).length > 0);
   return (
     <main className="page narrow">
       <PageTitle
@@ -2962,9 +2925,13 @@ function PublishSocial() {
           <h2>{post.title}</h2>
           <p className="muted">{t("publish.prepare")}</p>
           <button className="secondary" disabled={busy} onClick={generatePack}>
-            {busy ? t("publish.preparing") : t("publish.generate")}
+            {busy
+              ? t("publish.preparing")
+              : hasPack
+                ? t("social.regenerate")
+                : t("publish.generate")}
           </button>
-          {socialPack && (
+          {hasPack && socialPack && (
             <div className="social-output">
               {Object.entries(socialPack).filter(([, text]) => typeof text === "string").map(([channel, text]) => (
                 <article key={channel}>
@@ -2980,7 +2947,7 @@ function PublishSocial() {
             <span>X</span>
             <span>Substack</span>
           </div>
-          {socialPack && (
+          {hasPack && (
             <button
               className="secondary"
               onClick={() =>
@@ -3042,10 +3009,6 @@ function SocialPack() {
       active = false;
     };
   }, [slug, site, t]);
-  const withCanonical = (value: string) =>
-    value && articleUrl && !value.includes(articleUrl)
-      ? `${value}\n\n${articleUrl}`
-      : value;
   const generatePack = async () => {
     if (!post) return;
     setBusy(true);
@@ -3057,27 +3020,14 @@ function SocialPack() {
         prompt: `Genera un social pack para ${post.title}. Incluye este enlace canónico en los textos que admitan enlaces: ${articleUrl}`,
         post: { ...post, articleUrl },
       });
-      const generated = Object.fromEntries(
-        Object.entries(result.socialPack || {}).map(([key, value]) => [
-          key,
-          typeof value === "string" ? withCanonical(value) : value,
-        ]),
-      );
-      const completePack = await enrichSocialPackWithImages(site, post, generated);
-      const saved = await api.updatePost({
-        ...post,
-        site,
-        originalSlug: post.slug,
-        slug: post.slug,
-        direct: true,
-        keepPublished: post.status === "published",
-        socialPack: completePack,
-      });
-      setPost(saved.post);
+      const completePack = result.socialPack || {};
+      setPost(result.post || { ...post, socialPack: completePack });
       setSocialPack(completePack);
       setActiveSlide(0);
-      setMessage(t("publish.ready"));
-      showToast(t("publish.ready"));
+      const warnings = result.socialPackWarnings || [];
+      setMessage(warnings.length ? warnings.join(" ") : t("publish.ready"));
+      if (warnings.length) showToast(warnings.join(" "), "error");
+      else showToast(t("publish.ready"));
     } catch (e) {
       setMessage(e instanceof Error ? e.message : t("common.error"));
       showToast(e instanceof Error ? e.message : t("common.error"), "error");
@@ -3203,7 +3153,7 @@ function SocialPack() {
           </div>
         </div>
       )}
-      {post && (
+      {post && socialPack && Object.keys(socialPack).length > 0 && (
         <div className="social-pack-generation-actions">
           <button
             className="primary"
@@ -3212,9 +3162,7 @@ function SocialPack() {
           >
             {busy
               ? t("publish.preparing")
-              : Object.keys(socialPack).length
-                ? t("social.regenerate")
-                : t("social.generate")}
+              : t("social.regenerate")}
           </button>
         </div>
       )}
@@ -3761,15 +3709,17 @@ function PostRow({ post, onDeleted }: { post: Post; onDeleted?: (slug: string) =
         </div>
         <span className="chevron">›</span>
       </button>
-      <button
-        className="post-pack-button"
-        type="button"
-        onClick={() => postSlug && nav(`/social-pack/${encodeURIComponent(postSlug)}`)}
-        aria-label={t("preview.socialPack")}
-        title={t("preview.socialPack")}
-      >
-        <MobileSocialIcon />
-      </button>
+      {hasSocialPack(post) && (
+        <button
+          className="post-pack-button"
+          type="button"
+          onClick={() => postSlug && nav(`/social-pack/${encodeURIComponent(postSlug)}`)}
+          aria-label={t("preview.socialPack")}
+          title={t("preview.socialPack")}
+        >
+          <MobileSocialIcon />
+        </button>
+      )}
       <button
         className="post-delete-button"
         type="button"

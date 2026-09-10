@@ -23,6 +23,11 @@
 @keyframes splash-progress { 0% { transform: translateX(-110%); } 50% { transform: translateX(135%); } 100% { transform: translateX(250%); } }
 .nav-icon { width: 17px; height: 17px; flex: 0 0 17px; display: block; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .nav-icon-glyph { display: grid; place-items: center; font-size: .9rem; line-height: 1; }
+.assistant-stars { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 0; font-style: normal; color: currentColor; }
+.assistant-stars i { position: absolute; font-style: normal; line-height: 1; }
+.assistant-stars i:nth-child(1) { font-size: .9rem; transform: translate(-4px, 3px); }
+.assistant-stars i:nth-child(2) { font-size: .5rem; transform: translate(4px, -4px); }
+.assistant-stars i:nth-child(3) { font-size: .35rem; transform: translate(5px, 5px); }
 .posts-view-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -3px 0 16px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 11px; background: #17201e; color: var(--muted); font-size: .78rem; }
 .posts-view-toolbar .calendar-view-toggle { flex: 0 0 auto; }
 .calendar-embedded { max-width: none; margin: 0; padding: 0; }

@@ -430,6 +430,9 @@ export type AiGeneration = {
   provider?: string;
   mode?: string;
   socialPack?: Record<string, any>;
+  socialPackWarnings?: string[];
+  socialPackPersisted?: boolean;
+  post?: Post;
   quota?: Record<string, unknown>;
 };
 
