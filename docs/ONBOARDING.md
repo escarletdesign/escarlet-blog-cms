@@ -176,9 +176,9 @@ SSO. El plugin llama `POST /api/embed/session` y redirige a `/api/embed/consume?
 }
 ```
 
-ChatGPT. Connectors → Create → URL `https://blog-cms.escarlet.cc/mcp` → OAuth. Al autorizar pega el token de sitio (`/app/admin` → Sitio → Generar token) o `ADMIN_TOKEN`. El panel también ofrece el PNG del favicon (<10 KB) en `/media/{handle}/agent-icon.png`.
+ChatGPT. Connectors → Create → URL `https://blog-cms.escarlet.cc/mcp` → OAuth. Es el mismo conector para todos los roles. Al autorizar pega el token de usuario (`user_...`), sesión (`sess_...`), agencia, sitio (`/app/admin` → Sitio → Generar token) o `ADMIN_TOKEN`. El MCP conserva rol, usuario y sitios asignados; no concede acceso adicional. El panel también ofrece el PNG del favicon (<10 KB) en `/media/{handle}/agent-icon.png`.
 
-Claude. Customize → Connectors → Add custom connector → URL `https://blog-cms.escarlet.cc/mcp` → OAuth. Al autorizar pega el token de sitio o `ADMIN_TOKEN`. Puede usar el mismo icono PNG.
+Claude. Customize → Connectors → Add custom connector → URL `https://blog-cms.escarlet.cc/mcp` → OAuth. Usa los mismos tokens y el mismo alcance por rol. Puede usar el mismo icono PNG.
 
 2. Copia `templates/frontend/blog-via-mcp.mdc` al proyecto web y cambia `{{handle}}`
 3. Skill del repo. `.cursor/skills/escarlet-blog-cms/SKILL.md`

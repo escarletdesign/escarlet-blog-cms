@@ -101,9 +101,9 @@ Hermes (otro servidor) no clona el CMS. En su `mcp.json`:
 }
 ```
 
-ChatGPT (Developer Mode / Connectors). URL `https://blog-cms.escarlet.cc/mcp`, autenticación **OAuth**. Al autorizar pega el token de sitio o `ADMIN_TOKEN`. `/app/admin` genera un PNG del favicon (<10 KB) para el icono del conector al crear el token de cliente.
+ChatGPT (Developer Mode / Connectors). URL `https://blog-cms.escarlet.cc/mcp`, autenticación **OAuth**. Es el mismo conector para todos los roles: al autorizar pega el token de usuario (`user_...`), sesión (`sess_...`), agencia, sitio o `ADMIN_TOKEN`. El token conserva rol, usuario y sitios asignados; nunca se mezclan permisos entre cuentas. `/app/admin` genera un PNG del favicon (<10 KB) para el icono del conector.
 
-Claude (Customize / Connectors). URL `https://blog-cms.escarlet.cc/mcp`, autenticación **OAuth**. Al autorizar pega el token de sitio o `ADMIN_TOKEN`. Puede usar el mismo icono PNG.
+Claude (Customize / Connectors). URL `https://blog-cms.escarlet.cc/mcp`, autenticación **OAuth**. Usa los mismos tokens y alcance que ChatGPT. Puede usar el mismo icono PNG.
 
 ## Integración frontend
 
