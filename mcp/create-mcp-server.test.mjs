@@ -12,19 +12,19 @@ test('blog_upload_media_file declara openai/fileParams y schema OpenAIFile', () 
   assert.deepEqual(upload.inputSchema.$defs.OpenAIFile.required, ['download_url', 'file_id'])
   assert.ok(upload.inputSchema.required.includes('file'))
   assert.ok(tools.some((t) => t.name === 'blog_upload_media'))
-  assert.ok(MCP_SERVER_VERSION.startsWith('2.4'))
+  assert.ok(MCP_SERVER_VERSION.startsWith('2.5'))
   assert.ok(tools.some((tool) => tool.name === 'blog_get_workflow'))
-  assert.ok(tools.some((tool) => tool.name === 'blog_create_assisted_post'))
-  assert.ok(tools.some((tool) => tool.name === 'blog_generate_social_pack'))
+  assert.equal(tools.some((tool) => tool.name === 'blog_create_assisted_post'), false)
+  assert.equal(tools.some((tool) => tool.name === 'blog_generate_social_pack'), false)
   const publish = tools.find((tool) => tool.name === 'blog_publish')
   assert.ok(publish.inputSchema.properties.direct)
   assert.ok(publish.inputSchema.properties.ignoreSeo)
 })
 
-test('createMcpServer arranca con instructions y versión 2.4', () => {
+test('createMcpServer arranca con instructions y versión 2.5', () => {
   const server = createMcpServer({ role: 'admin' })
   assert.ok(server)
-  assert.ok(MCP_SERVER_VERSION.startsWith('2.4'))
+  assert.ok(MCP_SERVER_VERSION.startsWith('2.5'))
 })
 
 test('workflow MCP prioriza /app y oculta sus enlaces al bridge del chat', async () => {

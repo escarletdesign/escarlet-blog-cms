@@ -188,14 +188,15 @@ Claude. Customize → Connectors → Add custom connector → URL `https://blog-
 
 | Acción | Tools |
 |--------|-------|
-| Crear fácil | `blog_get_workflow` → `blog_create_assisted_post` → confirmación → `blog_publish (direct: true)` → `blog_generate_social_pack` |
-| Crear guiado | `blog_get_workflow` → `blog_create_assisted_post` → revisar `/app/preview/{slug}` → `blog_update_post` → `blog_publish (direct: true)` → `blog_generate_social_pack` |
+| Crear fácil | `blog_get_workflow` → ChatGPT genera textos e imágenes → `blog_create_draft` + `blog_upload_media` + `blog_update_post` → confirmación → `blog_publish (direct: true)` |
+| Crear guiado | `blog_get_workflow` → ChatGPT genera → guardar borrador → revisar `/app/preview/{slug}` → `blog_update_post` → `blog_publish (direct: true)` |
+| Social Pack | ChatGPT genera copies e imágenes → `blog_save_social_pack` (nunca genera IA en el CMS) |
 | Programar | Igual + `blog_schedule_post` / `blog_publish` con `direct: true` y `publishAt` (YYYY-MM-DD) |
 | Calendario | App → Posts → Programados, o `blog_list_calendar` |
 | Editar | `blog_get_post` + `blog_update_post` (mismo slug) |
 | Setup site | `blog_get_onboarding` / `blog_create_site` |
 
-**Token de cliente.** Solo toca `AGENT.md`, `keywords.md` e imágenes de referencia. La voz de marca y el image-spec quedan ocultos (super-admin).
+**Token de cliente.** El token estándar solo toca `AGENT.md`, `keywords.md` e imágenes de referencia. El rol `client_mcp` puede leer el brandkit completo en modo solo lectura; ningún token MCP puede usar la IA del CMS.
 
 **Sitio.** Interruptor «Confirmar publicaciones programadas» (default on). Con él, un post programado espera tu OK antes de entrar en cola.
 

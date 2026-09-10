@@ -63,6 +63,10 @@ const useToast = () => {
   return value;
 };
 const isAdmin = (role?: string) => role === "admin" || role === "agency_admin";
+function AiOnly({ children }: { children: ReactNode }) {
+  const { session } = useApp();
+  return session.role === "client_mcp" ? null : <>{children}</>;
+}
 const roleLabel = (role: string | undefined, t: (key: string, fallback?: string) => string) => {
   const value = String(role || "client").trim().toLowerCase();
   return t(`role.${value}`, value.replace(/_/g, " "));
@@ -285,11 +289,11 @@ function App() {
       try {
         const nextFlags = await api.workflowFlags(nextSession.site || nextSession.sites?.[0]);
         setWorkflowFlags({
-          assistantEnabled: nextFlags.flags?.assistantEnabled !== false,
-          blogWizardEnabled: nextFlags.flags?.blogWizardEnabled !== false,
+          assistantEnabled: nextSession.role !== "client_mcp" && nextFlags.flags?.assistantEnabled !== false,
+          blogWizardEnabled: nextSession.role !== "client_mcp" && nextFlags.flags?.blogWizardEnabled !== false,
         });
       } catch {
-        setWorkflowFlags({ assistantEnabled: true, blogWizardEnabled: true });
+        setWorkflowFlags({ assistantEnabled: nextSession.role !== "client_mcp", blogWizardEnabled: nextSession.role !== "client_mcp" });
       }
     } catch {
       setSession(null);
@@ -631,9 +635,9 @@ function Onboarding() {
           <section className="onboarding-slide onboarding-tour-slide">
             <div className="onboarding-icon">◎</div>
             <h2>{t("onboarding.tourTitle")}</h2>
-            <p className="muted">{t("onboarding.tourHelp")}</p>
+            <p className="muted">{t(session.role === "client_mcp" ? "mcp.help" : "onboarding.tourHelp")}</p>
             <div className="onboarding-tour-list">
-              <span>✦<b>{t("onboarding.tourAssistant")}</b></span>
+              <span>✦<b>{t(session.role === "client_mcp" ? "mcp.connector" : "onboarding.tourAssistant")}</b></span>
               <span>▤<b>{t("onboarding.tourPosts")}</b></span>
               <span>□<b>{t("onboarding.tourCalendar")}</b></span>
             </div>
@@ -901,6 +905,7 @@ function NavIcon({ kind }: { kind: string }) {
 }
 
 function CreditIndicator({ site }: { site: string }) {
+  const { session } = useApp();
   const { t, language } = useI18n();
   const [snapshot, setSnapshot] = useState<Record<string, any> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -917,6 +922,7 @@ function CreditIndicator({ site }: { site: string }) {
   const available = Number(snapshot?.ai?.tokenCredits?.available);
   const hasCredits = Number.isFinite(available);
   const displayCredits = hasCredits ? available.toLocaleString(language === "en" ? "en-GB" : "es-ES") : loading ? "…" : "—";
+  if (session.role === "client_mcp") return <NavLink className="credit-indicator" to="/billing"><span>◈</span><span><b>{loading ? "…" : snapshot?.suspended ? t("mcp.readOnly") : t("mcp.membership")}</b><small>{snapshot ? `${Math.max(0, Number(snapshot.publishes?.limit || 0) - Number(snapshot.publishes?.used || 0))} ${t("mcp.publicationsLeft")}` : t("common.loading")}</small></span></NavLink>;
   return (
     <NavLink className="credit-indicator" to="/billing" title={t("billing.available")}>
       <span>✦</span>
@@ -2608,14 +2614,14 @@ function ManualPost() {
       <form onSubmit={submit} className="editor-form">
         <label>
           {t("editor.title")}{" "}
-          <button
+          <AiOnly><button
             type="button"
             className="inline-ai"
             onClick={() => setAiPromptOperation("title")}
             disabled={Boolean(generating)}
           >
             {generating === "title" ? "…" : t("editor.suggestTitle")}
-          </button>
+          </button></AiOnly>
           <input
             required
             maxLength={MAX_EDITOR_TITLE_CHARS}
@@ -2638,14 +2644,14 @@ function ManualPost() {
         </label>
         <label>
           {t("editor.excerpt")}{" "}
-          <button
+          <AiOnly><button
             type="button"
             className="inline-ai"
             onClick={() => setAiPromptOperation("summary")}
             disabled={Boolean(generating)}
           >
             {generating === "summary" ? "…" : t("editor.generateExcerpt")}
-          </button>
+          </button></AiOnly>
           <input
             value={draft.excerptEs || ""}
             onChange={(e) => update("excerptEs", e.target.value)}
@@ -2710,6 +2716,7 @@ function ManualPost() {
             type="button"
             className="inline-ai"
             onClick={() => setAiPromptOperation("body")}
+            hidden={session.role === "client_mcp"}
             disabled={Boolean(generating)}
           >
             {generating === "body" ? "…" : t("editor.writeWithAi")}
@@ -2732,6 +2739,7 @@ function ManualPost() {
                 type="button"
                 className="secondary"
                 onClick={() => setShowImageModal(true)}
+                hidden={session.role === "client_mcp"}
                 disabled={imageBusy}
               >
                 {t("editor.generateImage")}
@@ -2835,14 +2843,14 @@ function ManualPost() {
         </section>
         <label>
           {t("editor.meta")}{" "}
-          <button
+          <AiOnly><button
             type="button"
             className="inline-ai"
             onClick={() => setAiPromptOperation("meta")}
             disabled={Boolean(generating)}
           >
             {generating === "meta" ? "…" : t("editor.generateMeta")}
-          </button>
+          </button></AiOnly>
           <span className="optional">{t("editor.metaHelp")}</span>
           <input
             value={draft.metaDescription?.es || ""}
@@ -3302,13 +3310,13 @@ function PublishSocial() {
         <section className="card social-card">
           <h2>{post.title}</h2>
           <p className="muted">{t("publish.prepare")}</p>
-          <button className="secondary" disabled={busy} onClick={generatePack}>
+          <AiOnly><button className="secondary" disabled={busy} onClick={generatePack}>
             {busy
               ? t("publish.preparing")
               : hasPack
                 ? t("social.regenerate")
                 : t("publish.generate")}
-          </button>
+          </button></AiOnly>
           {hasPack && socialPack && (
             <div className="social-output">
               {Object.entries(socialPack).filter(([, text]) => typeof text === "string").map(([channel, text]) => (
@@ -3541,7 +3549,7 @@ function SocialPack() {
       )}
       {post && socialPack && Object.keys(socialPack).length > 0 && (
         <div className="social-pack-generation-actions">
-          <button
+          <AiOnly><button
             className="primary"
             onClick={() => void generatePack()}
             disabled={busy}
@@ -3549,7 +3557,7 @@ function SocialPack() {
             {busy
               ? t("publish.preparing")
               : t("social.regenerate")}
-          </button>
+          </button></AiOnly>
         </div>
       )}
       {post && (
@@ -3709,13 +3717,13 @@ function SocialPack() {
           <span>✦</span>
           <h2>{t("social.empty")}</h2>
           <p>{t("social.description")}</p>
-          <button
+          <AiOnly><button
             className="primary"
             onClick={() => void generatePack()}
             disabled={busy}
           >
             {busy ? t("publish.preparing") : t("social.generate")}
-          </button>
+          </button></AiOnly>
         </section>
       )}
       {message && <p className="success">{message}</p>}
@@ -4471,7 +4479,7 @@ function Settings() {
             ]}
           />
         </label>
-        <label>
+        <AiOnly><label>
           {t("settings.model")}
           <ChoicePills
             value={model}
@@ -4483,7 +4491,7 @@ function Settings() {
         <p className="tiny">{t("settings.modelHelp")}</p>
         <button className="secondary" onClick={save}>
           {t("settings.save")}
-        </button>
+        </button></AiOnly>
         {message && <p className="success">{message}</p>}
       </section>
       <section className="card settings-card">
@@ -4493,7 +4501,7 @@ function Settings() {
           {t("settings.role")}: {roleLabel(session.role, t)}
         </p>
         <NavLink className="text-link" to="/billing">
-          {t("settings.credits")}
+          {t(session.role === "client_mcp" ? "mcp.membership" : "settings.credits")}
         </NavLink>
       </section>
       <button
@@ -4510,7 +4518,7 @@ function Settings() {
 }
 
 function Billing() {
-  const { site } = useApp();
+  const { site, session } = useApp();
   const { t, language } = useI18n();
   const { showToast } = useToast();
   const [snapshot, setSnapshot] = useState<Record<string, any> | null>(null);
@@ -4559,6 +4567,19 @@ function Billing() {
     }
   };
   const ai = snapshot?.ai?.tokenCredits;
+  if (session.role === "client_mcp") return <main className="page narrow">
+    <PageTitle title={t("mcp.membership")} description={t("mcp.help")} back />
+    <section className="card settings-card">
+      <h2>{snapshot?.plan?.name || "CMS con ChatGPT"}</h2>
+      <p>{snapshot?.suspended ? t("mcp.readOnly") : t("mcp.active")}</p>
+      <p>{snapshot ? `${Math.max(0, snapshot.publishes.limit - snapshot.publishes.used)} / ${snapshot.publishes.limit} ${t("mcp.publicationsLeft")}` : t("common.loading")}</p>
+      <p className="muted">{t("mcp.billingHelp")}</p>
+      <div className="form-actions"><button className="primary" disabled={Boolean(busy) || !snapshot?.stripe?.plans?.mcp} onClick={() => checkout({ kind: "membership", planId: "mcp" })}>{t("mcp.subscribe")}</button>
+      <button className="secondary" disabled={Boolean(busy)} onClick={portal}>{t("billing.manage")}</button></div>
+    </section>
+    <section className="card settings-card"><h2>{t("mcp.connector")}</h2><p>{t("mcp.help")}</p><code>{window.location.origin}/mcp</code></section>
+    {message && <p role="status">{message}</p>}
+  </main>;
   const testCreditsEnabled = Boolean(snapshot?.stripe?.testCreditsEnabled);
   const packs = (snapshot?.creditPacks || []) as Array<{
     id: string;
@@ -4673,6 +4694,26 @@ function AdminGate() {
   const { session } = useApp();
   return isAdmin(session.role) ? <Admin /> : <Navigate to="/" replace />;
 }
+function McpPlanSettings() {
+  const { t } = useI18n();
+  const { showToast } = useToast();
+  const [plan, setPlan] = useState<Record<string, any>>({ priceId: "", draftLimit: "", publishLimitPerMonth: "", enabled: false });
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api.mcpPlan().then(({ plan }) => { if (plan) setPlan(plan); }).catch((err) => showToast(err.message, "error")); }, []);
+  return <form className="card settings-card" onSubmit={async (event) => {
+    event.preventDefault(); setBusy(true);
+    try { const result = await api.saveMcpPlan(plan); setPlan(result.plan); showToast(t("admin.saved")); }
+    catch (err) { showToast(err instanceof Error ? err.message : t("common.error"), "error"); }
+    finally { setBusy(false); }
+  }}>
+    <h2>{t("mcp.planConfig")}</h2><p className="muted">{t("mcp.billingHelp")}</p>
+    <label>{t("mcp.price")}<input required value={plan.priceId} placeholder="price_…" onChange={(e) => setPlan({ ...plan, priceId: e.target.value })} /></label>
+    <label>{t("mcp.draftLimit")}<input required type="number" min="1" step="1" value={plan.draftLimit} onChange={(e) => setPlan({ ...plan, draftLimit: e.target.value })} /></label>
+    <label>{t("mcp.publishLimit")}<input required type="number" min="1" step="1" value={plan.publishLimitPerMonth} onChange={(e) => setPlan({ ...plan, publishLimitPerMonth: e.target.value })} /></label>
+    <label className="switch-row"><span>{t("mcp.enabled")}</span><input type="checkbox" role="switch" checked={plan.enabled} onChange={(e) => setPlan({ ...plan, enabled: e.target.checked })} /></label>
+    <button className="primary" disabled={busy}>{busy ? t("admin.saving") : t("common.save")}</button>
+  </form>;
+}
 function Admin() {
   const { site, session, refresh } = useApp();
   const { t } = useI18n();
@@ -4706,7 +4747,7 @@ function Admin() {
     null,
   );
   const [siteConfig, setSiteConfig] = useState<Record<string, any> | null>(null);
-  const [siteForm, setSiteForm] = useState({ name: "", domain: "", rebuildWebhookUrl: "", blogEnabled: true, reviewMode: "direct" });
+  const [siteForm, setSiteForm] = useState({ name: "", domain: "", rebuildWebhookUrl: "", blogEnabled: true, reviewMode: "direct", planId: "standard" });
   const [siteSaving, setSiteSaving] = useState(false);
   const [siteToken, setSiteToken] = useState("");
   const [teamUnavailable, setTeamUnavailable] = useState(false);
@@ -4815,6 +4856,7 @@ function Admin() {
           rebuildWebhookUrl: String(data.config?.rebuildWebhookUrl || ""),
           blogEnabled: data.config?.blogEnabled !== false,
           reviewMode: String(data.config?.reviewMode || "direct"),
+          planId: String(data.config?.planId || "standard"),
         });
       })
       .catch(() => setSiteConfig(null));
@@ -5380,6 +5422,7 @@ function Admin() {
                   onChange={(value) => setUserForm({ ...userForm, role: value })}
                   options={[
                     { value: "client", label: roleLabel("client", t) },
+                    { value: "client_mcp", label: roleLabel("client_mcp", t) },
                     { value: "agency_admin", label: roleLabel("agency_admin", t) },
                   ]}
                 />
@@ -5437,6 +5480,19 @@ function Admin() {
               <label className="checkbox-label">
                 <input type="checkbox" checked={siteForm.blogEnabled} onChange={(event) => setSiteForm({ ...siteForm, blogEnabled: event.target.checked })} />
                 {t("admin.blogEnabled")}
+              </label>
+              <label>
+                {t("admin.sitePlan")}
+                <ChoicePills
+                  value={siteForm.planId}
+                  ariaLabel={t("admin.sitePlan")}
+                  onChange={(value) => setSiteForm({ ...siteForm, planId: value })}
+                  options={[
+                    { value: "standard", label: t("admin.sitePlanStandard") },
+                    { value: "mcp", label: t("admin.sitePlanMcp") },
+                  ]}
+                />
+                <span className="tiny">{t("admin.sitePlanHelp")}</span>
               </label>
               <div className="form-actions">
                 <button className="ghost" type="button" disabled={siteSaving} onClick={() => void testSite()}>{t("admin.testRebuild")}</button>
@@ -5643,6 +5699,7 @@ function Admin() {
               </button>
             </form>
           </div>
+          {session.role === "admin" && <McpPlanSettings />}
           <section className="card temporary-flag-card">
             <p className="eyebrow">{t("admin.temporaryFlags")}</p>
             <h2>{t("admin.billingTestTitle")}</h2>

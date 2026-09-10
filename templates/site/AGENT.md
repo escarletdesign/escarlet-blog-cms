@@ -12,11 +12,11 @@ Si `missingBrand` tiene archivos, para y pide que los completen.
 ## Flujo MCP (crear)
 
 1. Llama `blog_get_workflow` y pregunta si el usuario prefiere `easy` o `guided`.
-2. Llama `blog_create_assisted_post` con la idea amplia. Genera contenido y portada en el servidor siguiendo el brand kit y sus referencias.
+2. Genera el título, contenido, metadatos e imágenes en ChatGPT siguiendo el brand kit y sus referencias. Guarda el borrador con `blog_create_draft`, `blog_upload_media` y `blog_update_post`.
 3. En `guided`, comparte únicamente `appPreviewUrl` (`/app/preview/{slug}`) y espera la revisión. En `easy`, muestra un resumen y pide confirmación.
 4. Aplica correcciones con `blog_update_post` usando el mismo slug.
 5. Tras confirmar, llama `blog_publish` o `blog_schedule_post` con `direct: true` según la decisión del usuario. No uses la revisión legacy.
-6. Después de publicar, llama `blog_generate_social_pack` para generar copy y carrusel en el servidor.
+6. Guarda el Social Pack generado por ChatGPT con `blog_save_social_pack`. El CMS no genera copy ni carruseles desde MCP.
 
 ## Flujo MCP (editar)
 

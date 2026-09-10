@@ -142,6 +142,10 @@ import {
 import { mediaForClient, repairMediaInDb, repairPostsInDb, resolveImageSrc, resolvePostImageSrc, inspectImageBuffer } from './lib/media-url.mjs'
 import { runChat as runAiChat, runGenerateOperation, splitSseChunks, recordPublicationMemory } from './lib/ai-gateway.mjs'
 import { generateImageOptions } from './lib/ai-image.mjs'
+import { assertCmsAiAllowed } from './lib/generation-policy.mjs'
+import { canReadPost, canEditPost, safePostFields, assertPostAccess } from './lib/post-access.mjs'
+import { saveMcpPlan } from './lib/membership.mjs'
+import { assertMembershipActive } from './lib/plans.mjs'
 import { generateSocialPackImages } from './lib/ai-workflows.mjs'
 import { archiveConversation, conversationOwner, deleteConversation, getConversation, listConversations, saveConversation } from './lib/ai-conversations.mjs'
 import { getWorkflowFlags, setWorkflowFlags } from './lib/workflow-flags.mjs'
@@ -247,6 +251,12 @@ function requireAuth(req, url, res) {
   if (!auth) {
     json(res, 401, { message: 'No autorizado' })
     return null
+  }
+  if (url.pathname.startsWith('/api/ai/')) {
+    try { assertCmsAiAllowed(auth) } catch (error) {
+      json(res, 403, { message: error.message, ...(error.extra || {}) })
+      return null
+    }
   }
   return auth
 }
@@ -614,25 +624,11 @@ function normalizePostsForClient(posts) {
 }
 
 function canViewPostForAuth(post, auth, site) {
-  if (!post) return false
-  if (post.status === 'published') return true
-  return canViewOwnedDraft({
-    site,
-    ownerId: post.ownerId || post.createdBy || post.authorId,
-    requesterId: auth?.userId,
-    requesterRole: auth?.role
-  })
+  return canReadPost(post, auth, site)
 }
 
 function canMutatePostForAuth(post, auth, site) {
-  if (!post) return false
-  if (auth?.role === 'admin' || auth?.role === 'agency_admin') return true
-  return canViewOwnedDraft({
-    site,
-    ownerId: post.ownerId || post.createdBy || post.authorId,
-    requesterId: auth?.userId,
-    requesterRole: auth?.role
-  })
+  return canEditPost(post, auth, site)
 }
 
 // Image generation can take longer than the reverse proxy timeout when a
@@ -649,6 +645,7 @@ function pruneSocialPackJobs(now = Date.now()) {
 }
 
 function queueSocialPackImages({ site, post, socialPack, auth }) {
+  assertCmsAiAllowed(auth)
   pruneSocialPackJobs()
   const job = {
     id: randomUUID(),
@@ -660,7 +657,7 @@ function queueSocialPackImages({ site, post, socialPack, auth }) {
     updatedAt: new Date().toISOString()
   }
   socialPackJobs.set(job.id, job)
-  void generateSocialPackImages({ site, post, socialPack })
+  void generateSocialPackImages({ site, post, socialPack, auth })
     .then(async (completed) => {
       const latestDb = readDb()
       const currentPost = findPost(latestDb, site, post.slug)
@@ -1614,7 +1611,7 @@ const server = createServer(async (req, res) => {
       if (!siteConfig) throw Object.assign(new Error('Sitio no encontrado'), { status: 404 })
 
       if (req.method === 'GET' && path === '/api/billing/snapshot') {
-        const snapshot = getPwaBillingSnapshot(site, { db, siteConfig })
+        const snapshot = getPwaBillingSnapshot(site, { db, siteConfig, auth })
         // A preference selector must only expose providers that are actually
         // enabled and have a usable credential. The included model is always
         // available, including for administrators configuring their own profile.
@@ -1628,6 +1625,7 @@ const server = createServer(async (req, res) => {
         return
       }
       if (req.method === 'POST' && path === '/api/billing/checkout') {
+        if (body.kind === 'credits') assertCmsAiAllowed(auth)
         if (body.kind === 'credits' && isBillingTestCreditsEnabled(db)) {
           const grant = grantPwaTestCredits(site, body.packId, { db, actorId: auth.userId || auth.role })
           writeDb(db)
@@ -1656,7 +1654,7 @@ const server = createServer(async (req, res) => {
       }
       if (req.method === 'POST' && path === '/api/billing/portal') {
         const result = await createPwaPortalSession({
-          customerId: db.aiCredits?.[site]?.stripeCustomerId || body.customerId,
+          customerId: db.memberships?.[site]?.customerId || db.aiCredits?.[site]?.stripeCustomerId,
           returnUrl: `${absoluteCmsOrigin(req)}/app/billing`
         })
         json(res, 200, { site, configured: result.configured, reason: result.reason, url: result.url || null })
@@ -1726,7 +1724,7 @@ const server = createServer(async (req, res) => {
     try {
       const site = siteFrom(auth, url.searchParams.get('site') || DEFAULT_SITE)
       assertSiteAccess(auth, site)
-      json(res, 200, { flags: getWorkflowFlags(readDb()) })
+      json(res, 200, { flags: auth.role === 'client_mcp' ? { assistantEnabled: false, blogWizardEnabled: false } : getWorkflowFlags(readDb()) })
     } catch (error) {
       json(res, error.status || 400, { message: error.message })
     }
@@ -1845,6 +1843,8 @@ const server = createServer(async (req, res) => {
         .slice(0, 140) || `Imagen de portada para ${site}`
       const mediaOptions = []
       for (let optionIndex = 0; optionIndex < optionCount; optionIndex += 1) {
+        assertCmsAiAllowed(auth)
+        assertMembershipActive(site)
         let response
         if (referenceFiles.length) {
           // GPT Image edits accepts up to 16 reference images. Sending the
@@ -1949,6 +1949,7 @@ const server = createServer(async (req, res) => {
       const body = await parseBody(req)
       const site = siteFrom(auth, body.site || DEFAULT_SITE)
       assertSiteAccess(auth, site)
+      assertMembershipActive(site)
       assertAiRateLimit(aiRateLimitKey(auth, site, requestIp(req)), { limit: 12 })
       const raw = String(body.audioBase64 || '').trim()
       const encoded = raw.includes(',') ? raw.split(',').pop() : raw
@@ -2132,6 +2133,18 @@ const server = createServer(async (req, res) => {
 
     const db = readDb()
 
+    if (path === '/api/admin/billing/mcp-plan') {
+      try {
+        assertSuperAdmin(auth)
+        if (req.method === 'GET') { json(res, 200, { plan: db.plans?.find((p) => p.id === 'mcp') || null }); return }
+        if (req.method !== 'POST') { json(res, 405, { message: 'Método no permitido' }); return }
+        const plan = saveMcpPlan(await parseBody(req), db)
+        writeDb(db)
+        json(res, 200, { plan })
+      } catch (error) { json(res, error.status || 400, { message: error.message }) }
+      return
+    }
+
     if (req.method === 'GET' && path === '/api/admin/session') {
       json(res, 200, publicAuthSession(auth))
       return
@@ -2262,7 +2275,7 @@ const server = createServer(async (req, res) => {
         assertSiteAccess(auth, site)
         const siteConfig = loadSiteConfig(site)
         if (!siteConfig) throw Object.assign(new Error('Sitio no encontrado'), { status: 404 })
-        json(res, 200, getPwaBillingSnapshot(site, { db, siteConfig }))
+        json(res, 200, getPwaBillingSnapshot(site, { db, siteConfig, auth }))
       } catch (err) {
         json(res, err.status || 403, { message: err.message, ...(err.extra || {}) })
       }
@@ -2272,6 +2285,7 @@ const server = createServer(async (req, res) => {
     if (isProductRestructureV1() && req.method === 'POST' && path === '/api/admin/billing/checkout') {
       try {
         const body = await parseBody(req)
+        if (body.kind === 'credits') assertCmsAiAllowed(auth)
         const site = siteFrom(auth, body.site || DEFAULT_SITE)
         assertSiteAccess(auth, site)
         if (!loadSiteConfig(site)) throw Object.assign(new Error('Sitio no encontrado'), { status: 404 })
@@ -2314,7 +2328,7 @@ const server = createServer(async (req, res) => {
         assertSiteAccess(auth, site)
         if (!loadSiteConfig(site)) throw Object.assign(new Error('Sitio no encontrado'), { status: 404 })
         const result = await createPwaPortalSession({
-          customerId: db.aiCredits?.[site]?.stripeCustomerId || body.customerId,
+          customerId: db.memberships?.[site]?.customerId || db.aiCredits?.[site]?.stripeCustomerId,
           returnUrl: `${absoluteCmsOrigin(req)}/app/billing`
         })
         json(res, 200, { site, configured: result.configured, reason: result.reason, url: result.url || null })
@@ -2854,6 +2868,7 @@ const server = createServer(async (req, res) => {
       const site = siteFrom(auth, body.site || DEFAULT_SITE)
       try {
         assertSiteAccess(auth, site)
+        assertMembershipActive(site)
       } catch (err) {
         json(res, err.status || 403, { message: err.message })
         return
@@ -2893,9 +2908,9 @@ const server = createServer(async (req, res) => {
         const result = await cmsCreateDraft({
           ...body,
           site,
-          ownerId: body.ownerId || auth.userId || '',
+          ownerId: auth.userId || '',
           skipQuota,
-          contentSource: body.contentSource || (auth.role === 'client' ? 'client' : 'agency')
+          contentSource: body.contentSource || (['client', 'client_mcp'].includes(auth.role) ? 'client' : 'agency')
         })
         json(res, 201, result)
       } catch (error) {
@@ -2917,7 +2932,11 @@ const server = createServer(async (req, res) => {
           json(res, 403, { message: 'No tienes acceso a editar este borrador.' })
           return
         }
-        const result = await cmsUpdatePost({ ...body, site, ownerId: body.ownerId || auth.userId || '' })
+        const fields = safePostFields(body, auth, site)
+        // A client may demote a publication, never promote it with an update.
+        if (body.status === 'draft') fields.status = 'draft'
+        if (Object.hasOwn(body, 'publishAt')) fields.publishAt = body.publishAt
+        const result = await cmsUpdatePost({ ...fields, site, direct: true, keepPublished: true })
         json(res, 200, result)
       } catch (error) {
         const status = error.status || 500
@@ -2969,7 +2988,7 @@ const server = createServer(async (req, res) => {
       try {
         assertSuperAdmin(auth)
         assertSiteAccess(auth, site)
-        const existing = findPost(readDb(), site, slug)
+        const existing = findPost(readDb(), site, body.slug)
         if (existing && !canMutatePostForAuth(existing, auth, site)) {
           json(res, 403, { message: 'No tienes acceso a publicar este borrador.' })
           return
@@ -2988,6 +3007,7 @@ const server = createServer(async (req, res) => {
       const site = siteFrom(auth, body.site || DEFAULT_SITE)
       try {
         assertSiteAccess(auth, site)
+        assertPostAccess(findPost(readDb(), site, body.slug), auth, { write: true })
         const result = await cmsCancelSchedule(site, body.slug)
         json(res, 200, result)
       } catch (error) {
@@ -3003,6 +3023,7 @@ const server = createServer(async (req, res) => {
       const slug = body.slug
       try {
         assertSiteAccess(auth, site)
+        assertPostAccess(findPost(readDb(), site, slug), auth, { write: true })
         // Live publish (not submit-for-review, not schedule) respects approverRole.
         if (!body.publishAt) {
           const siteConfig = loadSiteConfig(site)
@@ -3077,6 +3098,7 @@ const server = createServer(async (req, res) => {
       const site = siteFrom(auth, body.site || DEFAULT_SITE)
       try {
         assertSiteAccess(auth, site)
+        assertPostAccess(findPost(readDb(), site, body.slug), auth, { write: true })
         const result = await cmsUnpublishPost(site, body.slug)
         json(res, 200, result)
       } catch (error) {

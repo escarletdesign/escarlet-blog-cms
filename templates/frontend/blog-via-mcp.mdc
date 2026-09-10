@@ -34,7 +34,7 @@ Env `BLOG_ENABLED=false` en local fuerza apagado. El interruptor del CMS manda e
 
 ## Crear post
 
-1. `blog_create_assisted_post` con la idea del usuario y `mode: easy` o `mode: guided`
+1. Pregunta si quiere flujo `easy` o `guided`, genera el contenido y las imágenes en ChatGPT y guarda el borrador con `blog_create_draft`, `blog_upload_media` y `blog_update_post`.
 2. En `guided`, comparte `appPreviewUrl` y espera la revisión. En `easy`, pide confirmación antes de publicar.
 3. `blog_update_post` con bodyHtml, metas o correcciones del usuario:
 
@@ -52,9 +52,9 @@ socialPack: {
 }
 ```
 
-4. Si hay que regenerar la portada. `blog_generate_post_image` con `source: content`, `description` o `both`.
+4. Si hay que cambiar la portada, genera la nueva imagen en ChatGPT y súbela con `blog_upload_media`; después actualiza el post con `blog_update_post`.
 5. `blog_publish` o `blog_schedule_post` con `direct: true` después de la confirmación. No uses la revisión legacy.
-6. Después de publicar. `blog_generate_social_pack` genera y guarda copy + carrusel en el servidor.
+6. Guarda el copy y carrusel generado por ChatGPT con `blog_save_social_pack`. El CMS no los genera automáticamente.
 7. Tras el rebuild. indicar `appSocialPackUrl` (`/app/social-pack/{slug}`) para copiar o descargar el pack.
 
 ## Editar post

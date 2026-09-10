@@ -18,6 +18,10 @@ import { assertChatToolAllowed, assertSafeToolArguments } from '../lib/ai-securi
 import { loadSiteConfig } from '../lib/site-config.mjs'
 import { readDb } from '../lib/db.mjs'
 import { getWorkflowFlags } from '../lib/workflow-flags.mjs'
+import { withGenerationPolicy, assertCmsAiAllowed, CMS_AI_TOOLS } from '../lib/generation-policy.mjs'
+import { canReadPost, assertPostAccess, safePostFields } from '../lib/post-access.mjs'
+import { listSiteAuthors } from '../lib/human-auth.mjs'
+import { assertMembershipActive } from '../lib/plans.mjs'
 
 const DEFAULT_SITE = process.env.DEFAULT_SITE || 'escarlet'
 
@@ -120,31 +124,10 @@ function directWorkflowPublish(args, source) {
   return args.direct === true || (source === 'mcp' && args.direct !== false)
 }
 
-function assertAssistedWorkflowEnabled() {
-  if (getWorkflowFlags(readDb()).blogWizardEnabled) return
-  throw Object.assign(new Error('El flujo de creación asistida está desactivado por el administrador.'), {
-    status: 403,
-    extra: { code: 'WORKFLOW_DISABLED', flag: 'blogWizardEnabled' }
-  })
-}
-
-// Keep the MCP registry independent from the PWA AI gateway. The gateway
-// reuses this registry for chat tools, so importing the workflow module here
-// eagerly would create a circular dependency at server startup.
-async function loadAiWorkflows() {
-  return import('../lib/ai-workflows.mjs')
-}
-
-function siteArticleUrl(site, slug, provided = '') {
-  const explicit = String(provided || '').trim()
-  if (explicit) return explicit
-  const config = loadSiteConfig(site)
-  const domain = String(config?.domain || '').replace(/\/$/, '')
-  return domain ? `${domain}/blog/${encodeURIComponent(slug)}` : ''
-}
-
 export function buildToolList(auth) {
   const tools = [
+    { name: 'blog_list_authors', description: 'Autores asignados y autorizados para publicar en su nombre.', inputSchema: { type: 'object', properties: { site: { type: 'string' } }, required: ['site'] }, annotations: { readOnlyHint: true } },
+    { name: 'blog_save_social_pack', description: 'Guarda textos y slides generados por ChatGPT. No genera contenido ni llama APIs de IA.', inputSchema: { type: 'object', properties: { site: { type: 'string' }, slug: { type: 'string' }, socialPack: { type: 'object' } }, required: ['site', 'slug', 'socialPack'] }, annotations: { readOnlyHint: false } },
     {
       name: 'blog_list_sites',
       description: 'Lista sitios visibles con este token.',
@@ -253,76 +236,8 @@ export function buildToolList(auth) {
       annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false }
     },
     {
-      name: 'blog_generate_assisted_content',
-      description:
-        'Genera título, cuerpo, resumen y meta descripción con el brand kit privado del sitio. No crea ni publica el post. Úsala para revisar o iterar el contenido antes de llamar blog_update_post.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          site: { type: 'string' },
-          idea: { type: 'string', description: 'Idea amplia o instrucción editorial del usuario' },
-          model: { type: 'string', description: 'Modelo opcional configurado para el sitio' }
-        },
-        required: ['site', 'idea']
-      },
-      annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false }
-    },
-    {
-      name: 'blog_create_assisted_post',
-      description:
-        'Flujo fácil de creación en /app: convierte una idea amplia en título, artículo, resumen, meta y portada usando el brand kit y referencias del servidor, y guarda un borrador. No publica ni genera Social Pack automáticamente. Pregunta antes si el usuario quiere easy (todo asistido) o guided (revisión en /app).',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          site: { type: 'string' },
-          idea: { type: 'string', description: 'Idea amplia, dictado transcrito o tema del post' },
-          mode: { type: 'string', enum: ['easy', 'guided'], description: 'easy = IA completa; guided = el usuario revisa en /app antes de publicar' },
-          author: { type: 'string', description: 'Autor asignado al sitio' },
-          slug: { type: 'string' },
-          model: { type: 'string' },
-          generateImage: { type: 'boolean', description: 'Genera la portada con referencias del brand kit. Por defecto true.' }
-        },
-        required: ['site', 'idea', 'mode']
-      },
-      annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false }
-    },
-    {
-      name: 'blog_generate_post_image',
-      description:
-        'Genera una o varias portadas para un post existente en el servidor. Pregunta si debe usar el contenido, una descripción del usuario o ambas. Usa brand kit + referencias y guarda cada opción en la galería del post; la primera queda seleccionada.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          site: { type: 'string' },
-          slug: { type: 'string' },
-          source: { type: 'string', enum: ['content', 'description', 'both'] },
-          description: { type: 'string' },
-          optionCount: { type: 'integer', minimum: 1, maximum: 3 }
-        },
-        required: ['site', 'slug', 'source']
-      },
-      annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false }
-    },
-    {
-      name: 'blog_generate_social_pack',
-      description:
-        'Genera y guarda el Social Pack de un post existente. Incluye copy para canales activos y, por defecto, cuatro imágenes de carrusel Instagram generadas en el servidor con las referencias del brand kit. Úsala después de publicar o cuando el usuario la pida explícitamente.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          site: { type: 'string' },
-          slug: { type: 'string' },
-          articleUrl: { type: 'string', description: 'URL pública canónica del post, si ya está disponible' },
-          model: { type: 'string' },
-          includeImages: { type: 'boolean', description: 'Incluye carrusel Instagram. Por defecto true.' }
-        },
-        required: ['site', 'slug']
-      },
-      annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false }
-    },
-    {
       name: 'blog_update_post',
-      description: 'Actualiza un post EXISTENTE. Guarda en el CMS y no dispara rebuild. Para que salga en la web llama blog_publish. Si ya está publicado, pasa keepPublished true o status published. Portada. mediaUpload A→B→C kind post y pega media.url en imageUrl.',
+      description: 'Actualiza un post EXISTENTE. Guarda en el CMS y no dispara rebuild. Para que salga en la web llama blog_publish. No permite modificar estado ni propietario: usa publicar/programar/despublicar. Portada. mediaUpload A→B→C kind post y pega media.url en imageUrl.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -339,9 +254,7 @@ export function buildToolList(auth) {
           authorName: { type: 'string' },
           relatedSlugs: { type: 'array', items: { type: 'string' } },
           socialPack: { type: 'object' },
-          status: { type: 'string' },
-          keepPublished: { type: 'boolean' },
-          publishAt: { type: 'string', description: 'YYYY-MM-DD si se programa' }
+          imageGallery: { type: 'array', items: { type: 'object' } }
         },
         required: ['site', 'slug']
       },
@@ -653,7 +566,9 @@ export function buildToolList(auth) {
   ]
 
   return tools
-    .filter((t) => !(t.adminOnly && (auth?.role === 'site' || auth?.role === 'client')))
+    .filter((t) => !CMS_AI_TOOLS.has(t.name))
+    .filter((t) => !(t.adminOnly && auth?.role !== 'admin'))
+    .filter((t) => !(auth?.role === 'client_mcp' && t.name === 'blog_update_brand_file'))
     .map(({ adminOnly, ...rest }) => rest)
 }
 
@@ -706,15 +621,36 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
     }
   })
 
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.setRequestHandler(CallToolRequestSchema, async (request) => withGenerationPolicy({ externalMcp: !['app', 'chat'].includes(source), auth }, async () => {
     const { name, arguments: args = {} } = request.params
     try {
+      if (CMS_AI_TOOLS.has(name)) {
+        assertCmsAiAllowed(auth)
+        throw Object.assign(new Error('Usa el servicio interno de generación de /app, no una herramienta MCP.'), { status: 403 })
+      }
       // Every transport shares the same argument boundary. The optional
       // mutation restriction is enabled only for app/chat bridges; the
       // authenticated external MCP transport keeps its explicit workflow.
       assertSafeToolArguments(name, args, { source })
       if (restrictMutations) assertChatToolAllowed(name, args)
+      const tool = buildToolList(auth).find((t) => t.name === name)
+      if (!tool) throw Object.assign(new Error('Herramienta no disponible para este acceso.'), { status: 403 })
+      if (!tool.annotations?.readOnlyHint && name !== 'blog_create_site') assertMembershipActive(resolveToolSite(auth, args))
+      if (args.slug && !['blog_create_draft', 'blog_upload_media', 'blog_upload_media_file', 'blog_open_image_drop', 'blog_import_remote_image'].includes(name)) {
+        const site = resolveToolSite(auth, args)
+        const { post } = await cms.getPost(site, args.originalSlug || args.slug)
+        assertPostAccess(post, auth, { write: !tool.annotations?.readOnlyHint })
+      }
       switch (name) {
+        case 'blog_list_authors': {
+          const site = resolveToolSite(auth, args)
+          return textResult({ authors: listSiteAuthors({ site, requesterId: auth.userId, requesterRole: auth.role }) })
+        }
+        case 'blog_save_social_pack': {
+          const site = resolveToolSite(auth, args)
+          if (!args.socialPack || typeof args.socialPack !== 'object' || Array.isArray(args.socialPack)) throw Object.assign(new Error('Falta socialPack.'), { status: 400 })
+          return textResult(await cms.updatePost({ site, slug: args.slug, socialPack: args.socialPack, keepPublished: true, direct: true }))
+        }
         case 'blog_list_sites': {
           const all = await cms.listSites()
           const allowed = new Set(allowedSiteHandles(auth))
@@ -741,34 +677,16 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
         case 'blog_get_workflow': {
           const site = resolveToolSite(auth, args)
           const mode = args.mode === 'guided' ? 'guided' : args.mode === 'easy' ? 'easy' : 'choose'
-          const flags = getWorkflowFlags(readDb())
           return textResult(workflowPayload({
-            site,
-            mode,
-            enabled: flags.blogWizardEnabled,
-            assistantEnabled: flags.assistantEnabled,
-            blogWizardEnabled: flags.blogWizardEnabled,
-            disabledReason: flags.blogWizardEnabled ? undefined : 'El administrador desactivó temporalmente la creación asistida.',
+            site, mode, enabled: true, generationEngine: 'chatgpt', cmsAiAllowed: false,
+            assistantEnabled: true, blogWizardEnabled: true,
             appBaseUrl: appUrl('/'),
-            routes: {
-              home: appUrl('/'),
-              quickCreate: appUrl('/quick-create'),
-              preview: appUrl('/preview/{slug}'),
-              posts: appUrl('/posts'),
-              socialPack: appUrl('/social-pack/{slug}')
-            },
-            askUser: '¿Prefieres el flujo simple, donde la IA crea contenido y portada a partir de una idea amplia, o el flujo guiado, donde revisas el borrador en Escarlet antes de publicarlo?',
-            modes: {
-              easy: {
-                label: 'Flujo simple asistido',
-                steps: ['blog_create_assisted_post con mode easy', 'confirma el borrador', 'blog_publish con direct=true', 'blog_generate_social_pack']
-              },
-              guided: {
-                label: 'Flujo guiado con revisión',
-                steps: ['blog_create_assisted_post con mode guided', 'abre el enlace /app/preview/{slug}', 'aplica cambios con blog_update_post', 'confirma y llama blog_publish con direct=true', 'blog_generate_social_pack']
-              }
-            },
-            rule: 'No uses rutas /admin ni generadores legacy. La experiencia humana vive en /app.'
+            routes: { preview: appUrl('/preview/{slug}'), posts: `${appUrl('/posts')}?site=${encodeURIComponent(site)}` },
+            askUser: '¿Prefieres el flujo simple o revisar e iterar el borrador con el flujo guiado?',
+            steps: ['Consulta blog_get_brand_context y blog_list_authors.', 'Genera en ChatGPT textos e imágenes respetando el brand kit.', 'Crea con blog_create_draft, sube los medios y completa los campos con blog_update_post.', 'En guided entrega appPreviewUrl y aplica las correcciones.', 'Solicita confirmación y usa blog_publish o blog_schedule_post.', 'Solo si se solicita, genera en ChatGPT el Social Pack y guárdalo con blog_save_social_pack.'],
+            modes: { easy: { steps: ['Genera todo en ChatGPT', 'Guarda medios y campos', 'Confirma y publica con direct=true'] }, guided: { steps: ['Guarda el borrador', 'Revisa en /app', 'Publica con direct=true'] } },
+            appUrl: `${appUrl('/posts')}?site=${encodeURIComponent(site)}`,
+            rule: 'Nunca llames APIs de IA del CMS. Si no puedes transferir una imagen, conserva el borrador y pide carga manual.'
           }, source))
         }
         case 'blog_create_site':
@@ -776,11 +694,12 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           return textResult(await cms.createSiteRecord(args))
         case 'blog_list_posts': {
           const site = resolveToolSite(auth, args)
-          return textResult(await cms.listPosts(site, args.status))
+          const result = await cms.listPosts(site, args.status)
+          return textResult({ ...result, posts: result.posts.filter((p) => canReadPost(p, auth, site)) })
         }
         case 'blog_get_post': {
           const site = resolveToolSite(auth, args)
-          return textResult(await cms.getPost(site, args.slug))
+          return textResult(workflowPayload({ ...await cms.getPost(site, args.slug), appPreviewUrl: `${appUrl(`/preview/${encodeURIComponent(args.slug)}`)}?site=${encodeURIComponent(site)}` }, source))
         }
         case 'blog_get_quota': {
           const site = resolveToolSite(auth, args)
@@ -790,82 +709,16 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           const site = resolveToolSite(auth, args)
           return textResult(
             await cms.createDraft({
-              ...args,
+              ...safePostFields(args, auth, site),
               site,
-              contentSource: args.contentSource || (auth.role === 'client' ? 'client' : 'agency')
+              ownerId: auth.userId || '',
+              contentSource: args.contentSource || (['client', 'client_mcp'].includes(auth.role) ? 'client' : 'agency')
             })
           )
         }
-        case 'blog_generate_assisted_content': {
-          const site = resolveToolSite(auth, args)
-          assertAssistedWorkflowEnabled()
-          const { generateAssistedContent } = await loadAiWorkflows()
-          return textResult(await generateAssistedContent({
-            site,
-            auth,
-            idea: args.idea,
-            model: args.model
-          }))
-        }
-        case 'blog_create_assisted_post': {
-          const site = resolveToolSite(auth, args)
-          assertAssistedWorkflowEnabled()
-          const { createAssistedPost } = await loadAiWorkflows()
-          const mode = String(args.mode || '').trim().toLowerCase()
-          if (!['easy', 'guided'].includes(mode)) {
-            throw Object.assign(new Error('Elige mode: easy o guided.'), { status: 400 })
-          }
-          const result = await createAssistedPost({
-            site,
-            auth,
-            idea: args.idea,
-            model: args.model,
-            author: args.author,
-            slug: args.slug,
-            generateImage: args.generateImage !== false
-          })
-          const slug = result.post?.slug
-          return textResult(workflowPayload({
-            ...result,
-            mode,
-            appPreviewUrl: slug ? appUrl(`/preview/${encodeURIComponent(slug)}`) : undefined,
-            review: mode === 'guided'
-              ? 'Abre appPreviewUrl y espera las correcciones o confirmación del usuario antes de blog_publish.'
-              : 'Muestra un resumen del borrador y pide confirmación antes de blog_publish. Después genera el Social Pack.'
-          }, source))
-        }
-        case 'blog_generate_post_image': {
-          const site = resolveToolSite(auth, args)
-          const { generatePostImageForPost } = await loadAiWorkflows()
-          const result = await generatePostImageForPost({
-            site,
-            auth,
-            slug: args.slug,
-            source: args.source,
-            description: args.description,
-            optionCount: args.optionCount
-          })
-          return textResult(result)
-        }
-        case 'blog_generate_social_pack': {
-          const site = resolveToolSite(auth, args)
-          const { generateSocialPackForPost } = await loadAiWorkflows()
-          const result = await generateSocialPackForPost({
-            site,
-            auth,
-            slug: args.slug,
-            model: args.model,
-            articleUrl: siteArticleUrl(site, args.slug, args.articleUrl),
-            includeImages: args.includeImages !== false
-          })
-          return textResult(workflowPayload({
-            ...result,
-            appSocialPackUrl: appUrl(`/social-pack/${encodeURIComponent(args.slug)}`)
-          }, source))
-        }
         case 'blog_update_post': {
           const site = resolveToolSite(auth, args)
-          return textResult(await cms.updatePost({ ...args, site }))
+          return textResult(await cms.updatePost({ ...safePostFields(args, auth, site), site, direct: true, keepPublished: true }))
         }
         case 'blog_unpublish': {
           const site = resolveToolSite(auth, args)
@@ -917,7 +770,8 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
         }
         case 'blog_list_calendar': {
           const site = resolveToolSite(auth, args)
-          return textResult(await cms.listCalendarPosts(site, args.from, args.to))
+          const result = await cms.listCalendarPosts(site, args.from, args.to)
+          return textResult({ ...result, posts: result.posts.filter((p) => canReadPost(p, auth, site)) })
         }
         case 'blog_get_seo_context': {
           const site = resolveToolSite(auth, args)
@@ -975,7 +829,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
     } catch (err) {
       return errorResult(err)
     }
-  })
+  }))
 
   return server
 }

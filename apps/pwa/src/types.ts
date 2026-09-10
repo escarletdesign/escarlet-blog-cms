@@ -1,4 +1,4 @@
-export type Role = "admin" | "agency_admin" | "client" | "site" | string;
+export type Role = "admin" | "agency_admin" | "client" | "client_mcp" | "site" | string;
 
 export interface Session {
   role: Role;

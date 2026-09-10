@@ -24,4 +24,4 @@
 2. Filename `{slug}-ig-01.jpg` … `{slug}-ig-07.jpg`.
 3. `blog_upload_media` con `kind` `social` por cada slide.
 4. Guarda en `socialPack.instagramSlides` `{ imageUrl, alt, headline? }` y un `instagramCaption` con el canónico.
-5. Si el canal está activo, genera y guarda las slides desde `blog_generate_social_pack` después de publicar.
+5. Si el canal está activo, genera las slides en ChatGPT y guárdalas con `blog_save_social_pack` después de confirmar el contenido. El CMS no genera Social Packs desde MCP.

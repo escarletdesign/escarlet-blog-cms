@@ -26,6 +26,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 const baseApi = {
   session: () => request<Session>("/api/admin/session"),
+  mcpPlan: () => request<{ plan: Record<string, any> | null }>("/api/admin/billing/mcp-plan"),
+  saveMcpPlan: (plan: Record<string, any>) => request<{ plan: Record<string, any> }>("/api/admin/billing/mcp-plan", { method: "POST", body: JSON.stringify(plan) }),
   loginWithToken: (token: string) =>
     request<Session>("/api/login", {
       method: "POST",

@@ -64,11 +64,9 @@ Deploy producción. [docs/DEPLOY.md](docs/DEPLOY.md).
 | `blog_list_sites` | Sitios configurados |
 | `blog_list_posts` | Posts por site y status |
 | `blog_get_post` | Leer post |
-| `blog_get_workflow` | Elegir flujo simple o guiado en `/app` |
-| `blog_generate_assisted_content` | Generar título, cuerpo, resumen y meta sin crear post |
-| `blog_create_assisted_post` | Crear borrador + portada con IA y brand kit en servidor |
-| `blog_generate_post_image` | Generar opciones de portada y guardarlas en la galería |
-| `blog_generate_social_pack` | Generar copy + carrusel Instagram en servidor |
+| `blog_get_workflow` | Elegir flujo simple o guiado; ChatGPT genera y MCP persiste |
+| `blog_list_authors` | Autores asignados y autorizados para publicar |
+| `blog_save_social_pack` | Guardar el Social Pack generado por ChatGPT, sin usar IA del CMS |
 | `blog_create_draft` | Esqueleto borrador |
 | `blog_update_post` | Actualizar campos |
 | `blog_validate_seo` | Quality gates |
