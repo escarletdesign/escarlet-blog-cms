@@ -1556,16 +1556,15 @@ const server = createServer(async (req, res) => {
 
       if (req.method === 'GET' && path === '/api/billing/snapshot') {
         const snapshot = getPwaBillingSnapshot(site, { db, siteConfig })
-        // A client must only see providers that are actually enabled and have a
-        // usable credential. The included model is always available.
-        if (auth.role !== 'admin') {
-          const connectors = new Map(listPublicAiProviderConnectors({ db }).map((item) => [item.provider, item]))
-          snapshot.models = (snapshot.models || []).filter((model) => {
-            if (model.provider === 'included') return true
-            const connector = connectors.get(model.provider)
-            return Boolean(connector?.enabled && connector.apiKeyConfigured)
-          })
-        }
+        // A preference selector must only expose providers that are actually
+        // enabled and have a usable credential. The included model is always
+        // available, including for administrators configuring their own profile.
+        const connectors = new Map(listPublicAiProviderConnectors({ db }).map((item) => [item.provider, item]))
+        snapshot.models = (snapshot.models || []).filter((model) => {
+          if (model.provider === 'included') return true
+          const connector = connectors.get(model.provider)
+          return Boolean(connector?.enabled && connector.apiKeyConfigured)
+        })
         json(res, 200, snapshot)
         return
       }
@@ -2190,10 +2189,6 @@ const server = createServer(async (req, res) => {
       const site = siteFrom(auth, url.searchParams.get('site') || DEFAULT_SITE)
       try {
         assertSiteAccess(auth, site)
-        const config = loadSiteConfig(site) || {}
-        const staticAuthors = Array.isArray(config.authors) && config.authors.length
-          ? config.authors
-          : (db.authors || [])
         let userAuthors = []
         try {
           userAuthors = listSiteAuthors({ site, requesterId: auth.userId, requesterRole: auth.role })
@@ -2202,7 +2197,7 @@ const server = createServer(async (req, res) => {
         }
         const authors = []
         const seen = new Set()
-        for (const value of [...staticAuthors, ...userAuthors]) {
+        for (const value of userAuthors) {
           const author = typeof value === 'string' ? { name: value } : value
           const name = String(author?.name || author?.displayName || '').trim()
           if (!name || seen.has(name.toLowerCase())) continue

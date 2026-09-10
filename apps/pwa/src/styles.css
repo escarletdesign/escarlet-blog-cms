@@ -363,5 +363,13 @@
 .temporary-flag-warning span { color: #ead7a7; }
 .temporary-flag-card .form-actions { margin-top: 0; }
 @media (max-width: 600px) { .onboarding-page { padding: 10px; }.onboarding-shell { border-radius: 20px; }.onboarding-actions { margin-top: 20px; } }
+.user-list li > .admin-user-summary { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.admin-user-copy { min-width: 0; display: grid; gap: 3px; }
+.admin-user-copy strong, .admin-user-copy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 480px) {
+  .user-list li { padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: #121a18; }
+  .user-list li > .admin-user-summary { width: 100%; }
+  .user-actions { grid-column: 1 / -1; justify-content: flex-start; }
+}
 .social-pack-generation-actions { display: flex; justify-content: flex-end; margin: -8px 0 22px; }
 @media (max-width: 600px) { .social-pack-generation-actions { justify-content: stretch; }.social-pack-generation-actions .primary { width: 100%; } }

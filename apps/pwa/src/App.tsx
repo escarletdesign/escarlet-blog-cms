@@ -1883,13 +1883,11 @@ function ManualPost() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
     let active = true;
-    Promise.all([
-      api.brand(site).catch(() => ({})),
-      api.authors(site).catch(() => ({ authors: [] })),
-    ])
-      .then(([brand, authorData]) => {
+    api.authors(site)
+      .catch(() => ({ authors: [] }))
+      .then((authorData) => {
         if (!active) return;
-        const source = [...(brand.authors || []), ...(authorData.authors || [])];
+        const source = authorData.authors || [];
         const seen = new Set<string>();
         setAuthors(
           source.map((author) =>
@@ -3879,7 +3877,7 @@ function Settings() {
         .map((item: any) => ({ value: String(item.id || ""), label: String(item.name || item.id || "") }))
         .filter((item: { value: string; label: string }) => item.value && item.label);
       setModelOptions([{ value: "auto", label: t("settings.modelAuto") }, ...options]);
-      if (model !== "auto" && options.length && !options.some((item: { value: string }) => item.value === model)) setModel("auto");
+      if (model !== "auto" && !options.some((item: { value: string }) => item.value === model)) setModel("auto");
     }).catch(() => setModelOptions([{ value: "auto", label: t("settings.modelAuto") }]));
   }, [site, t]);
   useEffect(() => {
@@ -4865,9 +4863,12 @@ function Admin() {
             <ul className="user-list">
               {users.map((user) => (
                 <li key={user.id || user.email}>
-                  <div>
-                    <strong>{user.email || user.name || t("admin.user")}</strong>
-                    <span>{roleLabel(user.role, t)} · {(user.sites || [user.site]).filter(Boolean).join(", ")}{user.allowPublishingAs ? " · ✦ autor" : ""}</span>
+                  <div className="admin-user-summary">
+                    <UserAvatar src={user.avatarUrl} name={user.displayName || user.email || user.name} size="sm" />
+                    <div className="admin-user-copy">
+                      <strong>{user.displayName || user.email || user.name || t("admin.user")}</strong>
+                      <span>{user.email && user.displayName ? `${user.email} · ` : ""}{roleLabel(user.role, t)} · {(user.sites || [user.site]).filter(Boolean).join(", ")}{user.allowPublishingAs ? " · ✦ autor" : ""}</span>
+                    </div>
                   </div>
                   <div className="user-actions">
                     <button className="chip" type="button" onClick={() => setUserForm({ id: user.id, email: user.email || "", role: user.role || "client", sites: user.sites || [user.site || site], allowPublishingAs: Boolean(user.allowPublishingAs) })}>{t("admin.editUser")}</button>
