@@ -1,0 +1,12 @@
+{
+  "site": "escarlet",
+  "title": "La IA ya diseña bien. Ese empieza a ser el problema",
+  "visualSystem": { "version": "2.0.0", "templateId": "editorial" },
+  "instagramSlides": [
+    { "id": "slide-01", "headline": "La IA ya diseña bien", "body": "Y eso cambia la pregunta.", "alt": "Composición editorial sobre criterio de diseño" },
+    { "id": "slide-02", "headline": "El resultado correcto no basta", "body": "Si todas las imágenes funcionan, todas empiezan a parecerse.", "alt": "Fondo claro para una idea sobre repetición visual" },
+    { "id": "slide-03", "headline": "El criterio vuelve al centro", "body": "Elegir, descartar y sostener una dirección también es diseñar.", "alt": "Slide editorial sobre decisión de diseño" },
+    { "id": "slide-04", "headline": "La ventaja es decidir mejor", "body": "La herramienta acelera. La diferencia sigue siendo humana.", "alt": "Cierre editorial de Escarlet sobre criterio" }
+  ],
+  "backgrounds": []
+}

@@ -1,0 +1,14 @@
+{
+  "site": "escarlet",
+  "slug": "la-ia-ya-disena-bien-ese-empieza-a-ser-el-problema",
+  "availability": "not_found_in_local_db",
+  "checkedSources": ["data/db.json", "data-seed/db.json"],
+  "currentAssets": { "cover": null, "instagramSlides": [] },
+  "diagnosis": {
+    "good": ["El concepto tiene una tensión clara y admite una metáfora visual fuerte."],
+    "risks": ["Una portada literal con una pantalla o portátil repetiría el patrón del histórico.", "Un carrusel generado como imagen libre degradaría la tipografía y los saltos de línea."],
+    "regenerate": "Cuando el slug exista en el CMS, ejecutar analyze-existing-assets y regenerate-post-assets con --slug."
+  },
+  "proposedVisualBrief": "sample-visual-brief.json",
+  "proposedCarousel": "sample-carousel-output.json"
+}

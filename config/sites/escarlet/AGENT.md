@@ -78,6 +78,19 @@ Recomendado (aviso, no bloquea):
   5. Usa la `media.url` absoluta en el `imageUrl` del post o en cada slide.
 - Carrusel Instagram (`kind` `social`). 4–7 slides. Formato 1080×1350 (o 1080×1080). Filename `{slug}-ig-01.jpg` … `{slug}-ig-07.jpg`. Sube cada slide al CMS y guarda el array en `socialPack.instagramSlides`.
 
+## Sistema visual v2 (obligatorio)
+
+- Antes de generar una portada, inspecciona los últimos seis posts con `blog_list_posts` y `blog_get_post`. Lee `visualBrief`, `imageMetadata` e `imageGallery` cuando existan.
+- Elige un arquetipo de `content-system/brand/escarlet-image-archetypes.json`. No repitas el arquetipo del post anterior. Si el tema es parecido a uno reciente, fuerza también un encuadre y una presencia de persona distintos.
+- Construye y guarda un `visualBrief` con `archetype`, `composition`, `references`, `negativeRules` y `decision.recentPostsInspected`.
+- La portada siempre se genera sin texto, letras, números, logos ni UI legible. El prompt debe incluir la intención emocional, el arquetipo, la composición, las referencias aprobadas y lo que no se debe repetir.
+- Para modo `automatic`, entrega una ruta final. Para modo `exploration`, genera tres rutas con arquetipos diferentes y marca la recomendada.
+- En Instagram, la IA solo genera fondos. Nunca le pidas que dibuje `headline` o `body`.
+- Renderiza cada slide con un único template (`editorial` o `impact`) usando `content-system/instagram-renderer.mjs`. La fuente, safe areas, saltos y jerarquías salen del template.
+- Guarda en cada slide `templateId`, `backgroundMediaId`, `backgroundStyle` y `renderedBy: content-system/instagram-renderer`.
+- Si una portada o slide existente repite filename/hash, carece de metadata o rompe el template, marca `regenerate` con `analyze-existing-assets.mjs` y regenera solo ese slug.
+- No heredes la paleta o las referencias de Escarlet en otro sitio. Reutiliza las reglas del workflow y carga el brand core del sitio solicitado.
+
 ## Publicación
 
 - El flujo nuevo publica desde el CMS y mantiene la experiencia humana en `/app`.

@@ -18,6 +18,14 @@ Si `missingBrand` tiene archivos, para y pide que los completen.
 5. Tras confirmar, llama `blog_publish` o `blog_schedule_post` con `direct: true` según la decisión del usuario. No uses la revisión legacy.
 6. Guarda el Social Pack generado por ChatGPT con `blog_save_social_pack`. El CMS no genera copy ni carruseles desde MCP.
 
+## Sistema visual
+
+- Inspecciona los últimos seis posts y guarda un `visualBrief` antes de crear una portada.
+- Elige un arquetipo del sistema del sitio y evita repetir el arquetipo consecutivo. La portada no lleva texto.
+- Usa referencias aprobadas y registra `references`, `negativeRules` y `decision.recentPostsInspected`.
+- Para Instagram, genera fondos sin texto y monta `headline` + `body` con un template controlado y la fuente declarada. El generador de imágenes no dibuja tipografía.
+- Conserva `templateId`, `backgroundMediaId` y `renderedBy` en cada slide.
+
 ## Flujo MCP (editar)
 
 1. `blog_get_brand_context`

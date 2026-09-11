@@ -36,3 +36,9 @@ Los nombres de archivo y el alt siguen `image-guide.md`. Esta guía manda el asp
 3. Genera o elige una portada que podría colgarse al lado de esas fotos.
 4. Súbela con `blog_upload_media` (`kind` `post`). Envía el PNG en `contentBase64` o `blob`. El CMS comprime a JPEG. Rellena `imageAlt`.
 5. Copia la `media.url` absoluta del CMS al campo `imageUrl` del post.
+
+## Sistema de variedad
+
+Las portadas usan siete arquetipos declarados en `content-system/brand/escarlet-image-archetypes.json`. El agente inspecciona las últimas seis piezas, evita repetir el arquetipo consecutivo y selecciona entre dos y tres referencias aprobadas de `escarlet-reference-library.json`. La coherencia viene de la paleta, la materia, la luz y el contraste; la variedad viene del encuadre, la presencia humana, la abstracción y la metáfora.
+
+Las slides de Instagram se dividen en fondo y composición. El fondo se genera sin texto. El texto se renderiza con los templates `editorial` o `impact` y la fuente declarada, mediante `content-system/instagram-renderer.mjs`. El generador nunca debe intentar escribir la tipografía final.

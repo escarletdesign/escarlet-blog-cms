@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://escarlet.design/schemas/social-pack.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "substackTitle": { "type": "string", "maxLength": 120 },
+    "substackBody": { "type": "string" },
+    "linkedin": { "type": "string" },
+    "x": { "type": "string" },
+    "instagramCaption": { "type": "string" },
+    "videoScript": { "type": "string", "description": "Texto para teleprompter, líneas cortas y respirables." },
+    "instagramSlides": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 7,
+      "items": { "$ref": "instagram-slide.schema.json" }
+    },
+    "visualSystem": { "type": "object" }
+  }
+}

@@ -127,7 +127,7 @@ function directWorkflowPublish(args, source) {
 export function buildToolList(auth) {
   const tools = [
     { name: 'blog_list_authors', description: 'Autores asignados y autorizados para publicar en su nombre.', inputSchema: { type: 'object', properties: { site: { type: 'string' } }, required: ['site'] }, annotations: { readOnlyHint: true } },
-    { name: 'blog_save_social_pack', description: 'Guarda textos y slides generados por ChatGPT. No genera contenido ni llama APIs de IA.', inputSchema: { type: 'object', properties: { site: { type: 'string' }, slug: { type: 'string' }, socialPack: { type: 'object' } }, required: ['site', 'slug', 'socialPack'] }, annotations: { readOnlyHint: false } },
+    { name: 'blog_save_social_pack', description: 'Guarda textos y slides generados por ChatGPT. Las slides deben llevar texto renderizado por template, templateId y renderedBy. No genera contenido ni llama APIs de IA.', inputSchema: { type: 'object', properties: { site: { type: 'string' }, slug: { type: 'string' }, socialPack: { type: 'object' } }, required: ['site', 'slug', 'socialPack'] }, annotations: { readOnlyHint: false } },
     {
       name: 'blog_list_sites',
       description: 'Lista sitios visibles con este token.',
@@ -254,7 +254,9 @@ export function buildToolList(auth) {
           authorName: { type: 'string' },
           relatedSlugs: { type: 'array', items: { type: 'string' } },
           socialPack: { type: 'object' },
-          imageGallery: { type: 'array', items: { type: 'object' } }
+          imageGallery: { type: 'array', items: { type: 'object' } },
+          visualBrief: { type: 'object', description: 'Metadata del sistema visual v2: arquetipo, composición, referencias y decisión.' },
+          imageMetadata: { type: 'object' }
         },
         required: ['site', 'slug']
       },

@@ -21,7 +21,7 @@ socialPack: {
   videoScript: '...',   // guion oral 45–60s
   instagramCaption: '...', // + backlink
   instagramSlides: [
-    { imageUrl: 'https://…/media/…/{slug}-ig-01.webp', alt: '...', headline: '...' }
+    { imageUrl: 'https://…/media/…/{slug}-ig-01.webp', alt: '...', headline: '...', body: '...', templateId: 'editorial', renderedBy: 'content-system/instagram-renderer' }
   ]
 }
 ```
@@ -32,7 +32,7 @@ socialPack: {
 - LinkedIn. Más comercial, saltos cortos.
 - X. Gancho + idea + enlace.
 - `videoScript`. Oral, ~100–140 palabras. Sin URLs para leer en voz alta.
-- Instagram. El agente genera y sube las slides. El pack solo las descarga.
+- Instagram. El agente genera fondos sin texto y monta las slides finales con `content-system/instagram-renderer.mjs`. El pack solo descarga los PNG finales. No pidas al generador de imágenes que escriba `headline` o `body`.
 
 ## 2. Build del frontend
 

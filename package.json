@@ -16,6 +16,10 @@
     "dev:server": "node server.mjs",
     "build": "vite build --config apps/pwa/vite.config.ts",
     "seo:build": "node scripts/build-seo-artifacts.mjs",
+    "visual:cover": "node content-system/scripts/generate-cover-options.mjs",
+    "visual:render": "node content-system/scripts/render-instagram-carousel.mjs",
+    "visual:audit": "node content-system/scripts/analyze-existing-assets.mjs",
+    "visual:regenerate": "node content-system/scripts/regenerate-post-assets.mjs",
     "preview": "vite preview --config apps/pwa/vite.config.ts"
   },
   "engines": {

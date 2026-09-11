@@ -116,6 +116,19 @@ Build incluye sync automático. Ver [docs/ONBOARDING.md](docs/ONBOARDING.md).
 
 **SEO multi-tecnología.** [`integrations/seo/index.mjs`](integrations/seo/index.mjs) comparte el contrato de metadatos, JSON-LD, sitemap, robots y navegación para landings Vite/Vue, HTML estático y adaptadores WordPress. La página debe entregar contenido semántico y `h1` en el HTML inicial; el CMS no sustituye ese ownership.
 
+## Sistema visual de contenidos
+
+La arquitectura nueva de portadas y carruseles está en [`content-system/`](content-system/README.md). Usa `visualBrief` para controlar variedad y referencias, y `lib/instagram-renderer.mjs` para renderizar la tipografía fuera del generador de imágenes.
+
+Comandos útiles:
+
+```bash
+npm run visual:audit -- --site=escarlet --json=/tmp/assets.json
+npm run visual:cover -- --site=escarlet --title="Título" --summary="Resumen" --mode=automatic
+npm run visual:render -- --input=content-system/examples/sample-carousel-output.json --output=tmp/carousel
+npm run visual:regenerate -- --site=escarlet --slug=mi-post --dry-run
+```
+
 ## Migración (escarlet)
 
 ```bash

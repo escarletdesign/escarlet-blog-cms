@@ -1,0 +1,96 @@
+{
+  "site": "escarlet",
+  "archetypes": [
+    {
+      "id": "editorial-abstracta",
+      "name": "Editorial abstracta",
+      "description": "Materia, luz y forma que condensan una idea sin ilustrarla literalmente.",
+      "useWhen": ["el tema es conceptual", "se busca una portada atemporal", "no hay una escena humana necesaria"],
+      "avoidWhen": ["el proceso o la herramienta son el argumento principal"],
+      "signals": ["papel", "sombras", "formas geométricas imperfectas", "detalle macro"],
+      "literalness": 0.25,
+      "abstraction": 0.8,
+      "promptExamples": ["composición editorial de papel plegado y sombra verde bosque, una tensión visual limpia, sin texto"],
+      "repetitionRisk": "medio",
+      "topics": ["branding", "IA", "diseño", "estrategia", "UX"]
+    },
+    {
+      "id": "objeto-simbolico",
+      "name": "Objeto simbólico",
+      "description": "Un objeto cotidiano tratado como símbolo de la decisión del artículo.",
+      "useWhen": ["hay una metáfora concreta", "el título contiene una tensión o elección"],
+      "avoidWhen": ["la metáfora sería un cliché tecnológico"],
+      "signals": ["objeto aislado", "escala inesperada", "materialidad", "fondo papel"],
+      "literalness": 0.55,
+      "abstraction": 0.55,
+      "promptExamples": ["una brújula de cerámica sobre papel con una sombra que apunta a dos direcciones, sin texto"],
+      "repetitionRisk": "bajo",
+      "topics": ["estrategia", "branding", "UX", "negocio"]
+    },
+    {
+      "id": "escena-humana-parcial",
+      "name": "Escena humana parcial",
+      "description": "Manos, espalda, gesto o interacción; la persona aporta agencia sin retrato posado.",
+      "useWhen": ["el artículo habla de trabajo, criterio o colaboración", "la emoción humana es central"],
+      "avoidWhen": ["hay dos portadas humanas recientes", "la persona sería decorativa"],
+      "signals": ["manos reales", "cuerpo fuera de centro", "acción congelada", "luz lateral"],
+      "literalness": 0.65,
+      "abstraction": 0.35,
+      "promptExamples": ["detalle editorial de unas manos reorganizando tarjetas de interfaz sobre una mesa de madera, sin texto"],
+      "repetitionRisk": "alto",
+      "topics": ["diseño", "UX", "IA", "estrategia"]
+    },
+    {
+      "id": "entorno-espacio",
+      "name": "Entorno / espacio",
+      "description": "Un lugar que comunica contexto y escala sin depender de una persona.",
+      "useWhen": ["el entorno es parte de la idea", "se quiere respirar y diferenciar la serie"],
+      "avoidWhen": ["solo se dispone de una oficina genérica"],
+      "signals": ["arquitectura cercana", "umbral", "mesa vacía con huella de uso", "profundidad"],
+      "literalness": 0.5,
+      "abstraction": 0.5,
+      "promptExamples": ["estudio de diseño pequeño al amanecer, una pared verde bosque y una mesa con pruebas de papel, sin texto"],
+      "repetitionRisk": "medio",
+      "topics": ["branding", "diseño", "estrategia"]
+    },
+    {
+      "id": "metafora-visual-conceptual",
+      "name": "Metáfora visual conceptual",
+      "description": "Una escena imposible pero física que hace visible el argumento.",
+      "useWhen": ["hay una paradoja", "el título plantea que una ventaja se vuelve problema"],
+      "avoidWhen": ["la abstracción añade misterio sin ayudar a entender"],
+      "signals": ["equilibrio", "fricción", "escala imposible", "un gesto visual único"],
+      "literalness": 0.35,
+      "abstraction": 0.75,
+      "promptExamples": ["una cinta métrica que se pliega sobre sí misma y bloquea una puerta, fotografía editorial, sin texto"],
+      "repetitionRisk": "bajo",
+      "topics": ["IA", "estrategia", "UX", "branding"]
+    },
+    {
+      "id": "proceso-mesa-trabajo",
+      "name": "Proceso / mesa de trabajo",
+      "description": "Rastro de decisiones y materiales, con una mesa como escenario pero sin la receta portátil-taza.",
+      "useWhen": ["el artículo enseña un método", "hay pasos, iteración o investigación"],
+      "avoidWhen": ["se ha usado en uno de los dos últimos posts"],
+      "signals": ["papeles anotados sin texto legible", "muestras", "herramientas manuales", "desorden intencional"],
+      "literalness": 0.7,
+      "abstraction": 0.3,
+      "promptExamples": ["mesa de trabajo editorial con muestras de color, recortes sin texto legible y una pieza de arcilla, sin portátil, sin texto"],
+      "repetitionRisk": "alto",
+      "topics": ["diseño", "branding", "UX"]
+    },
+    {
+      "id": "interfaz-producto-digital",
+      "name": "Interfaz / producto / composición digital",
+      "description": "Pantallas y capas digitales tratadas como objeto editorial, nunca como mockup genérico.",
+      "useWhen": ["el producto o la interfaz son el tema", "se habla de IA aplicada o UX"],
+      "avoidWhen": ["el tema es emocional o de posicionamiento", "la pantalla necesitaría texto legible"],
+      "signals": ["recorte de interfaz abstracta", "reflejo", "capas translúcidas", "cursor como gesto"],
+      "literalness": 0.6,
+      "abstraction": 0.6,
+      "promptExamples": ["capas de interfaz abstracta proyectadas sobre papel rugoso, sin palabras legibles, verde bosque y crema"],
+      "repetitionRisk": "medio",
+      "topics": ["IA", "UX", "diseño", "producto"]
+    }
+  ]
+}

@@ -71,6 +71,14 @@ socialPack: {
 
 Portada. `kind` `post`. Carrusel. `kind` `social`, filename `{slug}-ig-01.jpg` …
 
+## Sistema visual v2
+
+- Lee `visualBrief` de los últimos seis posts antes de crear una portada.
+- Usa un arquetipo aprobado y no repitas el anterior. La portada no lleva texto.
+- Guarda `visualBrief` con arquetipo, composición, referencias y motivo de decisión.
+- Para Instagram, genera fondos sin texto y usa `editorial` o `impact` para renderizar el texto exacto con `content-system/instagram-renderer.mjs`.
+- Conserva `templateId`, `backgroundMediaId` y `renderedBy` en cada slide.
+
 ## Blog-packs (runtime del CMS)
 
 El HTML de packs se genera en el **build del frontend** con el runtime que baja `scripts/escarlet-blog.mjs` desde `{CMS}/runtime/v1/`.

@@ -1,14 +1,41 @@
 {
+  "version": "2.0.0",
+  "system": "content-system",
   "global": {
     "avoidEmbeddedText": true,
     "referenceFidelity": "high",
-    "altText": "Describe la escena de forma breve, concreta y fiel a la pieza."
+    "altText": "Describe la escena de forma breve, concreta y fiel a la pieza.",
+    "fixedIdentity": {
+      "palette": ["#F4F1EA", "#1F4D3A", "#15352A", "#1B211D", "#C8674B"],
+      "typography": "Inter, Arial, sans-serif",
+      "coverHasText": false
+    },
+    "referenceSelection": {
+      "approvedOnly": true,
+      "coverCountAutomatic": 2,
+      "coverCountExploration": 3,
+      "socialCount": 1
+    },
+    "archetypes": "content-system/brand/escarlet-image-archetypes.json",
+    "templates": "content-system/brand/escarlet-social-templates.json"
+  },
+  "blogCover": {
+    "allowText": false,
+    "aspectRatio": "3:2",
+    "recentPostsToInspect": 6,
+    "maxConsecutiveArchetype": 1,
+    "forceDifferentTopicSimilarity": 0.62,
+    "metadataRequired": ["archetype", "composition", "references", "negativeRules", "decision"]
   },
   "instagramCarousel": {
-    "slides": 4,
+    "slides": { "min": 4, "max": 7, "default": 4 },
     "dimensions": "1080x1350",
     "allowText": true,
-    "textGuidance": "Usa únicamente el headline y body que entrega el CMS. Mantén el texto breve, legible y con ortografía exacta; no inventes palabras ni logotipos.",
+    "textSource": "template",
+    "textRenderer": "content-system/instagram-renderer.mjs",
+    "textGuidance": "Monta únicamente el headline y body con el template declarado. Mantén el texto breve, legible y con ortografía exacta; no inventes palabras ni logotipos.",
+    "backgroundGeneration": { "allowText": false, "role": "instagram-carousel-background" },
+    "templates": ["editorial", "impact"],
     "firstSlide": {
       "background": "brand-color",
       "allowGradients": true

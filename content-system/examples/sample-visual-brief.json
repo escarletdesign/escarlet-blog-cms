@@ -1,0 +1,21 @@
+{
+  "version": "2.0.0",
+  "site": "escarlet",
+  "mode": "automatic",
+  "topic": "criterio de diseño, IA generativa y diferenciación",
+  "emotionalIntent": "hacer visible una tensión incómoda sin dramatismo",
+  "archetype": "metafora-visual-conceptual",
+  "composition": {
+    "framing": "encuadre único con espacio negativo lateral",
+    "subjectPlacement": "fuera del centro geométrico",
+    "aspectRatio": "3:2",
+    "abstraction": 0.75,
+    "personPresence": "no necesaria"
+  },
+  "references": ["esc-paper-light", "esc-digital-layer"],
+  "negativeRules": ["sin texto", "sin portátil, taza y persona sentada", "no repetir el arquetipo reciente"],
+  "decision": {
+    "reason": "La paradoja de una IA que produce resultados correctos se entiende mejor con una metáfora de fricción que con otra escena de trabajo.",
+    "recentPostsInspected": []
+  }
+}

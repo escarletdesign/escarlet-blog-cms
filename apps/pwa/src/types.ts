@@ -34,6 +34,9 @@ export interface Post {
   publishAt?: string;
   contentSource?: string;
   assistantConversationId?: string;
+  /** Decision metadata from content-system visual v2. */
+  visualBrief?: Record<string, any>;
+  imageMetadata?: Record<string, any>;
   socialPack?: Record<string, any>;
 }
 

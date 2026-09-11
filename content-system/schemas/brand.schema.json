@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://escarlet.design/schemas/brand.schema.json",
+  "type": "object",
+  "required": ["id", "version", "identity", "fixed", "variableAxes", "decisionRules"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+    "version": { "type": "string" },
+    "identity": { "type": "object", "required": ["name", "embeddedText"], "properties": { "name": { "type": "string" }, "embeddedText": { "const": false } } },
+    "fixed": { "type": "object", "required": ["palette", "typography", "imageRules"] },
+    "variableAxes": { "type": "array", "items": { "type": "string" } },
+    "decisionRules": { "type": "object", "required": ["recentPostsToInspect", "maxConsecutiveArchetype"] }
+  }
+}

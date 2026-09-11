@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://escarlet.design/schemas/visual-brief.schema.json",
+  "type": "object",
+  "required": ["version", "site", "mode", "topic", "archetype", "composition", "references", "negativeRules", "decision"],
+  "properties": {
+    "version": { "type": "string" },
+    "site": { "type": "string" },
+    "mode": { "enum": ["automatic", "exploration"] },
+    "topic": { "type": "string" },
+    "emotionalIntent": { "type": "string" },
+    "archetype": { "type": "string" },
+    "composition": { "type": "object" },
+    "references": { "type": "array", "items": { "type": "string" } },
+    "negativeRules": { "type": "array", "items": { "type": "string" } },
+    "decision": { "type": "object", "required": ["reason", "recentPostsInspected"] }
+  }
+}

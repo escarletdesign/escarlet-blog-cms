@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://escarlet.design/schemas/image-archetype.schema.json",
+  "type": "object",
+  "required": ["site", "archetypes"],
+  "properties": {
+    "site": { "type": "string" },
+    "archetypes": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "description", "useWhen", "avoidWhen", "signals", "literalness", "abstraction", "promptExamples", "repetitionRisk", "topics"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "useWhen": { "type": "array", "items": { "type": "string" } },
+          "avoidWhen": { "type": "array", "items": { "type": "string" } },
+          "signals": { "type": "array", "items": { "type": "string" } },
+          "literalness": { "type": "number", "minimum": 0, "maximum": 1 },
+          "abstraction": { "type": "number", "minimum": 0, "maximum": 1 },
+          "promptExamples": { "type": "array", "items": { "type": "string" } },
+          "repetitionRisk": { "enum": ["bajo", "medio", "alto"] },
+          "topics": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}
