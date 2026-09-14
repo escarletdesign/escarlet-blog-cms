@@ -22,7 +22,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "admin.sitePlanHelp": "El plan MCP requiere una membresía activa para editar y publicar.",
     "common.save": "Guardar",
     "app.loading": "Abriendo Escarlet…",
-    "app.beta": "Beta 0.2.18",
+    "app.beta": "Beta 0.2.19",
     "nav.home": "Inicio",
     "nav.assistant": "Asistente",
     "nav.posts": "Posts",
@@ -93,6 +93,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "editor.scheduleDateHelp": "Puedes mover la fecha sin salir del editor.",
     "editor.content": "Contenido",
     "editor.writeWithAi": "✦ Redactar con IA",
+    "editor.humanize": "✦ Hacer más humano",
     "editor.contentPlaceholder": "Escribe tu historia…",
     "editor.contentHelp":
       "Editor visual. Puedes usar títulos, enlaces, listas y énfasis.",
@@ -646,7 +647,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "admin.sitePlanHelp": "The MCP plan requires an active membership to edit and publish.",
     "common.save": "Save",
     "app.loading": "Opening Escarlet…",
-    "app.beta": "Beta 0.2.18",
+    "app.beta": "Beta 0.2.19",
     "nav.home": "Home",
     "nav.assistant": "Assistant",
     "nav.posts": "Posts",
@@ -716,6 +717,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "editor.scheduleDateHelp": "Move the date without leaving the editor.",
     "editor.content": "Content",
     "editor.writeWithAi": "✦ Draft with AI",
+    "editor.humanize": "✦ Make it more human",
     "editor.contentPlaceholder": "Write your story…",
     "editor.contentHelp":
       "Visual editor. Use headings, links, lists and emphasis.",

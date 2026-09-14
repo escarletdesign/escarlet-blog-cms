@@ -567,6 +567,7 @@ async function aiGenerate(input: {
     | "title"
     | "summary"
     | "body"
+    | "humanize"
     | "image"
     | "meta-description"
     | "brand-file"

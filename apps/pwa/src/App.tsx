@@ -2177,7 +2177,7 @@ function AiSuggestionModal({
   onClose,
   onGenerate,
 }: {
-  operation: "title" | "summary" | "body" | "meta";
+  operation: "title" | "summary" | "body" | "humanize" | "meta";
   busy: boolean;
   onClose: () => void;
   onGenerate: (prompt: string) => void;
@@ -2188,6 +2188,7 @@ function AiSuggestionModal({
     title: t("editor.title"),
     summary: t("editor.excerpt"),
     body: t("editor.content"),
+    humanize: t("editor.humanize"),
     meta: t("editor.meta"),
   };
   return (
@@ -2207,7 +2208,7 @@ function AiSuggestionModal({
         </label>
         <div className="form-actions">
           <button className="ghost" type="button" onClick={onClose} disabled={busy}>{t("editor.close")}</button>
-          <button className="primary" type="button" onClick={() => onGenerate(prompt.trim())} disabled={busy || !prompt.trim()}>{busy ? t("editor.saving") : t("editor.generateContent")}</button>
+          <button className="primary" type="button" onClick={() => onGenerate(prompt.trim())} disabled={busy || (operation !== "humanize" && !prompt.trim())}>{busy ? t("editor.saving") : t("editor.generateContent")}</button>
         </div>
       </section>
     </div>
@@ -2232,13 +2233,13 @@ function ManualPost() {
   const [authors, setAuthors] = useState<Author[]>([]);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState<
-    "title" | "summary" | "body" | "meta" | "image" | null
+    "title" | "summary" | "body" | "humanize" | "meta" | "image" | null
   >(null);
   const [error, setError] = useState("");
   const [seoMessage, setSeoMessage] = useState("");
   const [seoValid, setSeoValid] = useState(false);
   const [showImageModal, setShowImageModal] = useState(false);
-  const [aiPromptOperation, setAiPromptOperation] = useState<"title" | "summary" | "body" | "meta" | null>(null);
+  const [aiPromptOperation, setAiPromptOperation] = useState<"title" | "summary" | "body" | "humanize" | "meta" | null>(null);
   const [imageBusy, setImageBusy] = useState(false);
   const [slugEdited, setSlugEdited] = useState(Boolean(editSlug));
   const [draftRecovered, setDraftRecovered] = useState(false);
@@ -2332,11 +2333,11 @@ function ManualPost() {
       title: title.slice(0, MAX_EDITOR_TITLE_CHARS),
       slug: slugEdited ? current.slug : slugify(title.slice(0, MAX_EDITOR_TITLE_CHARS)),
     }));
-  const generate = async (operation: "title" | "summary" | "body" | "meta", requestedPrompt = "") => {
+  const generate = async (operation: "title" | "summary" | "body" | "humanize" | "meta", requestedPrompt = "") => {
     setError("");
     setGenerating(operation);
     try {
-      const prompt = requestedPrompt || (
+      const prompt = operation === "humanize" ? requestedPrompt : requestedPrompt || (
         operation === "meta"
           ? `Escribe una meta descripción SEO de 70 a 180 caracteres para este post. Título: ${draft.title}. Contenido: ${draft.bodyHtml}`
           : operation === "summary"
@@ -2357,11 +2358,14 @@ function ManualPost() {
       }
       else if (operation === "summary")
         update("excerptEs", (result.content || "").slice(0, 220));
-      else if (operation === "body")
-        update(
-          "bodyHtml",
-          `<p>${(result.content || "").replace(/\n+/g, "</p><p>")}</p>`,
-        );
+      else if (operation === "body" || operation === "humanize")
+        (() => {
+          const generatedBody = String(result.content || "").trim();
+          const bodyHtml = /<(?:p|h[1-6]|ul|ol|li|blockquote|br)\b/i.test(generatedBody)
+            ? generatedBody
+            : `<p>${generatedBody.replace(/\n+/g, "</p><p>")}</p>`;
+          update("bodyHtml", bodyHtml);
+        })();
       else
         update("metaDescription", {
           ...(draft.metaDescription || {}),
@@ -2721,6 +2725,15 @@ function ManualPost() {
           >
             {generating === "body" ? "…" : t("editor.writeWithAi")}
           </button>
+          <AiOnly><button
+            type="button"
+            className="inline-ai"
+            onClick={() => setAiPromptOperation("humanize")}
+            hidden={!String(draft.bodyHtml || "").replace(/<[^>]+>/g, " ").trim()}
+            disabled={Boolean(generating)}
+          >
+            {generating === "humanize" ? "…" : t("editor.humanize")}
+          </button></AiOnly>
           <span className="optional">{t("editor.contentHelp")}</span>
           <RichTextEditor
             value={draft.bodyHtml || ""}

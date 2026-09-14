@@ -129,6 +129,14 @@ npm run visual:render -- --input=content-system/examples/sample-carousel-output.
 npm run visual:regenerate -- --site=escarlet --slug=mi-post --dry-run
 ```
 
+## Escritura más humana
+
+La guía reusable está instalada como skill global en
+`~/.codex/skills/storyscope-human-writing/`. El CMS aplica sus principios a las
+generaciones de cuerpo y el editor `/app` ofrece «Hacer más humano» para
+borradores existentes. La versión de proyecto se mantiene en
+[`content-system/prompts/human-writing-system.prompt.md`](content-system/prompts/human-writing-system.prompt.md).
+
 ## Migración (escarlet)
 
 ```bash

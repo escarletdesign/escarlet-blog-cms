@@ -42,6 +42,15 @@ Si `missingBrand` tiene archivos, para y pide que los completen.
 - socialPack con backlink `{{domain}}/blog/{slug}` (canales activos del site).
 - Instagram. Caption + slides con imageUrl del CMS.
 
+### Pasada humana StoryScope
+
+- Usa StoryScope como guía editorial, no para intentar engañar detectores.
+- Conserva hechos, intención, keywords y voz de marca. No inventes anécdotas, citas ni referencias.
+- Sustituye abstracciones por detalles observables y muestra decisiones con costes o consecuencias cuando existan.
+- No expliques la moraleja varias veces. Deja espacio para que el lector infiera y mantén matices cuando el tema lo necesite.
+- Revisa agencia, linealidad, estructura temporal, subtramas y repeticiones sensoriales. Cambia solo lo que mejore claridad e interés.
+- Haz una segunda pasada para eliminar frases intercambiables antes de resumir o publicar.
+
 ## Prohibido
 
 - Commitear contenido editorial al git del frontend.

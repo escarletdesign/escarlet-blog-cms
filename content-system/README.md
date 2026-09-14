@@ -4,6 +4,7 @@ Sistema versionado para portadas y carruseles del CMS. La carpeta separa:
 
 - `brand/` identidad fija, variables, arquetipos, templates y referencias.
 - `prompts/` prompts componibles para agente y generación visual.
+- `prompts/human-writing-system.prompt.md` guía StoryScope para redactar y revisar cuerpos con más criterio narrativo.
 - `templates/instagram/` HTML/CSS de las dos retículas aprobadas.
 - `schemas/` contratos para brief, slides y social pack.
 - `scripts/` auditoría, selección, render y regeneración.
