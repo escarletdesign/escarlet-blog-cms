@@ -4615,11 +4615,12 @@ function Billing() {
     <PageTitle title={t("mcp.membership")} description={t("mcp.help")} back />
     <section className="card settings-card">
       <h2>{snapshot?.plan?.name || "CMS con ChatGPT"}</h2>
-      <p>{snapshot?.suspended ? t("mcp.readOnly") : t("mcp.active")}</p>
+      <p>{snapshot?.subscription?.source === "grant" && !snapshot?.suspended ? t("mcp.complimentaryActive") : snapshot?.subscription?.status === "trialing" && !snapshot?.suspended ? t("mcp.trialActive") : snapshot?.suspended ? t("mcp.readOnly") : t("mcp.active")}</p>
       <p>{snapshot ? `${Math.max(0, snapshot.publishes.limit - snapshot.publishes.used)} / ${snapshot.publishes.limit} ${t("mcp.publicationsLeft")}` : t("common.loading")}</p>
+      {snapshot?.subscription?.trialEndsAt && <p className="tiny">{t("mcp.trialActive")} · {new Date(Number(snapshot.subscription.trialEndsAt) * 1000).toLocaleDateString(language === "en" ? "en-GB" : "es-ES")}</p>}
       <p className="muted">{t("mcp.billingHelp")}</p>
-      <div className="form-actions"><button className="primary" disabled={Boolean(busy) || !snapshot?.stripe?.plans?.mcp} onClick={() => checkout({ kind: "membership", planId: "mcp" })}>{t("mcp.subscribe")}</button>
-      <button className="secondary" disabled={Boolean(busy)} onClick={portal}>{t("billing.manage")}</button></div>
+      <div className="form-actions">{!(snapshot?.subscription?.source === "grant" && !snapshot?.suspended) && <><button className="primary" disabled={Boolean(busy) || !snapshot?.stripe?.plans?.mcp} onClick={() => checkout({ kind: "membership", planId: "mcp" })}>{t("mcp.subscribe")}</button>
+      <button className="secondary" disabled={Boolean(busy)} onClick={portal}>{t("billing.manage")}</button></>}</div>
     </section>
     <section className="card settings-card"><h2>{t("mcp.connector")}</h2><p>{t("mcp.help")}</p><code>{window.location.origin}/mcp</code></section>
     {message && <p role="status">{message}</p>}
@@ -4749,7 +4750,7 @@ function AdminGate() {
 function McpPlanSettings() {
   const { t } = useI18n();
   const { showToast } = useToast();
-  const [plan, setPlan] = useState<Record<string, any>>({ priceId: "", draftLimit: "", publishLimitPerMonth: "", enabled: false });
+  const [plan, setPlan] = useState<Record<string, any>>({ priceId: "", draftLimit: "", publishLimitPerMonth: "", trialDays: 0, enabled: false });
   const [busy, setBusy] = useState(false);
   useEffect(() => { api.mcpPlan().then(({ plan }) => { if (plan) setPlan(plan); }).catch((err) => showToast(err.message, "error")); }, []);
   return <form className="card settings-card mcp-plan-settings-card" onSubmit={async (event) => {
@@ -4762,8 +4763,62 @@ function McpPlanSettings() {
     <label>{t("mcp.price")}<input required value={plan.priceId} placeholder="price_…" onChange={(e) => setPlan({ ...plan, priceId: e.target.value })} /></label>
     <label>{t("mcp.draftLimit")}<input required type="number" min="1" step="1" value={plan.draftLimit} onChange={(e) => setPlan({ ...plan, draftLimit: e.target.value })} /></label>
     <label>{t("mcp.publishLimit")}<input required type="number" min="1" step="1" value={plan.publishLimitPerMonth} onChange={(e) => setPlan({ ...plan, publishLimitPerMonth: e.target.value })} /></label>
+    <label>{t("mcp.trialDays")}<input type="number" min="0" max="365" step="1" value={plan.trialDays || 0} onChange={(e) => setPlan({ ...plan, trialDays: e.target.value })} /></label>
     <label className="switch-row"><span>{t("mcp.enabled")}</span><input type="checkbox" role="switch" checked={plan.enabled} onChange={(e) => setPlan({ ...plan, enabled: e.target.checked })} /></label>
     <button className="primary" disabled={busy}>{busy ? t("admin.saving") : t("common.save")}</button>
+  </form>;
+}
+
+function MembershipGrantSettings({ site }: { site: string }) {
+  const { t } = useI18n();
+  const { showToast } = useToast();
+  const [grant, setGrant] = useState<Record<string, any> | null>(null);
+  const [kind, setKind] = useState("complimentary");
+  const [activeUntil, setActiveUntil] = useState("");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api.membershipGrant(site).then(({ grant: next }) => {
+      setGrant(next);
+      setKind(String(next?.kind || "complimentary"));
+      setActiveUntil(next?.activeUntil ? String(next.activeUntil).slice(0, 10) : "");
+      setReason(String(next?.reason || ""));
+    }).catch((err) => showToast(err.message, "error"));
+  }, [site]);
+  const save = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      const result = await api.saveMembershipGrant({ site, kind, activeUntil: activeUntil ? new Date(`${activeUntil}T23:59:59.999Z`).toISOString() : null, reason });
+      setGrant(result.grant);
+      showToast(t("admin.membershipGrantSaved"));
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : t("common.error"), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const revoke = async () => {
+    setBusy(true);
+    try {
+      const result = await api.revokeMembershipGrant(site);
+      setGrant(result.grant);
+      showToast(t("admin.membershipGrantRevoked"));
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : t("common.error"), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <form className="card settings-card mcp-plan-settings-card" onSubmit={save}>
+    <p className="eyebrow">{t("admin.membershipAccess")}</p>
+    <h2>{t("admin.membershipGrantTitle")}</h2>
+    <p className="muted">{t("admin.membershipGrantHelp")}</p>
+    <label>{t("admin.membershipGrantType")}<select value={kind} onChange={(event) => setKind(event.target.value)}><option value="complimentary">{t("admin.membershipGrantComplimentary")}</option><option value="trial">{t("admin.membershipGrantTrial")}</option></select></label>
+    <label>{t("admin.membershipGrantUntil")}<input type="date" value={activeUntil} onChange={(event) => setActiveUntil(event.target.value)} /><small>{t("admin.membershipGrantUntilHelp")}</small></label>
+    <label>{t("admin.membershipGrantReason")}<input required maxLength={240} value={reason} onChange={(event) => setReason(event.target.value)} placeholder={t("admin.membershipGrantReasonPlaceholder")} /></label>
+    <div className="form-actions"><button className="primary" disabled={busy}>{busy ? t("admin.saving") : t("admin.saveMembershipGrant")}</button><button type="button" className="danger-link" disabled={busy || !grant} onClick={() => void revoke()}>{t("admin.revokeMembershipGrant")}</button></div>
+    {grant && <p className="tiny">{grant.active ? t("admin.membershipGrantActive") : t("admin.membershipGrantInactive")}{grant.activeUntil ? ` · ${String(grant.activeUntil).slice(0, 10)}` : ""}</p>}
   </form>;
 }
 function Admin() {
@@ -5966,7 +6021,7 @@ function Admin() {
               <p className="muted">{t("admin.cmsAiDisabledHelp")}</p>
             </section>
           )}
-          {session.role === "admin" && <McpPlanSettings />}
+          {session.role === "admin" && <><McpPlanSettings /><MembershipGrantSettings site={site} /></>}
           {cmsAiEnabled && <>
           <section className="card temporary-flag-card">
             <p className="eyebrow">{t("admin.temporaryFlags")}</p>

@@ -148,7 +148,7 @@ import { runChat as runAiChat, runGenerateOperation, splitSseChunks, recordPubli
 import { generateImageOptions } from './lib/ai-image.mjs'
 import { assertCmsAiAllowed } from './lib/generation-policy.mjs'
 import { canReadPost, canEditPost, safePostFields, assertPostAccess } from './lib/post-access.mjs'
-import { saveMcpPlan } from './lib/membership.mjs'
+import { saveMcpPlan, getMembershipGrant, saveMembershipGrant, revokeMembershipGrant } from './lib/membership.mjs'
 import { assertMembershipActive } from './lib/plans.mjs'
 import { generateSocialPackImages } from './lib/ai-workflows.mjs'
 import { archiveConversation, conversationOwner, deleteConversation, getConversation, listConversations, saveConversation } from './lib/ai-conversations.mjs'
@@ -1973,6 +1973,47 @@ const server = createServer(async (req, res) => {
         writeDb(db)
         json(res, 200, { plan })
       } catch (error) { json(res, error.status || 400, { message: error.message }) }
+      return
+    }
+
+    if (path === '/api/admin/billing/membership-grant') {
+      try {
+        assertSuperAdmin(auth)
+        const body = req.method === 'GET' ? {} : await parseBody(req)
+        const requestedSite = req.method === 'GET' ? url.searchParams.get('site') : body.site
+        const site = String(requestedSite || '').trim()
+        if (!site || !loadSiteConfig(site)) throw Object.assign(new Error('Sitio no encontrado'), { status: 404 })
+        if (req.method === 'GET') {
+          json(res, 200, { site, grant: getMembershipGrant(site, db) })
+          return
+        }
+        if (req.method === 'POST') {
+          const grant = saveMembershipGrant(site, body, { db, actorId: auth.userId || auth.role })
+          writeDb(db)
+          if (grant?.active) {
+            const config = loadSiteConfig(site)
+            saveSiteConfig(site, { entitlements: { ...config.entitlements, membership: 'active' } })
+          }
+          json(res, 200, { site, grant })
+          return
+        }
+        if (req.method === 'DELETE') {
+          const grant = revokeMembershipGrant(site, { db, actorId: auth.userId || auth.role })
+          writeDb(db)
+          const config = loadSiteConfig(site)
+          const stripe = db.memberships?.[site]
+          const accessUntil = Number(stripe?.accessUntil || stripe?.paidThrough || 0)
+          const stripeActive = ['active', 'trialing'].includes(stripe?.status) && accessUntil * 1000 > Date.now()
+          if (config?.planId === 'mcp' && !stripeActive) {
+            saveSiteConfig(site, { entitlements: { ...config.entitlements, membership: 'suspended' } })
+          }
+          json(res, 200, { site, grant })
+          return
+        }
+        json(res, 405, { message: 'Método no permitido' })
+      } catch (error) {
+        json(res, error.status || 400, { message: error.message })
+      }
       return
     }
 
