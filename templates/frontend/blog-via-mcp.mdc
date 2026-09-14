@@ -55,6 +55,7 @@ socialPack: {
 4. Si hay que cambiar la portada, genera la nueva imagen en ChatGPT y súbela con `blog_upload_media`; después actualiza el post con `blog_update_post`.
 5. `blog_publish` o `blog_schedule_post` con `direct: true` después de la confirmación. No uses la revisión legacy.
 6. Guarda el copy y carrusel generado por ChatGPT con `blog_save_social_pack`. El CMS no los genera automáticamente.
+   Si el usuario no quiere crear un artículo, usa `social_save_pack` y no llames a `blog_create_draft`.
 7. Tras el rebuild. indicar `appSocialPackUrl` (`/app/social-pack/{slug}`) para copiar o descargar el pack.
 
 ## Editar post
@@ -84,6 +85,8 @@ Portada. `kind` `post`. Carrusel. `kind` `social`, filename `{slug}-ig-01.jpg` �
 El runtime frontend v1.2.0 solo sincroniza posts. El Social Pack se genera en
 ChatGPT, se guarda con `blog_save_social_pack` y se consulta/copia en
 `/app/social-pack/{slug}`. No copies generadores de packs en la landing.
+Para campañas sin blog, guárdalo con `social_save_pack` y recupéralo con
+`social_list_packs` / `social_get_pack`.
 La publicación en redes sigue siendo manual y el look de `/blog` sigue en esta
 landing.
 

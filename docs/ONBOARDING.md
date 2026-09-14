@@ -88,6 +88,8 @@ Luego completa el brand kit en `/app/admin` → Brand kit (o `blog_update_brand_
 6. **Social Pack**. El runtime v1.2.0 solo sincroniza posts. ChatGPT genera el
    copy y los fondos, `blog_save_social_pack` guarda el pack y el CMS lo ofrece
    en `/app/social-pack/{slug}`. El look de `/blog` sigue en esta landing.
+   Para campañas sin artículo usa `social_save_pack`; queda guardado como pack
+   independiente y se consulta con `social_list_packs` / `social_get_pack`.
 7. **Interruptor**. CMS `/app/admin` → Sitio → Blog en la web pública. Encendido publica `/blog`. Apagado lo quita en el siguiente rebuild. Los posts siguen en el CMS.
 
 ### Env en Coolify (app del frontend)
@@ -192,7 +194,8 @@ Claude. Customize → Connectors → Add custom connector → URL `https://blog-
 |--------|-------|
 | Crear fácil | `blog_get_workflow` → ChatGPT genera textos e imágenes → `blog_create_draft` + `blog_upload_media` + `blog_update_post` → confirmación → `blog_publish (direct: true)` |
 | Crear guiado | `blog_get_workflow` → ChatGPT genera → guardar borrador → revisar `/app/preview/{slug}` → `blog_update_post` → `blog_publish (direct: true)` |
-| Social Pack | ChatGPT genera copies e imágenes → `blog_save_social_pack` (nunca genera IA en el CMS) |
+| Social Pack de un post | ChatGPT genera copies e imágenes → `blog_save_social_pack` (nunca genera IA en el CMS) |
+| Social Pack independiente | ChatGPT genera copies e imágenes → `social_save_pack` (sin crear post) |
 | Programar | Igual + `blog_schedule_post` / `blog_publish` con `direct: true` y `publishAt` (YYYY-MM-DD) |
 | Calendario | App → Posts → Programados, o `blog_list_calendar` |
 | Editar | `blog_get_post` + `blog_update_post` (mismo slug) |
@@ -225,7 +228,7 @@ Prohibido. Commitear posts al git del frontend. Usar `create_draft` para editar.
 - [ ] Interruptor Blog en la web pública encendido
 - [ ] MCP `/mcp` + regla `blog-via-mcp.mdc` con el handle correcto (landings Vite)
 - [ ] Publicar post de prueba → rebuild/sync → aparece en `/blog/{slug}`
-- [ ] Social Pack abierto desde `/app/social-pack/{slug}` o desde WordPress vía SSO
+- [ ] Social Pack de post abierto desde `/app/social-pack/{slug}` o pack independiente guardado con `social_save_pack`
 
 ---
 

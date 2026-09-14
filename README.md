@@ -68,6 +68,8 @@ Deploy producción. [docs/DEPLOY.md](docs/DEPLOY.md).
 | `blog_get_workflow` | Elegir flujo simple o guiado; ChatGPT genera y MCP persiste |
 | `blog_list_authors` | Autores asignados y autorizados para publicar |
 | `blog_save_social_pack` | Guardar el Social Pack generado por ChatGPT, sin usar IA del CMS |
+| `social_save_pack` | Guardar un Social Pack independiente, sin crear ni actualizar un post |
+| `social_list_packs` / `social_get_pack` | Listar o recuperar Social Packs independientes |
 | `blog_create_draft` | Esqueleto borrador |
 | `blog_update_post` | Actualizar campos |
 | `blog_validate_seo` | Quality gates |

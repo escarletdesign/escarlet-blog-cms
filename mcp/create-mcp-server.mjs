@@ -17,6 +17,11 @@ import { isSecretBrandFile } from '../lib/brand-kit.mjs'
 import { assertChatToolAllowed, assertSafeToolArguments } from '../lib/ai-security.mjs'
 import { loadSiteConfig } from '../lib/site-config.mjs'
 import { readDb } from '../lib/db.mjs'
+import {
+  getStandaloneSocialPack,
+  listStandaloneSocialPacks,
+  saveStandaloneSocialPack
+} from '../lib/social-pack-store.mjs'
 import { getWorkflowFlags } from '../lib/workflow-flags.mjs'
 import { isCmsAiEnabled } from '../lib/product-flags.mjs'
 import { withGenerationPolicy, assertCmsAiAllowed, CMS_AI_TOOLS } from '../lib/generation-policy.mjs'
@@ -128,6 +133,9 @@ function directWorkflowPublish(args, source) {
 export function buildToolList(auth) {
   const tools = [
     { name: 'blog_list_authors', description: 'Autores asignados y autorizados para publicar en su nombre.', inputSchema: { type: 'object', properties: { site: { type: 'string' } }, required: ['site'] }, annotations: { readOnlyHint: true } },
+    { name: 'social_save_pack', description: 'Guarda un Social Pack independiente, sin crear ni actualizar un post de blog. ChatGPT debe generar los textos y las slides antes de llamar a esta tool.', inputSchema: { type: 'object', properties: { site: { type: 'string' }, id: { type: 'string' }, title: { type: 'string' }, brief: { type: 'string' }, sourceUrl: { type: 'string' }, socialPack: { type: 'object' } }, required: ['site', 'socialPack'] }, annotations: { readOnlyHint: false } },
+    { name: 'social_list_packs', description: 'Lista los Social Packs independientes guardados para un sitio; no devuelve posts de blog.', inputSchema: { type: 'object', properties: { site: { type: 'string' } }, required: ['site'] }, annotations: { readOnlyHint: true } },
+    { name: 'social_get_pack', description: 'Lee un Social Pack independiente guardado, sin depender de un post de blog.', inputSchema: { type: 'object', properties: { site: { type: 'string' }, id: { type: 'string' } }, required: ['site', 'id'] }, annotations: { readOnlyHint: true } },
     { name: 'blog_save_social_pack', description: 'Guarda textos y slides generados por ChatGPT. Las slides deben llevar texto renderizado por template, templateId y renderedBy. No genera contenido ni llama APIs de IA.', inputSchema: { type: 'object', properties: { site: { type: 'string' }, slug: { type: 'string' }, socialPack: { type: 'object' } }, required: ['site', 'slug', 'socialPack'] }, annotations: { readOnlyHint: false } },
     {
       name: 'blog_list_sites',
@@ -648,6 +656,26 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
         case 'blog_list_authors': {
           const site = resolveToolSite(auth, args)
           return textResult({ authors: listSiteAuthors({ site, requesterId: auth.userId, requesterRole: auth.role }) })
+        }
+        case 'social_save_pack': {
+          const site = resolveToolSite(auth, args)
+          return textResult({
+            pack: saveStandaloneSocialPack({
+              ...args,
+              site,
+              actorId: auth.userId || auth.email || auth.role
+            })
+          })
+        }
+        case 'social_list_packs': {
+          const site = resolveToolSite(auth, args)
+          return textResult({ site, packs: listStandaloneSocialPacks(site) })
+        }
+        case 'social_get_pack': {
+          const site = resolveToolSite(auth, args)
+          const pack = getStandaloneSocialPack(site, args.id)
+          if (!pack) throw Object.assign(new Error('Social Pack no encontrado.'), { status: 404 })
+          return textResult({ pack })
         }
         case 'blog_save_social_pack': {
           const site = resolveToolSite(auth, args)

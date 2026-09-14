@@ -652,3 +652,5 @@
     justify-content: flex-start;
   }
 }
+.social-standalone-composer textarea { width: 100%; min-height: 130px; resize: vertical; color: var(--text); background: #17201e; border: 1px solid #3c4a46; border-radius: 10px; outline: 0; padding: 12px; line-height: 1.5; }
+.social-standalone-composer textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(185,245,98,.12); }

@@ -28,6 +28,11 @@ Un post, un enfoque principal. Si mezcla temas, elige autor por el objetivo del 
 5. Tras confirmar, llama `blog_publish` o `blog_schedule_post` con `direct: true` según la decisión del usuario. Usa la revisión dentro de `/app`.
 6. Guarda el Social Pack generado por ChatGPT con `blog_save_social_pack`. El CMS no genera copy ni carruseles desde MCP.
 
+Si el usuario no quiere blog, no crees borrador: genera el pack en ChatGPT y
+guárdalo con `social_save_pack` usando `title`, `brief`, `sourceUrl` opcional y
+`socialPack`. Recupera packs anteriores con `social_list_packs` y
+`social_get_pack`.
+
 ## Flujo MCP (editar)
 
 1. `blog_get_brand_context`

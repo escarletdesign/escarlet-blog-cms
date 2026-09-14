@@ -381,6 +381,7 @@ function App() {
                 <Route path="/preview/:slug" element={<Preview />} />
                 <Route path="/schedule/:slug" element={<Schedule />} />
                 <Route path="/publish/:slug" element={<PublishSocial />} />
+                <Route path="/social-pack" element={<SocialPack />} />
                 <Route path="/social-pack/:slug" element={<SocialPack />} />
                 <Route path="/posts" element={<Posts />} />
                 <Route path="/calendar" element={<Calendar />} />
@@ -666,6 +667,7 @@ function Shell() {
     { to: "/", label: t("nav.home"), icon: "home" },
     ...(workflowFlags.assistantEnabled ? [{ to: "/chat", label: t("nav.assistant"), icon: "assistant" }] : []),
     { to: "/posts", label: t("nav.posts"), icon: "posts" },
+    { to: "/social-pack", label: t("nav.socialPack"), icon: "social" },
   ];
   return (
     <div className="app-shell">
@@ -887,6 +889,14 @@ function NavIcon({ kind }: { kind: string }) {
       </svg>
     );
   }
+  if (kind === "social") {
+    return (
+      <svg className="nav-icon" viewBox="0 0 20 20" aria-hidden="true">
+        <path d="M10 2.8 12.1 7l4.6.7-3.3 3.3.8 4.7-4.2-2.2-4.2 2.2.8-4.7-3.3-3.3L7.9 7Z" />
+        <path d="M10 5.4v5.1M7.5 9.2h5" />
+      </svg>
+    );
+  }
   if (kind === "home") {
     return (
       <svg className="nav-icon" viewBox="0 0 20 20" aria-hidden="true">
@@ -986,6 +996,12 @@ function Home() {
             <b>{t("home.wizard.action")}</b>
           </button>
         )}
+        <button className="choice-card" onClick={() => nav("/social-pack")}>
+          <span>✦</span>
+          <strong>{t("home.social.title")}</strong>
+          <small>{t("home.social.description")}</small>
+          <b>{t("home.social.action")}</b>
+        </button>
         <button className="choice-card" onClick={() => nav("/manual")}>
           <span>✎</span>
           <strong>{t("home.manual.title")}</strong>
@@ -3402,14 +3418,24 @@ function SocialPack() {
   const { site } = useApp();
   const { t } = useI18n();
   const { showToast } = useToast();
+  const standalone = !slug;
   const [post, setPost] = useState<Post | null>(null);
   const [socialPack, setSocialPack] = useState<Record<string, any>>({});
   const [articleUrl, setArticleUrl] = useState("");
+  const [standaloneTitle, setStandaloneTitle] = useState("");
+  const [standaloneBrief, setStandaloneBrief] = useState("");
+  const [standaloneUrl, setStandaloneUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [showTeleprompter, setShowTeleprompter] = useState(false);
   const [activeSlide, setActiveSlide] = useState(0);
   useEffect(() => {
+    if (standalone) {
+      setPost(null);
+      setSocialPack({});
+      setArticleUrl("");
+      return;
+    }
     let active = true;
     Promise.all([api.post(slug, site), api.onboarding(site).catch(() => ({}))])
       .then(([postData, onboarding]) => {
@@ -3429,28 +3455,57 @@ function SocialPack() {
     return () => {
       active = false;
     };
-  }, [slug, site, t]);
+  }, [slug, site, t, standalone]);
   const generatePack = async () => {
-    if (!post) return;
+    if (standalone && !standaloneBrief.trim()) {
+      const reason = t("social.standaloneRequired");
+      setMessage(reason);
+      showToast(reason, "error");
+      return;
+    }
+    if (!standalone && !post) return;
     setBusy(true);
     setMessage("");
     try {
+      const generatedTitle = (standaloneTitle.trim() || standaloneBrief.trim().split(/\r?\n/)[0] || t("social.standaloneDefaultTitle"))
+        .slice(0, 120);
+      const standaloneSlug = `social-pack-${Date.now().toString(36)}`;
+      const generationPost = standalone
+        ? ({
+            slug: standaloneSlug,
+            site,
+            title: generatedTitle,
+            status: "draft",
+            bodyHtml: standaloneBrief.trim(),
+            excerptEs: standaloneBrief.trim(),
+            articleUrl: standaloneUrl.trim(),
+          } as Post & { articleUrl?: string })
+        : ({ ...post, articleUrl } as Post & { articleUrl?: string });
+      const generationPrompt = standalone
+        ? `Genera un Social Pack independiente para este tema. No existe ningún artículo de blog. Usa el contexto y crea contenido autónomo para Substack, LinkedIn, X, Instagram y vídeo. Tema/título: ${generatedTitle}. Contexto: ${standaloneBrief.trim()}${standaloneUrl.trim() ? ` Incluye este enlace de destino cuando encaje: ${standaloneUrl.trim()}` : ""}`
+        : `Genera un social pack para ${post?.title}. Incluye este enlace canónico en los textos que admitan enlaces: ${articleUrl}`;
       const result = await api.aiGenerate({
         site,
         operation: "social-pack",
-        prompt: `Genera un social pack para ${post.title}. Incluye este enlace canónico en los textos que admitan enlaces: ${articleUrl}`,
-        post: { ...post, articleUrl },
+        prompt: generationPrompt,
+        post: generationPost,
         asyncImages: true,
       });
       const completePack = result.socialPack || {};
-      setPost(result.post || { ...post, socialPack: completePack });
+      const nextPost = result.post || {
+        ...generationPost,
+        slug: standalone ? standaloneSlug : generationPost.slug,
+        socialPack: completePack,
+      };
+      if (standalone) setArticleUrl(standaloneUrl.trim());
+      setPost(nextPost as Post);
       setSocialPack(completePack);
       setActiveSlide(0);
       let warnings = result.socialPackWarnings || [];
       if (result.socialPackJobId) {
         setMessage(t("social.generatingImages", "Generando imágenes del carrusel…"));
         const job = await waitForSocialPackJob(result.socialPackJobId, site);
-        setPost(job.post || result.post || { ...post, socialPack: job.socialPack || completePack });
+        setPost(job.post || result.post || { ...generationPost, slug: standalone ? standaloneSlug : generationPost.slug, socialPack: job.socialPack || completePack } as Post);
         setSocialPack(job.socialPack || completePack);
         warnings = job.warnings || [];
       }
@@ -3555,10 +3610,50 @@ function SocialPack() {
         description={t("social.description")}
         back
       />
+      {standalone && !post && (
+        <section className="card form-stack social-standalone-composer">
+          <p className="eyebrow">{t("social.standaloneEyebrow")}</p>
+          <h2>{t("social.standaloneTitle")}</h2>
+          <p className="muted">{t("social.standaloneHelp")}</p>
+          <label>
+            {t("social.standaloneTopic")}
+            <input
+              value={standaloneTitle}
+              onChange={(event) => setStandaloneTitle(event.target.value)}
+              placeholder={t("social.standaloneTopicPlaceholder")}
+              maxLength={120}
+            />
+          </label>
+          <label>
+            {t("social.standaloneBrief")}
+            <textarea
+              value={standaloneBrief}
+              onChange={(event) => setStandaloneBrief(event.target.value)}
+              placeholder={t("social.standaloneBriefPlaceholder")}
+              rows={7}
+              autoFocus
+            />
+          </label>
+          <label>
+            {t("social.standaloneUrl")}
+            <input
+              type="url"
+              value={standaloneUrl}
+              onChange={(event) => setStandaloneUrl(event.target.value)}
+              placeholder="https://ejemplo.com/landing"
+            />
+          </label>
+          <div className="form-actions">
+            <AiOnly><button className="primary" onClick={() => void generatePack()} disabled={busy || !standaloneBrief.trim()}>
+              {busy ? t("publish.preparing") : t("social.generate")}
+            </button></AiOnly>
+          </div>
+        </section>
+      )}
       {post && (
         <div className="social-pack-toolbar">
-          <div>
-            <p className="eyebrow">{t("social.articleUrl")}</p>
+          {articleUrl ? <div>
+            <p className="eyebrow">{standalone ? t("social.standaloneUrl") : t("social.articleUrl")}</p>
             <a
               className="article-url"
               href={articleUrl}
@@ -3567,11 +3662,17 @@ function SocialPack() {
             >
               {articleUrl}
             </a>
-          </div>
+          </div> : <div>
+            <p className="eyebrow">{t("social.standaloneEyebrow")}</p>
+            <strong>{post.title}</strong>
+          </div>}
           <div className="form-actions">
-            <button className="ghost" onClick={() => void copy(articleUrl)}>
+            {articleUrl && <button className="ghost" onClick={() => void copy(articleUrl)}>
               {t("social.copyUrl")}
-            </button>
+            </button>}
+            {standalone && <button className="ghost" onClick={() => { setPost(null); setSocialPack({}); setArticleUrl(""); setStandaloneTitle(""); setStandaloneBrief(""); setStandaloneUrl(""); setMessage(""); }}>
+              {t("social.standaloneNew")}
+            </button>}
             <button
               className="secondary"
               onClick={download}
@@ -3717,7 +3818,7 @@ function SocialPack() {
           </button>
         </section>
       )}
-      {Object.keys(socialPack).length ? (
+      {post && Object.keys(socialPack).length ? (
         <div className="social-pack-grid">
           {fields.map(
             (field) =>
@@ -3747,7 +3848,7 @@ function SocialPack() {
               </article>
             )}
         </div>
-      ) : (
+      ) : post ? (
         <section className="empty-state">
           <span>✦</span>
           <h2>{t("social.empty")}</h2>
@@ -3760,7 +3861,7 @@ function SocialPack() {
             {busy ? t("publish.preparing") : t("social.generate")}
           </button></AiOnly>
         </section>
-      )}
+      ) : null}
       {message && <p className="success">{message}</p>}
       {showTeleprompter && (
         <TeleprompterModal
