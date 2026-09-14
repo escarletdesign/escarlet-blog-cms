@@ -67,7 +67,7 @@ final class Escarlet_Blog_Client_Lock_Edits {
 			return;
 		}
 		$slug = (string) get_post_meta( $post_id, Escarlet_Blog_Client_Sync::META_SLUG, true );
-		$url  = Escarlet_Blog_Client_Admin::open_cms_url( $slug ? 'entrada/' . $slug : 'entradas' );
+		$url  = Escarlet_Blog_Client_Admin::open_cms_url( $slug ? '/manual/' . $slug : '/posts' );
 		echo '<div class="notice notice-warning"><p>';
 		echo esc_html__( 'Esta entrada la gestiona el CMS Escarlet. Edítala allí (texto, portada, packs). Los cambios locales se sobrescriben en el próximo sync.', 'escarlet-blog-client' );
 		if ( $url ) {
@@ -111,7 +111,7 @@ final class Escarlet_Blog_Client_Lock_Edits {
 			return $actions;
 		}
 		$slug = (string) get_post_meta( $post->ID, Escarlet_Blog_Client_Sync::META_SLUG, true );
-		$url  = Escarlet_Blog_Client_Admin::open_cms_url( $slug ? 'entrada/' . $slug : 'entradas' );
+		$url  = Escarlet_Blog_Client_Admin::open_cms_url( $slug ? '/manual/' . $slug : '/posts' );
 		if ( $url ) {
 			$actions['escarlet_cms'] = '<a href="' . esc_url( $url ) . '" target="_blank" rel="noopener noreferrer">' . esc_html__( 'Editar en Escarlet', 'escarlet-blog-client' ) . '</a>';
 		}

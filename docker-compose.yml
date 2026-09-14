@@ -18,7 +18,7 @@ services:
       timeout: 5s
       retries: 3
 
-  # Opcional. Postgres para futura migración a Payload 3
+  # Opcional. Postgres para el ledger de Stripe en instalaciones que lo necesiten
   postgres:
     profiles:
       - payload

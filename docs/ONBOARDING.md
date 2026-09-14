@@ -73,7 +73,7 @@ Luego completa el brand kit en `/app/admin` → Brand kit (o `blog_update_brand_
 
 ## B. Frontend (Vue/Vite u otro)
 
-1. Copia `templates/frontend/escarlet-blog.mjs` → `scripts/escarlet-blog.mjs` y los wrappers de sync/packs
+1. Copia `templates/frontend/escarlet-blog.mjs` → `scripts/escarlet-blog.mjs` y el wrapper de sync
 2. Copia `blog-articles.fallback.js` y `blog-articles.js` a `src/data/` (o adapta rutas)
 3. En `package.json`:
 
@@ -85,7 +85,9 @@ Luego completa el brand kit en `/app/admin` → Brand kit (o `blog_update_brand_
 
 4. `.gitignore` → `src/data/blog.generated.js` y `.escarlet-blog-runtime/`
 5. Monta rutas `/blog` y `/blog/:slug` leyendo `getBlogIndex` / `getPostBySlug` (como en escarlet002)
-6. **Blog-packs**. El runtime los genera en `public/admin/blog-packs/` al hacer build. Env `BLOG_SITE_URL` / `BLOG_PACKS_NAME`. Canales del pack se configuran en el CMS (`socialPackChannels`). El look de `/blog` sigue en esta landing.
+6. **Social Pack**. El runtime v1.2.0 solo sincroniza posts. ChatGPT genera el
+   copy y los fondos, `blog_save_social_pack` guarda el pack y el CMS lo ofrece
+   en `/app/social-pack/{slug}`. El look de `/blog` sigue en esta landing.
 7. **Interruptor**. CMS `/app/admin` → Sitio → Blog en la web pública. Encendido publica `/blog`. Apagado lo quita en el siguiente rebuild. Los posts siguen en el CMS.
 
 ### Env en Coolify (app del frontend)
@@ -145,7 +147,7 @@ Plugin principal. [`../integrations/wordpress-blog-client`](../integrations/word
 | Sync | `GET /api/sites/{handle}/posts` → entradas nativas en `/blog` |
 | Webhook | `GET/POST /wp-json/escarlet-blog/v1/sync` con Bearer. Pégalo en CMS → Sitio como webhook |
 | Panel | wp-admin → Escarlet Blog → Abrir panel Escarlet (SSO con token de sitio) |
-| Packs | Se usan en el CMS Escarlet. WordPress **no** genera `/admin/blog-packs` HTML como Vite |
+| Packs | Se usan en el CMS Escarlet. WordPress **no** genera HTML estático de packs |
 
 ### Pasos
 
@@ -223,7 +225,7 @@ Prohibido. Commitear posts al git del frontend. Usar `create_draft` para editar.
 - [ ] Interruptor Blog en la web pública encendido
 - [ ] MCP `/mcp` + regla `blog-via-mcp.mdc` con el handle correcto (landings Vite)
 - [ ] Publicar post de prueba → rebuild/sync → aparece en `/blog/{slug}`
-- [ ] Vite. pack en `/admin/blog-packs/{slug}` **o** WordPress. pack abierto desde el CMS
+- [ ] Social Pack abierto desde `/app/social-pack/{slug}` o desde WordPress vía SSO
 
 ---
 

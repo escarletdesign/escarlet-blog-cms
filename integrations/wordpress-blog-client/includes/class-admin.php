@@ -116,7 +116,7 @@ final class Escarlet_Blog_Client_Admin {
 
 		if ( isset( $_GET['escarlet_open_cms'] ) && '1' === $_GET['escarlet_open_cms'] ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 			check_admin_referer( 'escarlet_open_cms' );
-			$next = isset( $_GET['next'] ) ? sanitize_text_field( wp_unslash( (string) $_GET['next'] ) ) : 'entradas'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+			$next = isset( $_GET['next'] ) ? sanitize_text_field( wp_unslash( (string) $_GET['next'] ) ) : '/posts'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 			$url  = self::request_consume_url( $next );
 			if ( is_wp_error( $url ) ) {
 				add_settings_error( 'escarlet_blog_client', 'cms', $url->get_error_message(), 'error' );
@@ -130,17 +130,16 @@ final class Escarlet_Blog_Client_Admin {
 	/**
 	 * Build admin URL that triggers SSO open.
 	 *
-	 * @param string $next Hash route e.g. #/entrada/slug.
+	 * @param string $next App route e.g. /manual/slug.
 	 * @return string
 	 */
-	public static function open_cms_url( string $next = '#/entradas' ): string {
+	public static function open_cms_url( string $next = '/posts' ): string {
 		if ( ! Escarlet_Blog_Client_Settings::can_open_cms() ) {
 			return '';
 		}
 		$next = ltrim( $next, '#' );
-		$next = ltrim( $next, '/' );
 		if ( '' === $next ) {
-			$next = 'entradas';
+			$next = '/posts';
 		}
 		return wp_nonce_url(
 			add_query_arg(
@@ -161,7 +160,7 @@ final class Escarlet_Blog_Client_Admin {
 	 * @param string $next Next hash.
 	 * @return string|WP_Error
 	 */
-	public static function request_consume_url( string $next = '#/entradas' ) {
+	public static function request_consume_url( string $next = '/posts' ) {
 		if ( ! Escarlet_Blog_Client_Settings::can_open_cms() ) {
 			return new WP_Error( 'escarlet_config', __( 'Falta URL del CMS, handle o token de sitio.', 'escarlet-blog-client' ) );
 		}
@@ -209,7 +208,7 @@ final class Escarlet_Blog_Client_Admin {
 			return;
 		}
 		settings_errors( 'escarlet_blog_client' );
-		$open_url   = self::open_cms_url( 'entradas' );
+		$open_url   = self::open_cms_url( '/posts' );
 		$packs_note = __( 'Los packs (Substack, LinkedIn, X, guion, carrusel) viven en el CMS Escarlet. Ábrelos desde el panel. WordPress no genera HTML estático de packs.', 'escarlet-blog-client' );
 		$posts      = self::list_managed_posts();
 		?>
@@ -394,7 +393,7 @@ final class Escarlet_Blog_Client_Admin {
 				'title'     => get_the_title( $post ),
 				'slug'      => $slug ?: $post->post_name,
 				'permalink' => get_permalink( $post ),
-				'open_url'  => self::open_cms_url( $slug ? 'entrada/' . $slug . '/revisar' : 'entradas' ),
+				'open_url'  => self::open_cms_url( $slug ? '/preview/' . $slug : '/posts' ),
 				'has_pack'  => (bool) $pack,
 			);
 		}

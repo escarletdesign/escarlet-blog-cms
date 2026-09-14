@@ -8,7 +8,7 @@ Nota de continuidad (sep 2026). El change `product-restructure` (F0–F5) está 
 
 | Capacidad | Usable hoy | Notas |
 |-----------|------------|--------|
-| Crear / editar / publicar posts (admin + MCP) | Sí | Sin flag también funciona el flujo legacy |
+| Crear / editar / publicar posts (app + MCP) | Sí | Sin flag también funciona el flujo manual |
 | Review agency / motivo de rechazo / magic + review links | Sí | Requiere `PRODUCT_RESTRUCTURE_V1=1` |
 | Roles agency vs client en el mismo admin | Sí | Token de sitio = client; agency token = agency_admin |
 | Social Pack en el CMS | Sí | Canónico en CMS. La PWA Vite en la landing es legado |
@@ -49,7 +49,7 @@ MCP / Admin CMS  →  posts + socialPack + brand
 1. Env Coolify: `BLOG_CMS_URL`, `BLOG_CMS_SITE` (handle).
 2. `scripts/escarlet-blog.mjs` presente y en `prebuild` / `build`.
 3. Tras rebuild, comprobar que el runtime bajado es **v1.2.0** (solo `sync-blog-cms.mjs` en el canal).
-4. Packs: preferir **CMS** (`/admin` Social Pack o rutas pack del CMS). Si aún existe `public/admin/blog-packs/` generado en build, es legado; no hace falta borrarlo el día 1.
+4. Social Pack: usar **CMS** (`/app/social-pack/{slug}`). No se generan packs HTML en las landings.
 5. Look de `/blog`: sigue en esa landing (vistas Vue o `generate-blog-pages.mjs` + CSS). El CMS no pinta la ficha pública.
 
 Skill de integración: `~/.cursor/skills/escarlet-blog-integrate/SKILL.md` (o `escarlet-blog-integrate`).
@@ -81,7 +81,7 @@ Código histórico: `Documents/Escarlet/_plugins/escarlet-blog-client`. El bridg
 
 | Cambio V1 | ¿Toca el plugin? |
 |-----------|------------------|
-| Review / cupos / membership | **No** (viven en CMS; MCP/admin) |
+| Review / cupos / membership | **No** (viven en CMS; MCP/app) |
 | Social Pack host en CMS | **No obligatorio** (ya no dependía del generador Vite) |
 | Email/password humanos | **No** (login en CMS; SSO embed sigue con token) |
 | Stripe | **No** |
@@ -170,9 +170,8 @@ Publicar en CMS ──webhook──► Coolify rebuild escarlet002
 | CMS health `blog-cms.escarlet.cc` | OK (persistencia, posts en volumen) |
 | `GET /api/sites/escarlet/posts` | OK (`blogEnabled: true`, posts publicados) |
 | Sync local `npm run blog:sync` | OK → `blog.generated.js` (CMS + fallback) |
-| Runtime en **producción** | Aún **v1.1.1** (incluye generador packs Vite) |
-| Runtime en **develop** local | **v1.2.0** (solo sync; packs en CMS) |
-| Deploy `develop` + `PRODUCT_RESTRUCTURE_V1=1` a Coolify CMS | **Pendiente (humano)** |
+| Runtime servido | **v1.2.0** (solo sync; Social Pack en CMS) |
+| Deploy del CMS + `PRODUCT_RESTRUCTURE_V1=1` a Coolify | **Pendiente (humano)** |
 | Publicar post → webhook → ver en escarlet.design/blog | **Pendiente** (verificar webhook Sitio) |
 
 Conclusión. El sync **ya funciona** con el CMS en producción. Las features V1 (review, cupos, packs CMS, auth) requieren **desplegar `develop`** al CMS y el flag.

@@ -15,7 +15,7 @@ Si `missingBrand` tiene archivos, para y pide que los completen.
 2. Genera el título, contenido, metadatos e imágenes en ChatGPT siguiendo el brand kit y sus referencias. Guarda el borrador con `blog_create_draft`, `blog_upload_media` y `blog_update_post`.
 3. En `guided`, comparte únicamente `appPreviewUrl` (`/app/preview/{slug}`) y espera la revisión. En `easy`, muestra un resumen y pide confirmación.
 4. Aplica correcciones con `blog_update_post` usando el mismo slug.
-5. Tras confirmar, llama `blog_publish` o `blog_schedule_post` con `direct: true` según la decisión del usuario. No uses la revisión legacy.
+5. Tras confirmar, llama `blog_publish` o `blog_schedule_post` con `direct: true` según la decisión del usuario. Usa la revisión dentro de `/app`.
 6. Guarda el Social Pack generado por ChatGPT con `blog_save_social_pack`. El CMS no genera copy ni carruseles desde MCP.
 
 ## Sistema visual

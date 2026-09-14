@@ -59,8 +59,7 @@ import {
 import {
   createEmbedSession,
   consumeEmbedSession,
-  sanitizeNext,
-  frameAncestorsHeader
+  sanitizeNext
 } from './lib/embed-session.mjs'
 import {
   createMagicToken,
@@ -157,7 +156,7 @@ import { getWorkflowFlags, setWorkflowFlags } from './lib/workflow-flags.mjs'
 import { generateThumbBuffer } from './lib/media-optimize.mjs'
 import { parseMultipart, isMultipartRequest } from './lib/multipart.mjs'
 import { withPostLinks } from './lib/preview-url.mjs'
-import { escapeHtml, renderPostBody } from './lib/content-render.mjs'
+import { escapeHtml } from './lib/content-render.mjs'
 import { handleMcpHttp, sendMcpCors } from './mcp/http-handler.mjs'
 import { buildToolList, invokeMcpTool } from './mcp/create-mcp-server.mjs'
 import {
@@ -175,9 +174,7 @@ import {
 import {
   isCmsSocialPackHostEnabled,
   buildSocialPackPayload,
-  listSocialPackSummaries,
-  renderSocialPackPageHtml,
-  renderSocialPackIndexHtml
+  listSocialPackSummaries
 } from './lib/social-pack-host.mjs'
 import {
   getMcpConnectionInfo,
@@ -248,10 +245,6 @@ function html(res, status, body, extraHeaders = {}) {
     ...extraHeaders
   })
   res.end(body)
-}
-
-function isAdmin(req, url) {
-  return Boolean(resolveRequestAuth(req, url))
 }
 
 function requireAuth(req, url, res) {
@@ -358,20 +351,8 @@ function serveStaticFile(
   res.end(data)
 }
 
-function serveAdmin(res, extraHeaders = {}) {
-  serveStaticFile(
-    res,
-    join(root, 'admin.html'),
-    'text/html; charset=utf-8',
-    'GET',
-    'no-store, no-cache, must-revalidate',
-    extraHeaders
-  )
-}
-
-
-// The Vite bundle is optional during development before `npm run build`; legacy /admin
-// remains available regardless. Only paths below /app (and the root SPA entry) reach here.
+// The Vite bundle is optional during development before `npm run build`. Only paths below
+// /app (and the root SPA entry) reach here.
 const pwaDist = join(root, 'apps', 'pwa', 'dist')
 const pwaTypes = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -481,8 +462,45 @@ function servePwa(req, res, path) {
   return true
 }
 
-function pwaMagicBootstrapHtml() {
-  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="robots" content="noindex,nofollow"><meta http-equiv="refresh" content="0;url=/app/"><title>Entrando a Escarlet…</title></head><body><p>Entrando a Escarlet…</p><script>location.replace('/app/')</script></body></html>`
+function redirectLegacySurface(req, res, path) {
+  if (req.method !== 'GET') return false
+  const params = new URL(req.url || '/', 'http://127.0.0.1').searchParams
+  let target = ''
+  if (path === '/admin' || path === '/admin/') target = '/app/'
+  else if (path === '/admin/blog-packs' || path === '/admin/blog-packs/') target = '/app/posts'
+  else {
+    const pack = path.match(/^\/admin\/blog-packs\/([^/]+)\/?$/)
+    if (pack) {
+      try {
+        target = `/app/social-pack/${encodeURIComponent(decodeURIComponent(pack[1]))}`
+      } catch {
+        return false
+      }
+    }
+  }
+  if (!target) {
+    const preview = path.match(/^\/preview\/([^/]+)\/([^/]+)$/)
+    if (preview) {
+      try {
+        target = `/app/preview/${encodeURIComponent(decodeURIComponent(preview[2]))}`
+        const site = decodeURIComponent(preview[1])
+        if (site) params.set('site', site)
+      } catch {
+        return false
+      }
+    }
+  }
+  if (!target) return false
+  const query = params.toString()
+  if (query) target += `?${query}`
+  res.writeHead(308, { Location: target, 'Cache-Control': 'no-store' })
+  res.end()
+  return true
+}
+
+function pwaMagicBootstrapHtml({ next } = {}) {
+  const safeNext = JSON.stringify(sanitizeNext(next))
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="robots" content="noindex,nofollow"><title>Entrando a Escarlet…</title></head><body><p>Entrando a Escarlet…</p><script>location.replace('/app' + ${safeNext})</script></body></html>`
 }
 
 function absoluteCmsOrigin(req) {
@@ -493,8 +511,7 @@ function absoluteCmsOrigin(req) {
   return `${proto}://${host}`
 }
 
-function embedBootstrapHtml({ token, next }) {
-  const safeToken = JSON.stringify(String(token || ''))
+function embedBootstrapHtml({ next }) {
   const safeNext = JSON.stringify(sanitizeNext(next))
   return `<!doctype html>
 <html lang="es">
@@ -507,12 +524,8 @@ function embedBootstrapHtml({ token, next }) {
   <p>Abriendo el panel Escarlet…</p>
   <script>
     (function () {
-      var token = ${safeToken};
       var next = ${safeNext};
-      try {
-        localStorage.setItem('escarlet_cms_token', token);
-      } catch (e) {}
-      location.replace('/admin' + (next || '#/entradas'));
+      location.replace('/app' + (next || '/'));
     })();
   </script>
 </body>
@@ -521,108 +534,6 @@ function embedBootstrapHtml({ token, next }) {
 
 function servePublic(res, filePath, contentType, cacheControl = 'public, max-age=3600') {
   serveStaticFile(res, join(root, 'public', filePath), contentType, 'GET', cacheControl)
-}
-
-function renderPreview(post, siteConfig, site) {
-  const canonical = `${siteConfig.domain.replace(/\/$/, '')}/blog/${post.slug}`
-  const imageSrc = resolvePostImageSrc(post.imageUrl, site)
-  let imageBlock = ''
-  if (imageSrc) {
-    const disk = join(mediaDir, imageSrc.replace(/^\/media\//, ''))
-    if (existsSync(disk) && readFileSync(disk).length >= 1024) {
-      imageBlock = `<img src="${escapeHtml(imageSrc)}" alt="${escapeHtml(post.imageAlt || '')}" />`
-    } else {
-      imageBlock = `<p class="meta">Portada no disponible. El archivo falta o está corrupto (${escapeHtml(imageSrc)}). Súbelo de nuevo en Media.</p>`
-    }
-  } else if (post.imageUrl) {
-    imageBlock = `<p class="meta">Portada no encontrada para ${escapeHtml(post.imageUrl)}. Súbela de nuevo en Media.</p>`
-  }
-  const body = renderPostBody(post.bodyHtml)
-  const canPublish = post.status !== 'published'
-  const publishLabel = post.status === 'review' ? 'Publicar en vivo' : 'Enviar a revisión'
-  return `<!doctype html>
-<html lang="es">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="robots" content="noindex,nofollow" />
-  <title>${escapeHtml(post.title)} (preview)</title>
-  <style>
-    body { font-family: Georgia, serif; max-width: 720px; margin: 0 auto; padding: 1rem; color: #222; line-height: 1.6; }
-    .review-bar { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; justify-content: space-between; background: #15291f; color: #fff; padding: 0.75rem 1rem; margin: -1rem -1rem 1rem; }
-    .review-bar span { font-size: 0.85rem; }
-    .review-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-    .review-actions a, .review-actions button { border: 0; border-radius: 8px; padding: 0.45rem 0.8rem; font: inherit; font-size: 0.85rem; cursor: pointer; text-decoration: none; }
-    .review-actions button { background: #52b788; color: #15291f; font-weight: 600; }
-    .review-actions a { background: rgba(255,255,255,0.12); color: #fff; }
-    .badge { display: inline-block; background: #1f4d3a; color: #fff; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.75rem; margin-bottom: 1rem; }
-    img { width: 100%; max-width: 100%; height: auto; border-radius: 8px; margin: 1rem 0; display: block; }
-    h1 { font-size: 1.8rem; line-height: 1.2; }
-    .meta { color: #666; font-size: 0.9rem; margin-bottom: 1.5rem; word-break: break-word; }
-    article h1, article h2, article h3 { margin-top: 1.5rem; line-height: 1.25; }
-    article p { margin: 0.75rem 0; }
-    article ul, article ol { padding-left: 1.25rem; }
-    article blockquote { border-left: 3px solid #ccc; margin: 1rem 0; padding-left: 1rem; color: #444; }
-    #publishMsg { width: 100%; font-size: 0.9rem; line-height: 1.45; margin: 0.5rem 0 0; color: #dce8e0; }
-    #publishMsg.is-review { color: #ffe8a3; }
-    #publishMsg.is-ok { color: #b7f0d0; }
-    #publishMsg.is-error { color: #ffb4a8; }
-  </style>
-</head>
-<body>
-  <div class="review-bar">
-    <span>Preview · ${escapeHtml(post.status)}${post.status === 'review' ? ' · pendiente de publicar en vivo' : ''}</span>
-    <div class="review-actions">
-      ${canPublish ? `<button type="button" id="publishBtn">${publishLabel}</button>` : ''}
-      <a href="/">Dashboard</a>
-    </div>
-    <p id="publishMsg" hidden></p>
-  </div>
-  <h1>${escapeHtml(post.title)}</h1>
-  <p class="meta">${escapeHtml(post.authorName)} · ${escapeHtml(post.datePublished)} · ${escapeHtml(canonical)}</p>
-  ${imageBlock}
-  <p><strong>${escapeHtml(post.excerptEs || '')}</strong></p>
-  <article>${body}</article>
-  <script>
-    (function () {
-      const token = new URLSearchParams(location.search).get('token') || ''
-      const btn = document.getElementById('publishBtn')
-      const msg = document.getElementById('publishMsg')
-      if (!btn) return
-      btn.addEventListener('click', async () => {
-        btn.disabled = true
-        msg.hidden = false
-        msg.textContent = 'Publicando…'
-        try {
-          const res = await fetch('/api/admin/posts/publish', {
-            method: 'POST',
-            headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ site: ${JSON.stringify(site)}, slug: ${JSON.stringify(post.slug)} })
-          })
-          const data = await res.json().catch(() => ({}))
-          if (!res.ok) throw new Error(data.message || 'No se pudo publicar')
-          const next = data.submittedForReview
-            ? (data.message || 'Enviado a revisión. En el listado aparece como review. Abre Preview otra vez y pulsa Publicar en vivo cuando esté listo.')
-            : (data.message || 'Publicado en el blog')
-          msg.textContent = next
-          msg.className = data.submittedForReview ? 'is-review' : 'is-ok'
-          btn.textContent = data.submittedForReview ? 'Publicar en vivo' : 'Publicado'
-          if (data.published) {
-            btn.disabled = true
-            setTimeout(() => location.reload(), 2500)
-          } else {
-            btn.disabled = false
-          }
-        } catch (error) {
-          msg.textContent = error.message
-          msg.className = 'is-error'
-          btn.disabled = false
-        }
-      })
-    })()
-  </script>
-</body>
-</html>`
 }
 
 function normalizePostForClient(post) {
@@ -857,73 +768,10 @@ const server = createServer(async (req, res) => {
     return
   }
 
+  if (redirectLegacySurface(req, res, path)) return
+
   if ((req.method === 'GET' || req.method === 'HEAD') && servePwa(req, res, path)) {
     return
-  }
-
-  if (req.method === 'GET' && path === '/admin') {
-    const auth = resolveRequestAuth(req, url)
-    const embed = url.searchParams.get('embed') === '1'
-    const extra = {}
-    if (embed && auth) {
-      const domains = []
-      if (isSiteScopedRole(auth.role)) {
-        const cfg = loadSiteConfig(auth.site)
-        if (cfg?.domain) domains.push(cfg.domain)
-      } else {
-        for (const handle of listSiteHandles()) {
-          const cfg = loadSiteConfig(handle)
-          if (cfg?.domain) domains.push(cfg.domain)
-        }
-      }
-      extra['Content-Security-Policy'] = frameAncestorsHeader(domains)
-    } else {
-      // Default harden unless embed=1 with a valid session cookie/token.
-      extra['Content-Security-Policy'] = "frame-ancestors 'self'"
-    }
-    serveAdmin(res, extra)
-    return
-  }
-
-  // CMS Social Pack host (F2). Takes precedence over any static Vite blog-packs.
-  if (isCmsSocialPackHostEnabled() && req.method === 'GET') {
-    const packIndex = path === '/admin/blog-packs' || path === '/admin/blog-packs/'
-    const packDetail = path.match(/^\/admin\/blog-packs\/([^/]+)\/?$/)
-    if (packIndex || packDetail) {
-      const auth = requireAuth(req, url, res)
-      if (!auth) return
-      const site = siteFrom(auth, url.searchParams.get('site') || DEFAULT_SITE)
-      try {
-        assertSiteAccess(auth, site)
-      } catch (err) {
-        json(res, err.status || 403, { message: err.message })
-        return
-      }
-      const siteConfig = loadSiteConfig(site) || { domain: 'https://example.com' }
-      const db = readDb()
-      const posts = db.posts.filter((p) => p.site === site)
-      if (packIndex) {
-        const summaries = listSocialPackSummaries(posts, siteConfig, { cmsHostEnabled: true })
-        html(res, 200, renderSocialPackIndexHtml(summaries, { siteLabel: site }))
-        return
-      }
-      const slug = decodeURIComponent(packDetail[1])
-      if (slug === 'manifest.webmanifest') {
-        json(res, 404, { message: 'Manifest Vite no aplica. Social Pack vive en el CMS.' })
-        return
-      }
-      const post = findPost(db, site, slug)
-      if (!post) {
-        json(res, 404, { message: 'Pack no encontrado' })
-        return
-      }
-      const payload = buildSocialPackPayload(post, siteConfig, {
-        cmsHostEnabled: true,
-        includeEmpty: true
-      })
-      html(res, 200, renderSocialPackPageHtml(payload))
-      return
-    }
   }
 
   if (req.method === 'POST' && path === '/api/embed/session') {
@@ -963,7 +811,7 @@ const server = createServer(async (req, res) => {
       return
     }
     const cookie = `escarlet_cms=${encodeURIComponent(session.token)}; Path=/; HttpOnly; SameSite=Lax`
-    html(res, 200, embedBootstrapHtml(session), {
+    html(res, 200, embedBootstrapHtml({ next: session.next }), {
       'Set-Cookie': cookie,
       'Cache-Control': 'no-store'
     })
@@ -1028,13 +876,13 @@ const server = createServer(async (req, res) => {
       mustSetPassword: result.session.purpose === 'invite' || result.session.purpose === 'reset'
     })
     const cookie = `escarlet_cms=${encodeURIComponent(bearer.token)}; Path=/; HttpOnly; SameSite=Lax`
-    const next = result.session.next || '#/entradas'
+    const next = result.session.next || '/'
     html(
       res,
       200,
       path === '/app/magic/consume'
-        ? pwaMagicBootstrapHtml()
-        : embedBootstrapHtml({ next, site: result.session.site, token: bearer.token }),
+        ? pwaMagicBootstrapHtml({ next })
+        : embedBootstrapHtml({ next }),
       { 'Set-Cookie': cookie, 'Cache-Control': 'no-store' }
     )
     return
@@ -1107,41 +955,6 @@ const server = createServer(async (req, res) => {
     return
   }
 
-  if (req.method === 'GET' && path === '/admin.css') {
-    servePublic(res, 'admin.css', 'text/css; charset=utf-8', 'no-store, no-cache, must-revalidate')
-    return
-  }
-
-  if (req.method === 'GET' && path === '/vendor/pico.conditional.min.css') {
-    servePublic(
-      res,
-      'vendor/pico.conditional.min.css',
-      'text/css; charset=utf-8',
-      'public, max-age=604800'
-    )
-    return
-  }
-
-  if (req.method === 'GET' && path === '/admin.js') {
-    servePublic(res, 'admin.js', 'application/javascript; charset=utf-8', 'no-store, no-cache, must-revalidate')
-    return
-  }
-
-  if (req.method === 'GET' && path === '/pack-recorder.css') {
-    servePublic(res, 'pack-recorder.css', 'text/css; charset=utf-8', 'no-store, no-cache, must-revalidate')
-    return
-  }
-
-  if (req.method === 'GET' && path === '/pack-recorder.js') {
-    servePublic(
-      res,
-      'pack-recorder.js',
-      'application/javascript; charset=utf-8',
-      'no-store, no-cache, must-revalidate'
-    )
-    return
-  }
-
   const mediaMatch = path.match(/^\/media\/([^/]+)(?:\/reference)?\/([^/]+)$/)
   if ((req.method === 'GET' || req.method === 'HEAD') && mediaMatch) {
     const [, site, filename] = mediaMatch
@@ -1156,24 +969,6 @@ const server = createServer(async (req, res) => {
       '.gif': 'image/gif'
     }
     serveStaticFile(res, filePath, types[ext] || 'application/octet-stream', req.method)
-    return
-  }
-
-  const previewMatch = path.match(/^\/preview\/([^/]+)\/([^/]+)$/)
-  if (req.method === 'GET' && previewMatch) {
-    if (!isAdmin(req, url)) {
-      json(res, 401, { message: 'Token requerido para preview' })
-      return
-    }
-    const [, site, slug] = previewMatch
-    const db = readDb()
-    const post = findPost(db, site, decodeURIComponent(slug))
-    if (!post) {
-      json(res, 404, { message: 'Post no encontrado' })
-      return
-    }
-    const siteConfig = loadSiteConfig(site) || { domain: 'https://escarlet.design' }
-    html(res, 200, renderPreview(post, siteConfig, site))
     return
   }
 
@@ -1267,7 +1062,7 @@ const server = createServer(async (req, res) => {
           email: user.email,
           userId: user.id,
           purpose: 'invite',
-          next: '#/entradas'
+          next: '/'
         })
         const origin = absoluteCmsOrigin(req)
         const link = `${origin}/app/magic/consume?token=${encodeURIComponent(minted.token)}`
@@ -1309,7 +1104,7 @@ const server = createServer(async (req, res) => {
           email: user.email,
           userId: user.id,
           purpose: 'reset',
-          next: '#/entradas'
+          next: '/'
         })
         const origin = absoluteCmsOrigin(req)
         const link = `${origin}/app/magic/consume?token=${encodeURIComponent(minted.token)}`
@@ -1611,7 +1406,7 @@ const server = createServer(async (req, res) => {
   }
 
   // PWA billing routes use the same session auth and site ACL as AI routes. They are
-  // aliases of the admin integration so the PWA never needs access to legacy admin URLs.
+  // aliases of the shared admin API so the app can keep one server-side contract.
   if (['/api/billing/snapshot', ...(isProductRestructureV1() ? ['/api/billing/checkout', '/api/billing/portal'] : [])].includes(path)) {
     const auth = requireAuth(req, url, res)
     if (!auth) return
@@ -3196,7 +2991,7 @@ if (process.env.NODE_ENV === 'production' && !persistence.likelyDockerVolume) {
 }
 
 server.listen(PORT, () => {
-  console.log(`Escarlet blog CMS en http://localhost:${PORT}/admin`)
+  console.log(`Escarlet blog CMS en http://localhost:${PORT}/app`)
   console.log(`MCP remoto (Hermes) en http://localhost:${PORT}/mcp`)
 })
 

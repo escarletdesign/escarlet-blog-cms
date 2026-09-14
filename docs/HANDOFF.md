@@ -37,7 +37,7 @@ MCP. `blog_get_onboarding` + `blog_create_site`. Plantillas en `templates/`.
 
 - MCP con 10 tools + 4 resources brand kit
 - SEO validator + tests
-- App `/app` (posts, preview, media contextual, **brand kit** con voz + referencias, **sitio**); `/admin` queda solo como compatibilidad temporal
+- App `/app` (posts, preview, media contextual, **brand kit** con voz + referencias, **sitio**); las rutas históricas redirigen a la app
 - Docker + compose con volumen `/app/data`
 - 21 posts migrados al CMS
 - escarlet002 sync en `prebuild` y `dev`

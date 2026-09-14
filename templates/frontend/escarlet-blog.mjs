@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 /**
  * Hook estable de cada landing. Casi no cambia.
- * En cada build baja sync y packs desde el CMS y los ejecuta.
+ * En cada build baja el sync desde el CMS y lo ejecuta.
  *
  *   node scripts/escarlet-blog.mjs
  *   node scripts/escarlet-blog.mjs sync
- *   node scripts/escarlet-blog.mjs packs
  *
  * Env.
  *   BLOG_CMS_URL             https://blog-cms.escarlet.cc
@@ -108,23 +107,13 @@ function runNode(scriptPath) {
 export async function runCli(argv = process.argv.slice(2)) {
   loadLocalEnv()
   const cmd = String(argv[0] || 'all').trim() || 'all'
-  if (!['sync', 'packs', 'pages', 'all'].includes(cmd)) {
-    console.error('Uso. node scripts/escarlet-blog.mjs [sync|packs|pages|all]')
+  if (!['sync', 'pages', 'all'].includes(cmd)) {
+    console.error('Uso. node scripts/escarlet-blog.mjs [sync|pages|all]')
     process.exit(1)
   }
   if (cmd !== 'pages') await refreshRuntime()
   if (cmd === 'sync' || cmd === 'all') {
     runNode(join(runtimeDir, 'sync-blog-cms.mjs'))
-  }
-  if (cmd === 'packs' || cmd === 'all') {
-    const packsScript = join(runtimeDir, 'generate-blog-social-packs.mjs')
-    if (existsSync(packsScript)) {
-      runNode(packsScript)
-    } else {
-      console.log(
-        '[escarlet-blog] Social Pack generator ausente en runtime (CMS es canónico). Se omite Vite packs.'
-      )
-    }
   }
   if (cmd === 'pages') {
     const pages = join(landingRoot, 'scripts', 'generate-blog-pages.mjs')

@@ -187,7 +187,7 @@ Objetivo. Cuando publicas en el CMS, escarlet.design se reconstruye solo con los
 
 ### B. Pégala en el CMS (dashboard)
 
-1. Abre `https://blog-cms.escarlet.cc/admin` (o local)
+1. Abre `https://blog-cms.escarlet.cc/app` (o local)
 2. Tab **Sitio**
 3. Campo **Deploy webhook** → pega la URL
 4. Campo **Token API Coolify** → pega el token con permiso Deploy
@@ -211,7 +211,7 @@ Redeploy de escarlet002.
 
 ### D. Comprueba el flujo
 
-1. Publica un post en el CMS (dashboard `/admin` o MCP `blog_publish`)
+1. Publica un post en el CMS (dashboard `/app` o MCP `blog_publish`)
 2. El CMS hace `POST` al webhook
 3. Coolify reconstruye escarlet002
 4. En build, `escarlet-blog.mjs` baja el runtime del CMS y descarga posts

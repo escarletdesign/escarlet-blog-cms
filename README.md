@@ -21,9 +21,8 @@ App. http://localhost:3040/app
 
 ### PWA de contenidos
 
-La nueva interfaz cliente vive en `/app/` (la ruta `/` también sirve la PWA cuando existe
-el build); `/admin` queda solo para compatibilidad legacy. En desarrollo puedes levantar el
-frontend con Vite y el CMS en paralelo:
+La interfaz cliente vive en `/app/` (la ruta `/` también sirve la PWA cuando existe el build).
+En desarrollo puedes levantar el frontend con Vite y el CMS en paralelo:
 
 ```bash
 npm run dev:server   # API en :3040

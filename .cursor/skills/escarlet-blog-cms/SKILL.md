@@ -3,7 +3,7 @@ name: escarlet-blog-cms
 description: >-
   Onboarding multi-sitio del CMS headless Escarlet. Usa cuando hay que crear un
   site nuevo, añadir sección blog a una landing, configurar sync/Coolify webhook,
-  o explicar a un agente el flujo MCP de crear/editar posts.
+  preparar un brand kit compatible o explicar a un agente el flujo MCP de crear/editar posts.
 ---
 
 # Skill Escarlet Blog CMS (multi-sitio)
@@ -11,11 +11,12 @@ description: >-
 CMS **central** white-label. Un servicio. Muchos handles (`escarlet`, `mares24`, …).
 Los posts viven en el CMS. El frontend solo hace pull en build.
 
-**Headless.** El CMS guarda datos (`bodyHtml`, portada, metas). El look de `/blog/{slug}` lo pinta la landing. El preview del CMS y `templates/post.html` no son la web pública. Para cambiar diseño de ficha. skill global `escarlet-blog-integrate` (sección Headless) y el generador/vista de esa landing.
+**Headless.** El CMS guarda datos (`bodyHtml`, portada, metas). El look de `/blog/{slug}` lo pinta la landing. Para cambiar diseño de ficha usa la skill global `escarlet-blog-integrate` (sección Headless) y el generador/vista de esa landing.
 
 ## Cuándo usar
 
 - Instalar blog en un proyecto nuevo o existente
+- Construir/importar el brand kit de un site desde otra landing
 - Configurar Deploy webhook de Coolify
 - Crear/editar posts vía MCP sin tocar git del frontend
 - Dudas de Hermes sobre el flujo
@@ -23,10 +24,11 @@ Los posts viven en el CMS. El frontend solo hace pull en build.
 ## Primera acción del agente
 
 1. Si el humano pide **setup / instalar / otro sitio** desde **cualquier** workspace → skill global `escarlet-blog-integrate` (`~/.cursor/skills/escarlet-blog-integrate/`)
-2. En este repo o con MCP. `blog_get_onboarding` (y si hace falta `blog_create_site`)
-3. Si pide **escribir o editar un post** → `blog_get_brand_context` con el `site` correcto
-4. Leer también `docs/ONBOARDING.md` si trabajas en el workspace del CMS
-5. UI del admin. patrones en `docs/DESIGN-SYSTEM.md` (file-drop, botones, anchos)
+2. Si pide construir el brand kit → skill global `escarlet-blog-brandkit` (`~/.cursor/skills/escarlet-blog-brandkit/`)
+3. En este repo o con MCP. `blog_get_onboarding` (y si hace falta `blog_create_site`)
+4. Si pide **escribir o editar un post** → `blog_get_brand_context` con el `site` correcto
+5. Leer también `docs/ONBOARDING.md` si trabajas en el workspace del CMS
+6. UI de la app. patrones en `apps/pwa/src/styles.css` y componentes de `apps/pwa/src/App.tsx`
 
 ## Alta rápida de un site
 
@@ -44,33 +46,35 @@ blog_create_site { handle, name, domain, rebuildWebhookUrl?, coolifyApiToken? }
 blog_get_onboarding { site: handle }
 ```
 
-Luego brand kit. Dashboard `/admin` o `blog_update_brand_file` + fotos `kind=reference`.
+Luego brand kit. Dashboard `/app/admin`, `blog_update_brand_file` o la skill
+`escarlet-blog-brandkit` + fotos `kind=reference`.
 
 ## Frontend
 
 Runtime en `{CMS}/runtime/v1/`. Cada landing guarda `scripts/escarlet-blog.mjs`.
 
 1. `escarlet-blog.mjs` → `scripts/` + hook en `prebuild`/`build`
-2. Wrappers `sync-blog-cms.mjs` / `generate-blog-social-packs.mjs` o un solo `node scripts/escarlet-blog.mjs`
-3. `blog-articles.js` reexporta `blog.generated.js`
-4. Fallback vacío opcional
-5. `.gitignore` → `blog.generated.js` y `.escarlet-blog-runtime/`
+2. Sync servido desde `/runtime/v1/`; los Social Packs viven en el CMS
+3. `blog-articles` reexporta el archivo generado (JS o TS)
+4. Fallback vacío
+5. `.gitignore` → archivo generado y `.escarlet-blog-runtime/`
 6. Coolify env. `BLOG_CMS_URL`, `BLOG_CMS_SITE={handle}`, `BLOG_SITE_URL`
 7. Regla Cursor. copia `blog-via-mcp.mdc` y sustituye `{{handle}}`
-8. **Blog-packs**. El runtime los genera. Canales por sitio en CMS (`socialPackChannels`). El look de `/blog` sigue en la landing. Ver skill global `escarlet-blog-integrate`
-9. **Interruptor**. CMS Sitio → Blog en la web pública. Apagar no borra posts. Quita `/blog` del siguiente rebuild.
-10. **Dashboard `/admin`**. Pico CSS condicional (clase `.pico`) para formularios e interruptor. El look de `/blog` sigue en la landing.
+8. **Social Pack**. El runtime v1.2.0 solo sincroniza posts. El pack canónico vive en CMS `/app/social-pack/{slug}`. Canales por sitio en CMS (`socialPackChannels`).
+9. **Interruptor**. CMS Sitio → Blog en la web pública. Apagar no borra posts y el sync emite un módulo vacío.
+10. **Dashboard `/app/admin`**. La PWA gestiona brand kit, sitios, revisión y el interruptor. El look de `/blog` sigue en la landing.
 
 ## Cómo se edita
 
-- **Texto e imágenes del post.** MCP o dashboard. Skill global `escarlet-blog-integrate` (sección Cómo se edita).
-- **Look de listado y ficha.** En la landing. `generate-blog-pages.mjs` + CSS, o vistas Vue. Nunca `templates/post.html` del CMS.
+- **Texto e imágenes del post.** MCP o `/app`. Skill global `escarlet-blog-integrate` (sección Contenido y publicación).
+- **Humanizar contenido.** Usa la skill global `$storyscope-human-writing` para revisar el cuerpo sin inventar hechos ni intentar esquivar detectores. En `/app`, la acción «Hacer más humano» aplica la misma guía a un borrador existente.
+- **Look de listado y ficha.** En la landing. `generate-blog-pages.mjs` + CSS, o vistas Vue.
 - **On/off.** Interruptor del CMS. No uses env de Coolify salvo override local.
 
 ## Coolify webhook (contenido → rebuild)
 
 1. Coolify → app del **frontend** (producción) → Deploy Webhook
-2. CMS `/admin` → Sitio → pega URL + token API → Probar → Guardar
+2. CMS `/app/admin` → Sitio → pega URL + token API → Probar → Guardar
 3. `blog_publish` dispara el POST. Coolify rebuild. Sync baja posts
 
 Git push = código (con caché). Webhook del CMS = contenido. Usa force=true para no reciclar el dist.
@@ -85,9 +89,9 @@ Git push = código (con caché). Webhook del CMS = contenido. Usa force=true par
 | `blog_upload_media_file` (`kind` `post` o `social`. Adjunta el PNG en `file`. El CMS descarga y comprime a JPEG) | idem |
 | `blog_validate_seo` → `blog_publish` o `blog_schedule_post` con `publishAt` | idem |
 
-**Programar.** `publishAt` YYYY-MM-DD futuro. Con el interruptor del sitio activo queda `pending_schedule` hasta `blog_confirm_schedule` (solo super-admin). Luego `scheduled` y el ticker lo publica el día. Calendario en `/admin` → Calendario.
+**Programar.** `publishAt` YYYY-MM-DD futuro. Con el interruptor del sitio activo queda `pending_schedule` hasta `blog_confirm_schedule` (solo super-admin). Luego `scheduled` y el ticker lo publica el día. Calendario en `/app/calendar`.
 
-**Brand kit y token de cliente.** El site token solo lee/edita `AGENT.md` y `keywords.md` (+ fotos reference). Voz, visual-style, image-guide e image-spec son solo super-admin.
+**Brand kit y token de cliente.** El site token solo lee/edita `AGENT.md` y `keywords.md` (+ fotos reference). Voz, visual-style, image-guide, image-spec y JSON visuales son privados para administración. Para construirlos desde una landing usa `escarlet-blog-brandkit` y luego importa el ZIP con `blog_import_brand_zip`.
 
 Prohibido. Commitear posts al frontend. Usar `create_draft` para editar.
 

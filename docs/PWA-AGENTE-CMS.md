@@ -114,7 +114,7 @@ flowchart TB
 - Layout ChatGPT-like: sidebar conversaciones/posts, área chat, user footer.
 - Pantallas: Home, Chat, ManualPost, Preview, Schedule, PublishSocial, Posts, Calendar, Settings, Billing, Admin (gated por rol).
 - Dev: proxy a `localhost:3040`. Prod: `server.mjs` sirve `apps/pwa/dist` en `/` o `/app` y deja `/api/*` + sync runtime intactos.
-- Admin HTML legacy ([`admin.html`](../admin.html) / [`public/admin.js`](../public/admin.js)): convive hasta migrar pantallas; luego redirect a la PWA.
+- La PWA en `/app` es la única superficie humana. Las rutas históricas `/admin` y `/preview/{site}/{slug}` solo redirigen a la app para no romper enlaces guardados.
 
 ## Billing (Stripe)
 
@@ -151,7 +151,7 @@ Catálogo, checkout, portal, gates en gateway y publicación.
 
 ### Fase 6 — PWA polish
 
-Instalable, safe areas, desktop max-width en formularios, quitar/redirect admin legacy cuando paridad OK.
+Instalable, safe areas y desktop max-width en formularios; las rutas históricas ya redirigen a la PWA.
 
 ## Criterios de éxito (cliente)
 
@@ -163,6 +163,6 @@ Instalable, safe areas, desktop max-width en formularios, quitar/redirect admin 
 
 ## Fuera de alcance (esta rama)
 
-- Migración Payload/Postgres completa.
+- Migración de persistencia a una base de datos gestionada, si el volumen lo exige.
 - Self-serve alta de clientes públicos (sigue siendo servicio Escarlet).
 - Next.js fullstack (revisable solo si la PWA Vite se queda corta en routing/SSR).
