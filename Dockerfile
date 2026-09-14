@@ -18,6 +18,9 @@ RUN mkdir -p /app/data/media /app/data/brand /app/data/site-config
 
 ENV PORT=3040
 ENV NODE_ENV=production
+# Safe default for deployments: content generation comes from ChatGPT via MCP
+# or the manual editor until CMS_AI_ENABLED=1 is explicitly configured.
+ENV CMS_AI_ENABLED=0
 
 VOLUME ["/app/data"]
 
