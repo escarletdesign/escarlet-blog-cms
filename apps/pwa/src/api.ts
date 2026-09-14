@@ -411,6 +411,7 @@ const baseApi = {
   featureFlags: () =>
     request<{
       flags: {
+        cmsAiEnabled: boolean;
         creditCheckoutWithoutStripe: boolean;
         assistantEnabled: boolean;
         blogWizardEnabled: boolean;
@@ -418,6 +419,7 @@ const baseApi = {
       };
     }>('/api/admin/feature-flags'),
   saveFeatureFlags: (input: {
+    cmsAiEnabled?: boolean;
     creditCheckoutWithoutStripe?: boolean;
     assistantEnabled?: boolean;
     blogWizardEnabled?: boolean;
@@ -425,6 +427,7 @@ const baseApi = {
     request<{
       ok: boolean;
       flags: {
+        cmsAiEnabled: boolean;
         creditCheckoutWithoutStripe: boolean;
         assistantEnabled: boolean;
         blogWizardEnabled: boolean;
@@ -436,7 +439,7 @@ const baseApi = {
     }),
   workflowFlags: (site?: string) =>
     request<{
-      flags: { assistantEnabled: boolean; blogWizardEnabled: boolean; updatedAt?: string | null };
+      flags: { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean; updatedAt?: string | null };
     }>(`/api/app/feature-flags${site ? `?site=${encodeURIComponent(site)}` : ""}`),
   creditPacks: () =>
     request<{

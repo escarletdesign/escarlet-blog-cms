@@ -25,7 +25,7 @@ import { getInitialLanguage, Language, translate } from "./i18n";
 import type { Author, MediaItem, Post, Session } from "./types";
 
 type Draft = Partial<Post> & { title: string; slug?: string };
-type WorkflowFlags = { assistantEnabled: boolean; blogWizardEnabled: boolean };
+type WorkflowFlags = { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean };
 type AppState = {
   session: Session;
   site: string;
@@ -64,8 +64,8 @@ const useToast = () => {
 };
 const isAdmin = (role?: string) => role === "admin" || role === "agency_admin";
 function AiOnly({ children }: { children: ReactNode }) {
-  const { session } = useApp();
-  return session.role === "client_mcp" ? null : <>{children}</>;
+  const { session, workflowFlags } = useApp();
+  return session.role === "client_mcp" || !workflowFlags.cmsAiEnabled ? null : <>{children}</>;
 }
 const roleLabel = (role: string | undefined, t: (key: string, fallback?: string) => string) => {
   const value = String(role || "client").trim().toLowerCase();
@@ -273,7 +273,7 @@ function ToastProvider({ children }: { children: ReactNode }) {
 function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [workflowFlags, setWorkflowFlags] = useState<WorkflowFlags>({ assistantEnabled: true, blogWizardEnabled: true });
+  const [workflowFlags, setWorkflowFlags] = useState<WorkflowFlags>({ cmsAiEnabled: true, assistantEnabled: true, blogWizardEnabled: true });
   const [language, setLanguageState] = useState<Language>(getInitialLanguage);
   const [site, setSiteState] = useState("");
   const setLanguage = (next: Language) => {
@@ -288,12 +288,14 @@ function App() {
       setSession(nextSession);
       try {
         const nextFlags = await api.workflowFlags(nextSession.site || nextSession.sites?.[0]);
+        const cmsAiEnabled = nextSession.role !== "client_mcp" && nextFlags.flags?.cmsAiEnabled !== false;
         setWorkflowFlags({
-          assistantEnabled: nextSession.role !== "client_mcp" && nextFlags.flags?.assistantEnabled !== false,
-          blogWizardEnabled: nextSession.role !== "client_mcp" && nextFlags.flags?.blogWizardEnabled !== false,
+          cmsAiEnabled,
+          assistantEnabled: cmsAiEnabled && nextFlags.flags?.assistantEnabled !== false,
+          blogWizardEnabled: cmsAiEnabled && nextFlags.flags?.blogWizardEnabled !== false,
         });
       } catch {
-        setWorkflowFlags({ assistantEnabled: nextSession.role !== "client_mcp", blogWizardEnabled: nextSession.role !== "client_mcp" });
+        setWorkflowFlags({ cmsAiEnabled: nextSession.role !== "client_mcp", assistantEnabled: nextSession.role !== "client_mcp", blogWizardEnabled: nextSession.role !== "client_mcp" });
       }
     } catch {
       setSession(null);
@@ -905,11 +907,16 @@ function NavIcon({ kind }: { kind: string }) {
 }
 
 function CreditIndicator({ site }: { site: string }) {
-  const { session } = useApp();
+  const { session, workflowFlags } = useApp();
   const { t, language } = useI18n();
   const [snapshot, setSnapshot] = useState<Record<string, any> | null>(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
+    if (session.role !== "client_mcp" && !workflowFlags.cmsAiEnabled) {
+      setSnapshot(null);
+      setLoading(false);
+      return () => {};
+    }
     let active = true;
     setLoading(true);
     setSnapshot(null);
@@ -918,10 +925,11 @@ function CreditIndicator({ site }: { site: string }) {
       .catch(() => active && setSnapshot(null))
       .finally(() => active && setLoading(false));
     return () => { active = false; };
-  }, [site]);
+  }, [site, session.role, workflowFlags.cmsAiEnabled]);
   const available = Number(snapshot?.ai?.tokenCredits?.available);
   const hasCredits = Number.isFinite(available);
   const displayCredits = hasCredits ? available.toLocaleString(language === "en" ? "en-GB" : "es-ES") : loading ? "…" : "—";
+  if (session.role !== "client_mcp" && !workflowFlags.cmsAiEnabled) return null;
   if (session.role === "client_mcp") return <NavLink className="credit-indicator" to="/billing"><span>◈</span><span><b>{loading ? "…" : snapshot?.suspended ? t("mcp.readOnly") : t("mcp.membership")}</b><small>{snapshot ? `${Math.max(0, Number(snapshot.publishes?.limit || 0) - Number(snapshot.publishes?.used || 0))} ${t("mcp.publicationsLeft")}` : t("common.loading")}</small></span></NavLink>;
   return (
     <NavLink className="credit-indicator" to="/billing" title={t("billing.available")}>
@@ -2716,15 +2724,14 @@ function ManualPost() {
         )}
         <label>
           {t("editor.content")}{" "}
-          <button
+          <AiOnly><button
             type="button"
             className="inline-ai"
             onClick={() => setAiPromptOperation("body")}
-            hidden={session.role === "client_mcp"}
             disabled={Boolean(generating)}
           >
             {generating === "body" ? "…" : t("editor.writeWithAi")}
-          </button>
+          </button></AiOnly>
           <AiOnly><button
             type="button"
             className="inline-ai"
@@ -2748,15 +2755,14 @@ function ManualPost() {
               <p className="optional">{t("editor.imageHelp")}</p>
             </div>
             <div className="media-actions">
-              <button
+              <AiOnly><button
                 type="button"
                 className="secondary"
                 onClick={() => setShowImageModal(true)}
-                hidden={session.role === "client_mcp"}
                 disabled={imageBusy}
               >
                 {t("editor.generateImage")}
-              </button>
+              </button></AiOnly>
               <button
                 type="button"
                 className="ghost"
@@ -4337,7 +4343,7 @@ function AuthorInvite() {
 }
 
 function Settings() {
-  const { session, site, refresh } = useApp();
+  const { session, site, refresh, workflowFlags } = useApp();
   const { language, setLanguage, t } = useI18n();
   const { showToast } = useToast();
   const [model, setModel] = useState(
@@ -4356,6 +4362,10 @@ function Settings() {
   const [delegates, setDelegates] = useState<Array<Record<string, any>>>([]);
   const [delegateBusy, setDelegateBusy] = useState("");
   useEffect(() => {
+    if (!workflowFlags.cmsAiEnabled) {
+      setModelOptions([{ value: "auto", label: t("settings.modelAuto") }]);
+      return;
+    }
     api.billingSnapshot(site).then((snapshot) => {
       const options = (snapshot.models || [])
         .map((item: any) => ({ value: String(item.id || ""), label: String(item.name || item.id || "") }))
@@ -4363,7 +4373,7 @@ function Settings() {
       setModelOptions([{ value: "auto", label: t("settings.modelAuto") }, ...options]);
       if (model !== "auto" && !options.some((item: { value: string }) => item.value === model)) setModel("auto");
     }).catch(() => setModelOptions([{ value: "auto", label: t("settings.modelAuto") }]));
-  }, [site, t]);
+  }, [site, t, workflowFlags.cmsAiEnabled]);
   useEffect(() => {
     if (!session.userId) return;
     api.publishingDelegates(site)
@@ -4531,18 +4541,23 @@ function Settings() {
 }
 
 function Billing() {
-  const { site, session } = useApp();
+  const { site, session, workflowFlags } = useApp();
   const { t, language } = useI18n();
   const { showToast } = useToast();
   const [snapshot, setSnapshot] = useState<Record<string, any> | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState("");
   useEffect(() => {
+    if (session.role !== "client_mcp" && !workflowFlags.cmsAiEnabled) {
+      setSnapshot(null);
+      setMessage("");
+      return;
+    }
     api
       .billingSnapshot(site)
       .then(setSnapshot)
       .catch(() => setMessage(t("billing.unavailable")));
-  }, [site, t]);
+  }, [site, t, session.role, workflowFlags.cmsAiEnabled]);
   const checkout = async (input: {
     kind: "membership" | "credits";
     planId?: string;
@@ -4592,6 +4607,14 @@ function Billing() {
     </section>
     <section className="card settings-card"><h2>{t("mcp.connector")}</h2><p>{t("mcp.help")}</p><code>{window.location.origin}/mcp</code></section>
     {message && <p role="status">{message}</p>}
+  </main>;
+  if (!workflowFlags.cmsAiEnabled) return <main className="page narrow">
+    <PageTitle title={t("billing.title")} description={t("billing.cmsAiDisabled")} back />
+    <section className="card settings-card">
+      <h2>{t("billing.cmsAiDisabledTitle")}</h2>
+      <p className="muted">{t("billing.cmsAiDisabledHelp")}</p>
+      <NavLink className="text-link" to="/manual">{t("home.manual.action")}</NavLink>
+    </section>
   </main>;
   const testCreditsEnabled = Boolean(snapshot?.stripe?.testCreditsEnabled);
   const packs = (snapshot?.creditPacks || []) as Array<{
@@ -4810,6 +4833,7 @@ function Admin() {
   );
   const [billingTestMode, setBillingTestMode] = useState(false);
   const [billingTestSaving, setBillingTestSaving] = useState(false);
+  const [cmsAiEnabled, setCmsAiEnabled] = useState(true);
   const [assistantEnabled, setAssistantEnabled] = useState(true);
   const [blogWizardEnabled, setBlogWizardEnabled] = useState(true);
   const [workflowSaving, setWorkflowSaving] = useState(false);
@@ -4870,17 +4894,25 @@ function Admin() {
   };
   const loadAiBilling = async () => {
     try {
-      const [providerData, packData, billingData, featureFlagData] = await Promise.all([
+      const featureFlagData = await api.featureFlags();
+      const enabled = featureFlagData.flags?.cmsAiEnabled !== false;
+      setCmsAiEnabled(enabled);
+      setBillingTestMode(Boolean(featureFlagData.flags?.creditCheckoutWithoutStripe));
+      setAssistantEnabled(enabled && featureFlagData.flags?.assistantEnabled !== false);
+      setBlogWizardEnabled(enabled && featureFlagData.flags?.blogWizardEnabled !== false);
+      if (!enabled) {
+        setProviders([]);
+        setPacks([]);
+        setModelCatalog([]);
+        return;
+      }
+      const [providerData, packData, billingData] = await Promise.all([
         api.aiProviders(),
         api.creditPacks(),
         api.billing(site).catch(() => ({ models: [] })),
-        api.featureFlags(),
       ]);
       setProviders(providerData.providers);
       setPacks(packData.packs);
-      setBillingTestMode(Boolean(featureFlagData.flags?.creditCheckoutWithoutStripe));
-      setAssistantEnabled(featureFlagData.flags?.assistantEnabled !== false);
-      setBlogWizardEnabled(featureFlagData.flags?.blogWizardEnabled !== false);
       setModelCatalog(
         ((billingData as Record<string, any>).models || []).map((model: any) => ({
           id: String(model.id || ""),
@@ -5247,6 +5279,27 @@ function Admin() {
       setBillingTestSaving(false);
     }
   };
+  const saveCmsAiFlag = async () => {
+    setWorkflowSaving(true);
+    try {
+      const result = await api.saveFeatureFlags({ cmsAiEnabled });
+      const enabled = result.flags?.cmsAiEnabled !== false;
+      setCmsAiEnabled(enabled);
+      if (!enabled) {
+        setProviders([]);
+        setPacks([]);
+        setModelCatalog([]);
+        setAssistantEnabled(false);
+        setBlogWizardEnabled(false);
+      }
+      report(t("admin.savedCmsAiFlag"));
+      await refresh();
+    } catch (err) {
+      report(err instanceof Error ? err.message : t("common.error"), "error");
+    } finally {
+      setWorkflowSaving(false);
+    }
+  };
   const saveWorkflowFlags = async () => {
     setWorkflowSaving(true);
     try {
@@ -5371,14 +5424,14 @@ function Admin() {
                 aria-label={selectedBrandFile}
               />
               <div className="form-actions">
-                <button
+                <AiOnly><button
                   className="ghost"
                   type="button"
                   disabled={brandSaving || brandAiBusy}
                   onClick={() => setShowBrandAi(true)}
                 >
                   {t("admin.brandAiAction")}
-                </button>
+                </button></AiOnly>
                 <button
                   className="secondary"
                   type="button"
@@ -5592,6 +5645,24 @@ function Admin() {
       </div>
       {session.role === "admin" ? (
         <section className="admin-ai">
+          <section className="card temporary-flag-card">
+            <p className="eyebrow">{t("admin.cmsAiFlagEyebrow")}</p>
+            <h2>{t("admin.cmsAiFlagTitle")}</h2>
+            <p className="muted">{t("admin.cmsAiFlagHelp")}</p>
+            <label className="switch-row">
+              <span>
+                <b>{t("admin.cmsAiFlagToggle")}</b>
+                <small>{cmsAiEnabled ? t("admin.cmsAiFlagOn") : t("admin.cmsAiFlagOff")}</small>
+              </span>
+              <input type="checkbox" checked={cmsAiEnabled} onChange={(event) => setCmsAiEnabled(event.target.checked)} />
+            </label>
+            <div className="form-actions">
+              <button className="primary" type="button" disabled={workflowSaving} onClick={() => void saveCmsAiFlag()}>
+                {workflowSaving ? t("admin.saving") : t("admin.saveFeatureFlag")}
+              </button>
+            </div>
+          </section>
+          {cmsAiEnabled ? <>
           <div className="section-title">
             <div>
               <p className="eyebrow">{t("admin.workspaceScope")}</p>
@@ -5777,7 +5848,14 @@ function Admin() {
               </button>
             </form>
           </div>
+          </> : (
+            <section className="card">
+              <h2>{t("admin.cmsAiDisabledTitle")}</h2>
+              <p className="muted">{t("admin.cmsAiDisabledHelp")}</p>
+            </section>
+          )}
           {session.role === "admin" && <McpPlanSettings />}
+          {cmsAiEnabled && <>
           <section className="card temporary-flag-card">
             <p className="eyebrow">{t("admin.temporaryFlags")}</p>
             <h2>{t("admin.billingTestTitle")}</h2>
@@ -5827,6 +5905,7 @@ function Admin() {
               </button>
             </div>
           </section>
+          </>}
         </section>
       ) : (
         <section className="card">

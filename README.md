@@ -35,6 +35,8 @@ La imagen Docker ejecuta `npm run build` durante el build, por lo que `server.mj
 roles cliente y endpoints de IA/Stripe. Las claves `OPENAI_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY` y `STRIPE_SECRET_KEY`
 se quedan siempre en el servidor. `ADMIN_TOKEN` es obligatorio (no hay token por defecto). Para guardar claves desde **Administración → IA y Billing**, configura también `AI_CONNECTOR_ENCRYPTION_KEY` con un secreto aleatorio de al menos 32 bytes; las claves se cifran con AES-256-GCM en `data/db.json`, que se escribe con modo `0600`. Consulta `.env.example` para el catálogo de precios y la migración explícita de instalaciones antiguas.
 
+Para operar únicamente con ChatGPT mediante MCP y edición manual, define `CMS_AI_ENABLED=0`. Ese kill switch devuelve `403 CMS_AI_DISABLED` en todas las rutas REST de IA, bloquea conectores, transcripción, imágenes y créditos, y oculta los flujos AI de la PWA; el endpoint `/mcp`, la membresía MCP y el editor manual siguen disponibles. Puede reactivarse con `CMS_AI_ENABLED=1` o con el flag global de Administración cuando no exista un valor de entorno.
+
 ## Nuevo sitio / onboarding
 
 Guía completa. [docs/ONBOARDING.md](docs/ONBOARDING.md)

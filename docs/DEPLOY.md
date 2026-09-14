@@ -76,6 +76,8 @@ Con `PRODUCT_RESTRUCTURE_V1=1`:
 4. Env: `STRIPE_WEBHOOK_SECRET`. Opcional `DATABASE_URL` (Postgres Coolify) para ledger idempotente; si no, usa `data/stripe-ledger.json`.
 5. Agency: `GET /api/admin/payment-links` muestra el contrato de metadata.
 
+Si el contenido lo genera ChatGPT por MCP, añade `CMS_AI_ENABLED=0` al entorno del CMS. Se desactivan las rutas REST de IA, conectores, transcripción, imágenes y créditos; `/mcp` y el editor manual siguen operativos.
+
 Si montaste el volumen en otra ruta:
 
 ```

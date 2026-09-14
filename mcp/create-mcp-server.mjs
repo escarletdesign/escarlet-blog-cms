@@ -18,6 +18,7 @@ import { assertChatToolAllowed, assertSafeToolArguments } from '../lib/ai-securi
 import { loadSiteConfig } from '../lib/site-config.mjs'
 import { readDb } from '../lib/db.mjs'
 import { getWorkflowFlags } from '../lib/workflow-flags.mjs'
+import { isCmsAiEnabled } from '../lib/product-flags.mjs'
 import { withGenerationPolicy, assertCmsAiAllowed, CMS_AI_TOOLS } from '../lib/generation-policy.mjs'
 import { canReadPost, assertPostAccess, safePostFields } from '../lib/post-access.mjs'
 import { listSiteAuthors } from '../lib/human-auth.mjs'
@@ -679,9 +680,13 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
         case 'blog_get_workflow': {
           const site = resolveToolSite(auth, args)
           const mode = args.mode === 'guided' ? 'guided' : args.mode === 'easy' ? 'easy' : 'choose'
+          const workflowDb = readDb()
+          const cmsAiEnabled = isCmsAiEnabled({ db: workflowDb })
+          const workflow = getWorkflowFlags(workflowDb)
           return textResult(workflowPayload({
             site, mode, enabled: true, generationEngine: 'chatgpt', cmsAiAllowed: false,
-            assistantEnabled: true, blogWizardEnabled: true,
+            assistantEnabled: cmsAiEnabled && workflow.assistantEnabled,
+            blogWizardEnabled: cmsAiEnabled && workflow.blogWizardEnabled,
             appBaseUrl: appUrl('/'),
             routes: { preview: appUrl('/preview/{slug}'), posts: `${appUrl('/posts')}?site=${encodeURIComponent(site)}` },
             askUser: '¿Prefieres el flujo simple o revisar e iterar el borrador con el flujo guiado?',

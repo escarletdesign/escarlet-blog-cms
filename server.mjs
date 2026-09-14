@@ -70,7 +70,12 @@ import {
   consumeReviewToken
 } from './lib/access-tokens.mjs'
 import { sendMagicLinkEmail } from './lib/magic-email.mjs'
-import { isProductRestructureV1 } from './lib/product-flags.mjs'
+import {
+  isProductRestructureV1,
+  isCmsAiEnabled,
+  assertCmsAiEnabled,
+  setCmsAiEnabled
+} from './lib/product-flags.mjs'
 import {
   verifyStripeSignature,
   handleStripeEvent,
@@ -256,7 +261,10 @@ function requireAuth(req, url, res) {
     return null
   }
   if (url.pathname.startsWith('/api/ai/')) {
-    try { assertCmsAiAllowed(auth) } catch (error) {
+    try {
+      assertCmsAiEnabled({ db: readDb() })
+      assertCmsAiAllowed(auth)
+    } catch (error) {
       json(res, 403, { message: error.message, ...(error.extra || {}) })
       return null
     }
@@ -1617,15 +1625,28 @@ const server = createServer(async (req, res) => {
 
       if (req.method === 'GET' && path === '/api/billing/snapshot') {
         const snapshot = getPwaBillingSnapshot(site, { db, siteConfig, auth })
+        const cmsAiEnabled = isCmsAiEnabled({ db })
         // A preference selector must only expose providers that are actually
-        // enabled and have a usable credential. The included model is always
-        // available, including for administrators configuring their own profile.
-        const connectors = new Map(listPublicAiProviderConnectors({ db }).map((item) => [item.provider, item]))
-        snapshot.models = (snapshot.models || []).filter((model) => {
-          if (model.provider === 'included') return true
-          const connector = connectors.get(model.provider)
-          return Boolean(connector?.enabled && connector.apiKeyConfigured)
-        })
+        // enabled and have a usable credential. When CMS AI is disabled, do not
+        // expose any model, credit balance or pack metadata to the PWA.
+        snapshot.cmsAiEnabled = cmsAiEnabled
+        if (cmsAiEnabled) {
+          const connectors = new Map(listPublicAiProviderConnectors({ db }).map((item) => [item.provider, item]))
+          snapshot.models = (snapshot.models || []).filter((model) => {
+            if (model.provider === 'included') return true
+            const connector = connectors.get(model.provider)
+            return Boolean(connector?.enabled && connector.apiKeyConfigured)
+          })
+        } else {
+          snapshot.models = []
+          snapshot.creditPacks = []
+          snapshot.cmsAiAllowed = false
+          snapshot.ai = {
+            monthKey: snapshot.ai?.monthKey || null,
+            usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, creditsUsed: 0 },
+            tokenCredits: { monthlyIncluded: 0, monthlyRemaining: 0, purchasedBalance: 0, available: 0 }
+          }
+        }
         json(res, 200, snapshot)
         return
       }
@@ -1729,7 +1750,17 @@ const server = createServer(async (req, res) => {
     try {
       const site = siteFrom(auth, url.searchParams.get('site') || DEFAULT_SITE)
       assertSiteAccess(auth, site)
-      json(res, 200, { flags: auth.role === 'client_mcp' ? { assistantEnabled: false, blogWizardEnabled: false } : getWorkflowFlags(readDb()) })
+      const db = readDb()
+      const cmsAiEnabled = isCmsAiEnabled({ db })
+      const workflow = getWorkflowFlags(db)
+      json(res, 200, {
+        flags: {
+          cmsAiEnabled,
+          assistantEnabled: cmsAiEnabled && auth.role !== 'client_mcp' && workflow.assistantEnabled,
+          blogWizardEnabled: cmsAiEnabled && auth.role !== 'client_mcp' && workflow.blogWizardEnabled,
+          updatedAt: workflow.updatedAt
+        }
+      })
     } catch (error) {
       json(res, error.status || 400, { message: error.message })
     }
@@ -2159,12 +2190,13 @@ const server = createServer(async (req, res) => {
       try {
         if (req.method === 'GET') {
           assertSuperAdmin(auth)
-          json(res, 200, { flags: { ...getBillingTestFlags(db), ...getWorkflowFlags(db) } })
+          json(res, 200, { flags: { cmsAiEnabled: isCmsAiEnabled({ db }), ...getBillingTestFlags(db), ...getWorkflowFlags(db) } })
           return
         }
         if (req.method === 'POST') {
           assertSuperAdmin(auth)
           const body = await parseBody(req)
+          setCmsAiEnabled({ db, enabled: body.cmsAiEnabled, actorId: auth.userId || auth.role })
           const billingFlags = setBillingTestFlags({
             db,
             creditCheckoutWithoutStripe: body.creditCheckoutWithoutStripe,
@@ -2177,12 +2209,12 @@ const server = createServer(async (req, res) => {
             actorId: auth.userId || auth.role
           })
           writeDb(db)
-          json(res, 200, { ok: true, flags: { ...billingFlags, ...workflowFlags } })
+          json(res, 200, { ok: true, flags: { cmsAiEnabled: isCmsAiEnabled({ db }), ...billingFlags, ...workflowFlags } })
           return
         }
         json(res, 405, { message: 'Usa GET o POST' })
       } catch (err) {
-        json(res, err.status || 400, { message: err.message })
+        json(res, err.status || 400, { message: err.message, ...(err.extra || {}) })
       }
       return
     }
@@ -2192,6 +2224,7 @@ const server = createServer(async (req, res) => {
     if (path === '/api/admin/ai/providers') {
       try {
         assertSuperAdmin(auth)
+        assertCmsAiEnabled({ db })
         if (req.method === 'GET') {
           json(res, 200, { providers: listPublicAiProviderConnectors({ db }) })
           return
@@ -2205,7 +2238,7 @@ const server = createServer(async (req, res) => {
         }
         json(res, 405, { message: 'Usa GET o POST' })
       } catch (err) {
-        json(res, err.status || 400, { message: err.message })
+        json(res, err.status || 400, { message: err.message, ...(err.extra || {}) })
       }
       return
     }
@@ -2214,11 +2247,12 @@ const server = createServer(async (req, res) => {
     if (providerTestMatch) {
       try {
         assertSuperAdmin(auth)
+        assertCmsAiEnabled({ db })
         if (req.method !== 'POST') throw Object.assign(new Error('Usa POST'), { status: 405 })
         const result = await testAiProviderConnector(providerTestMatch[1], { db })
         json(res, result.ok ? 200 : 422, { result })
       } catch (err) {
-        json(res, err.status || 400, { message: err.message })
+        json(res, err.status || 400, { message: err.message, ...(err.extra || {}) })
       }
       return
     }
@@ -2227,6 +2261,7 @@ const server = createServer(async (req, res) => {
     if (packMatch) {
       try {
         assertSuperAdmin(auth)
+        assertCmsAiEnabled({ db })
         if (req.method === 'GET') {
           json(res, 200, { packs: getPwaCreditPackCatalog({ db }) })
           return
@@ -2246,7 +2281,7 @@ const server = createServer(async (req, res) => {
         }
         json(res, 405, { message: 'Método no permitido' })
       } catch (err) {
-        json(res, err.status || 400, { message: err.message })
+        json(res, err.status || 400, { message: err.message, ...(err.extra || {}) })
       }
       return
     }
@@ -2278,6 +2313,7 @@ const server = createServer(async (req, res) => {
       const site = siteFrom(auth, url.searchParams.get('site') || DEFAULT_SITE)
       try {
         assertSiteAccess(auth, site)
+        assertCmsAiEnabled({ db })
         const siteConfig = loadSiteConfig(site)
         if (!siteConfig) throw Object.assign(new Error('Sitio no encontrado'), { status: 404 })
         json(res, 200, getPwaBillingSnapshot(site, { db, siteConfig, auth }))
