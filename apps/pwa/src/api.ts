@@ -208,6 +208,23 @@ const baseApi = {
       handles: string[];
       role: string;
     }>("/api/admin/sites"),
+  createSite: (input: {
+    handle: string;
+    name?: string;
+    domain?: string;
+    authors?: string[];
+    rebuildWebhookUrl?: string;
+    coolifyApiToken?: string;
+    requiresHumanApproval?: boolean;
+  }) =>
+    request<{
+      ok: boolean;
+      site: { handle: string; name: string; domain: string };
+      config?: Record<string, any>;
+    }>("/api/admin/sites", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   brand: (site: string) =>
     request<{
       summary?: string;

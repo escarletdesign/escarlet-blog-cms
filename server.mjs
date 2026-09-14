@@ -221,6 +221,9 @@ const PORT = Number(process.env.PORT || 3040)
 const ADMIN_TOKEN = String(process.env.ADMIN_TOKEN || '').trim()
 const DEFAULT_SITE = process.env.DEFAULT_SITE || 'escarlet'
 const CMS_PUBLIC_URL = (process.env.CMS_PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/$/, '')
+// Token logins are the durable login method used by the PWA. Keep the
+// browser cookie across app/browser restarts; /api/logout explicitly clears it.
+const AUTH_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365
 
 function json(res, status, payload) {
   const body = JSON.stringify(payload)
@@ -1180,7 +1183,9 @@ const server = createServer(async (req, res) => {
       const session = publicAuthSession(auth)
       res.writeHead(200, {
         'Content-Type': 'application/json; charset=utf-8',
-        'Set-Cookie': `escarlet_cms=${encodeURIComponent(body.token)}; Path=/; HttpOnly; SameSite=Lax`
+        // A persistent cookie is important for the installed PWA: session
+        // cookies can disappear when the standalone app is closed.
+        'Set-Cookie': `escarlet_cms=${encodeURIComponent(body.token)}; Path=/; Max-Age=${AUTH_COOKIE_MAX_AGE_SECONDS}; HttpOnly; SameSite=Lax`
       })
       res.end(JSON.stringify({ ok: true, ...session }))
     } catch (error) {

@@ -248,12 +248,15 @@
 .admin-workspace-card { border-color: #405948; }
 .admin-site-card { border-color: #3d5060; }
 .admin-ai > .section-title .admin-scope-kicker { margin: 0 0 4px; }
+.admin-scope-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 18px; }
+.admin-scope-toolbar .admin-scope-switch { margin: 0; }
 .admin-scope-switch { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px; }
 .admin-scope-switch button { border: 1px solid #45544e; background: #1a2521; color: var(--muted); border-radius: 99px; padding: 8px 13px; font-size: .8rem; }
 .admin-scope-switch button.selected { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
 .admin-page.scope-site .admin-ai, .admin-page.scope-site .admin-workspace-card { display: none; }
 .admin-page.scope-global .admin-site-card { display: none; }
 @media (max-width: 700px) { .admin-scope-summary { grid-template-columns: 1fr; } }
+@media (max-width: 480px) { .admin-scope-toolbar { align-items: stretch; flex-direction: column; }.admin-scope-toolbar > .primary { width: 100%; } }
 
 .chat-top-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .chat-history-panel { margin: -8px 0 24px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: #151e1b; }

@@ -4728,12 +4728,23 @@ function McpPlanSettings() {
   </form>;
 }
 function Admin() {
-  const { site, session, refresh } = useApp();
+  const { site, session, setSite, refresh } = useApp();
   const { t } = useI18n();
   const { showToast } = useToast();
   const canIssueSiteToken = session.role === "admin";
   const [adminScope, setAdminScope] = useState<"site" | "global">("site");
   const [sites, setSites] = useState<string[]>([]);
+  const [showCreateSite, setShowCreateSite] = useState(false);
+  const [newSiteForm, setNewSiteForm] = useState({
+    handle: "",
+    name: "",
+    domain: "",
+    authors: "",
+    rebuildWebhookUrl: "",
+    coolifyApiToken: "",
+    requiresHumanApproval: true,
+  });
+  const [newSiteSaving, setNewSiteSaving] = useState(false);
   const [brand, setBrand] = useState("");
   const [brandFiles, setBrandFiles] = useState<string[]>([]);
   const [selectedBrandFile, setSelectedBrandFile] = useState("");
@@ -4807,6 +4818,55 @@ function Admin() {
     setMessageKind(kind);
     setMessage(value);
     showToast(value, kind);
+  };
+  const createSite = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const handle = newSiteForm.handle.trim().toLowerCase();
+    const domain = newSiteForm.domain.trim().replace(/\/$/, "");
+    if (!/^[a-z][a-z0-9-]{1,46}[a-z0-9]$/.test(handle)) {
+      report(t("admin.siteHandleInvalid"), "error");
+      return;
+    }
+    if (!/^https?:\/\//i.test(domain)) {
+      report(t("admin.siteDomainInvalid"), "error");
+      return;
+    }
+    setNewSiteSaving(true);
+    try {
+      const authors = newSiteForm.authors
+        .split(",")
+        .map((author) => author.trim())
+        .filter(Boolean);
+      const input: Parameters<typeof api.createSite>[0] = {
+        handle,
+        name: newSiteForm.name.trim() || handle,
+        domain,
+        requiresHumanApproval: newSiteForm.requiresHumanApproval,
+      };
+      if (authors.length) input.authors = authors;
+      if (newSiteForm.rebuildWebhookUrl.trim()) input.rebuildWebhookUrl = newSiteForm.rebuildWebhookUrl.trim();
+      if (newSiteForm.coolifyApiToken.trim()) input.coolifyApiToken = newSiteForm.coolifyApiToken.trim();
+      const result = await api.createSite(input);
+      const siteData = await api.sites();
+      setSites(siteData.handles || []);
+      setShowCreateSite(false);
+      setNewSiteForm({
+        handle: "",
+        name: "",
+        domain: "",
+        authors: "",
+        rebuildWebhookUrl: "",
+        coolifyApiToken: "",
+        requiresHumanApproval: true,
+      });
+      await refresh();
+      setSite(result.site.handle);
+      report(`${t("admin.siteCreated")} ${result.site.handle}`);
+    } catch (err) {
+      report(err instanceof Error ? err.message : t("common.error"), "error");
+    } finally {
+      setNewSiteSaving(false);
+    }
   };
   const loadAiBilling = async () => {
     try {
@@ -5233,9 +5293,14 @@ function Admin() {
         </div>
       )}
       {session.role === "admin" && (
-        <div className="admin-scope-switch" role="tablist" aria-label={t("admin.scopeSwitch")}>
-          <button type="button" role="tab" aria-selected={adminScope === "site"} className={adminScope === "site" ? "selected" : ""} onClick={() => setAdminScope("site")}>{t("admin.siteScope")}</button>
-          <button type="button" role="tab" aria-selected={adminScope === "global"} className={adminScope === "global" ? "selected" : ""} onClick={() => setAdminScope("global")}>{t("admin.workspaceScope")}</button>
+        <div className="admin-scope-toolbar">
+          <div className="admin-scope-switch" role="tablist" aria-label={t("admin.scopeSwitch")}>
+            <button type="button" role="tab" aria-selected={adminScope === "site"} className={adminScope === "site" ? "selected" : ""} onClick={() => setAdminScope("site")}>{t("admin.siteScope")}</button>
+            <button type="button" role="tab" aria-selected={adminScope === "global"} className={adminScope === "global" ? "selected" : ""} onClick={() => setAdminScope("global")}>{t("admin.workspaceScope")}</button>
+          </div>
+          <button className="primary" type="button" onClick={() => setShowCreateSite(true)}>
+            ＋ {t("admin.addSite")}
+          </button>
         </div>
       )}
       <div className="admin-scope-summary">
@@ -5810,6 +5875,118 @@ function Admin() {
           onClose={() => setPendingDeleteUser(null)}
           onConfirm={() => void deleteUser()}
         />
+      )}
+      {showCreateSite && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !newSiteSaving) setShowCreateSite(false);
+          }}
+        >
+          <section
+            className="modal-card compact-modal site-create-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-site-modal-title"
+          >
+            <div className="modal-head">
+              <div>
+                <p className="eyebrow">{t("admin.workspaceScope")}</p>
+                <h2 id="create-site-modal-title">{t("admin.addSite")}</h2>
+                <p className="muted">{t("admin.addSiteHelp")}</p>
+              </div>
+              <button
+                className="icon-button"
+                type="button"
+                onClick={() => setShowCreateSite(false)}
+                disabled={newSiteSaving}
+                aria-label={t("editor.close")}
+              >
+                ×
+              </button>
+            </div>
+            <form className="form-stack" onSubmit={(event) => void createSite(event)}>
+              <label className="modal-field">
+                {t("admin.siteHandle")}
+                <input
+                  required
+                  autoFocus
+                  value={newSiteForm.handle}
+                  onChange={(event) => setNewSiteForm({ ...newSiteForm, handle: event.target.value })}
+                  placeholder="cliente-nuevo"
+                  pattern="[a-z][a-z0-9-]{1,46}[a-z0-9]"
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+                <span className="optional">{t("admin.siteHandleHelp")}</span>
+              </label>
+              <label className="modal-field">
+                {t("admin.siteName")}
+                <input
+                  value={newSiteForm.name}
+                  onChange={(event) => setNewSiteForm({ ...newSiteForm, name: event.target.value })}
+                  placeholder="Cliente Nuevo"
+                />
+              </label>
+              <label className="modal-field">
+                {t("admin.siteDomain")}
+                <input
+                  required
+                  type="url"
+                  value={newSiteForm.domain}
+                  onChange={(event) => setNewSiteForm({ ...newSiteForm, domain: event.target.value })}
+                  placeholder="https://cliente-nuevo.com"
+                />
+              </label>
+              <label className="modal-field">
+                {t("admin.siteAuthors")}
+                <input
+                  value={newSiteForm.authors}
+                  onChange={(event) => setNewSiteForm({ ...newSiteForm, authors: event.target.value })}
+                  placeholder={t("admin.siteAuthorsPlaceholder")}
+                />
+              </label>
+              <label className="modal-field">
+                {t("admin.rebuildWebhook")}
+                <input
+                  value={newSiteForm.rebuildWebhookUrl}
+                  onChange={(event) => setNewSiteForm({ ...newSiteForm, rebuildWebhookUrl: event.target.value })}
+                  placeholder="https://…"
+                />
+              </label>
+              <label className="modal-field">
+                {t("admin.coolifyToken")}
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  value={newSiteForm.coolifyApiToken}
+                  onChange={(event) => setNewSiteForm({ ...newSiteForm, coolifyApiToken: event.target.value })}
+                  placeholder={t("admin.coolifyTokenPlaceholder")}
+                />
+              </label>
+              <label className="switch-row">
+                <span>
+                  <b>{t("admin.requireHumanApproval")}</b>
+                  <small>{t("admin.requireHumanApprovalHelp")}</small>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={newSiteForm.requiresHumanApproval}
+                  onChange={(event) => setNewSiteForm({ ...newSiteForm, requiresHumanApproval: event.target.checked })}
+                />
+              </label>
+              <div className="form-actions">
+                <button className="ghost" type="button" onClick={() => setShowCreateSite(false)} disabled={newSiteSaving}>
+                  {t("editor.close")}
+                </button>
+                <button className="primary" type="submit" disabled={newSiteSaving}>
+                  {newSiteSaving ? t("admin.saving") : t("admin.createSite")}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
       )}
     </main>
   );
