@@ -26,11 +26,6 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 const baseApi = {
   session: () => request<Session>("/api/admin/session"),
-  mcpPlan: () => request<{ plan: Record<string, any> | null }>("/api/admin/billing/mcp-plan"),
-  saveMcpPlan: (plan: Record<string, any>) => request<{ plan: Record<string, any> }>("/api/admin/billing/mcp-plan", { method: "POST", body: JSON.stringify(plan) }),
-  membershipGrant: (site: string, userId: string) => request<{ site: string; userId: string; grant: Record<string, any> | null }>(`/api/admin/billing/membership-grant?site=${encodeURIComponent(site)}&userId=${encodeURIComponent(userId)}`),
-  saveMembershipGrant: (input: Record<string, any>) => request<{ site: string; userId: string; grant: Record<string, any> | null }>("/api/admin/billing/membership-grant", { method: "POST", body: JSON.stringify(input) }),
-  revokeMembershipGrant: (site: string, userId: string) => request<{ site: string; userId: string; grant: Record<string, any> | null }>("/api/admin/billing/membership-grant", { method: "DELETE", body: JSON.stringify({ site, userId }) }),
   loginWithToken: (token: string) =>
     request<Session>("/api/login", {
       method: "POST",
@@ -179,32 +174,6 @@ const baseApi = {
     request<Record<string, unknown>>(
       `/api/admin/billing${site ? `?site=${encodeURIComponent(site)}` : ""}`,
     ),
-  checkout: (input: {
-    site?: string;
-    kind: "membership" | "credits";
-    planId?: string;
-    packId?: string;
-  }) =>
-    request<{
-      site: string;
-      configured: boolean;
-      reason?: string;
-      sessionId?: string | null;
-      url: string | null;
-    }>("/api/admin/billing/checkout", {
-      method: "POST",
-      body: JSON.stringify(input),
-    }),
-  billingPortal: (input: { site?: string; customerId: string }) =>
-    request<{
-      site: string;
-      configured: boolean;
-      reason?: string;
-      url: string | null;
-    }>("/api/admin/billing/portal", {
-      method: "POST",
-      body: JSON.stringify(input),
-    }),
   sites: () =>
     request<{
       sites: Array<{ handle?: string; id?: string; name?: string }>;
@@ -219,6 +188,7 @@ const baseApi = {
     rebuildWebhookUrl?: string;
     coolifyApiToken?: string;
     requiresHumanApproval?: boolean;
+    contentMode?: "blog" | "socialmedia";
   }) =>
     request<{
       ok: boolean;
@@ -630,7 +600,7 @@ async function billingSnapshot(site?: string) {
 }
 async function billingCheckout(input: {
   site?: string;
-  kind: "membership" | "credits";
+  kind: "credits";
   planId?: string;
   packId?: string;
 }) {
@@ -647,12 +617,6 @@ async function billingCheckout(input: {
     { method: "POST", body: JSON.stringify(input) },
   );
 }
-async function billingPortal(input: { site?: string }) {
-  return request<{ url?: string; configured?: boolean; reason?: string }>(
-    "/api/billing/portal",
-    { method: "POST", body: JSON.stringify(input) },
-  );
-}
 
 export const api = Object.assign(baseApi, {
   aiChat,
@@ -666,5 +630,4 @@ export const api = Object.assign(baseApi, {
   deleteAiConversation,
   billingSnapshot,
   billingCheckout,
-  billingPortal,
 });

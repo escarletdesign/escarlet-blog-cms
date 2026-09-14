@@ -22,6 +22,7 @@ import {
   publicSiteConfig,
   getSocialPackChannels,
   isPublicBlogEnabled,
+  isSocialMediaOnlySite,
   isAgencyGate,
   canApproveLivePublish,
   resolveApproverRole
@@ -149,7 +150,6 @@ import { runChat as runAiChat, runGenerateOperation, splitSseChunks, recordPubli
 import { generateImageOptions } from './lib/ai-image.mjs'
 import { assertCmsAiAllowed } from './lib/generation-policy.mjs'
 import { canReadPost, canEditPost, safePostFields, assertPostAccess } from './lib/post-access.mjs'
-import { saveMcpPlan, getMembershipGrant, saveMembershipGrant, revokeMembershipGrant } from './lib/membership.mjs'
 import { assertMembershipActive } from './lib/plans.mjs'
 import { generateSocialPackImages } from './lib/ai-workflows.mjs'
 import { archiveConversation, conversationOwner, deleteConversation, getConversation, listConversations, saveConversation } from './lib/ai-conversations.mjs'
@@ -552,6 +552,12 @@ function canViewPostForAuth(post, auth, site) {
 
 function canMutatePostForAuth(post, auth, site) {
   return canEditPost(post, auth, site)
+}
+
+function assertBlogSite(site) {
+  if (isSocialMediaOnlySite(loadSiteConfig(site))) {
+    throw Object.assign(new Error('Este sitio está configurado como solo Social Media.'), { status: 404 })
+  }
 }
 
 // Image generation can take longer than the reverse proxy timeout when a
@@ -1448,6 +1454,7 @@ const server = createServer(async (req, res) => {
         return
       }
       if (req.method === 'POST' && path === '/api/billing/checkout') {
+        if (body.kind === 'membership') throw Object.assign(new Error('Las membresías están deshabilitadas durante la beta.'), { status: 404 })
         if (body.kind === 'credits') assertCmsAiAllowed(auth)
         if (body.kind === 'credits' && isBillingTestCreditsEnabled(db)) {
           const grant = grantPwaTestCredits(site, body.packId, { db, actorId: auth.userId || auth.role })
@@ -1965,55 +1972,7 @@ const server = createServer(async (req, res) => {
   if (path.startsWith('/api/admin')) {
     const auth = requireAuth(req, url, res)
     if (!auth) return
-
     const db = readDb()
-
-    if (path === '/api/admin/billing/mcp-plan') {
-      try {
-        assertSuperAdmin(auth)
-        if (req.method === 'GET') { json(res, 200, { plan: db.plans?.find((p) => p.id === 'mcp') || null }); return }
-        if (req.method !== 'POST') { json(res, 405, { message: 'Método no permitido' }); return }
-        const plan = saveMcpPlan(await parseBody(req), db)
-        writeDb(db)
-        json(res, 200, { plan })
-      } catch (error) { json(res, error.status || 400, { message: error.message }) }
-      return
-    }
-
-    if (path === '/api/admin/billing/membership-grant') {
-      try {
-        assertSuperAdmin(auth)
-        const body = req.method === 'GET' ? {} : await parseBody(req)
-        const requestedSite = req.method === 'GET' ? url.searchParams.get('site') : body.site
-        const requestedUserId = req.method === 'GET' ? url.searchParams.get('userId') : body.userId
-        const site = String(requestedSite || '').trim()
-        const userId = String(requestedUserId || '').trim()
-        if (!site || !loadSiteConfig(site)) throw Object.assign(new Error('Sitio no encontrado'), { status: 404 })
-        const target = getPasswordUserById(userId)
-        if (!target || !userSites(target).includes(site)) throw Object.assign(new Error('El usuario no pertenece a este sitio.'), { status: 404 })
-        if (req.method === 'GET') {
-          json(res, 200, { site, userId, grant: getMembershipGrant(site, userId, db) })
-          return
-        }
-        if (req.method === 'POST') {
-          const grant = saveMembershipGrant(site, userId, body, { db, actorId: auth.userId || auth.role })
-          writeDb(db)
-          json(res, 200, { site, userId, grant })
-          return
-        }
-        if (req.method === 'DELETE') {
-          const grant = revokeMembershipGrant(site, userId, { db, actorId: auth.userId || auth.role })
-          writeDb(db)
-          json(res, 200, { site, userId, grant })
-          return
-        }
-        json(res, 405, { message: 'Método no permitido' })
-      } catch (error) {
-        json(res, error.status || 400, { message: error.message })
-      }
-      return
-    }
-
     if (req.method === 'GET' && path === '/api/admin/session') {
       json(res, 200, publicAuthSession(auth))
       return
@@ -2159,6 +2118,7 @@ const server = createServer(async (req, res) => {
     if (isProductRestructureV1() && req.method === 'POST' && path === '/api/admin/billing/checkout') {
       try {
         const body = await parseBody(req)
+        if (body.kind === 'membership') throw Object.assign(new Error('Las membresías están deshabilitadas durante la beta.'), { status: 404 })
         if (body.kind === 'credits') assertCmsAiAllowed(auth)
         const site = siteFrom(auth, body.site || DEFAULT_SITE)
         assertSiteAccess(auth, site)
@@ -2221,6 +2181,10 @@ const server = createServer(async (req, res) => {
         return
       }
       const siteConfig = loadSiteConfig(site) || { domain: 'https://example.com' }
+      if (isSocialMediaOnlySite(siteConfig)) {
+        json(res, 200, { site, source: 'cms', socialPackChannels: getSocialPackChannels(siteConfig), packs: [] })
+        return
+      }
       const posts = db.posts.filter((p) => p.site === site)
       const packs = listSocialPackSummaries(posts, siteConfig, { cmsHostEnabled: true })
       json(res, 200, {
@@ -2239,6 +2203,10 @@ const server = createServer(async (req, res) => {
         assertSiteAccess(auth, site)
       } catch (err) {
         json(res, err.status || 403, { message: err.message })
+        return
+      }
+      if (isSocialMediaOnlySite(loadSiteConfig(site))) {
+        json(res, 404, { message: 'Los sitios solo Social Media no tienen packs vinculados a posts.' })
         return
       }
       const slug = decodeURIComponent(socialPackMatch[1])
@@ -2260,6 +2228,7 @@ const server = createServer(async (req, res) => {
       const site = siteFrom(auth, url.searchParams.get('site') || DEFAULT_SITE)
       try {
         assertSiteAccess(auth, site)
+        assertBlogSite(site)
       } catch (err) {
         json(res, err.status || 403, { message: err.message })
         return
@@ -2277,6 +2246,7 @@ const server = createServer(async (req, res) => {
       const site = siteFrom(auth, url.searchParams.get('site') || DEFAULT_SITE)
       try {
         assertSiteAccess(auth, site)
+        assertBlogSite(site)
       } catch (err) {
         json(res, err.status || 403, { message: err.message })
         return
@@ -2578,6 +2548,10 @@ const server = createServer(async (req, res) => {
         if (Object.prototype.hasOwnProperty.call(body, 'blogEnabled')) {
           partial.blogEnabled = body.blogEnabled
         }
+        if (body.contentMode === 'blog' || body.contentMode === 'socialmedia') {
+          partial.contentMode = body.contentMode
+          partial.blogEnabled = body.contentMode === 'blog'
+        }
         if (Object.prototype.hasOwnProperty.call(body, 'requiresPublishConfirmation')) {
           partial.requiresPublishConfirmation = body.requiresPublishConfirmation
         }
@@ -2777,6 +2751,7 @@ const server = createServer(async (req, res) => {
       const site = siteFrom(auth, body.site || DEFAULT_SITE)
       try {
         assertSiteAccess(auth, site)
+        assertBlogSite(site)
         assertAuthorAllowed({ site, authorName: body.authorName || body.author, requesterId: auth.userId, requesterRole: auth.role })
         const skipQuota = Boolean(auth.capabilities?.includes('quota:override'))
         const result = await cmsCreateDraft({
@@ -2800,6 +2775,7 @@ const server = createServer(async (req, res) => {
       try {
         const site = siteFrom(auth, body.site || DEFAULT_SITE)
         assertSiteAccess(auth, site)
+        assertBlogSite(site)
         assertAuthorAllowed({ site, authorName: body.authorName || body.author, requesterId: auth.userId, requesterRole: auth.role })
         const dbNow = readDb()
         const existing = findPost(dbNow, site, body.originalSlug || body.slug)
@@ -2824,6 +2800,7 @@ const server = createServer(async (req, res) => {
       const site = siteFrom(auth, url.searchParams.get('site') || DEFAULT_SITE)
       try {
         assertSiteAccess(auth, site)
+        assertBlogSite(site)
         const result = await cmsListCalendar(
           site,
           url.searchParams.get('from') || '',
@@ -2843,6 +2820,7 @@ const server = createServer(async (req, res) => {
       const site = siteFrom(auth, body.site || DEFAULT_SITE)
       try {
         assertSiteAccess(auth, site)
+        assertBlogSite(site)
         const existing = findPost(readDb(), site, body.slug)
         if (existing && !canMutatePostForAuth(existing, auth, site)) {
           json(res, 403, { message: 'No tienes acceso a programar este borrador.' })
@@ -2863,6 +2841,7 @@ const server = createServer(async (req, res) => {
       try {
         assertSuperAdmin(auth)
         assertSiteAccess(auth, site)
+        assertBlogSite(site)
         const existing = findPost(readDb(), site, body.slug)
         if (existing && !canMutatePostForAuth(existing, auth, site)) {
           json(res, 403, { message: 'No tienes acceso a publicar este borrador.' })
@@ -2882,6 +2861,7 @@ const server = createServer(async (req, res) => {
       const site = siteFrom(auth, body.site || DEFAULT_SITE)
       try {
         assertSiteAccess(auth, site)
+        assertBlogSite(site)
         assertPostAccess(findPost(readDb(), site, body.slug), auth, { write: true })
         const result = await cmsCancelSchedule(site, body.slug, { membershipUserId: auth.userId || '' })
         json(res, 200, result)
@@ -2898,6 +2878,7 @@ const server = createServer(async (req, res) => {
       const slug = body.slug
       try {
         assertSiteAccess(auth, site)
+        assertBlogSite(site)
         assertPostAccess(findPost(readDb(), site, slug), auth, { write: true })
         // Live publish (not submit-for-review, not schedule) respects approverRole.
         if (!body.publishAt) {
@@ -2956,6 +2937,7 @@ const server = createServer(async (req, res) => {
       const site = siteFrom(auth, body.site || DEFAULT_SITE)
       try {
         assertSiteAccess(auth, site)
+        assertBlogSite(site)
         assertAgencyOps(auth)
         const result = await cmsRequestPostChanges(site, body.slug, {
           rejectReason: body.rejectReason,
@@ -2974,6 +2956,7 @@ const server = createServer(async (req, res) => {
       const site = siteFrom(auth, body.site || DEFAULT_SITE)
       try {
         assertSiteAccess(auth, site)
+        assertBlogSite(site)
         assertPostAccess(findPost(readDb(), site, body.slug), auth, { write: true })
         const result = await cmsUnpublishPost(site, body.slug, { membershipUserId: auth.userId || '' })
         json(res, 200, result)
@@ -2991,6 +2974,7 @@ const server = createServer(async (req, res) => {
         const slug = decodeURIComponent(del[1])
         try {
           assertSiteAccess(auth, site)
+          assertBlogSite(site)
           const existing = findPost(readDb(), site, slug)
           if (existing && !canMutatePostForAuth(existing, auth, site)) {
             json(res, 403, { message: 'No tienes permiso para eliminar este post.' })

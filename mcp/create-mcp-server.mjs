@@ -15,7 +15,7 @@ import { openaiFileDefs, connectorFileMeta } from '../lib/openai-file.mjs'
 import { assertSiteAccess, assertSuperAdmin, allowedSiteHandles, isSiteScopedRole } from '../lib/auth.mjs'
 import { isSecretBrandFile } from '../lib/brand-kit.mjs'
 import { assertChatToolAllowed, assertSafeToolArguments } from '../lib/ai-security.mjs'
-import { loadSiteConfig } from '../lib/site-config.mjs'
+import { loadSiteConfig, isSocialMediaOnlySite } from '../lib/site-config.mjs'
 import { readDb } from '../lib/db.mjs'
 import {
   getStandaloneSocialPack,
@@ -27,9 +27,26 @@ import { isCmsAiEnabled } from '../lib/product-flags.mjs'
 import { withGenerationPolicy, assertCmsAiAllowed, CMS_AI_TOOLS } from '../lib/generation-policy.mjs'
 import { canReadPost, assertPostAccess, safePostFields } from '../lib/post-access.mjs'
 import { listSiteAuthors } from '../lib/human-auth.mjs'
-import { assertMembershipActive } from '../lib/plans.mjs'
 
 const DEFAULT_SITE = process.env.DEFAULT_SITE || 'escarlet'
+const BLOG_CONTENT_TOOLS = new Set([
+  'blog_get_workflow',
+  'blog_save_social_pack',
+  'blog_list_posts',
+  'blog_get_post',
+  'blog_create_draft',
+  'blog_update_post',
+  'blog_unpublish',
+  'blog_delete_post',
+  'blog_validate_seo',
+  'blog_publish',
+  'blog_request_changes',
+  'blog_schedule_post',
+  'blog_confirm_schedule',
+  'blog_cancel_schedule',
+  'blog_list_calendar',
+  'blog_get_seo_context'
+])
 
 export const RESOURCE_MAP = {
   voice: 'voice.md',
@@ -183,6 +200,7 @@ export function buildToolList(auth) {
           authors: { type: 'array', items: { type: 'string' } },
           rebuildWebhookUrl: { type: 'string' },
           coolifyApiToken: { type: 'string' },
+          contentMode: { type: 'string', enum: ['blog', 'socialmedia'] },
           requiresHumanApproval: { type: 'boolean' },
           force: { type: 'boolean' }
         },
@@ -218,7 +236,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_get_quota',
       description:
-        'Lee cupos del plan del sitio (borradores y publicaciones del mes UTC), membresía y hosting. Solo lectura.',
+        'Lee métricas históricas del sitio (borradores y publicaciones del mes UTC). En beta no bloquean las publicaciones MCP. Solo lectura.',
       inputSchema: {
         type: 'object',
         properties: { site: { type: 'string' } },
@@ -646,7 +664,12 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
       if (restrictMutations) assertChatToolAllowed(name, args)
       const tool = buildToolList(auth).find((t) => t.name === name)
       if (!tool) throw Object.assign(new Error('Herramienta no disponible para este acceso.'), { status: 403 })
-      if (!tool.annotations?.readOnlyHint && name !== 'blog_create_site') assertMembershipActive(resolveToolSite(auth, args), { userId: auth.userId || '' })
+      if (BLOG_CONTENT_TOOLS.has(name)) {
+        const site = resolveToolSite(auth, args)
+        if (isSocialMediaOnlySite(loadSiteConfig(site))) {
+          throw Object.assign(new Error('Este sitio está configurado como solo Social Media. Usa las herramientas de Social Pack.'), { status: 404 })
+        }
+      }
       if (args.slug && !['blog_create_draft', 'blog_upload_media', 'blog_upload_media_file', 'blog_open_image_drop', 'blog_import_remote_image'].includes(name)) {
         const site = resolveToolSite(auth, args)
         const { post } = await cms.getPost(site, args.originalSlug || args.slug)
@@ -695,6 +718,14 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           const { getOnboardingPlaybook } = await import('../lib/onboarding.mjs')
           const handle = isSiteScopedRole(auth.role) ? auth.site : args.site || DEFAULT_SITE
           if (isSiteScopedRole(auth.role)) assertSiteAccess(auth, handle)
+          const config = loadSiteConfig(handle)
+          if (isSocialMediaOnlySite(config)) {
+            return textResult({
+              site: { handle, name: args.name || config?.name, domain: args.domain || config?.domain },
+              socialPackOnly: true,
+              message: 'Este sitio usa únicamente Social Pack. No hay flujo de posts de blog.'
+            })
+          }
           const base = await cms.getOnboarding(handle)
           return textResult(
             getOnboardingPlaybook({
@@ -748,6 +779,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
               site,
               ownerId: auth.userId || '',
               membershipUserId: auth.userId || '',
+              skipQuota: true,
               contentSource: args.contentSource || (['client', 'client_mcp'].includes(auth.role) ? 'client' : 'agency')
             })
           )
@@ -777,6 +809,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             publishAt: args.publishAt,
             direct: directWorkflowPublish(args, source),
             ignoreSeo: args.ignoreSeo === true,
+            skipQuota: true,
             membershipUserId: auth.userId || ''
           }))
         }
@@ -794,13 +827,14 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           return textResult(await cms.schedulePostForDate(site, args.slug, args.publishAt, {
             direct: directWorkflowPublish(args, source),
             ignoreSeo: args.ignoreSeo === true,
+            skipQuota: true,
             membershipUserId: auth.userId || ''
           }))
         }
         case 'blog_confirm_schedule': {
           assertSuperAdmin(auth)
           const site = resolveToolSite(auth, args)
-          return textResult(await cms.confirmSchedule(site, args.slug, { membershipUserId: auth.userId || '' }))
+          return textResult(await cms.confirmSchedule(site, args.slug, { skipQuota: true, membershipUserId: auth.userId || '' }))
         }
         case 'blog_cancel_schedule': {
           const site = resolveToolSite(auth, args)

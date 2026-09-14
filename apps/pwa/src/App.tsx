@@ -51,6 +51,7 @@ type AppState = {
   session: Session;
   site: string;
   sites: string[];
+  contentMode: "blog" | "socialmedia";
   workflowFlags: WorkflowFlags;
   setSite: (site: string) => void;
   refresh: () => Promise<void>;
@@ -297,6 +298,8 @@ function App() {
   const [workflowFlags, setWorkflowFlags] = useState<WorkflowFlags>({ cmsAiEnabled: true, assistantEnabled: true, blogWizardEnabled: true });
   const [language, setLanguageState] = useState<Language>(getInitialLanguage);
   const [site, setSiteState] = useState("");
+  const [contentMode, setContentMode] = useState<"blog" | "socialmedia">("blog");
+  const [contentModeReady, setContentModeReady] = useState(false);
   const setLanguage = (next: Language) => {
     setLanguageState(next);
     window.localStorage.setItem("escarlet_language", next);
@@ -350,6 +353,27 @@ function App() {
       requestedHandle || (current && available.includes(current) ? current : next),
     );
   }, [session]);
+  useEffect(() => {
+    const activeSite = site || session?.site || session?.sites?.[0] || "";
+    if (!activeSite) return;
+    let active = true;
+    setContentModeReady(false);
+    setContentMode("blog");
+    api.siteConfig(activeSite)
+      .then(({ config }) => {
+        if (active) {
+          setContentMode(config?.contentMode === "socialmedia" ? "socialmedia" : "blog");
+          setContentModeReady(true);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setContentMode("blog");
+          setContentModeReady(true);
+        }
+      });
+    return () => { active = false; };
+  }, [site, session?.site, session?.sites?.join("|")]);
   const setSite = (next: string) => {
     setSiteState(next);
     window.localStorage.setItem("escarlet_site", next);
@@ -371,6 +395,12 @@ function App() {
         </div>
       </I18nContext.Provider>
     );
+  if (session && !contentModeReady)
+    return (
+      <I18nContext.Provider value={{ language, setLanguage, t }}>
+        <div className="splash" role="status" aria-live="polite"><div className="splash-card"><div className="brand splash-brand"><AppBrand /></div><div className="splash-loader" aria-hidden="true"><span /></div><p>{t("app.loading")}</p></div></div>
+      </I18nContext.Provider>
+    );
   return (
     <I18nContext.Provider value={{ language, setLanguage, t }}>
       <BrowserRouter basename={basename}>
@@ -383,6 +413,7 @@ function App() {
               sites: session.sites?.length
                 ? session.sites
                 : [session.site || "escarlet"],
+              contentMode,
               workflowFlags,
               setSite,
               refresh,
@@ -396,21 +427,23 @@ function App() {
                 </>
               ) : <Route element={<Shell />}>
                 <Route path="/" element={<Home />} />
-                {workflowFlags.assistantEnabled && <Route path="/chat" element={<Chat />} />}
-                {workflowFlags.blogWizardEnabled && <Route path="/quick-create" element={<QuickCreate />} />}
-                <Route path="/manual/:slug?" element={<ManualPost />} />
-                <Route path="/preview/:slug" element={<Preview />} />
-                <Route path="/schedule/:slug" element={<Schedule />} />
-                <Route path="/publish/:slug" element={<PublishSocial />} />
+                {contentMode === "blog" && workflowFlags.assistantEnabled && <Route path="/chat" element={<Chat />} />}
+                {contentMode === "blog" && workflowFlags.blogWizardEnabled && <Route path="/quick-create" element={<QuickCreate />} />}
+                {contentMode === "blog" && <>
+                  <Route path="/manual/:slug?" element={<ManualPost />} />
+                  <Route path="/preview/:slug" element={<Preview />} />
+                  <Route path="/schedule/:slug" element={<Schedule />} />
+                  <Route path="/publish/:slug" element={<PublishSocial />} />
+                  <Route path="/posts" element={<Posts />} />
+                  <Route path="/calendar" element={<Calendar />} />
+                </>}
                 <Route path="/social-pack" element={<SocialPack />} />
-                <Route path="/social-pack/:slug" element={<SocialPack />} />
-                <Route path="/posts" element={<Posts />} />
-                <Route path="/calendar" element={<Calendar />} />
+                {contentMode === "blog" && <Route path="/social-pack/:slug" element={<SocialPack />} />}
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/author-invite" element={<AuthorInvite />} />
-                <Route path="/billing" element={<Billing />} />
+                {session.role !== "client_mcp" && contentMode === "blog" && <Route path="/billing" element={<Billing />} />}
                 <Route path="/admin" element={<AdminGate />} />
-                <Route path="*" element={<Navigate to="/" replace />} />
+                <Route path="*" element={<Navigate to={contentMode === "socialmedia" ? "/social-pack" : "/"} replace />} />
               </Route>}
             </Routes>
           </SessionContext.Provider>
@@ -585,7 +618,7 @@ function ProfileAvatarField({
 }
 
 function Onboarding() {
-  const { session, refresh } = useApp();
+  const { session, contentMode, refresh } = useApp();
   const { t } = useI18n();
   const { showToast } = useToast();
   const nav = useNavigate();
@@ -659,11 +692,13 @@ function Onboarding() {
           <section className="onboarding-slide onboarding-tour-slide">
             <div className="onboarding-icon">◎</div>
             <h2>{t("onboarding.tourTitle")}</h2>
-            <p className="muted">{t(session.role === "client_mcp" ? "mcp.help" : "onboarding.tourHelp")}</p>
+            <p className="muted">{t(contentMode === "socialmedia" || session.role === "client_mcp" ? "mcp.help" : "onboarding.tourHelp")}</p>
             <div className="onboarding-tour-list">
-              <span>✦<b>{t(session.role === "client_mcp" ? "mcp.connector" : "onboarding.tourAssistant")}</b></span>
-              <span>▤<b>{t("onboarding.tourPosts")}</b></span>
-              <span>□<b>{t("onboarding.tourCalendar")}</b></span>
+              <span>✦<b>{t(contentMode === "socialmedia" || session.role === "client_mcp" ? "mcp.connector" : "onboarding.tourAssistant")}</b></span>
+              {contentMode === "blog" && <>
+                <span>▤<b>{t("onboarding.tourPosts")}</b></span>
+                <span>□<b>{t("onboarding.tourCalendar")}</b></span>
+              </>}
             </div>
           </section>
         )}
@@ -678,16 +713,17 @@ function Onboarding() {
 }
 
 function Shell() {
-  const { session, site, sites, setSite, workflowFlags } = useApp();
+  const { session, site, sites, setSite, contentMode, workflowFlags } = useApp();
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const nav = useNavigate();
   const location = useLocation();
   useEffect(() => setOpen(false), [location.pathname]);
+  const blogMode = contentMode === "blog";
   const links = [
     { to: "/", label: t("nav.home"), icon: "home" },
-    ...(workflowFlags.assistantEnabled ? [{ to: "/chat", label: t("nav.assistant"), icon: "assistant" }] : []),
-    { to: "/posts", label: t("nav.posts"), icon: "posts" },
+    ...(blogMode && workflowFlags.assistantEnabled ? [{ to: "/chat", label: t("nav.assistant"), icon: "assistant" }] : []),
+    ...(blogMode ? [{ to: "/posts", label: t("nav.posts"), icon: "posts" }] : []),
     { to: "/social-pack", label: t("nav.socialPack"), icon: "social" },
   ];
   return (
@@ -719,7 +755,7 @@ function Shell() {
           )}
         </div>
         <CreditIndicator site={site} />
-        {workflowFlags.assistantEnabled && (
+        {blogMode && workflowFlags.assistantEnabled && (
           <button className="new-chat" onClick={() => nav("/chat")}>
             {t("nav.newChat")}
           </button>
@@ -954,12 +990,12 @@ function AdminActionIcon({ kind }: { kind: "edit" | "key" | "mail" | "trash" | "
 }
 
 function CreditIndicator({ site }: { site: string }) {
-  const { session, workflowFlags } = useApp();
+  const { session, contentMode, workflowFlags } = useApp();
   const { t, language } = useI18n();
   const [snapshot, setSnapshot] = useState<Record<string, any> | null>(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    if (session.role !== "client_mcp" && !workflowFlags.cmsAiEnabled) {
+    if (session.role === "client_mcp" || contentMode === "socialmedia" || !workflowFlags.cmsAiEnabled) {
       setSnapshot(null);
       setLoading(false);
       return () => {};
@@ -972,12 +1008,12 @@ function CreditIndicator({ site }: { site: string }) {
       .catch(() => active && setSnapshot(null))
       .finally(() => active && setLoading(false));
     return () => { active = false; };
-  }, [site, session.role, workflowFlags.cmsAiEnabled]);
+  }, [site, session.role, contentMode, workflowFlags.cmsAiEnabled]);
+  if (session.role === "client_mcp" || contentMode === "socialmedia") return null;
   const available = Number(snapshot?.ai?.tokenCredits?.available);
   const hasCredits = Number.isFinite(available);
   const displayCredits = hasCredits ? available.toLocaleString(language === "en" ? "en-GB" : "es-ES") : loading ? "…" : "—";
-  if (session.role !== "client_mcp" && !workflowFlags.cmsAiEnabled) return null;
-  if (session.role === "client_mcp") return <NavLink className="credit-indicator" to="/billing"><span>◈</span><span><b>{loading ? "…" : snapshot?.suspended ? t("mcp.readOnly") : t("mcp.membership")}</b><small>{snapshot ? `${Math.max(0, Number(snapshot.publishes?.limit || 0) - Number(snapshot.publishes?.used || 0))} ${t("mcp.publicationsLeft")}` : t("common.loading")}</small></span></NavLink>;
+  if (!workflowFlags.cmsAiEnabled) return null;
   return (
     <NavLink className="credit-indicator" to="/billing" title={t("billing.available")}>
       <span>✦</span>
@@ -991,16 +1027,25 @@ function CreditIndicator({ site }: { site: string }) {
 
 function Home() {
   const nav = useNavigate();
-  const { session, site, workflowFlags } = useApp();
+  const { session, site, contentMode, workflowFlags } = useApp();
   const { t } = useI18n();
+  const socialOnly = contentMode === "socialmedia";
   return (
     <main className="page home">
       <div className="home-intro">
         <p className="eyebrow">{site}</p>
-        <h1>{t("home.title")}</h1>
-        <p className="muted">{t("home.description")}</p>
+        <h1>{t(socialOnly ? "home.socialOnlyTitle" : "home.title")}</h1>
+        <p className="muted">{t(socialOnly ? "home.socialOnlyDescription" : "home.description")}</p>
       </div>
       <div className="choice-grid">
+        {socialOnly ? (
+          <button className="choice-card" onClick={() => nav("/social-pack")}>
+            <span>✦</span>
+            <strong>{t("home.social.title")}</strong>
+            <small>{t("home.social.description")}</small>
+            <b>{t("home.social.action")}</b>
+          </button>
+        ) : <>
         {workflowFlags.assistantEnabled && (
           <button className="choice-card ai" onClick={() => nav("/chat")}>
             <span className="assistant-stars home-assistant-stars" aria-hidden="true"><i>✦</i><i>✦</i><i>✦</i></span>
@@ -1029,8 +1074,9 @@ function Home() {
           <small>{t("home.manual.description")}</small>
           <b>{t("home.manual.action")}</b>
         </button>
+        </>}
       </div>
-      <section className="home-section">
+      {!socialOnly && <section className="home-section">
         <div className="section-title">
           <h2>{t("home.continue")}</h2>
           <NavLink to="/posts">{t("home.seeAll")}</NavLink>
@@ -1042,7 +1088,7 @@ function Home() {
             <button onClick={() => nav("/admin")}>{t("home.openAdmin")}</button>
           )}
         </div>
-      </section>
+      </section>}
     </main>
   );
 }
@@ -4481,7 +4527,7 @@ function AuthorInvite() {
 }
 
 function Settings() {
-  const { session, site, refresh, workflowFlags } = useApp();
+  const { session, site, contentMode, refresh, workflowFlags } = useApp();
   const { language, setLanguage, t } = useI18n();
   const { showToast } = useToast();
   const [model, setModel] = useState(
@@ -4661,9 +4707,7 @@ function Settings() {
         <p className="muted">
           {t("settings.role")}: {roleLabel(session.role, t)}
         </p>
-        <NavLink className="text-link" to="/billing">
-          {t(session.role === "client_mcp" ? "mcp.membership" : "settings.credits")}
-        </NavLink>
+        {session.role !== "client_mcp" && contentMode === "blog" && <NavLink className="text-link" to="/billing">{t("settings.credits")}</NavLink>}
       </section>
       <button
         type="button"
@@ -4679,14 +4723,14 @@ function Settings() {
 }
 
 function Billing() {
-  const { site, session, workflowFlags } = useApp();
+  const { site, workflowFlags } = useApp();
   const { t, language } = useI18n();
   const { showToast } = useToast();
   const [snapshot, setSnapshot] = useState<Record<string, any> | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState("");
   useEffect(() => {
-    if (session.role !== "client_mcp" && !workflowFlags.cmsAiEnabled) {
+    if (!workflowFlags.cmsAiEnabled) {
       setSnapshot(null);
       setMessage("");
       return;
@@ -4695,13 +4739,12 @@ function Billing() {
       .billingSnapshot(site)
       .then(setSnapshot)
       .catch(() => setMessage(t("billing.unavailable")));
-  }, [site, t, session.role, workflowFlags.cmsAiEnabled]);
+  }, [site, t, workflowFlags.cmsAiEnabled]);
   const checkout = async (input: {
-    kind: "membership" | "credits";
-    planId?: string;
+    kind: "credits";
     packId?: string;
   }) => {
-    setBusy(input.planId || input.packId || input.kind);
+    setBusy(input.packId || input.kind);
     try {
       const result = await api.billingCheckout({ site, ...input });
       if (result.testMode && result.credited) {
@@ -4719,34 +4762,7 @@ function Billing() {
       setBusy("");
     }
   };
-  const portal = async () => {
-    setBusy("portal");
-    try {
-      const result = await api.billingPortal({ site });
-      if (result.url) window.location.assign(result.url);
-      else { setMessage(t("billing.portalUnavailable")); showToast(t("billing.portalUnavailable"), "info"); }
-    } catch (e) {
-      setMessage(e instanceof Error ? e.message : t("billing.portalFailed"));
-      showToast(e instanceof Error ? e.message : t("billing.portalFailed"), "error");
-    } finally {
-      setBusy("");
-    }
-  };
   const ai = snapshot?.ai?.tokenCredits;
-  if (session.role === "client_mcp") return <main className="page narrow">
-    <PageTitle title={t("mcp.membership")} description={t("mcp.help")} back />
-    <section className="card settings-card">
-      <h2>{snapshot?.plan?.name || "CMS con ChatGPT"}</h2>
-      <p>{snapshot?.subscription?.source === "grant" && !snapshot?.suspended ? t("mcp.complimentaryActive") : snapshot?.subscription?.status === "trialing" && !snapshot?.suspended ? t("mcp.trialActive") : snapshot?.suspended ? t("mcp.readOnly") : t("mcp.active")}</p>
-      <p>{snapshot ? `${Math.max(0, snapshot.publishes.limit - snapshot.publishes.used)} / ${snapshot.publishes.limit} ${t("mcp.publicationsLeft")}` : t("common.loading")}</p>
-      {snapshot?.subscription?.trialEndsAt && <p className="tiny">{t("mcp.trialActive")} · {new Date(Number(snapshot.subscription.trialEndsAt) * 1000).toLocaleDateString(language === "en" ? "en-GB" : "es-ES")}</p>}
-      <div className="membership-grant-scope"><strong>{t("mcp.membershipCoverage")}</strong><span>{site}</span><span>{t("mcp.billingHelp")}</span></div>
-      <div className="form-actions">{!(snapshot?.subscription?.source === "grant" && !snapshot?.suspended) && <><button className="primary" disabled={Boolean(busy) || !snapshot?.stripe?.plans?.mcp} onClick={() => checkout({ kind: "membership", planId: "mcp" })}>{t("mcp.subscribe")}</button>
-      <button className="secondary" disabled={Boolean(busy)} onClick={portal}>{t("billing.manage")}</button></>}</div>
-    </section>
-    <section className="card settings-card"><h2>{t("mcp.connector")}</h2><p>{t("mcp.help")}</p><code>{window.location.origin}/mcp</code></section>
-    {message && <p role="status">{message}</p>}
-  </main>;
   if (!workflowFlags.cmsAiEnabled) return <main className="page narrow">
     <PageTitle title={t("billing.title")} description={t("billing.cmsAiDisabled")} back />
     <section className="card settings-card">
@@ -4786,10 +4802,6 @@ function Billing() {
               )}{" "}
               {t("billing.included")}
             </p>
-            <p className="tiny">
-              {t("billing.plan")}:{" "}
-              {snapshot?.plan?.name || snapshot?.plan?.id || "—"}
-            </p>
             {testCreditsEnabled && (
               <div className="temporary-flag-warning billing-test-banner" role="status">
                 <strong>{t("billing.testModeTitle")}</strong>
@@ -4800,9 +4812,6 @@ function Billing() {
         ) : (
           <p className="muted">{t("common.loading")}</p>
         )}
-        <button className="ghost" disabled={busy === "portal"} onClick={portal}>
-          {busy === "portal" ? t("billing.opening") : t("billing.manage")}
-        </button>
       </section>
       <section className="card credit-help-card">
         <p className="eyebrow">{t("billing.howItWorks")}</p>
@@ -4847,18 +4856,6 @@ function Billing() {
             <p>{t("billing.emptyHelp")}</p>
           </div>
         )}
-        <div className="card featured">
-          <p className="eyebrow">{t("billing.plan")}</p>
-          <h2>{t("billing.upgrade")}</h2>
-          <p>{t("billing.upgradeHelp")}</p>
-          <button
-            className="primary"
-            disabled={Boolean(busy)}
-            onClick={() => checkout({ kind: "membership", planId: "growth" })}
-          >
-            {busy === "growth" ? t("billing.opening") : t("billing.viewGrowth")}
-          </button>
-        </div>
       </section>
       {message && <p className="success">{message}</p>}
     </main>
@@ -4868,101 +4865,6 @@ function Billing() {
 function AdminGate() {
   const { session } = useApp();
   return isAdmin(session.role) ? <Admin /> : <Navigate to="/" replace />;
-}
-function McpPlanSettings() {
-  const { t } = useI18n();
-  const { showToast } = useToast();
-  const [plan, setPlan] = useState<Record<string, any>>({ priceId: "", draftLimit: "", publishLimitPerMonth: "", trialDays: 0, enabled: false });
-  const [busy, setBusy] = useState(false);
-  useEffect(() => { api.mcpPlan().then(({ plan }) => { if (plan) setPlan(plan); }).catch((err) => showToast(err.message, "error")); }, []);
-  return <form className="card settings-card mcp-plan-settings-card" onSubmit={async (event) => {
-    event.preventDefault(); setBusy(true);
-    try { const result = await api.saveMcpPlan(plan); setPlan(result.plan); showToast(t("admin.saved")); }
-    catch (err) { showToast(err instanceof Error ? err.message : t("common.error"), "error"); }
-    finally { setBusy(false); }
-  }}>
-    <h2>{t("mcp.planConfig")}</h2><p className="muted">{t("mcp.billingHelp")}</p>
-    <label>{t("mcp.price")}<input required value={plan.priceId} placeholder="price_…" onChange={(e) => setPlan({ ...plan, priceId: e.target.value })} /></label>
-    <label>{t("mcp.draftLimit")}<input required type="number" min="1" step="1" value={plan.draftLimit} onChange={(e) => setPlan({ ...plan, draftLimit: e.target.value })} /></label>
-    <label>{t("mcp.publishLimit")}<input required type="number" min="1" step="1" value={plan.publishLimitPerMonth} onChange={(e) => setPlan({ ...plan, publishLimitPerMonth: e.target.value })} /></label>
-    <label>{t("mcp.trialDays")}<input type="number" min="0" max="365" step="1" value={plan.trialDays || 0} onChange={(e) => setPlan({ ...plan, trialDays: e.target.value })} /></label>
-    <label className="switch-row"><span>{t("mcp.enabled")}</span><input type="checkbox" role="switch" checked={plan.enabled} onChange={(e) => setPlan({ ...plan, enabled: e.target.checked })} /></label>
-    <button className="primary" disabled={busy}>{busy ? t("admin.saving") : t("common.save")}</button>
-  </form>;
-}
-
-function MembershipGrantSettings({ site, users }: { site: string; users: Array<Record<string, any>> }) {
-  const { t } = useI18n();
-  const { showToast } = useToast();
-  const eligibleUsers = users.filter((user) => (user.sites || []).includes(site));
-  const [grant, setGrant] = useState<Record<string, any> | null>(null);
-  const [userId, setUserId] = useState("");
-  const [kind, setKind] = useState("complimentary");
-  const [activeUntil, setActiveUntil] = useState("");
-  const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    setUserId((current) => eligibleUsers.some((user) => String(user.id) === current) ? current : String(eligibleUsers[0]?.id || ""));
-  }, [site, users]);
-  useEffect(() => {
-    if (!userId) {
-      setGrant(null);
-      setReason("");
-      return;
-    }
-    api.membershipGrant(site, userId).then(({ grant: next }) => {
-      setGrant(next);
-      setKind(String(next?.kind || "complimentary"));
-      setActiveUntil(next?.activeUntil ? String(next.activeUntil).slice(0, 10) : "");
-      setReason(String(next?.reason || ""));
-    }).catch((err) => showToast(err.message, "error"));
-  }, [site, userId]);
-  const save = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setBusy(true);
-    try {
-      const result = await api.saveMembershipGrant({ site, userId, kind, activeUntil: activeUntil ? new Date(`${activeUntil}T23:59:59.999Z`).toISOString() : null, reason });
-      setGrant(result.grant);
-      showToast(t("admin.membershipGrantSaved"));
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : t("common.error"), "error");
-    } finally {
-      setBusy(false);
-    }
-  };
-  const revoke = async () => {
-    setBusy(true);
-    try {
-      const result = await api.revokeMembershipGrant(site, userId);
-      setGrant(result.grant);
-      showToast(t("admin.membershipGrantRevoked"));
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : t("common.error"), "error");
-    } finally {
-      setBusy(false);
-    }
-  };
-  return <form className="card settings-card mcp-plan-settings-card" onSubmit={save}>
-    <p className="eyebrow">{t("admin.membershipAccess")}</p>
-    <h2>{t("admin.membershipGrantTitle")}</h2>
-    <p className="muted">{t("admin.membershipGrantHelp")}</p>
-    <div className="membership-grant-scope" role="note">
-      <strong>{site}</strong>
-      <span>{t("admin.membershipGrantTarget")}</span>
-      <span>{t("admin.membershipGrantStripeNote")}</span>
-    </div>
-    <label>{t("admin.membershipGrantUser")}
-      <select value={userId} onChange={(event) => { setUserId(event.target.value); setGrant(null); setKind("complimentary"); setActiveUntil(""); setReason(""); }} disabled={!eligibleUsers.length || busy}>
-        {!eligibleUsers.length && <option value="">{t("admin.membershipGrantNoUsers")}</option>}
-        {eligibleUsers.map((user) => <option key={String(user.id)} value={String(user.id)}>{String(user.displayName || user.email || user.id)}</option>)}
-      </select>
-    </label>
-    <label>{t("admin.membershipGrantType")}<select value={kind} onChange={(event) => setKind(event.target.value)}><option value="complimentary">{t("admin.membershipGrantComplimentary")}</option><option value="trial">{t("admin.membershipGrantTrial")}</option></select></label>
-    <label>{t("admin.membershipGrantUntil")}<input type="date" value={activeUntil} onChange={(event) => setActiveUntil(event.target.value)} /><small>{t("admin.membershipGrantUntilHelp")}</small></label>
-    <label>{t("admin.membershipGrantReason")}<input required maxLength={240} value={reason} onChange={(event) => setReason(event.target.value)} placeholder={t("admin.membershipGrantReasonPlaceholder")} /></label>
-    <div className="form-actions"><button className="primary" disabled={busy || !userId}>{busy ? t("admin.saving") : t("admin.saveMembershipGrant")}</button><button type="button" className="danger-link" disabled={busy || !grant} onClick={() => void revoke()}>{t("admin.revokeMembershipGrant")}</button></div>
-    {grant && <p className="tiny">{grant.active ? t("admin.membershipGrantActive") : t("admin.membershipGrantInactive")}{grant.activeUntil ? ` · ${String(grant.activeUntil).slice(0, 10)}` : ""}</p>}
-  </form>;
 }
 function Admin() {
   const { site, session, setSite, refresh } = useApp();
@@ -4981,6 +4883,7 @@ function Admin() {
     authors: "",
     rebuildWebhookUrl: "",
     coolifyApiToken: "",
+    contentMode: "blog" as "blog" | "socialmedia",
     requiresHumanApproval: true,
   });
   const [newSiteSaving, setNewSiteSaving] = useState(false);
@@ -5016,6 +4919,7 @@ function Admin() {
     rebuildWebhookUrl: "",
     coolifyApiToken: "",
     clearCoolifyApiToken: false,
+    contentMode: "blog" as "blog" | "socialmedia",
     blogEnabled: true,
     reviewMode: "direct",
     planId: "standard",
@@ -5092,6 +4996,7 @@ function Admin() {
         handle,
         name: newSiteForm.name.trim() || handle,
         domain,
+        contentMode: newSiteForm.contentMode,
         requiresHumanApproval: newSiteForm.requiresHumanApproval,
       };
       if (authors.length) input.authors = authors;
@@ -5108,6 +5013,7 @@ function Admin() {
         authors: "",
         rebuildWebhookUrl: "",
         coolifyApiToken: "",
+        contentMode: "blog",
         requiresHumanApproval: true,
       });
       await refresh();
@@ -5190,6 +5096,7 @@ function Admin() {
           // saving without typing a new value preserves the existing secret.
           coolifyApiToken: "",
           clearCoolifyApiToken: false,
+          contentMode: data.config?.contentMode === "socialmedia" ? "socialmedia" : "blog",
           blogEnabled: data.config?.blogEnabled !== false,
           reviewMode: String(data.config?.reviewMode || "direct"),
           planId: String(data.config?.planId || "standard"),
@@ -5400,6 +5307,7 @@ function Admin() {
     try {
       const result = await api.saveSiteConfig(site, {
         ...siteForm,
+        blogEnabled: siteForm.contentMode === "blog",
         coolifyApiToken: siteForm.coolifyApiToken.trim(),
         reviewMode: "direct",
         requiresPublishConfirmation: false,
@@ -5929,9 +5837,18 @@ function Admin() {
                   {t("admin.clearCoolifyToken")}
                 </label>
               )}
-              <label className="checkbox-label">
-                <input type="checkbox" checked={siteForm.blogEnabled} onChange={(event) => setSiteForm({ ...siteForm, blogEnabled: event.target.checked })} />
-                {t("admin.blogEnabled")}
+              <label>
+                {t("admin.siteContentMode")}
+                <ChoicePills
+                  value={siteForm.contentMode}
+                  ariaLabel={t("admin.siteContentMode")}
+                  onChange={(value) => setSiteForm({ ...siteForm, contentMode: value as "blog" | "socialmedia", blogEnabled: value === "blog" })}
+                  options={[
+                    { value: "blog", label: t("admin.siteContentModeBlog") },
+                    { value: "socialmedia", label: t("admin.siteContentModeSocial") },
+                  ]}
+                />
+                <span className="tiny">{t("admin.siteContentModeHelp")}</span>
               </label>
               <fieldset className="social-pack-channel-settings">
                 <legend>{t("admin.socialPackChannels")}</legend>
@@ -5953,19 +5870,6 @@ function Admin() {
                   </label>
                 ))}
               </fieldset>
-              <label>
-                {t("admin.sitePlan")}
-                <ChoicePills
-                  value={siteForm.planId}
-                  ariaLabel={t("admin.sitePlan")}
-                  onChange={(value) => setSiteForm({ ...siteForm, planId: value })}
-                  options={[
-                    { value: "standard", label: t("admin.sitePlanStandard") },
-                    { value: "mcp", label: t("admin.sitePlanMcp") },
-                  ]}
-                />
-                <span className="tiny">{t("admin.sitePlanHelp")}</span>
-              </label>
               <div className="form-actions">
                 <button className="ghost" type="button" disabled={siteSaving} onClick={() => void testSite()}>{t("admin.testRebuild")}</button>
                 <button className="primary" disabled={siteSaving}>{siteSaving ? t("admin.saving") : t("admin.save")}</button>
@@ -5998,19 +5902,6 @@ function Admin() {
               <input type="checkbox" checked={cmsAiEnabled} disabled={cmsAiSaving} onChange={(event) => void saveCmsAiFlag(event.target.checked)} />
             </label>
           </section>
-          {session.role === "admin" && <>
-            <div className="section-title membership-section-title">
-              <div>
-                <p className="eyebrow">{t("admin.membershipAccess")}</p>
-                <h2>{t("admin.membershipBillingTitle")}</h2>
-                <p className="muted">{t("admin.membershipBillingHelp")}</p>
-              </div>
-            </div>
-            <div className="membership-settings-grid">
-              <MembershipGrantSettings site={site} users={users} />
-              <McpPlanSettings />
-            </div>
-          </>}
           {cmsAiEnabled ? <>
           <div className="section-title">
             <div>
@@ -6360,6 +6251,19 @@ function Admin() {
                   onChange={(event) => setNewSiteForm({ ...newSiteForm, domain: event.target.value })}
                   placeholder="https://cliente-nuevo.com"
                 />
+              </label>
+              <label className="modal-field">
+                {t("admin.siteContentMode")}
+                <ChoicePills
+                  value={newSiteForm.contentMode}
+                  ariaLabel={t("admin.siteContentMode")}
+                  onChange={(value) => setNewSiteForm({ ...newSiteForm, contentMode: value as "blog" | "socialmedia" })}
+                  options={[
+                    { value: "blog", label: t("admin.siteContentModeBlog") },
+                    { value: "socialmedia", label: t("admin.siteContentModeSocial") },
+                  ]}
+                />
+                <span className="optional">{t("admin.siteContentModeHelp")}</span>
               </label>
               <label className="modal-field">
                 {t("admin.siteAuthors")}
