@@ -906,6 +906,22 @@ function NavIcon({ kind }: { kind: string }) {
   return <span className="nav-icon nav-icon-glyph" aria-hidden="true">✦</span>;
 }
 
+function AdminActionIcon({ kind }: { kind: "edit" | "key" | "mail" | "trash" | "plus" }) {
+  if (kind === "edit") {
+    return <svg className="admin-action-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="m13.9 3.1 3 3-8.8 8.8-4 1 1-4Z" /><path d="m11.8 5.2 3 3" /></svg>;
+  }
+  if (kind === "key") {
+    return <svg className="admin-action-icon" viewBox="0 0 20 20" aria-hidden="true"><circle cx="7.1" cy="12.9" r="3.2" /><path d="m9.5 10.5 6.1-6.1M13.7 6.3l1.7 1.7M11.9 8.1l1.4 1.4" /></svg>;
+  }
+  if (kind === "mail") {
+    return <svg className="admin-action-icon" viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="4.5" width="15" height="11" rx="2" /><path d="m3.5 6 6.5 5 6.5-5" /></svg>;
+  }
+  if (kind === "trash") {
+    return <svg className="admin-action-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4.5 6.5h11M8 3.5h4l.7 3H7.3Z" /><path d="m6 6.5.7 10h6.6l.7-10M8.5 9.5v4.5M11.5 9.5v4.5" /></svg>;
+  }
+  return <svg className="admin-action-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3.5v13M3.5 10h13" /></svg>;
+}
+
 function CreditIndicator({ site }: { site: string }) {
   const { session, workflowFlags } = useApp();
   const { t, language } = useI18n();
@@ -4736,7 +4752,7 @@ function McpPlanSettings() {
   const [plan, setPlan] = useState<Record<string, any>>({ priceId: "", draftLimit: "", publishLimitPerMonth: "", enabled: false });
   const [busy, setBusy] = useState(false);
   useEffect(() => { api.mcpPlan().then(({ plan }) => { if (plan) setPlan(plan); }).catch((err) => showToast(err.message, "error")); }, []);
-  return <form className="card settings-card" onSubmit={async (event) => {
+  return <form className="card settings-card mcp-plan-settings-card" onSubmit={async (event) => {
     event.preventDefault(); setBusy(true);
     try { const result = await api.saveMcpPlan(plan); setPlan(result.plan); showToast(t("admin.saved")); }
     catch (err) { showToast(err instanceof Error ? err.message : t("common.error"), "error"); }
@@ -4755,7 +4771,9 @@ function Admin() {
   const { t } = useI18n();
   const { showToast } = useToast();
   const canIssueSiteToken = session.role === "admin";
-  const [adminScope, setAdminScope] = useState<"site" | "global">("site");
+  const [adminScope, setAdminScope] = useState<"site" | "global">(
+    session.role === "admin" ? "global" : "site",
+  );
   const [sites, setSites] = useState<string[]>([]);
   const [showCreateSite, setShowCreateSite] = useState(false);
   const [newSiteForm, setNewSiteForm] = useState({
@@ -4794,7 +4812,16 @@ function Admin() {
     null,
   );
   const [siteConfig, setSiteConfig] = useState<Record<string, any> | null>(null);
-  const [siteForm, setSiteForm] = useState({ name: "", domain: "", rebuildWebhookUrl: "", blogEnabled: true, reviewMode: "direct", planId: "standard" });
+  const [siteForm, setSiteForm] = useState({
+    name: "",
+    domain: "",
+    rebuildWebhookUrl: "",
+    coolifyApiToken: "",
+    clearCoolifyApiToken: false,
+    blogEnabled: true,
+    reviewMode: "direct",
+    planId: "standard",
+  });
   const [siteSaving, setSiteSaving] = useState(false);
   const [siteToken, setSiteToken] = useState("");
   const [teamUnavailable, setTeamUnavailable] = useState(false);
@@ -4959,6 +4986,10 @@ function Admin() {
           name: String(data.config?.name || ""),
           domain: String(data.config?.domain || ""),
           rebuildWebhookUrl: String(data.config?.rebuildWebhookUrl || ""),
+          // The API intentionally redacts the token. Keep the field empty so
+          // saving without typing a new value preserves the existing secret.
+          coolifyApiToken: "",
+          clearCoolifyApiToken: false,
           blogEnabled: data.config?.blogEnabled !== false,
           reviewMode: String(data.config?.reviewMode || "direct"),
           planId: String(data.config?.planId || "standard"),
@@ -5163,8 +5194,14 @@ function Admin() {
     event.preventDefault();
     setSiteSaving(true);
     try {
-      const result = await api.saveSiteConfig(site, { ...siteForm, reviewMode: "direct", requiresPublishConfirmation: false });
+      const result = await api.saveSiteConfig(site, {
+        ...siteForm,
+        coolifyApiToken: siteForm.coolifyApiToken.trim(),
+        reviewMode: "direct",
+        requiresPublishConfirmation: false,
+      });
       setSiteConfig(result.config);
+      setSiteForm((current) => ({ ...current, coolifyApiToken: "", clearCoolifyApiToken: false }));
       report(t("admin.siteSaved"));
     } catch (err) {
       report(err instanceof Error ? err.message : t("common.error"), "error");
@@ -5371,9 +5408,23 @@ function Admin() {
           <p className="admin-scope-kicker">{t("admin.workspaceScope")}</p>
           <h2>{t("admin.sites")}</h2>
           {sites.length ? (
-            <ul>
+            <ul className="admin-site-list">
               {sites.map((handle) => (
-                <li key={handle}>● {handle}</li>
+                <li key={handle}>
+                  <button
+                    type="button"
+                    className={`admin-site-option ${site === handle ? "active" : ""}`}
+                    aria-current={site === handle ? "page" : undefined}
+                    onClick={() => {
+                      setSite(handle);
+                      setAdminScope("site");
+                    }}
+                  >
+                    <span className="admin-site-option-dot" aria-hidden="true">●</span>
+                    <strong>{handle}</strong>
+                    <span className="admin-site-option-arrow" aria-hidden="true">→</span>
+                  </button>
+                </li>
               ))}
             </ul>
           ) : (
@@ -5509,6 +5560,7 @@ function Admin() {
               type="button"
               onClick={() => setUserForm({ email: "", role: "client", sites: [site], allowPublishingAs: false })}
             >
+              <AdminActionIcon kind="plus" />
               {t("admin.addUser")}
             </button>
           </div>
@@ -5526,10 +5578,45 @@ function Admin() {
                     </div>
                   </div>
                   <div className="user-actions">
-                    <button className="chip" type="button" onClick={() => setUserForm({ id: user.id, email: user.email || "", role: user.role || "client", sites: user.sites || [user.site || site], allowPublishingAs: Boolean(user.allowPublishingAs) })}>{t("admin.editUser")}</button>
-                    <button className="chip" type="button" disabled={userBusy} onClick={() => user.hasLoginToken ? void revokeUserToken(user) : void issueUserToken(user)}>{user.hasLoginToken ? t("admin.revokeToken") : t("admin.issueToken")}</button>
-                    <button className="chip" type="button" disabled={userBusy} onClick={() => void sendUserMagicLink(user)}>{t("admin.magicLink")}</button>
-                    <button className="danger-link" type="button" disabled={userBusy} onClick={() => setPendingDeleteUser(user)}>{t("admin.delete")}</button>
+                    <button
+                      className="admin-icon-action"
+                      type="button"
+                      onClick={() => setUserForm({ id: user.id, email: user.email || "", role: user.role || "client", sites: user.sites || [user.site || site], allowPublishingAs: Boolean(user.allowPublishingAs) })}
+                      aria-label={t("admin.editUser")}
+                      title={t("admin.editUser")}
+                    >
+                      <AdminActionIcon kind="edit" />
+                    </button>
+                    <button
+                      className="admin-icon-action"
+                      type="button"
+                      disabled={userBusy}
+                      onClick={() => user.hasLoginToken ? void revokeUserToken(user) : void issueUserToken(user)}
+                      aria-label={user.hasLoginToken ? t("admin.revokeToken") : t("admin.issueToken")}
+                      title={user.hasLoginToken ? t("admin.revokeToken") : t("admin.issueToken")}
+                    >
+                      <AdminActionIcon kind="key" />
+                    </button>
+                    <button
+                      className="admin-icon-action"
+                      type="button"
+                      disabled={userBusy}
+                      onClick={() => void sendUserMagicLink(user)}
+                      aria-label={t("admin.magicLink")}
+                      title={t("admin.magicLink")}
+                    >
+                      <AdminActionIcon kind="mail" />
+                    </button>
+                    <button
+                      className="admin-icon-action danger"
+                      type="button"
+                      disabled={userBusy}
+                      onClick={() => setPendingDeleteUser(user)}
+                      aria-label={t("admin.delete")}
+                      title={t("admin.delete")}
+                    >
+                      <AdminActionIcon kind="trash" />
+                    </button>
                   </div>
                 </li>
               ))}
@@ -5608,6 +5695,31 @@ function Admin() {
                 {t("admin.rebuildWebhook")}
                 <input value={siteForm.rebuildWebhookUrl} onChange={(event) => setSiteForm({ ...siteForm, rebuildWebhookUrl: event.target.value })} placeholder="https://..." />
               </label>
+              <label>
+                {t("admin.coolifyToken")} <span className="optional">
+                  {siteConfig.hasCoolifyApiToken
+                    ? `${t("admin.configured")} · ${siteConfig.coolifyApiTokenHint || "••••"}`
+                    : t("admin.notConfigured")}
+                </span>
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  value={siteForm.coolifyApiToken}
+                  onChange={(event) => setSiteForm({ ...siteForm, coolifyApiToken: event.target.value })}
+                  placeholder={t("admin.coolifyTokenPlaceholder")}
+                />
+                <span className="tiny form-help">{t("admin.coolifyTokenHelp")}</span>
+              </label>
+              {siteConfig.hasCoolifyApiToken && (
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={siteForm.clearCoolifyApiToken}
+                    onChange={(event) => setSiteForm({ ...siteForm, clearCoolifyApiToken: event.target.checked })}
+                  />
+                  {t("admin.clearCoolifyToken")}
+                </label>
+              )}
               <label className="checkbox-label">
                 <input type="checkbox" checked={siteForm.blogEnabled} onChange={(event) => setSiteForm({ ...siteForm, blogEnabled: event.target.checked })} />
                 {t("admin.blogEnabled")}
@@ -5849,7 +5961,7 @@ function Admin() {
             </form>
           </div>
           </> : (
-            <section className="card">
+            <section className="card admin-ai-disabled-card">
               <h2>{t("admin.cmsAiDisabledTitle")}</h2>
               <p className="muted">{t("admin.cmsAiDisabledHelp")}</p>
             </section>
