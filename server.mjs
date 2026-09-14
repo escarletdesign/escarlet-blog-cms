@@ -110,6 +110,7 @@ import {
   revokeUserLoginToken,
   setUserPassword,
   getPasswordUserByEmail,
+  getPasswordUserById,
   userSites,
   updateUserProfile,
   listPublishingDelegates,
@@ -593,7 +594,8 @@ function queueSocialPackImages({ site, post, socialPack, auth }) {
         // Updating generated assets must never demote a published or scheduled
         // post just because the image job completed asynchronously.
         keepPublished: true,
-        ownerId: auth?.userId || currentPost.ownerId || ''
+        ownerId: auth?.userId || currentPost.ownerId || '',
+        membershipUserId: auth?.userId || ''
       })
       job.status = 'completed'
       job.warnings = completed.warnings || []
@@ -1675,7 +1677,7 @@ const server = createServer(async (req, res) => {
       const mediaOptions = []
       for (let optionIndex = 0; optionIndex < optionCount; optionIndex += 1) {
         assertCmsAiAllowed(auth)
-        assertMembershipActive(site)
+        assertMembershipActive(site, { userId: auth.userId })
         let response
         if (referenceFiles.length) {
           // GPT Image edits accepts up to 16 reference images. Sending the
@@ -1726,7 +1728,8 @@ const server = createServer(async (req, res) => {
           filename: `${slug}-cover${optionCount > 1 ? `-option-${optionIndex + 1}` : ''}-${Date.now()}.png`,
           contentBase64: `data:image/png;base64,${contentBase64}`,
           alt,
-          kind: 'post'
+          kind: 'post',
+          membershipUserId: auth.userId || ''
         })
         mediaOptions.push({
           ...result.media,
@@ -1780,7 +1783,7 @@ const server = createServer(async (req, res) => {
       const body = await parseBody(req)
       const site = siteFrom(auth, body.site || DEFAULT_SITE)
       assertSiteAccess(auth, site)
-      assertMembershipActive(site)
+      assertMembershipActive(site, { userId: auth.userId })
       assertAiRateLimit(aiRateLimitKey(auth, site, requestIp(req)), { limit: 12 })
       const raw = String(body.audioBase64 || '').trim()
       const encoded = raw.includes(',') ? raw.split(',').pop() : raw
@@ -1919,7 +1922,8 @@ const server = createServer(async (req, res) => {
                 socialPack: completed.socialPack,
                 direct: true,
                 keepPublished: true,
-                ownerId: auth.userId || ''
+                ownerId: auth.userId || '',
+                membershipUserId: auth.userId || ''
               })
               result.post = saved.post
               result.socialPackPersisted = true
@@ -1981,33 +1985,26 @@ const server = createServer(async (req, res) => {
         assertSuperAdmin(auth)
         const body = req.method === 'GET' ? {} : await parseBody(req)
         const requestedSite = req.method === 'GET' ? url.searchParams.get('site') : body.site
+        const requestedUserId = req.method === 'GET' ? url.searchParams.get('userId') : body.userId
         const site = String(requestedSite || '').trim()
+        const userId = String(requestedUserId || '').trim()
         if (!site || !loadSiteConfig(site)) throw Object.assign(new Error('Sitio no encontrado'), { status: 404 })
+        const target = getPasswordUserById(userId)
+        if (!target || !userSites(target).includes(site)) throw Object.assign(new Error('El usuario no pertenece a este sitio.'), { status: 404 })
         if (req.method === 'GET') {
-          json(res, 200, { site, grant: getMembershipGrant(site, db) })
+          json(res, 200, { site, userId, grant: getMembershipGrant(site, userId, db) })
           return
         }
         if (req.method === 'POST') {
-          const grant = saveMembershipGrant(site, body, { db, actorId: auth.userId || auth.role })
+          const grant = saveMembershipGrant(site, userId, body, { db, actorId: auth.userId || auth.role })
           writeDb(db)
-          if (grant?.active) {
-            const config = loadSiteConfig(site)
-            saveSiteConfig(site, { entitlements: { ...config.entitlements, membership: 'active' } })
-          }
-          json(res, 200, { site, grant })
+          json(res, 200, { site, userId, grant })
           return
         }
         if (req.method === 'DELETE') {
-          const grant = revokeMembershipGrant(site, { db, actorId: auth.userId || auth.role })
+          const grant = revokeMembershipGrant(site, userId, { db, actorId: auth.userId || auth.role })
           writeDb(db)
-          const config = loadSiteConfig(site)
-          const stripe = db.memberships?.[site]
-          const accessUntil = Number(stripe?.accessUntil || stripe?.paidThrough || 0)
-          const stripeActive = ['active', 'trialing'].includes(stripe?.status) && accessUntil * 1000 > Date.now()
-          if (config?.planId === 'mcp' && !stripeActive) {
-            saveSiteConfig(site, { entitlements: { ...config.entitlements, membership: 'suspended' } })
-          }
-          json(res, 200, { site, grant })
+          json(res, 200, { site, userId, grant })
           return
         }
         json(res, 405, { message: 'Método no permitido' })
@@ -2691,7 +2688,7 @@ const server = createServer(async (req, res) => {
       try {
         const site = siteFrom(auth, body.site || DEFAULT_SITE)
         assertSiteAccess(auth, site)
-        const result = await uploadMedia({ ...body, site })
+        const result = await uploadMedia({ ...body, site, membershipUserId: auth.userId || '' })
         json(res, 200, result.media ? { media: result.media, ...result } : result)
       } catch (err) {
         json(res, err.status || 400, { message: err.message, ...(err.extra || {}) })
@@ -2706,7 +2703,7 @@ const server = createServer(async (req, res) => {
       const mediaPath = body.path || url.searchParams.get('path') || ''
       try {
         assertSiteAccess(auth, site)
-        const result = await cmsDeleteMedia(site, id, mediaPath)
+        const result = await cmsDeleteMedia(site, id, mediaPath, { membershipUserId: auth.userId || '' })
         json(res, 200, result)
       } catch (err) {
         json(res, err.status || 400, { message: err.message })
@@ -2719,7 +2716,7 @@ const server = createServer(async (req, res) => {
       try {
         const site = siteFrom(auth, body.site || DEFAULT_SITE)
         assertSiteAccess(auth, site)
-        const result = await cmsDeleteMedia(site, body.id, body.path || '')
+        const result = await cmsDeleteMedia(site, body.id, body.path || '', { membershipUserId: auth.userId || '' })
         json(res, 200, result)
       } catch (err) {
         json(res, err.status || 400, { message: err.message })
@@ -2732,7 +2729,7 @@ const server = createServer(async (req, res) => {
       try {
         const site = siteFrom(auth, body.site || DEFAULT_SITE)
         assertSiteAccess(auth, site)
-        const result = await cmsUpdateMediaAlt(site, body.id, body.alt)
+        const result = await cmsUpdateMediaAlt(site, body.id, body.alt, { membershipUserId: auth.userId || '' })
         json(res, 200, result)
       } catch (err) {
         json(res, err.status || 400, { message: err.message })
@@ -2745,7 +2742,7 @@ const server = createServer(async (req, res) => {
       const site = siteFrom(auth, body.site || DEFAULT_SITE)
       try {
         assertSiteAccess(auth, site)
-        assertMembershipActive(site)
+        assertMembershipActive(site, { userId: auth.userId })
       } catch (err) {
         json(res, err.status || 403, { message: err.message })
         return
@@ -2755,7 +2752,7 @@ const server = createServer(async (req, res) => {
         const idx = db.media.findIndex((m) => m.id === body.id && (!site || m.site === site))
         if (idx >= 0) {
           try {
-            const result = await cmsUpdateMediaAlt(site, body.id, body.alt)
+            const result = await cmsUpdateMediaAlt(site, body.id, body.alt, { membershipUserId: auth.userId || '' })
             json(res, 200, result)
           } catch (err) {
             json(res, err.status || 400, { message: err.message })
@@ -2786,6 +2783,7 @@ const server = createServer(async (req, res) => {
           ...body,
           site,
           ownerId: auth.userId || '',
+          membershipUserId: auth.userId || '',
           skipQuota,
           contentSource: body.contentSource || (['client', 'client_mcp'].includes(auth.role) ? 'client' : 'agency')
         })
@@ -2813,7 +2811,7 @@ const server = createServer(async (req, res) => {
         // A client may demote a publication, never promote it with an update.
         if (body.status === 'draft') fields.status = 'draft'
         if (Object.hasOwn(body, 'publishAt')) fields.publishAt = body.publishAt
-        const result = await cmsUpdatePost({ ...fields, site, direct: true, keepPublished: true })
+        const result = await cmsUpdatePost({ ...fields, site, direct: true, keepPublished: true, membershipUserId: auth.userId || '' })
         json(res, 200, result)
       } catch (error) {
         const status = error.status || 500
@@ -2850,7 +2848,7 @@ const server = createServer(async (req, res) => {
           json(res, 403, { message: 'No tienes acceso a programar este borrador.' })
           return
         }
-        const result = await cmsSchedulePost(site, body.slug, body.publishAt, { ignoreSeo: Boolean(body.ignoreSeo), direct: Boolean(body.direct) })
+        const result = await cmsSchedulePost(site, body.slug, body.publishAt, { ignoreSeo: Boolean(body.ignoreSeo), direct: Boolean(body.direct), membershipUserId: auth.userId || '' })
         json(res, 200, result)
       } catch (error) {
         const status = error.status || 500
@@ -2870,7 +2868,7 @@ const server = createServer(async (req, res) => {
           json(res, 403, { message: 'No tienes acceso a publicar este borrador.' })
           return
         }
-        const result = await cmsConfirmSchedule(site, body.slug)
+        const result = await cmsConfirmSchedule(site, body.slug, { membershipUserId: auth.userId || '' })
         json(res, 200, result)
       } catch (error) {
         const status = error.status || 500
@@ -2885,7 +2883,7 @@ const server = createServer(async (req, res) => {
       try {
         assertSiteAccess(auth, site)
         assertPostAccess(findPost(readDb(), site, body.slug), auth, { write: true })
-        const result = await cmsCancelSchedule(site, body.slug)
+        const result = await cmsCancelSchedule(site, body.slug, { membershipUserId: auth.userId || '' })
         json(res, 200, result)
       } catch (error) {
         const status = error.status || 500
@@ -2928,7 +2926,8 @@ const server = createServer(async (req, res) => {
           publishAt: body.publishAt,
           skipQuota: Boolean(auth.capabilities?.includes('quota:override')),
           ignoreSeo: Boolean(body.ignoreSeo),
-          direct: Boolean(body.direct)
+          direct: Boolean(body.direct),
+          membershipUserId: auth.userId || ''
         })
         if (result.published && result.post) {
           recordPublicationMemory(site, result.post)
@@ -2976,7 +2975,7 @@ const server = createServer(async (req, res) => {
       try {
         assertSiteAccess(auth, site)
         assertPostAccess(findPost(readDb(), site, body.slug), auth, { write: true })
-        const result = await cmsUnpublishPost(site, body.slug)
+        const result = await cmsUnpublishPost(site, body.slug, { membershipUserId: auth.userId || '' })
         json(res, 200, result)
       } catch (error) {
         const status = error.status || 500
@@ -2997,7 +2996,7 @@ const server = createServer(async (req, res) => {
             json(res, 403, { message: 'No tienes permiso para eliminar este post.' })
             return
           }
-          const result = await cmsDeletePost(site, slug)
+          const result = await cmsDeletePost(site, slug, { membershipUserId: auth.userId || '' })
           json(res, 200, result)
         } catch (error) {
           const status = error.status || 500

@@ -28,9 +28,9 @@ const baseApi = {
   session: () => request<Session>("/api/admin/session"),
   mcpPlan: () => request<{ plan: Record<string, any> | null }>("/api/admin/billing/mcp-plan"),
   saveMcpPlan: (plan: Record<string, any>) => request<{ plan: Record<string, any> }>("/api/admin/billing/mcp-plan", { method: "POST", body: JSON.stringify(plan) }),
-  membershipGrant: (site: string) => request<{ site: string; grant: Record<string, any> | null }>(`/api/admin/billing/membership-grant?site=${encodeURIComponent(site)}`),
-  saveMembershipGrant: (input: Record<string, any>) => request<{ site: string; grant: Record<string, any> | null }>("/api/admin/billing/membership-grant", { method: "POST", body: JSON.stringify(input) }),
-  revokeMembershipGrant: (site: string) => request<{ site: string; grant: Record<string, any> | null }>("/api/admin/billing/membership-grant", { method: "DELETE", body: JSON.stringify({ site }) }),
+  membershipGrant: (site: string, userId: string) => request<{ site: string; userId: string; grant: Record<string, any> | null }>(`/api/admin/billing/membership-grant?site=${encodeURIComponent(site)}&userId=${encodeURIComponent(userId)}`),
+  saveMembershipGrant: (input: Record<string, any>) => request<{ site: string; userId: string; grant: Record<string, any> | null }>("/api/admin/billing/membership-grant", { method: "POST", body: JSON.stringify(input) }),
+  revokeMembershipGrant: (site: string, userId: string) => request<{ site: string; userId: string; grant: Record<string, any> | null }>("/api/admin/billing/membership-grant", { method: "DELETE", body: JSON.stringify({ site, userId }) }),
   loginWithToken: (token: string) =>
     request<Session>("/api/login", {
       method: "POST",

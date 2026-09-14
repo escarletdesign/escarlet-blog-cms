@@ -646,7 +646,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
       if (restrictMutations) assertChatToolAllowed(name, args)
       const tool = buildToolList(auth).find((t) => t.name === name)
       if (!tool) throw Object.assign(new Error('Herramienta no disponible para este acceso.'), { status: 403 })
-      if (!tool.annotations?.readOnlyHint && name !== 'blog_create_site') assertMembershipActive(resolveToolSite(auth, args))
+      if (!tool.annotations?.readOnlyHint && name !== 'blog_create_site') assertMembershipActive(resolveToolSite(auth, args), { userId: auth.userId || '' })
       if (args.slug && !['blog_create_draft', 'blog_upload_media', 'blog_upload_media_file', 'blog_open_image_drop', 'blog_import_remote_image'].includes(name)) {
         const site = resolveToolSite(auth, args)
         const { post } = await cms.getPost(site, args.originalSlug || args.slug)
@@ -680,7 +680,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
         case 'blog_save_social_pack': {
           const site = resolveToolSite(auth, args)
           if (!args.socialPack || typeof args.socialPack !== 'object' || Array.isArray(args.socialPack)) throw Object.assign(new Error('Falta socialPack.'), { status: 400 })
-          return textResult(await cms.updatePost({ site, slug: args.slug, socialPack: args.socialPack, keepPublished: true, direct: true }))
+          return textResult(await cms.updatePost({ site, slug: args.slug, socialPack: args.socialPack, keepPublished: true, direct: true, membershipUserId: auth.userId || '' }))
         }
         case 'blog_list_sites': {
           const all = await cms.listSites()
@@ -738,7 +738,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
         }
         case 'blog_get_quota': {
           const site = resolveToolSite(auth, args)
-          return textResult(cms.getQuotaSnapshot(site))
+          return textResult(cms.getQuotaSnapshot(site, { userId: auth.userId || '' }))
         }
         case 'blog_create_draft': {
           const site = resolveToolSite(auth, args)
@@ -747,24 +747,25 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
               ...safePostFields(args, auth, site),
               site,
               ownerId: auth.userId || '',
+              membershipUserId: auth.userId || '',
               contentSource: args.contentSource || (['client', 'client_mcp'].includes(auth.role) ? 'client' : 'agency')
             })
           )
         }
         case 'blog_update_post': {
           const site = resolveToolSite(auth, args)
-          return textResult(await cms.updatePost({ ...safePostFields(args, auth, site), site, direct: true, keepPublished: true }))
+          return textResult(await cms.updatePost({ ...safePostFields(args, auth, site), site, direct: true, keepPublished: true, membershipUserId: auth.userId || '' }))
         }
         case 'blog_unpublish': {
           const site = resolveToolSite(auth, args)
-          return textResult(await cms.unpublishPost(site, args.slug))
+          return textResult(await cms.unpublishPost(site, args.slug, { membershipUserId: auth.userId || '' }))
         }
         case 'blog_delete_post': {
           const site = resolveToolSite(auth, args)
           if (args.confirm !== true) {
             throw Object.assign(new Error('Para eliminar, pasa confirm: true'), { status: 400 })
           }
-          return textResult(await cms.deletePost(site, args.slug))
+          return textResult(await cms.deletePost(site, args.slug, { membershipUserId: auth.userId || '' }))
         }
         case 'blog_validate_seo': {
           const site = resolveToolSite(auth, args)
@@ -775,7 +776,8 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           return textResult(await cms.publishPost(site, args.slug, {
             publishAt: args.publishAt,
             direct: directWorkflowPublish(args, source),
-            ignoreSeo: args.ignoreSeo === true
+            ignoreSeo: args.ignoreSeo === true,
+            membershipUserId: auth.userId || ''
           }))
         }
         case 'blog_request_changes': {
@@ -791,17 +793,18 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           const site = resolveToolSite(auth, args)
           return textResult(await cms.schedulePostForDate(site, args.slug, args.publishAt, {
             direct: directWorkflowPublish(args, source),
-            ignoreSeo: args.ignoreSeo === true
+            ignoreSeo: args.ignoreSeo === true,
+            membershipUserId: auth.userId || ''
           }))
         }
         case 'blog_confirm_schedule': {
           assertSuperAdmin(auth)
           const site = resolveToolSite(auth, args)
-          return textResult(await cms.confirmSchedule(site, args.slug))
+          return textResult(await cms.confirmSchedule(site, args.slug, { membershipUserId: auth.userId || '' }))
         }
         case 'blog_cancel_schedule': {
           const site = resolveToolSite(auth, args)
-          return textResult(await cms.cancelSchedule(site, args.slug))
+          return textResult(await cms.cancelSchedule(site, args.slug, { membershipUserId: auth.userId || '' }))
         }
         case 'blog_list_calendar': {
           const site = resolveToolSite(auth, args)
@@ -830,15 +833,15 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
               { status: 400 }
             )
           }
-          return textResult(await cms.uploadMedia({ ...args, site }))
+          return textResult(await cms.uploadMedia({ ...args, site, membershipUserId: auth.userId || '' }))
         }
         case 'blog_open_image_drop': {
           const site = resolveToolSite(auth, args)
-          return textResult(cms.openImageDrop({ ...args, site }))
+          return textResult(cms.openImageDrop({ ...args, site, membershipUserId: auth.userId || '' }))
         }
         case 'blog_upload_media': {
           const site = resolveToolSite(auth, args)
-          return textResult(await cms.uploadMedia({ ...args, site }))
+          return textResult(await cms.uploadMedia({ ...args, site, membershipUserId: auth.userId || '' }))
         }
         case 'blog_import_remote_image': {
           const site = resolveToolSite(auth, args)
@@ -848,7 +851,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
               { status: 400 }
             )
           }
-          return textResult(await cms.uploadMedia({ ...args, site, contentBase64: undefined }))
+          return textResult(await cms.uploadMedia({ ...args, site, contentBase64: undefined, membershipUserId: auth.userId || '' }))
         }
         case 'blog_import_brand_zip': {
           assertSuperAdmin(auth)

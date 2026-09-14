@@ -26,6 +26,27 @@ import type { Author, MediaItem, Post, Session } from "./types";
 
 type Draft = Partial<Post> & { title: string; slug?: string };
 type WorkflowFlags = { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean };
+type SocialPackChannels = {
+  substack: boolean;
+  linkedin: boolean;
+  x: boolean;
+  videoScript: boolean;
+  instagramCarousel: boolean;
+};
+const DEFAULT_SOCIAL_PACK_CHANNELS: SocialPackChannels = {
+  substack: true,
+  linkedin: true,
+  x: true,
+  videoScript: true,
+  instagramCarousel: true,
+};
+const SOCIAL_PACK_CHANNEL_KEYS: Array<{ key: keyof SocialPackChannels; labelKey: string }> = [
+  { key: "substack", labelKey: "admin.socialPackSubstack" },
+  { key: "linkedin", labelKey: "admin.socialPackLinkedin" },
+  { key: "x", labelKey: "admin.socialPackX" },
+  { key: "videoScript", labelKey: "admin.socialPackVideo" },
+  { key: "instagramCarousel", labelKey: "admin.socialPackInstagram" },
+];
 type AppState = {
   session: Session;
   site: string;
@@ -4719,7 +4740,7 @@ function Billing() {
       <p>{snapshot?.subscription?.source === "grant" && !snapshot?.suspended ? t("mcp.complimentaryActive") : snapshot?.subscription?.status === "trialing" && !snapshot?.suspended ? t("mcp.trialActive") : snapshot?.suspended ? t("mcp.readOnly") : t("mcp.active")}</p>
       <p>{snapshot ? `${Math.max(0, snapshot.publishes.limit - snapshot.publishes.used)} / ${snapshot.publishes.limit} ${t("mcp.publicationsLeft")}` : t("common.loading")}</p>
       {snapshot?.subscription?.trialEndsAt && <p className="tiny">{t("mcp.trialActive")} · {new Date(Number(snapshot.subscription.trialEndsAt) * 1000).toLocaleDateString(language === "en" ? "en-GB" : "es-ES")}</p>}
-      <p className="muted">{t("mcp.billingHelp")}</p>
+      <div className="membership-grant-scope"><strong>{t("mcp.membershipCoverage")}</strong><span>{site}</span><span>{t("mcp.billingHelp")}</span></div>
       <div className="form-actions">{!(snapshot?.subscription?.source === "grant" && !snapshot?.suspended) && <><button className="primary" disabled={Boolean(busy) || !snapshot?.stripe?.plans?.mcp} onClick={() => checkout({ kind: "membership", planId: "mcp" })}>{t("mcp.subscribe")}</button>
       <button className="secondary" disabled={Boolean(busy)} onClick={portal}>{t("billing.manage")}</button></>}</div>
     </section>
@@ -4870,27 +4891,37 @@ function McpPlanSettings() {
   </form>;
 }
 
-function MembershipGrantSettings({ site }: { site: string }) {
+function MembershipGrantSettings({ site, users }: { site: string; users: Array<Record<string, any>> }) {
   const { t } = useI18n();
   const { showToast } = useToast();
+  const eligibleUsers = users.filter((user) => (user.sites || []).includes(site));
   const [grant, setGrant] = useState<Record<string, any> | null>(null);
+  const [userId, setUserId] = useState("");
   const [kind, setKind] = useState("complimentary");
   const [activeUntil, setActiveUntil] = useState("");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    api.membershipGrant(site).then(({ grant: next }) => {
+    setUserId((current) => eligibleUsers.some((user) => String(user.id) === current) ? current : String(eligibleUsers[0]?.id || ""));
+  }, [site, users]);
+  useEffect(() => {
+    if (!userId) {
+      setGrant(null);
+      setReason("");
+      return;
+    }
+    api.membershipGrant(site, userId).then(({ grant: next }) => {
       setGrant(next);
       setKind(String(next?.kind || "complimentary"));
       setActiveUntil(next?.activeUntil ? String(next.activeUntil).slice(0, 10) : "");
       setReason(String(next?.reason || ""));
     }).catch((err) => showToast(err.message, "error"));
-  }, [site]);
+  }, [site, userId]);
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setBusy(true);
     try {
-      const result = await api.saveMembershipGrant({ site, kind, activeUntil: activeUntil ? new Date(`${activeUntil}T23:59:59.999Z`).toISOString() : null, reason });
+      const result = await api.saveMembershipGrant({ site, userId, kind, activeUntil: activeUntil ? new Date(`${activeUntil}T23:59:59.999Z`).toISOString() : null, reason });
       setGrant(result.grant);
       showToast(t("admin.membershipGrantSaved"));
     } catch (err) {
@@ -4902,7 +4933,7 @@ function MembershipGrantSettings({ site }: { site: string }) {
   const revoke = async () => {
     setBusy(true);
     try {
-      const result = await api.revokeMembershipGrant(site);
+      const result = await api.revokeMembershipGrant(site, userId);
       setGrant(result.grant);
       showToast(t("admin.membershipGrantRevoked"));
     } catch (err) {
@@ -4915,10 +4946,21 @@ function MembershipGrantSettings({ site }: { site: string }) {
     <p className="eyebrow">{t("admin.membershipAccess")}</p>
     <h2>{t("admin.membershipGrantTitle")}</h2>
     <p className="muted">{t("admin.membershipGrantHelp")}</p>
+    <div className="membership-grant-scope" role="note">
+      <strong>{site}</strong>
+      <span>{t("admin.membershipGrantTarget")}</span>
+      <span>{t("admin.membershipGrantStripeNote")}</span>
+    </div>
+    <label>{t("admin.membershipGrantUser")}
+      <select value={userId} onChange={(event) => { setUserId(event.target.value); setGrant(null); setKind("complimentary"); setActiveUntil(""); setReason(""); }} disabled={!eligibleUsers.length || busy}>
+        {!eligibleUsers.length && <option value="">{t("admin.membershipGrantNoUsers")}</option>}
+        {eligibleUsers.map((user) => <option key={String(user.id)} value={String(user.id)}>{String(user.displayName || user.email || user.id)}</option>)}
+      </select>
+    </label>
     <label>{t("admin.membershipGrantType")}<select value={kind} onChange={(event) => setKind(event.target.value)}><option value="complimentary">{t("admin.membershipGrantComplimentary")}</option><option value="trial">{t("admin.membershipGrantTrial")}</option></select></label>
     <label>{t("admin.membershipGrantUntil")}<input type="date" value={activeUntil} onChange={(event) => setActiveUntil(event.target.value)} /><small>{t("admin.membershipGrantUntilHelp")}</small></label>
     <label>{t("admin.membershipGrantReason")}<input required maxLength={240} value={reason} onChange={(event) => setReason(event.target.value)} placeholder={t("admin.membershipGrantReasonPlaceholder")} /></label>
-    <div className="form-actions"><button className="primary" disabled={busy}>{busy ? t("admin.saving") : t("admin.saveMembershipGrant")}</button><button type="button" className="danger-link" disabled={busy || !grant} onClick={() => void revoke()}>{t("admin.revokeMembershipGrant")}</button></div>
+    <div className="form-actions"><button className="primary" disabled={busy || !userId}>{busy ? t("admin.saving") : t("admin.saveMembershipGrant")}</button><button type="button" className="danger-link" disabled={busy || !grant} onClick={() => void revoke()}>{t("admin.revokeMembershipGrant")}</button></div>
     {grant && <p className="tiny">{grant.active ? t("admin.membershipGrantActive") : t("admin.membershipGrantInactive")}{grant.activeUntil ? ` · ${String(grant.activeUntil).slice(0, 10)}` : ""}</p>}
   </form>;
 }
@@ -4977,6 +5019,7 @@ function Admin() {
     blogEnabled: true,
     reviewMode: "direct",
     planId: "standard",
+    socialPackChannels: { ...DEFAULT_SOCIAL_PACK_CHANNELS },
   });
   const [siteSaving, setSiteSaving] = useState(false);
   const [siteToken, setSiteToken] = useState("");
@@ -5017,6 +5060,7 @@ function Admin() {
   const [billingTestMode, setBillingTestMode] = useState(false);
   const [billingTestSaving, setBillingTestSaving] = useState(false);
   const [cmsAiEnabled, setCmsAiEnabled] = useState(true);
+  const [cmsAiSaving, setCmsAiSaving] = useState(false);
   const [assistantEnabled, setAssistantEnabled] = useState(true);
   const [blogWizardEnabled, setBlogWizardEnabled] = useState(true);
   const [workflowSaving, setWorkflowSaving] = useState(false);
@@ -5149,6 +5193,10 @@ function Admin() {
           blogEnabled: data.config?.blogEnabled !== false,
           reviewMode: String(data.config?.reviewMode || "direct"),
           planId: String(data.config?.planId || "standard"),
+          socialPackChannels: {
+            ...DEFAULT_SOCIAL_PACK_CHANNELS,
+            ...(data.config?.socialPackChannels || {}),
+          },
         });
       })
       .catch(() => setSiteConfig(null));
@@ -5472,25 +5520,30 @@ function Admin() {
       setBillingTestSaving(false);
     }
   };
-  const saveCmsAiFlag = async () => {
-    setWorkflowSaving(true);
+  const saveCmsAiFlag = async (enabled: boolean) => {
+    const previous = cmsAiEnabled;
+    setCmsAiEnabled(enabled);
+    setCmsAiSaving(true);
     try {
-      const result = await api.saveFeatureFlags({ cmsAiEnabled });
-      const enabled = result.flags?.cmsAiEnabled !== false;
-      setCmsAiEnabled(enabled);
-      if (!enabled) {
+      const result = await api.saveFeatureFlags({ cmsAiEnabled: enabled });
+      const saved = result.flags?.cmsAiEnabled !== false;
+      setCmsAiEnabled(saved);
+      if (!saved) {
         setProviders([]);
         setPacks([]);
         setModelCatalog([]);
         setAssistantEnabled(false);
         setBlogWizardEnabled(false);
+      } else {
+        await loadAiBilling();
       }
       report(t("admin.savedCmsAiFlag"));
       await refresh();
     } catch (err) {
+      setCmsAiEnabled(previous);
       report(err instanceof Error ? err.message : t("common.error"), "error");
     } finally {
-      setWorkflowSaving(false);
+      setCmsAiSaving(false);
     }
   };
   const saveWorkflowFlags = async () => {
@@ -5880,6 +5933,26 @@ function Admin() {
                 <input type="checkbox" checked={siteForm.blogEnabled} onChange={(event) => setSiteForm({ ...siteForm, blogEnabled: event.target.checked })} />
                 {t("admin.blogEnabled")}
               </label>
+              <fieldset className="social-pack-channel-settings">
+                <legend>{t("admin.socialPackChannels")}</legend>
+                <p className="tiny">{t("admin.socialPackChannelsHelp")}</p>
+                {SOCIAL_PACK_CHANNEL_KEYS.map(({ key, labelKey }) => (
+                  <label className="checkbox-label" key={key}>
+                    <input
+                      type="checkbox"
+                      checked={siteForm.socialPackChannels[key]}
+                      onChange={(event) => setSiteForm({
+                        ...siteForm,
+                        socialPackChannels: {
+                          ...siteForm.socialPackChannels,
+                          [key]: event.target.checked,
+                        },
+                      })}
+                    />
+                    {t(labelKey)}
+                  </label>
+                ))}
+              </fieldset>
               <label>
                 {t("admin.sitePlan")}
                 <ChoicePills
@@ -5913,23 +5986,31 @@ function Admin() {
       </div>
       {session.role === "admin" ? (
         <section className="admin-ai">
-          <section className="card temporary-flag-card">
+          <section className={`card cms-ai-status-card ${cmsAiEnabled ? "" : "is-disabled"}`}>
             <p className="eyebrow">{t("admin.cmsAiFlagEyebrow")}</p>
-            <h2>{t("admin.cmsAiFlagTitle")}</h2>
-            <p className="muted">{t("admin.cmsAiFlagHelp")}</p>
+            <h2>{cmsAiEnabled ? t("admin.cmsAiFlagTitle") : t("admin.cmsAiDisabledTitle")}</h2>
+            <p className="muted">{cmsAiEnabled ? t("admin.cmsAiFlagHelp") : t("admin.cmsAiDisabledHelp")}</p>
             <label className="switch-row">
               <span>
                 <b>{t("admin.cmsAiFlagToggle")}</b>
-                <small>{cmsAiEnabled ? t("admin.cmsAiFlagOn") : t("admin.cmsAiFlagOff")}</small>
+                <small>{cmsAiSaving ? t("admin.saving") : cmsAiEnabled ? t("admin.cmsAiFlagOn") : t("admin.cmsAiFlagOff")}</small>
               </span>
-              <input type="checkbox" checked={cmsAiEnabled} onChange={(event) => setCmsAiEnabled(event.target.checked)} />
+              <input type="checkbox" checked={cmsAiEnabled} disabled={cmsAiSaving} onChange={(event) => void saveCmsAiFlag(event.target.checked)} />
             </label>
-            <div className="form-actions">
-              <button className="primary" type="button" disabled={workflowSaving} onClick={() => void saveCmsAiFlag()}>
-                {workflowSaving ? t("admin.saving") : t("admin.saveFeatureFlag")}
-              </button>
-            </div>
           </section>
+          {session.role === "admin" && <>
+            <div className="section-title membership-section-title">
+              <div>
+                <p className="eyebrow">{t("admin.membershipAccess")}</p>
+                <h2>{t("admin.membershipBillingTitle")}</h2>
+                <p className="muted">{t("admin.membershipBillingHelp")}</p>
+              </div>
+            </div>
+            <div className="membership-settings-grid">
+              <MembershipGrantSettings site={site} users={users} />
+              <McpPlanSettings />
+            </div>
+          </>}
           {cmsAiEnabled ? <>
           <div className="section-title">
             <div>
@@ -6116,13 +6197,7 @@ function Admin() {
               </button>
             </form>
           </div>
-          </> : (
-            <section className="card admin-ai-disabled-card">
-              <h2>{t("admin.cmsAiDisabledTitle")}</h2>
-              <p className="muted">{t("admin.cmsAiDisabledHelp")}</p>
-            </section>
-          )}
-          {session.role === "admin" && <><McpPlanSettings /><MembershipGrantSettings site={site} /></>}
+          </> : null}
           {cmsAiEnabled && <>
           <section className="card temporary-flag-card">
             <p className="eyebrow">{t("admin.temporaryFlags")}</p>
