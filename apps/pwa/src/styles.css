@@ -633,3 +633,9 @@
 }
 .social-standalone-composer textarea { width: 100%; min-height: 130px; resize: vertical; color: var(--text); background: #17201e; border: 1px solid #3c4a46; border-radius: 10px; outline: 0; padding: 12px; line-height: 1.5; }
 .social-standalone-composer textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(185,245,98,.12); }
+.content-item-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 0; border-top: 1px solid var(--line, rgba(255,255,255,.1)); }
+.content-item-row:first-child { border-top: 0; }
+.content-item-row .form-actions { flex-wrap: wrap; }
+.choice-pills { display: flex; flex-wrap: wrap; gap: 10px; }
+.choice-pills label { display: inline-flex; align-items: center; gap: 6px; }
+@media (max-width: 700px) { .content-item-row { align-items: flex-start; flex-direction: column; } }

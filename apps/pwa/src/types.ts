@@ -12,6 +12,37 @@ export interface Session {
   avatarUrl?: string;
   profileComplete?: boolean;
   allowPublishingAs?: boolean;
+  workspaceId?: string;
+  workspaceRole?: "owner" | "admin" | "editor" | "author" | "viewer" | string;
+}
+
+export type ContentChannel = "blog" | "instagram" | "linkedin" | "x" | "video" | "substack";
+export type ContentStatus = "draft" | "generated" | "needs_review" | "approved" | "scheduled" | "syncing" | "published" | "failed" | "canceled";
+export interface ContentVariant {
+  id: string;
+  channel: ContentChannel;
+  status: ContentStatus;
+  body: Record<string, any>;
+}
+export interface ContentItem {
+  id: string;
+  batch_id?: string;
+  batchId?: string;
+  topic: string;
+  status: ContentStatus;
+  variants: ContentVariant[];
+  error?: string | null;
+}
+export interface ContentBatch {
+  id: string;
+  workspace_id?: string;
+  site_id?: string;
+  title: string;
+  status: ContentStatus;
+  total_items: number;
+  generated_items: number;
+  failed_items: number;
+  items: ContentItem[];
 }
 
 export interface Post {

@@ -18,6 +18,7 @@ RUN mkdir -p /app/data/media /app/data/brand /app/data/site-config
 
 ENV PORT=3040
 ENV NODE_ENV=production
+ENV WORKER_ENABLED=1
 # Safe default for deployments: content generation comes from ChatGPT via MCP
 # or the manual editor until CMS_AI_ENABLED=1 is explicitly configured.
 ENV CMS_AI_ENABLED=0
@@ -25,6 +26,7 @@ ENV CMS_AI_ENABLED=0
 VOLUME ["/app/data"]
 
 EXPOSE 3040
+STOPSIGNAL SIGTERM
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -qO- http://127.0.0.1:${PORT}/api/health || exit 1
