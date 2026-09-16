@@ -4,6 +4,7 @@ import { getPgPool, runCoreMigrations, closePgPool } from './lib/pg.mjs'
 import { claimJobs, finishJob, claimOutbox, finishOutbox, recordUsage, enqueueJob } from './lib/workspace-domain.mjs'
 import { decryptSecret } from './lib/secret-crypto.mjs'
 import { scheduleMetricoolPost, syncMetricoolPost } from './lib/metricool.mjs'
+import { schedulePlanablePost, syncPlanablePost, planableStatus } from './lib/planable.mjs'
 
 function loadEnv() {
   const path = new URL('./.env', import.meta.url)
@@ -70,12 +71,15 @@ async function processBlogPublishJob(job) {
   return { published: true, variantId }
 }
 
-async function processMetricoolEvent(event) {
+async function processExternalPublicationEvent(event) {
   const pool = await getPgPool()
   if (!pool) throw new Error('Postgres no está configurado.')
   const itemId = event.payload?.itemId || event.aggregate_id
-  const variants = await pool.query(`SELECT cv.id,cv.channel,cv.body,ci.site_id, s.publication_date,s.timezone,s.provider_post_id,mi.user_token_ciphertext,mi.metricool_user_id,mi.blog_id,mi.timezone AS integration_timezone
+  const variants = await pool.query(`SELECT cv.id,cv.channel,cv.body,ci.site_id, s.publication_date,s.timezone,s.provider_post_id,
+      cc.provider AS connection_provider,cc.credentials_ciphertext AS connection_credentials_ciphertext,cc.external_account_id AS connection_external_account_id,cc.config AS connection_config,
+      mi.user_token_ciphertext,mi.metricool_user_id,mi.blog_id,mi.timezone AS integration_timezone
     FROM content_variants cv JOIN content_items ci ON ci.id=cv.item_id LEFT JOIN schedules s ON s.variant_id=cv.id
+    LEFT JOIN LATERAL (SELECT provider,credentials_ciphertext,external_account_id,config FROM channel_connections WHERE workspace_id=cv.workspace_id AND site_id=ci.site_id AND channel=cv.channel AND status='connected' ORDER BY is_primary DESC,updated_at DESC LIMIT 1) cc ON TRUE
     LEFT JOIN LATERAL (SELECT user_token_ciphertext,metricool_user_id,blog_id,timezone FROM metricool_integrations WHERE workspace_id=cv.workspace_id AND (site_id=ci.site_id OR site_id IS NULL) AND enabled=TRUE ORDER BY CASE WHEN site_id=ci.site_id THEN 0 ELSE 1 END LIMIT 1) mi ON TRUE
     WHERE ci.id=$1 AND ci.workspace_id=$2 AND cv.status<>'canceled'`, [itemId, event.workspace_id])
   if (event.type === 'content.item.approved' && variants.rows.every((variant) => !variant.publication_date)) return
@@ -91,23 +95,35 @@ async function processMetricoolEvent(event) {
       }
       continue
     }
-    const token = decryptSecret(variant.user_token_ciphertext)
-    if (!token || !variant.metricool_user_id || !variant.blog_id) throw new Error('Metricool no está configurado para el sitio.')
+    const provider = String(variant.connection_provider || 'metricool').toLowerCase()
+    const connectionConfig = variant.connection_config && typeof variant.connection_config === 'object' ? variant.connection_config : {}
+    const token = decryptSecret(variant.connection_credentials_ciphertext || variant.user_token_ciphertext)
+    if (!token) throw new Error(`${provider} no está configurado para la marca.`)
     const body = variant.body && typeof variant.body === 'object' ? variant.body : {}
     const text = body.text || body.caption || body.body || body.bodyHtml || body.title || body.topic || ''
     const mediaRows = await pool.query('SELECT ma.public_url AS "url",ma.metadata FROM content_variant_media cvm JOIN media_assets ma ON ma.id=cvm.media_asset_id WHERE cvm.variant_id=$1 ORDER BY cvm.sort_order', [variant.id])
-    await recordUsage({ workspaceId: event.workspace_id, siteId: variant.site_id, kind: 'publications', quantity: 1, idempotencyKey: `publication:${event.id}:${variant.id}`, metadata: { itemId, channel: variant.channel, provider: 'metricool' } })
-    const response = variant.provider_post_id
-      ? await syncMetricoolPost({ userToken: token, userId: variant.metricool_user_id, blogId: variant.blog_id, providerPostId: variant.provider_post_id })
-      : await scheduleMetricoolPost({ userToken: token, userId: variant.metricool_user_id, blogId: variant.blog_id, publicationDate: variant.publication_date || new Date().toISOString(), timezone: variant.timezone || variant.integration_timezone || 'UTC', text, channel: variant.channel, media: mediaRows.rows.filter((asset) => asset.url), idempotencyKey: `metricool:${variant.id}:${variant.publication_date || 'now'}`, autoPublish: false, draft: true })
-    const providerPostId = response?.id || response?.postId || response?.data?.id || variant.provider_post_id || null
-    const remoteStatus = String(response?.status || response?.data?.status || '').toLowerCase()
+    await recordUsage({ workspaceId: event.workspace_id, siteId: variant.site_id, kind: 'publications', quantity: 1, idempotencyKey: `publication:${event.id}:${variant.id}`, metadata: { itemId, channel: variant.channel, provider } })
+    let response
+    if (provider === 'metricool') {
+      if (!variant.connection_credentials_ciphertext && (!variant.metricool_user_id || !variant.blog_id)) throw new Error('Metricool no está configurado para la marca.')
+      response = variant.provider_post_id
+        ? await syncMetricoolPost({ userToken: token, userId: variant.metricool_user_id || variant.connection_external_account_id, blogId: variant.blog_id || connectionConfig.blogId, providerPostId: variant.provider_post_id })
+        : await scheduleMetricoolPost({ userToken: token, userId: variant.metricool_user_id || variant.connection_external_account_id, blogId: variant.blog_id || connectionConfig.blogId, publicationDate: variant.publication_date || new Date().toISOString(), timezone: variant.timezone || variant.integration_timezone || connectionConfig.timezone || 'UTC', text, channel: variant.channel, media: mediaRows.rows.filter((asset) => asset.url), idempotencyKey: `metricool:${variant.id}:${variant.publication_date || 'now'}`, autoPublish: false, draft: true })
+    } else if (provider === 'planable') {
+      const workspaceId = connectionConfig.workspaceId || connectionConfig.workspace_id
+      const pageId = connectionConfig.pageId || connectionConfig.page_id || variant.connection_external_account_id
+      response = variant.provider_post_id
+        ? await syncPlanablePost({ apiToken: token, providerPostId: variant.provider_post_id, apiBaseUrl: connectionConfig.apiBaseUrl || connectionConfig.api_base_url })
+        : await schedulePlanablePost({ apiToken: token, workspaceId, pageId, pageIds: connectionConfig.pageIds || connectionConfig.page_ids, publicationDate: variant.publication_date || new Date().toISOString(), text, media: mediaRows.rows.filter((asset) => asset.url), idempotencyKey: `planable:${variant.id}:${variant.publication_date || 'now'}`, apiBaseUrl: connectionConfig.apiBaseUrl || connectionConfig.api_base_url })
+    } else throw new Error(`El proveedor ${provider} aún no tiene un adaptador de publicación.`)
+    const providerPostId = response?.id || response?.postId || response?.data?.id || response?.posts?.[0]?.id || variant.provider_post_id || null
+    const remoteStatus = provider === 'planable' ? planableStatus(response) : String(response?.status || response?.data?.status || '').toLowerCase()
     const status = ['failed', 'error', 'rejected'].includes(remoteStatus) ? 'failed' : remoteStatus === 'published' ? 'published' : 'syncing'
     await pool.query('UPDATE content_variants SET status=$1,updated_at=NOW() WHERE id=$2', [status, variant.id])
-    await pool.query('UPDATE schedules SET status=$1,provider=\'metricool\',provider_post_id=COALESCE($2,provider_post_id),attempts=attempts+1,last_error=NULL,updated_at=NOW() WHERE variant_id=$3', [status, providerPostId, variant.id])
+    await pool.query('UPDATE schedules SET status=$1,provider=$2,provider_post_id=COALESCE($3,provider_post_id),attempts=attempts+1,last_error=NULL,updated_at=NOW() WHERE variant_id=$4', [status, provider, providerPostId, variant.id])
     if (status === 'syncing' && providerPostId) {
       const nextPoll = new Date(Date.now() + metricoolPollMs)
-      await enqueueJob({ workspaceId: event.workspace_id, type: 'metricool.sync', payload: { siteId: variant.site_id }, idempotencyKey: `metricool:poll:${variant.id}:${Math.floor(nextPoll.getTime() / metricoolPollMs)}`, availableAt: nextPoll })
+      await enqueueJob({ workspaceId: event.workspace_id, type: `${provider}.sync`, payload: { siteId: variant.site_id }, idempotencyKey: `${provider}:poll:${variant.id}:${Math.floor(nextPoll.getTime() / metricoolPollMs)}`, availableAt: nextPoll })
     }
   }
   await pool.query(`UPDATE content_items ci SET status=CASE
@@ -124,10 +140,15 @@ async function processMetricoolSyncJob(job) {
   const params = [job.workspace_id]
   const siteClause = siteId ? 'AND ci.site_id=$2' : ''
   if (siteId) params.push(siteId)
-  const rows = await pool.query(`SELECT cv.id,cv.item_id,cv.channel,ci.site_id,s.provider_post_id,mi.user_token_ciphertext,mi.metricool_user_id,mi.blog_id
+  const rows = await pool.query(`SELECT cv.id,cv.item_id,cv.channel,ci.site_id,s.provider_post_id,
+      COALESCE(cc.credentials_ciphertext,mi.user_token_ciphertext) AS user_token_ciphertext,
+      COALESCE(cc.external_account_id,mi.metricool_user_id) AS metricool_user_id,
+      COALESCE(cc.config->>'blogId',mi.blog_id) AS blog_id,
+      COALESCE(cc.config->>'timezone',mi.timezone) AS integration_timezone
     FROM content_variants cv JOIN content_items ci ON ci.id=cv.item_id
     JOIN schedules s ON s.variant_id=cv.id
-    JOIN LATERAL (SELECT user_token_ciphertext,metricool_user_id,blog_id FROM metricool_integrations WHERE workspace_id=cv.workspace_id AND (site_id=ci.site_id OR site_id IS NULL) AND enabled=TRUE ORDER BY CASE WHEN site_id=ci.site_id THEN 0 ELSE 1 END LIMIT 1) mi ON TRUE
+    LEFT JOIN LATERAL (SELECT credentials_ciphertext,external_account_id,config FROM channel_connections WHERE workspace_id=cv.workspace_id AND site_id=ci.site_id AND channel=cv.channel AND provider='metricool' AND status='connected' ORDER BY is_primary DESC,updated_at DESC LIMIT 1) cc ON TRUE
+    LEFT JOIN LATERAL (SELECT user_token_ciphertext,metricool_user_id,blog_id,timezone FROM metricool_integrations WHERE workspace_id=cv.workspace_id AND (site_id=ci.site_id OR site_id IS NULL) AND enabled=TRUE ORDER BY CASE WHEN site_id=ci.site_id THEN 0 ELSE 1 END LIMIT 1) mi ON TRUE
     WHERE cv.workspace_id=$1 AND s.provider='metricool' AND s.provider_post_id IS NOT NULL AND s.status IN ('scheduled','syncing') ${siteClause}
     ORDER BY s.updated_at ASC LIMIT 100`, params)
   let synced = 0
@@ -149,6 +170,39 @@ async function processMetricoolSyncJob(job) {
   return { synced }
 }
 
+async function processPlanableSyncJob(job) {
+  const pool = await getPgPool()
+  if (!pool) throw new Error('Postgres no está configurado.')
+  const siteId = job.payload?.siteId || null
+  const params = [job.workspace_id]
+  const siteClause = siteId ? 'AND ci.site_id=$2' : ''
+  if (siteId) params.push(siteId)
+  const rows = await pool.query(`SELECT cv.id,cv.item_id,cv.channel,ci.site_id,s.provider_post_id,cc.credentials_ciphertext,cc.config
+    FROM content_variants cv JOIN content_items ci ON ci.id=cv.item_id
+    JOIN schedules s ON s.variant_id=cv.id
+    JOIN LATERAL (SELECT credentials_ciphertext,config FROM channel_connections WHERE workspace_id=cv.workspace_id AND site_id=ci.site_id AND channel=cv.channel AND provider='planable' AND status='connected' ORDER BY is_primary DESC,updated_at DESC LIMIT 1) cc ON TRUE
+    WHERE cv.workspace_id=$1 AND s.provider='planable' AND s.provider_post_id IS NOT NULL AND s.status IN ('scheduled','syncing') ${siteClause}
+    ORDER BY s.updated_at ASC LIMIT 100`, params)
+  let synced = 0
+  for (const row of rows.rows) {
+    const token = decryptSecret(row.credentials_ciphertext)
+    if (!token) throw new Error('Planable no está configurado para la marca.')
+    const config = row.config && typeof row.config === 'object' ? row.config : {}
+    const response = await syncPlanablePost({ apiToken: token, providerPostId: row.provider_post_id, apiBaseUrl: config.apiBaseUrl || config.api_base_url })
+    const remoteStatus = planableStatus(response)
+    const status = ['failed', 'error', 'rejected'].includes(remoteStatus) ? 'failed' : remoteStatus === 'published' ? 'published' : 'syncing'
+    await pool.query('UPDATE content_variants SET status=$1,updated_at=NOW() WHERE id=$2', [status, row.id])
+    await pool.query('UPDATE schedules SET status=$1,last_error=NULL,updated_at=NOW() WHERE variant_id=$2', [status, row.id])
+    await recordUsage({ workspaceId: job.workspace_id, siteId: row.site_id, kind: 'external_syncs', quantity: 1, idempotencyKey: `sync:${job.id}:${row.id}`, metadata: { itemId: row.item_id, channel: row.channel, provider: 'planable' } })
+    if (status === 'syncing') {
+      const nextPoll = new Date(Date.now() + metricoolPollMs)
+      await enqueueJob({ workspaceId: job.workspace_id, type: 'planable.sync', payload: { siteId: row.site_id }, idempotencyKey: `planable:poll:${row.id}:${Math.floor(nextPoll.getTime() / metricoolPollMs)}`, availableAt: nextPoll })
+    }
+    synced++
+  }
+  return { synced }
+}
+
 async function processJob(job) {
   if (job.type === 'content.generate_batch') {
     const result = await processGenerationJob(job)
@@ -157,6 +211,7 @@ async function processJob(job) {
   }
   if (job.type === 'content.publish_blog') return processBlogPublishJob(job)
   if (job.type === 'metricool.sync') return processMetricoolSyncJob(job)
+  if (job.type === 'planable.sync') return processPlanableSyncJob(job)
   throw new Error(`Tipo de job no soportado: ${job.type}`)
 }
 
@@ -173,7 +228,7 @@ async function drainOnce() {
   const events = await claimOutbox({ workerId, limit: 10 })
   for (const event of events) {
     try {
-      if (event.type === 'content.item.approved' || event.type === 'content.item.scheduled') await processMetricoolEvent(event)
+      if (event.type === 'content.item.approved' || event.type === 'content.item.scheduled') await processExternalPublicationEvent(event)
       await finishOutbox(event.id, { ok: true })
     } catch (error) {
       const pool = await getPgPool()

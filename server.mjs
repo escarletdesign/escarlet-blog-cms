@@ -248,6 +248,7 @@ import {
 import { isPostgresConfigured, getPgPool, runCoreMigrations } from './lib/pg.mjs'
 import { encryptSecret, decryptSecret } from './lib/secret-crypto.mjs'
 import { testMetricoolConnection, scheduleMetricoolPost, syncMetricoolPost } from './lib/metricool.mjs'
+import { testPlanableConnection } from './lib/planable.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = __dirname
@@ -710,7 +711,20 @@ async function connectionCredentialsFor(scope, connectionId) {
   if (!result.rowCount) throw Object.assign(new Error('Conexión no encontrada.'), { status: 404 })
   const row = result.rows[0]
   const userToken = decryptSecret(row.credentials_ciphertext)
-  return { row, credentials: { userToken, userId: row.external_account_id, blogId: row.config?.blogId || row.config?.blog_id || '', timezone: row.config?.timezone || 'UTC' } }
+  return {
+    row,
+    credentials: {
+      userToken,
+      apiToken: userToken,
+      userId: row.external_account_id,
+      blogId: row.config?.blogId || row.config?.blog_id || '',
+      workspaceId: row.config?.workspaceId || row.config?.workspace_id || '',
+      pageId: row.config?.pageId || row.config?.page_id || row.external_account_id || '',
+      pageIds: row.config?.pageIds || row.config?.page_ids || [],
+      apiBaseUrl: row.config?.apiBaseUrl || row.config?.api_base_url || '',
+      timezone: row.config?.timezone || 'UTC'
+    }
+  }
 }
 
 function creationUiGlobalKillSwitch() {
@@ -1634,6 +1648,27 @@ const server = createServer(async (req, res) => {
           const encrypted = encryptSecret(token)
           legacy = await connectMetricool({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: scope.auth.userId, role: scope.context.role, userTokenCiphertext: encrypted, metricoolUserId: body.userId || body.metricoolUserId, blogId: body.blogId || body.config?.blogId || 'default', timezone: body.timezone, capabilities: body.capabilities, channel })
           await upsertBrandConnection({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: scope.auth.userId, role: scope.context.role, channel, provider, externalAccountId: body.userId || body.metricoolUserId, credentialsCiphertext: encrypted, config: { ...(body.config || {}), blogId: body.blogId || body.config?.blogId || 'default', timezone: body.timezone || 'UTC' }, capabilities: body.capabilities, status: 'connected' })
+        } else if (provider === 'planable') {
+          const token = body.apiToken || body.token || body.userToken || body.credentials?.apiToken || body.credentials?.token
+          if (!token) throw Object.assign(new Error('apiToken es obligatorio para Planable.'), { status: 400 })
+          const workspaceId = body.workspaceId || body.config?.workspaceId
+          const pageId = body.pageId || body.externalAccountId || body.config?.pageId
+          if (!workspaceId) throw Object.assign(new Error('workspaceId es obligatorio para Planable.'), { status: 400 })
+          if (!pageId && !body.config?.pageIds) throw Object.assign(new Error('pageId es obligatorio para Planable.'), { status: 400 })
+          const encrypted = encryptSecret(token)
+          legacy = await upsertBrandConnection({
+            workspaceId: scope.workspaceId,
+            siteId: scope.siteId,
+            userId: scope.auth.userId,
+            role: scope.context.role,
+            channel,
+            provider,
+            externalAccountId: pageId,
+            credentialsCiphertext: encrypted,
+            config: { ...(body.config || {}), workspaceId, ...(pageId ? { pageId } : {}), timezone: body.timezone || body.config?.timezone || 'UTC' },
+            capabilities: body.capabilities || { drafts: true, scheduling: true, media: true },
+            status: body.status || 'connected'
+          })
         } else {
           const token = body.token || body.userToken || body.credentials?.token
           const encrypted = token ? encryptSecret(token) : null
@@ -1656,6 +1691,9 @@ const server = createServer(async (req, res) => {
         if (row.provider === 'metricool') {
           if (!credentials.userToken) throw Object.assign(new Error('No se puede descifrar la credencial.'), { status: 503, code: 'credential_unavailable' })
           result = await testMetricoolConnection(credentials)
+        } else if (row.provider === 'planable') {
+          if (!credentials.apiToken) throw Object.assign(new Error('No se puede descifrar la credencial.'), { status: 503, code: 'credential_unavailable' })
+          result = await testPlanableConnection(credentials)
         } else result = { ok: true, provider: row.provider, message: 'Conexión configurada correctamente.' }
         const pool = await getPgPool()
         if (result.ok) await pool.query('UPDATE channel_connections SET status=\'connected\',last_tested_at=NOW(),last_error=NULL,updated_at=NOW() WHERE id=$1 AND workspace_id=$2 AND site_id=$3', [connectionId, scope.workspaceId, scope.siteId])
