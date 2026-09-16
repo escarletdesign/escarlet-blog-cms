@@ -1,4 +1,4 @@
-import type { Author, ContentBatch, ContentItem, GeneratedImage, MediaItem, Post, Session } from "./types";
+import type { Author, GeneratedImage, MediaItem, Post, Session } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -179,51 +179,7 @@ const baseApi = {
       sites: Array<{ handle?: string; id?: string; name?: string }>;
       handles: string[];
       role: string;
-      }>("/api/admin/sites"),
-  contentBatches: (site?: string) =>
-    request<{ items: ContentItem[] }>(
-      `/api/v2/content/items${site ? `?site=${encodeURIComponent(site)}` : ""}`,
-    ),
-  contentBatch: (batchId: string, site?: string) =>
-    request<ContentBatch>(
-      `/api/v2/content/batches/${encodeURIComponent(batchId)}${site ? `?site=${encodeURIComponent(site)}` : ""}`,
-    ),
-  createContentBatch: (input: { site?: string; title: string; topics: string[]; channels: string[]; brandKitVersionId?: string }) =>
-    request<{ batchId: string; itemIds: string[]; jobId: string; totalItems: number }>(
-      "/api/v2/content/batches",
-      { method: "POST", body: JSON.stringify(input) },
-    ),
-  updateContentItem: (itemId: string, input: { site?: string; topic?: string; channel?: string; body?: Record<string, any>; mediaAssetIds?: string[] }) =>
-    request<ContentItem>(
-      `/api/v2/content/items/${encodeURIComponent(itemId)}`,
-      { method: "PATCH", body: JSON.stringify(input) },
-    ),
-  approveContent: (itemId: string, site?: string) =>
-    request<{ itemId: string; status: string }>(
-      `/api/v2/content/items/${encodeURIComponent(itemId)}/approve`,
-      { method: "POST", body: JSON.stringify({ site }) },
-    ),
-  rejectContent: (itemId: string, comment: string, site?: string) =>
-    request<{ itemId: string; status: string }>(
-      `/api/v2/content/items/${encodeURIComponent(itemId)}/reject`,
-      { method: "POST", body: JSON.stringify({ site, comment }) },
-    ),
-  scheduleContent: (itemId: string, publicationDate: string, timezone: string, site?: string) =>
-    request<{ itemId: string; status: string }>(
-      `/api/v2/content/items/${encodeURIComponent(itemId)}/schedule`,
-      { method: "POST", body: JSON.stringify({ site, publicationDate, timezone }) },
-    ),
-  cancelContent: (itemId: string, site?: string) =>
-    request<{ itemId: string; status: string }>(
-      `/api/v2/content/items/${encodeURIComponent(itemId)}/cancel`,
-      { method: "POST", body: JSON.stringify({ site }) },
-    ),
-  usageV2: (workspaceId?: string) =>
-    request<Record<string, any>>(`/api/v2/usage${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`),
-  brandKitV2: (site?: string) =>
-    request<Record<string, any>>(`/api/v2/brand-kits${site ? `?site=${encodeURIComponent(site)}` : ""}`),
-  createBrandKitVersion: (input: { site?: string; manifest: Record<string, any>; status?: "draft" | "published" }) =>
-    request<Record<string, any>>("/api/v2/brand-kits/versions", { method: "POST", body: JSON.stringify(input) }),
+    }>("/api/admin/sites"),
   createSite: (input: {
     handle: string;
     name?: string;

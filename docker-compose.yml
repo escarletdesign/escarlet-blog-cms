@@ -9,21 +9,19 @@ services:
       PORT: 3040
       CMS_PUBLIC_URL: http://localhost:3040
       CMS_DATA_DIR: /app/data
-      DATABASE_URL: postgres://payload:payload@postgres:5432/escarlet_blog
-      WORKER_ENABLED: 1
     volumes:
       - cms_data:/app/data
     restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3040/api/health']
       interval: 30s
       timeout: 5s
       retries: 3
 
+  # Opcional. Postgres para el ledger de Stripe en instalaciones que lo necesiten
   postgres:
+    profiles:
+      - payload
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: payload
@@ -33,11 +31,6 @@ services:
       - '5432:5432'
     volumes:
       - payload_pg:/var/lib/postgresql/data
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U payload -d escarlet_blog']
-      interval: 5s
-      timeout: 5s
-      retries: 10
 
 volumes:
   cms_data:

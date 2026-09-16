@@ -23,7 +23,6 @@ import { api } from "./api";
 import type { AiConversation, SocialPackJobResult } from "./api";
 import { getInitialLanguage, Language, translate } from "./i18n";
 import type { Author, MediaItem, Post, Session } from "./types";
-import { ContentBatches } from "./ContentBatches";
 
 type Draft = Partial<Post> & { title: string; slug?: string };
 type WorkflowFlags = { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean };
@@ -440,7 +439,6 @@ function App() {
                 </>}
                 <Route path="/social-pack" element={<SocialPack />} />
                 {contentMode === "blog" && <Route path="/social-pack/:slug" element={<SocialPack />} />}
-                <Route path="/batches" element={<ContentBatches site={site} />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/author-invite" element={<AuthorInvite />} />
                 {session.role !== "client_mcp" && contentMode === "blog" && <Route path="/billing" element={<Billing />} />}
@@ -726,7 +724,6 @@ function Shell() {
     { to: "/", label: t("nav.home"), icon: "home" },
     ...(blogMode && workflowFlags.assistantEnabled ? [{ to: "/chat", label: t("nav.assistant"), icon: "assistant" }] : []),
     ...(blogMode ? [{ to: "/posts", label: t("nav.posts"), icon: "posts" }] : []),
-    { to: "/batches", label: "Batches", icon: "posts" },
     { to: "/social-pack", label: t("nav.socialPack"), icon: "social" },
   ];
   return (

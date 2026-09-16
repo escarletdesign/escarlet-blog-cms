@@ -55,9 +55,7 @@ import {
   isSiteScopedRole,
   generateSiteAccessToken,
   publicSiteConfigForAuth,
-  extractBearerOrCookie,
-  resolveRequestAuthAsync,
-  workspaceRoleForAuth
+  extractBearerOrCookie
 } from './lib/auth.mjs'
 import {
   createEmbedSession,
@@ -203,30 +201,6 @@ import {
   todayIso,
   validateSlug
 } from './lib/post-utils.mjs'
-import {
-  resolveWorkspaceContext,
-  createContentBatch,
-  getContentBatch,
-  listContentItems,
-  updateContentItem,
-  approveContentItem,
-  rejectContentItem,
-  approveContentBatch,
-  rejectContentBatch,
-  scheduleContentItem,
-  scheduleContentBatch,
-  cancelContentItem,
-  cancelContentBatch,
-  usageSnapshot,
-  connectMetricool,
-  getMetricoolIntegration,
-  createBrandKitVersion,
-  getActiveBrandKit,
-  enqueueJob
-} from './lib/workspace-domain.mjs'
-import { isPostgresConfigured, getPgPool, runCoreMigrations } from './lib/pg.mjs'
-import { encryptSecret, decryptSecret } from './lib/secret-crypto.mjs'
-import { testMetricoolConnection, scheduleMetricoolPost, syncMetricoolPost } from './lib/metricool.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = __dirname
@@ -246,13 +220,6 @@ function loadEnv() {
 
 loadEnv()
 
-// Both API and worker share the same repository-owned SQL migrations. Do not
-// make startup depend on a JSON fallback when Postgres is configured.
-const coreMigrationPromise = isPostgresConfigured() ? runCoreMigrations().catch((error) => {
-  console.error('[postgres] migration failed:', error.message)
-  return false
-}) : Promise.resolve(false)
-
 const PORT = Number(process.env.PORT || 3040)
 const ADMIN_TOKEN = String(process.env.ADMIN_TOKEN || '').trim()
 const DEFAULT_SITE = process.env.DEFAULT_SITE || 'escarlet'
@@ -267,7 +234,7 @@ function json(res, status, payload) {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS'
   })
   res.end(body)
 }
@@ -579,38 +546,6 @@ function normalizePostsForClient(posts) {
   return (posts || []).map(normalizePostForClient)
 }
 
-async function readV2PublicBlogPosts(siteHandle) {
-  if (!isPostgresConfigured()) return null
-  try {
-    const pool = await getPgPool()
-    if (!pool) return null
-    await coreMigrationPromise
-    const result = await pool.query(`SELECT ci.topic,ci.status,cv.body,ci.created_at FROM content_items ci JOIN content_variants cv ON cv.item_id=ci.id JOIN sites s ON s.id=ci.site_id WHERE s.handle=$1 AND cv.channel='blog' AND cv.status='published' ORDER BY COALESCE(NULLIF(cv.body->>'datePublished','')::date,ci.created_at::date) DESC`, [siteHandle])
-    // A Postgres deployment may be running before the one-time JSON import. In
-    // that window an empty canonical feed must not hide the legacy public feed.
-    if (!result.rows.length) return null
-    return result.rows.map((row) => {
-      const body = row.body && typeof row.body === 'object' ? row.body : {}
-      return {
-        slug: String(body.slug || row.topic || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
-        site: siteHandle,
-        title: body.title || row.topic,
-        status: 'published',
-        bodyHtml: body.bodyHtml || body.body || '',
-        excerptEs: body.excerpt || body.excerptEs || '',
-        metaTitle: body.metaTitle || {},
-        metaDescription: body.metaDescription || {},
-        imageUrl: body.imageUrl || '',
-        imageAlt: body.imageAlt || '',
-        datePublished: body.datePublished || row.created_at,
-        dateModified: body.dateModified || row.created_at
-      }
-    }).filter((post) => post.slug)
-  } catch {
-    return null
-  }
-}
-
 function canViewPostForAuth(post, auth, site) {
   return canReadPost(post, auth, site)
 }
@@ -622,94 +557,6 @@ function canMutatePostForAuth(post, auth, site) {
 function assertBlogSite(site) {
   if (isSocialMediaOnlySite(loadSiteConfig(site))) {
     throw Object.assign(new Error('Este sitio está configurado como solo Social Media.'), { status: 404 })
-  }
-}
-
-async function requireV2Context(req, url, res, body = {}) {
-  let auth
-  try {
-    auth = await resolveRequestAuthAsync(req, url)
-  } catch (error) {
-    json(res, error.status || 503, { message: error.message || 'No se pudo resolver la identidad.' })
-    return null
-  }
-  if (!auth) {
-    json(res, 401, { message: 'No autorizado' })
-    return null
-  }
-  if (!isPostgresConfigured()) {
-    json(res, 503, { message: 'La API v2 requiere Postgres.', code: 'postgres_required' })
-    return null
-  }
-  try {
-    const rateSite = String(body.siteId || body.site || url.searchParams.get('siteId') || url.searchParams.get('site') || auth.site || '').trim()
-    assertAiRateLimit(aiRateLimitKey(auth, rateSite, requestIp(req)), { limit: 120 })
-    await coreMigrationPromise
-    await runCoreMigrations()
-    const requestedWorkspace = String(body.workspaceId || url.searchParams.get('workspaceId') || '').trim()
-    const requestedSite = String(body.siteId || body.site || url.searchParams.get('siteId') || url.searchParams.get('site') || auth.site || (Array.isArray(auth.sites) && auth.sites.length === 1 ? auth.sites[0] : '')).trim()
-    if (auth.role !== 'admin' && !auth.userId && auth.site && requestedSite && requestedSite !== auth.site) throw Object.assign(new Error('Este token solo gestiona el sitio autorizado.'), { status: 403 })
-    const common = { userId: auth.userId || undefined, workspaceId: requestedWorkspace || undefined, role: auth.role === 'admin' ? undefined : undefined }
-    let context
-    try {
-      context = await resolveWorkspaceContext({ ...common, ...(requestedSite ? { siteId: requestedSite } : {}) })
-    } catch (error) {
-      if (!requestedSite) throw error
-      context = await resolveWorkspaceContext({ ...common, siteHandle: requestedSite })
-    }
-    // A site/agency access token has no user row to resolve. Never let the
-    // first workspace member (usually the owner) elevate that token.
-    const role = auth.role === 'admin' ? 'admin' : auth.userId ? context.role || workspaceRoleForAuth(auth) : workspaceRoleForAuth(auth)
-    const site = requestedSite ? context.sites.find((entry) => entry.id === requestedSite || entry.handle === requestedSite) : context.sites[0]
-    if (requestedSite && !site) throw Object.assign(new Error('Sin acceso al sitio.'), { status: 403 })
-    return { auth, context: { ...context, role, siteId: site?.id || null, siteHandle: site?.handle || null }, workspaceId: context.workspaceId, siteId: site?.id || null }
-  } catch (error) {
-    json(res, error.status || 500, { message: error.message || 'No se pudo resolver el workspace.' })
-    return null
-  }
-}
-
-function v2Topics(body) {
-  if (Array.isArray(body?.topics)) return body.topics
-  if (Array.isArray(body?.items)) return body.items.map((item) => typeof item === 'string' ? item : item?.topic)
-  return []
-}
-
-async function metricoolCredentialsFor(scope) {
-  const integration = await getMetricoolIntegration({ workspaceId: scope.workspaceId, siteId: scope.siteId })
-  const userToken = decryptSecret(integration.user_token_ciphertext)
-  if (!userToken) throw Object.assign(new Error('No se puede descifrar la credencial Metricool.'), { status: 503, code: 'metricool_credential_unavailable' })
-  return { integration, credentials: { userToken, userId: integration.metricool_user_id, blogId: integration.blog_id, timezone: integration.timezone } }
-}
-
-function sanitizeV2BrandKit(kit, auth) {
-  if (!kit) return kit
-  const allowed = new Set(brandFilesForAuth(auth))
-  const manifest = kit.manifest && typeof kit.manifest === 'object'
-    ? Object.fromEntries(Object.entries(kit.manifest).filter(([name]) => allowed.has(name)))
-    : {}
-  const fullAccess = auth?.role === 'admin' || auth?.role === 'client_mcp'
-  const assets = Array.isArray(kit.assets)
-    ? kit.assets.filter((asset) => fullAccess || asset.visibility === 'public' || (asset.visibility === 'role_limited' && ['owner', 'admin', 'editor'].includes(auth?.role)))
-    : []
-  return { ...kit, manifest, assets }
-}
-
-async function publicSessionForAuth(auth) {
-  const session = publicAuthSession(auth)
-  if (!session || !isPostgresConfigured()) return session
-  try {
-    const context = await resolveWorkspaceContext({ userId: auth.userId || undefined, ...(auth.userId ? {} : auth.site ? { siteHandle: auth.site } : {}) })
-    const workspaceRole = auth.role === 'admin' ? 'admin' : auth.userId ? context.role || workspaceRoleForAuth(auth) : workspaceRoleForAuth(auth)
-    return {
-      ...session,
-      workspaceId: context.workspaceId,
-      workspaceRole,
-      sites: context.sites.map((site) => site.handle),
-      site: session.site || context.sites[0]?.handle || null
-    }
-  } catch {
-    return session
   }
 }
 
@@ -780,7 +627,7 @@ const server = createServer(async (req, res) => {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Headers':
         'Authorization, Content-Type, Mcp-Session-Id, MCP-Protocol-Version, Last-Event-Id, Stripe-Signature',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS'
     })
     res.end()
     return
@@ -864,13 +711,7 @@ const server = createServer(async (req, res) => {
   }
 
   if (path === '/mcp') {
-    let auth
-    try {
-      auth = await resolveRequestAuthAsync(req, url)
-    } catch (error) {
-      if (!res.headersSent) json(res, error.status || 503, { message: error.message || 'No se pudo resolver la identidad.' })
-      return
-    }
+    const auth = resolveRequestAuth(req, url)
     if (!auth) {
       sendMcpCors(res)
       res.writeHead(401, {
@@ -1142,7 +983,7 @@ const server = createServer(async (req, res) => {
   if (req.method === 'POST' && path === '/api/login') {
     try {
       const body = await parseBody(req)
-      const auth = await resolveRequestAuthAsync(
+      const auth = resolveRequestAuth(
         { headers: { authorization: `Bearer ${body.token || ''}` } },
         new URL('http://local/')
       )
@@ -1150,7 +991,7 @@ const server = createServer(async (req, res) => {
         json(res, 401, { message: 'Token incorrecto' })
         return
       }
-      const session = await publicSessionForAuth(auth)
+      const session = publicAuthSession(auth)
       res.writeHead(200, {
         'Content-Type': 'application/json; charset=utf-8',
         // A persistent cookie is important for the installed PWA: session
@@ -1190,7 +1031,7 @@ const server = createServer(async (req, res) => {
         'Content-Type': 'application/json; charset=utf-8',
         'Set-Cookie': `escarlet_cms=${encodeURIComponent(result.token)}; Path=/; HttpOnly; SameSite=Lax`
       })
-      res.end(JSON.stringify({ ok: true, ...result, ...await publicSessionForAuth(resolveAuth(result.token)) }))
+      res.end(JSON.stringify({ ok: true, ...result, ...publicAuthSession(resolveAuth(result.token)) }))
     } catch (error) {
       json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
     }
@@ -1493,152 +1334,6 @@ const server = createServer(async (req, res) => {
     return
   }
 
-  // Session bootstrap also understands canonical Postgres bearer/session
-  // tokens, so the PWA does not need a second login contract during cutover.
-  if (req.method === 'GET' && path === '/api/admin/session') {
-    try {
-      const auth = await resolveRequestAuthAsync(req, url)
-      if (!auth) { json(res, 401, { message: 'No autorizado' }); return }
-      json(res, 200, await publicSessionForAuth(auth))
-    } catch (error) {
-      json(res, error.status || 503, { message: error.message || 'No se pudo resolver la sesión.' })
-    }
-    return
-  }
-
-  // Canonical multi-tenant content API. The legacy /api/admin routes remain
-  // available as compatibility adapters while new app/MCP clients converge on
-  // this Postgres-backed service.
-  if (path.startsWith('/api/v2/')) {
-    let body = {}
-    try { if (req.method !== 'GET') body = await parseBody(req) } catch (error) {
-      json(res, error.status || 400, { message: error.message })
-      return
-    }
-    const batchMatch = path.match(/^\/api\/v2\/content\/batches\/([^/]+)$/)
-    const itemMatch = path.match(/^\/api\/v2\/content\/items\/([^/]+)$/)
-    const itemActionMatch = path.match(/^\/api\/v2\/content\/items\/([^/]+)\/(approve|reject|schedule|cancel)$/)
-    const batchActionMatch = path.match(/^\/api\/v2\/content\/batches\/([^/]+)\/(schedule|cancel)$/)
-    const batchReviewMatch = path.match(/^\/api\/v2\/content\/batches\/([^/]+)\/(approve|reject)$/)
-    try {
-      if (req.method === 'GET' && path === '/api/v2/brand-kits') {
-        const scope = await requireV2Context(req, url, res)
-        if (!scope) return
-        json(res, 200, sanitizeV2BrandKit(await getActiveBrandKit({ workspaceId: scope.workspaceId, siteId: scope.siteId }), scope.auth))
-        return
-      }
-      if (req.method === 'POST' && path === '/api/v2/brand-kits/versions') {
-        const scope = await requireV2Context(req, url, res, body)
-        if (!scope) return
-        json(res, 201, sanitizeV2BrandKit(await createBrandKitVersion({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: scope.auth.userId, role: scope.context.role, manifest: body.manifest, status: body.status }), scope.auth))
-        return
-      }
-      if (req.method === 'POST' && path === '/api/v2/content/batches') {
-        const scope = await requireV2Context(req, url, res, body)
-        if (!scope) return
-        const siteId = scope.siteId || scope.context.siteIds[0]
-        if (!siteId) throw Object.assign(new Error('siteId es obligatorio.'), { status: 400 })
-        const result = await createContentBatch({ workspaceId: scope.workspaceId, siteId, userId: scope.auth.userId || null, role: scope.context.role, title: body.title, topics: v2Topics(body), channels: body.channels, brandKitVersionId: body.brandKitVersionId, metadata: body.metadata })
-        json(res, 202, result)
-        return
-      }
-      if (req.method === 'GET' && batchMatch) {
-        const scope = await requireV2Context(req, url, res, { siteId: url.searchParams.get('siteId') || undefined })
-        if (!scope) return
-        json(res, 200, await getContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, batchId: decodeURIComponent(batchMatch[1]) }))
-        return
-      }
-      if (req.method === 'GET' && path === '/api/v2/content/items') {
-        const scope = await requireV2Context(req, url, res)
-        if (!scope) return
-        json(res, 200, { items: await listContentItems({ workspaceId: scope.workspaceId, batchId: url.searchParams.get('batchId'), siteId: scope.siteId || undefined, limit: url.searchParams.get('limit') }) })
-        return
-      }
-      if (req.method === 'PATCH' && itemMatch) {
-        const scope = await requireV2Context(req, url, res, body)
-        if (!scope) return
-        const result = await updateContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId: decodeURIComponent(itemMatch[1]), userId: scope.auth.userId, role: scope.context.role, topic: body.topic, body: body.body, channel: body.channel, mediaAssetIds: body.mediaAssetIds })
-        json(res, 200, result)
-        return
-      }
-      if (req.method === 'POST' && itemActionMatch) {
-        const scope = await requireV2Context(req, url, res, body)
-        if (!scope) return
-        const itemId = decodeURIComponent(itemActionMatch[1])
-        const action = itemActionMatch[2]
-        if (action === 'approve') {
-          json(res, 200, await approveContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role }))
-          return
-        }
-        if (action === 'reject') {
-          json(res, 200, await rejectContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role, comment: body.comment || body.reason }))
-          return
-        }
-        if (action === 'cancel') {
-          json(res, 200, await cancelContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role }))
-          return
-        }
-        json(res, 200, await scheduleContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role, publicationDate: body.publicationDate, timezone: body.timezone }))
-        return
-      }
-      if (req.method === 'POST' && batchActionMatch) {
-        const scope = await requireV2Context(req, url, res, body)
-        if (!scope) return
-        const batchId = decodeURIComponent(batchActionMatch[1])
-        json(res, 200, batchActionMatch[2] === 'cancel'
-          ? await cancelContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, batchId, userId: scope.auth.userId, role: scope.context.role })
-          : await scheduleContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, batchId, userId: scope.auth.userId, role: scope.context.role, publicationDate: body.publicationDate, timezone: body.timezone }))
-        return
-      }
-      if (req.method === 'POST' && batchReviewMatch && batchReviewMatch[2] === 'approve') {
-        const scope = await requireV2Context(req, url, res, body)
-        if (!scope) return
-        json(res, 200, await approveContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, batchId: decodeURIComponent(batchReviewMatch[1]), userId: scope.auth.userId, role: scope.context.role }))
-        return
-      }
-      if (req.method === 'POST' && batchReviewMatch && batchReviewMatch[2] === 'reject') {
-        const scope = await requireV2Context(req, url, res, body)
-        if (!scope) return
-        json(res, 200, await rejectContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, batchId: decodeURIComponent(batchReviewMatch[1]), userId: scope.auth.userId, role: scope.context.role, comment: body.comment || body.reason }))
-        return
-      }
-      if (req.method === 'GET' && path === '/api/v2/usage') {
-        const scope = await requireV2Context(req, url, res)
-        if (!scope) return
-        json(res, 200, await usageSnapshot({ workspaceId: scope.workspaceId, period: url.searchParams.get('period') || undefined }))
-        return
-      }
-      if (req.method === 'POST' && path === '/api/v2/integrations/metricool/connect') {
-        const scope = await requireV2Context(req, url, res, body)
-        if (!scope) return
-        const siteId = scope.siteId || body.siteId || null
-        const encrypted = encryptSecret(body.userToken)
-        const result = await connectMetricool({ workspaceId: scope.workspaceId, siteId, userId: scope.auth.userId, role: scope.context.role, userTokenCiphertext: encrypted, metricoolUserId: body.userId || body.metricoolUserId, blogId: body.blogId, timezone: body.timezone, capabilities: body.capabilities })
-        json(res, 200, result)
-        return
-      }
-      if (req.method === 'POST' && path === '/api/v2/integrations/metricool/test') {
-        const scope = await requireV2Context(req, url, res, body)
-        if (!scope) return
-        const { credentials } = await metricoolCredentialsFor(scope)
-        json(res, 200, await testMetricoolConnection(credentials))
-        return
-      }
-      if (req.method === 'POST' && path === '/api/v2/integrations/metricool/sync') {
-        const scope = await requireV2Context(req, url, res, body)
-        if (!scope) return
-        const { credentials } = await metricoolCredentialsFor(scope)
-        if (body.providerPostId) json(res, 200, await syncMetricoolPost({ ...credentials, providerPostId: body.providerPostId }))
-        else json(res, 202, await enqueueJob({ workspaceId: scope.workspaceId, type: 'metricool.sync', payload: { siteId: scope.siteId }, idempotencyKey: `metricool:sync:${scope.workspaceId}:${scope.siteId || 'workspace'}:${new Date().toISOString().slice(0, 13)}` }))
-        return
-      }
-      json(res, 404, { message: 'Contrato v2 no encontrado.' })
-    } catch (error) {
-      json(res, error.status || 400, { message: error.message, code: error.code })
-    }
-    return
-  }
-
   if (req.method === 'GET' && path === '/api/health') {
     const persistence = getPersistenceStatus()
     json(res, persistence.writable ? 200 : 503, {
@@ -1646,7 +1341,6 @@ const server = createServer(async (req, res) => {
       version: MCP_SERVER_VERSION,
       mcp: '/mcp',
       mcpUpload: MEDIA_UPLOAD_TOOL,
-      postgres: { configured: isPostgresConfigured(), migrationsStarted: isPostgresConfigured() },
       persistence
     })
     return
@@ -1705,8 +1399,7 @@ const server = createServer(async (req, res) => {
       json(res, 200, { site, posts: [], socialPackChannels, blogEnabled: false })
       return
     }
-    const v2Published = await readV2PublicBlogPosts(site)
-    const published = v2Published || db.posts.filter((p) => p.site === site && p.status === 'published')
+    const published = db.posts.filter((p) => p.site === site && p.status === 'published')
     if (slug) {
       const post = published.find((p) => p.slug === slug)
       if (!post) {
@@ -2180,19 +1873,6 @@ const server = createServer(async (req, res) => {
       assertSiteAccess(auth, site)
       assertAiRateLimit(aiRateLimitKey(auth, site, requestIp(req)), { limit: 30 })
 
-      // Structured chat requests can create a persistent multi-channel batch in
-      // one turn. Free-form chat keeps the existing SSE contract below.
-      if (path === '/api/ai/chat' && Array.isArray(body.topics) && body.topics.length) {
-        if (!isPostgresConfigured()) throw Object.assign(new Error('La generación batch requiere Postgres.'), { status: 503, code: 'postgres_required' })
-        const rawScope = await resolveWorkspaceContext({ userId: auth.userId || undefined, siteHandle: site })
-        const siteRecord = rawScope.sites.find((entry) => entry.handle === site) || rawScope.sites[0]
-        if (!siteRecord) throw Object.assign(new Error('Sitio no migrado a Postgres.'), { status: 404 })
-        const workspaceRole = auth.role === 'admin' ? 'admin' : auth.userId ? rawScope.role || workspaceRoleForAuth(auth) : workspaceRoleForAuth(auth)
-        const result = await createContentBatch({ workspaceId: rawScope.workspaceId, siteId: siteRecord.id, userId: auth.userId || null, role: workspaceRole, title: body.title || 'Batch generado desde chat', topics: body.topics, channels: body.channels, metadata: { source: 'chat' } })
-        json(res, 202, { site, batchId: result.batchId, itemIds: result.itemIds, jobId: result.jobId, totalItems: result.totalItems })
-        return
-      }
-
       if (path === '/api/ai/generate') {
         const result = await runGenerateOperation({
           site,
@@ -2294,7 +1974,7 @@ const server = createServer(async (req, res) => {
     if (!auth) return
     const db = readDb()
     if (req.method === 'GET' && path === '/api/admin/session') {
-      json(res, 200, await publicSessionForAuth(auth))
+      json(res, 200, publicAuthSession(auth))
       return
     }
 
@@ -2613,7 +2293,7 @@ const server = createServer(async (req, res) => {
       try {
         assertSuperAdmin(auth)
         const body = await parseBody(req)
-        const result = await createSiteRecord({ ...body, createdBy: auth.userId || 'system', createdByRole: workspaceRoleForAuth(auth) })
+        const result = await createSiteRecord(body)
         json(res, 201, result)
       } catch (err) {
         json(res, err.status || 500, { message: err.message, ...(err.extra || {}) })
@@ -3340,13 +3020,11 @@ server.listen(PORT, () => {
 })
 
 const SCHEDULE_TICK_MS = Number(process.env.SCHEDULE_TICK_MS || 60_000)
-// Legacy JSON schedules keep their compatibility timer only when Postgres is
-// not configured. v2 scheduling is entirely worker/outbox driven.
-const scheduleTimer = isPostgresConfigured() ? null : setInterval(() => {
+const scheduleTimer = setInterval(() => {
   promoteDueScheduledPosts().catch((err) => {
     console.error('[schedule] promote falló', err.message)
   })
 }, SCHEDULE_TICK_MS)
-if (scheduleTimer && typeof scheduleTimer.unref === 'function') scheduleTimer.unref()
+if (typeof scheduleTimer.unref === 'function') scheduleTimer.unref()
 
 export { ADMIN_TOKEN, DEFAULT_SITE, CMS_PUBLIC_URL }

@@ -12,7 +12,7 @@ import {
   withMediaUploadContract
 } from '../lib/media-upload-contract.mjs'
 import { openaiFileDefs, connectorFileMeta } from '../lib/openai-file.mjs'
-import { assertSiteAccess, assertSuperAdmin, allowedSiteHandles, isSiteScopedRole, workspaceRoleForAuth } from '../lib/auth.mjs'
+import { assertSiteAccess, assertSuperAdmin, allowedSiteHandles, isSiteScopedRole } from '../lib/auth.mjs'
 import { isSecretBrandFile } from '../lib/brand-kit.mjs'
 import { assertChatToolAllowed, assertSafeToolArguments } from '../lib/ai-security.mjs'
 import { loadSiteConfig, isSocialMediaOnlySite } from '../lib/site-config.mjs'
@@ -27,21 +27,6 @@ import { isCmsAiEnabled } from '../lib/product-flags.mjs'
 import { withGenerationPolicy, assertCmsAiAllowed, CMS_AI_TOOLS } from '../lib/generation-policy.mjs'
 import { canReadPost, assertPostAccess, safePostFields } from '../lib/post-access.mjs'
 import { listSiteAuthors } from '../lib/human-auth.mjs'
-import {
-  resolveWorkspaceContext,
-  createContentBatch,
-  getContentBatch,
-  updateContentItem,
-  approveContentItem,
-  rejectContentItem,
-  scheduleContentItem,
-  approveContentBatch,
-  rejectContentBatch,
-  scheduleContentBatch,
-  createBrandKitVersion,
-  registerBrandAssets
-} from '../lib/workspace-domain.mjs'
-import { isPostgresConfigured, runCoreMigrations } from '../lib/pg.mjs'
 
 const DEFAULT_SITE = process.env.DEFAULT_SITE || 'escarlet'
 const BLOG_CONTENT_TOOLS = new Set([
@@ -123,28 +108,6 @@ function resolveToolSite(auth, args = {}) {
   const requested = args.site || (isSiteScopedRole(auth?.role) ? auth.site : DEFAULT_SITE)
   assertSiteAccess(auth, requested)
   return requested
-}
-
-async function resolveContentScope(auth, args = {}) {
-  if (!isPostgresConfigured()) throw Object.assign(new Error('Las tools de contenido requieren Postgres.'), { status: 503, code: 'postgres_required' })
-  await runCoreMigrations()
-  const requestedSite = String(args.siteId || args.site || auth?.site || '').trim()
-  if (auth?.role !== 'admin' && !auth?.userId && auth?.site && requestedSite && requestedSite !== auth.site) throw Object.assign(new Error('Este token solo gestiona el sitio autorizado.'), { status: 403 })
-  const common = { userId: auth?.userId || undefined, workspaceId: args.workspaceId || undefined }
-  let context
-  try {
-    context = await resolveWorkspaceContext({ ...common, ...(requestedSite ? { siteId: requestedSite } : {}) })
-  } catch (error) {
-    if (!requestedSite) throw error
-    context = await resolveWorkspaceContext({ ...common, siteHandle: requestedSite })
-  }
-  // Site/agency access tokens do not have a Postgres user row. Resolving the
-  // first member of a workspace must never turn one of those scoped tokens
-  // into the workspace owner.
-  const role = auth?.role === 'admin' ? 'admin' : auth?.userId ? context.role || workspaceRoleForAuth(auth) : workspaceRoleForAuth(auth)
-  const site = requestedSite ? context.sites.find((entry) => entry.id === requestedSite || entry.handle === requestedSite) : context.sites[0]
-  if (!site) throw Object.assign(new Error('Sin acceso al sitio.'), { status: 403 })
-  return { ...context, role, siteId: site.id, siteHandle: site.handle }
 }
 
 function cmsOrigin() {
@@ -631,15 +594,6 @@ export function buildToolList(auth) {
     }
   ]
 
-  tools.push(
-    { name: 'content_create_batch', description: 'Crea una campaña de publicaciones independientes por temas y canales. Devuelve batchId, itemIds y jobId.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, title: { type: 'string' }, topics: { type: 'array', items: { type: 'string' } }, channels: { type: 'array', items: { type: 'string', enum: ['blog', 'instagram', 'linkedin', 'x', 'video', 'substack'] } }, brandKitVersionId: { type: 'string' } }, required: ['topics'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
-    { name: 'content_get_batch', description: 'Obtiene el progreso, items y variantes de un batch.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, batchId: { type: 'string' } }, required: ['batchId'] }, annotations: { readOnlyHint: true } },
-    { name: 'content_update_item', description: 'Edita el tema o el cuerpo de una variante antes de aprobar.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, topic: { type: 'string' }, channel: { type: 'string' }, body: { type: 'object' }, mediaAssetIds: { type: 'array', items: { type: 'string' } } }, required: ['itemId'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
-    { name: 'content_approve', description: 'Aprueba un item o todos los items de un batch.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' } }, oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } },
-    { name: 'content_reject', description: 'Rechaza un item o todos los items de un batch y deja comentario.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' }, comment: { type: 'string' } }, oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } },
-    { name: 'content_schedule', description: 'Programa un item o batch aprobado en zona horaria indicada.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' }, publicationDate: { type: 'string' }, timezone: { type: 'string' } }, required: ['publicationDate'], oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } }
-  )
-
   return tools
     .filter((t) => !CMS_AI_TOOLS.has(t.name))
     .filter((t) => !(t.adminOnly && auth?.role !== 'admin'))
@@ -722,37 +676,6 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
         assertPostAccess(post, auth, { write: !tool.annotations?.readOnlyHint })
       }
       switch (name) {
-        case 'content_create_batch': {
-          const scope = await resolveContentScope(auth, args)
-          const result = await createContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: auth.userId || null, role: scope.role, title: args.title, topics: args.topics, channels: args.channels, brandKitVersionId: args.brandKitVersionId, metadata: args.metadata })
-          return textResult(result)
-        }
-        case 'content_get_batch': {
-          const scope = await resolveContentScope(auth, args)
-          return textResult(await getContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId, batchId: args.batchId }))
-        }
-        case 'content_update_item': {
-          const scope = await resolveContentScope(auth, args)
-          return textResult(await updateContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId: args.itemId, userId: auth.userId, role: scope.role, topic: args.topic, body: args.body, channel: args.channel, mediaAssetIds: args.mediaAssetIds }))
-        }
-        case 'content_approve': {
-          const scope = await resolveContentScope(auth, args)
-          return textResult(args.batchId
-            ? await approveContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId, batchId: args.batchId, userId: auth.userId, role: scope.role })
-            : await approveContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId: args.itemId, userId: auth.userId, role: scope.role }))
-        }
-        case 'content_reject': {
-          const scope = await resolveContentScope(auth, args)
-          return textResult(args.batchId
-            ? await rejectContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId, batchId: args.batchId, userId: auth.userId, role: scope.role, comment: args.comment })
-            : await rejectContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId: args.itemId, userId: auth.userId, role: scope.role, comment: args.comment }))
-        }
-        case 'content_schedule': {
-          const scope = await resolveContentScope(auth, args)
-          return textResult(args.batchId
-            ? await scheduleContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId, batchId: args.batchId, userId: auth.userId, role: scope.role, publicationDate: args.publicationDate, timezone: args.timezone })
-            : await scheduleContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId: args.itemId, userId: auth.userId, role: scope.role, publicationDate: args.publicationDate, timezone: args.timezone }))
-        }
         case 'blog_list_authors': {
           const site = resolveToolSite(auth, args)
           return textResult({ authors: listSiteAuthors({ site, requesterId: auth.userId, requesterRole: auth.role }) })
@@ -856,6 +779,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
               site,
               ownerId: auth.userId || '',
               membershipUserId: auth.userId || '',
+              skipQuota: true,
               contentSource: args.contentSource || (['client', 'client_mcp'].includes(auth.role) ? 'client' : 'agency')
             })
           )
@@ -885,6 +809,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             publishAt: args.publishAt,
             direct: directWorkflowPublish(args, source),
             ignoreSeo: args.ignoreSeo === true,
+            skipQuota: true,
             membershipUserId: auth.userId || ''
           }))
         }
@@ -902,13 +827,14 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           return textResult(await cms.schedulePostForDate(site, args.slug, args.publishAt, {
             direct: directWorkflowPublish(args, source),
             ignoreSeo: args.ignoreSeo === true,
+            skipQuota: true,
             membershipUserId: auth.userId || ''
           }))
         }
         case 'blog_confirm_schedule': {
           assertSuperAdmin(auth)
           const site = resolveToolSite(auth, args)
-          return textResult(await cms.confirmSchedule(site, args.slug, { membershipUserId: auth.userId || '' }))
+          return textResult(await cms.confirmSchedule(site, args.slug, { skipQuota: true, membershipUserId: auth.userId || '' }))
         }
         case 'blog_cancel_schedule': {
           const site = resolveToolSite(auth, args)
@@ -967,16 +893,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           if (!args.zipUrl && !args.contentBase64) {
             throw Object.assign(new Error('Pasa zipUrl (preferido) o contentBase64'), { status: 400 })
           }
-          const imported = await cms.importBrandZip(site, args, { auth })
-          if (isPostgresConfigured()) {
-            const scope = await resolveContentScope(auth, { site })
-            const version = await createBrandKitVersion({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: auth.userId, role: scope.role, manifest: imported.brand?.files || {}, status: 'published' })
-            const origin = cmsOrigin()
-            const assets = (imported.importedImages || []).map((name) => ({ name, storageKey: `media/${site}/reference/${name}`, publicUrl: `${origin}/media/${site}/reference/${encodeURIComponent(name)}`, visibility: 'private' }))
-            await registerBrandAssets({ workspaceId: scope.workspaceId, siteId: scope.siteId, brandKitVersionId: version.id, userId: auth.userId, role: scope.role, assets })
-            return textResult({ ...imported, canonicalBrandKitVersionId: version.id, canonicalAssets: assets.length })
-          }
-          return textResult(imported)
+          return textResult(await cms.importBrandZip(site, args, { auth }))
         }
         default:
           throw new Error(`Tool desconocida: ${name}`)

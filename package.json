@@ -9,8 +9,6 @@
     "mcp": "node mcp/index.mjs",
     "test": "node --test lib/**/*.test.mjs mcp/**/*.test.mjs",
     "import:escarlet": "node scripts/import-escarlet.mjs",
-    "db:migrate": "node scripts/migrate-json-to-postgres.mjs",
-    "worker": "node worker.mjs",
     "site:init": "node scripts/init-site.mjs",
     "integration:install": "node scripts/install-frontend-integration.mjs",
     "docker:up": "docker compose up -d --build",

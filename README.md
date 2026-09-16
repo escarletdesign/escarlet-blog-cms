@@ -1,6 +1,6 @@
 # Escarlet Blog CMS
 
-CMS headless central con MCP para agentes, app `/app` y API JSON multi-sitio. El runtime canónico v2 usa Postgres para workspaces, membresías, brand kits versionados, batches multicanal y jobs/outbox; `db.json` queda como fuente de migración y adaptador del feed público.
+CMS headless central con MCP para agentes, app `/app` y API JSON multi-sitio.
 
 ## Arranque local
 
@@ -30,12 +30,9 @@ npm run dev          # Vite en :5173, proxy /api → :3040
 ```
 
 La imagen Docker ejecuta `npm run build` durante el build, por lo que `server.mjs` sirve
-`apps/pwa/dist` en producción. El mismo contenedor arranca `server.mjs` y el worker
-persistente (`worker.mjs`); ambos comparten `/app/data` y `DATABASE_URL`. Postgres se
-ejecuta como recurso gestionado aparte (en local lo levanta `docker-compose`). Activa
-`PRODUCT_RESTRUCTURE_V1=1` para magic links,
+`apps/pwa/dist` en producción. Activa `PRODUCT_RESTRUCTURE_V1=1` para magic links,
 roles cliente y endpoints de IA/Stripe. Las claves `OPENAI_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY` y `STRIPE_SECRET_KEY`
-se quedan siempre en el servidor. `ADMIN_TOKEN` es obligatorio (no hay token por defecto). Para guardar claves desde **Administración → IA y Billing**, configura también `AI_CONNECTOR_ENCRYPTION_KEY` con un secreto aleatorio de al menos 32 bytes; las claves se cifran con AES-256-GCM en `data/db.json`, que se escribe con modo `0600`. Para producción v2 configura `DATABASE_URL` y `CMS_SECRET_KEY`; ejecuta `npm run db:migrate` una única vez con el CMS en modo escritura congelada. Consulta `.env.example` para el catálogo de precios y la migración explícita de instalaciones antiguas.
+se quedan siempre en el servidor. `ADMIN_TOKEN` es obligatorio (no hay token por defecto). Para guardar claves desde **Administración → IA y Billing**, configura también `AI_CONNECTOR_ENCRYPTION_KEY` con un secreto aleatorio de al menos 32 bytes; las claves se cifran con AES-256-GCM en `data/db.json`, que se escribe con modo `0600`. Consulta `.env.example` para el catálogo de precios y la migración explícita de instalaciones antiguas.
 
 Para operar únicamente con ChatGPT mediante MCP y edición manual, define `CMS_AI_ENABLED=0`. Ese kill switch devuelve `403 CMS_AI_DISABLED` en todas las rutas REST de IA, bloquea conectores, transcripción, imágenes y créditos, y oculta los flujos AI de la PWA; el endpoint `/mcp`, la membresía MCP y el editor manual siguen disponibles. Puede reactivarse con `CMS_AI_ENABLED=1` o con el flag global de Administración cuando no exista un valor de entorno.
 
@@ -87,15 +84,8 @@ Deploy producción. [docs/DEPLOY.md](docs/DEPLOY.md).
 | `blog_upload_media` | PNG/JPG en `contentBase64` o `blob` (2–3 MB valen). `kind` `post` o `social`. El CMS comprime a JPEG. Si recorta, `uploadId` a trozos |
 | `blog_import_remote_image` | Solo URL https pública (atajo) |
 | `blog_import_brand_zip` | ZIP de brand kit (cualquier estructura). Preferir `zipUrl` |
-| `content_create_batch` | Crear una campaña de temas y canales; devuelve `batchId`, `itemIds`, `jobId` |
-| `content_get_batch` | Progreso, items y variantes de un batch |
-| `content_update_item` | Editar tema, variante y media enlazada |
-| `content_approve` / `content_reject` | Revisión individual o masiva |
-| `content_schedule` | Agenda individual o masiva; entrega a outbox/Metricool |
 
 Resources. `brand://{handle}/voice`, `keywords`, `agent`, `image-guide`, `visual-style`, `image-spec`
-
-Contratos HTTP v2: `/api/v2/content/batches`, `/api/v2/content/items` (incluye revisión, cancelación y agenda), `/api/v2/usage`, `/api/v2/brand-kits` y `/api/v2/integrations/metricool/*`. App y MCP llaman al mismo servicio de dominio; `/api/sites/:handle/posts` permanece como read adapter público.
 
 Hermes (otro servidor) no clona el CMS. En su `mcp.json`:
 
