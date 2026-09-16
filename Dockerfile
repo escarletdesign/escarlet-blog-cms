@@ -3,7 +3,10 @@ FROM node:20-alpine
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci
+# Coolify can expose NODE_ENV=production while building the image. Vite and
+# TypeScript are devDependencies, so explicitly include them for the build;
+# they are removed by the prune step below before the runtime image is used.
+RUN npm ci --include=dev
 
 COPY . .
 
