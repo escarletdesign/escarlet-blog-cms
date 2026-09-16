@@ -1,4 +1,4 @@
-import type { Author, ContentBatch, ContentItem, GeneratedImage, MediaItem, Post, Session } from "./types";
+import type { Author, BrandCapability, BrandChannel, BrandSummary, ContentBatch, ContentItem, GeneratedImage, MediaItem, Post, Session } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -195,11 +195,44 @@ const baseApi = {
       brands: Array<{ id: string; handle?: string; name?: string }>;
       role: string;
       capabilities: string[];
+      brandCapabilities: Record<string, boolean>;
       featureFlags: { creation_ui_enabled: boolean; manual_creation_enabled: boolean; [key: string]: boolean };
       channels: Array<{ channel: string; enabled: boolean; connectionStatus: string }>;
       connections: Array<Record<string, any>>;
       usage?: Record<string, any>;
     }>(`/api/v2/context${site ? `?site=${encodeURIComponent(site)}` : ""}`),
+  brands: () =>
+    request<{ brands: BrandSummary[] }>("/api/v2/brands"),
+  createBrand: (input: { handle: string; name: string; domain?: string }) =>
+    request<{ brand: BrandSummary }>("/api/v2/brands", { method: "POST", body: JSON.stringify(input) }),
+  brandV2: (brandId: string) =>
+    request<{ brand: BrandSummary }>(`/api/v2/brands/${encodeURIComponent(brandId)}`),
+  updateBrandV2: (brandId: string, input: { name?: string; domain?: string }) =>
+    request<{ brand: BrandSummary }>(`/api/v2/brands/${encodeURIComponent(brandId)}`, { method: "PATCH", body: JSON.stringify(input) }),
+  brandChannels: (brandId: string) =>
+    request<{ channels: BrandChannel[]; catalog: Array<Record<string, any>> }>(`/api/v2/brands/${encodeURIComponent(brandId)}/channels`),
+  updateBrandChannels: (brandId: string, channels: Record<string, boolean>) =>
+    request<{ channels: BrandChannel[] }>(`/api/v2/brands/${encodeURIComponent(brandId)}/channels`, { method: "PATCH", body: JSON.stringify({ channels }) }),
+  brandCapabilities: (brandId: string) =>
+    request<{ capabilities: Record<string, boolean>; catalog: BrandCapability[] }>(`/api/v2/brands/${encodeURIComponent(brandId)}/capabilities`),
+  updateBrandCapabilities: (brandId: string, capabilities: Record<string, boolean>) =>
+    request<{ capabilities: Record<string, boolean> }>(`/api/v2/brands/${encodeURIComponent(brandId)}/capabilities`, { method: "PATCH", body: JSON.stringify({ capabilities }) }),
+  brandConnections: (brandId: string) =>
+    request<{ connections: Array<Record<string, any>> }>(`/api/v2/brands/${encodeURIComponent(brandId)}/connections`),
+  saveBrandConnection: (brandId: string, input: Record<string, any>) =>
+    request<{ connection: Record<string, any> }>(`/api/v2/brands/${encodeURIComponent(brandId)}/connections`, { method: "POST", body: JSON.stringify(input) }),
+  testConnection: (connectionId: string, site?: string) =>
+    request<Record<string, any>>(`/api/v2/connections/${encodeURIComponent(connectionId)}/test${site ? `?site=${encodeURIComponent(site)}` : ""}`, { method: "POST", body: JSON.stringify({ site }) }),
+  disconnectConnection: (connectionId: string, site?: string) =>
+    request<{ connection: Record<string, any> }>(`/api/v2/connections/${encodeURIComponent(connectionId)}/disconnect${site ? `?site=${encodeURIComponent(site)}` : ""}`, { method: "POST", body: JSON.stringify({ site }) }),
+  reviewItems: (site?: string) =>
+    request<{ items: ContentItem[] }>(`/api/v2/content/review${site ? `?site=${encodeURIComponent(site)}` : ""}`),
+  calendarV2: (site?: string) =>
+    request<{ entries: Array<Record<string, any>> }>(`/api/v2/calendar${site ? `?site=${encodeURIComponent(site)}` : ""}`),
+  teamV2: () =>
+    request<{ members: Array<Record<string, any>>; canManage: boolean }>("/api/v2/team"),
+  inviteTeamMember: (input: { email: string; role: string; brandIds?: string[]; site?: string }) =>
+    request<{ member: Record<string, any>; invite?: Record<string, any> }>("/api/v2/team/invitations", { method: "POST", body: JSON.stringify(input) }),
   updateFeatureFlags: (flags: Record<string, boolean>, site?: string, scope?: "workspace" | "brand") =>
     request<{ flags: Record<string, boolean> }>("/api/v2/feature-flags", {
       method: "PATCH",

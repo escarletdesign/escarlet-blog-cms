@@ -208,7 +208,23 @@ import {
   getWorkspaceFeatureFlags,
   setWorkspaceFeatureFlags,
   listSiteChannels,
+  initializeBrandConfiguration,
+  listBrandCapabilities,
+  setBrandCapabilities,
+  updateBrandChannels,
+  getBrand,
+  listBrands,
+  createBrand,
+  updateBrand,
   listMetricoolIntegrations,
+  listBrandConnections,
+  upsertBrandConnection,
+  disconnectBrandConnection,
+  listWorkspaceMembers,
+  addWorkspaceMember,
+  listScheduledContent,
+  CHANNEL_CATALOG,
+  BRAND_CAPABILITIES,
   createContentBatch,
   getContentBatch,
   listContentItems,
@@ -685,6 +701,16 @@ async function metricoolCredentialsFor(scope) {
   const userToken = decryptSecret(integration.user_token_ciphertext)
   if (!userToken) throw Object.assign(new Error('No se puede descifrar la credencial Metricool.'), { status: 503, code: 'metricool_credential_unavailable' })
   return { integration, credentials: { userToken, userId: integration.metricool_user_id, blogId: integration.blog_id, timezone: integration.timezone } }
+}
+
+async function connectionCredentialsFor(scope, connectionId) {
+  const pool = await getPgPool()
+  if (!pool) throw Object.assign(new Error('Postgres no está configurado.'), { status: 503, code: 'postgres_required' })
+  const result = await pool.query('SELECT * FROM channel_connections WHERE id=$1 AND workspace_id=$2 AND site_id=$3', [connectionId, scope.workspaceId, scope.siteId])
+  if (!result.rowCount) throw Object.assign(new Error('Conexión no encontrada.'), { status: 404 })
+  const row = result.rows[0]
+  const userToken = decryptSecret(row.credentials_ciphertext)
+  return { row, credentials: { userToken, userId: row.external_account_id, blogId: row.config?.blogId || row.config?.blog_id || '', timezone: row.config?.timezone || 'UTC' } }
 }
 
 function creationUiGlobalKillSwitch() {
@@ -1529,7 +1555,118 @@ const server = createServer(async (req, res) => {
     const itemActionMatch = path.match(/^\/api\/v2\/content\/items\/([^/]+)\/(approve|reject|schedule|cancel)$/)
     const batchActionMatch = path.match(/^\/api\/v2\/content\/batches\/([^/]+)\/(schedule|cancel)$/)
     const batchReviewMatch = path.match(/^\/api\/v2\/content\/batches\/([^/]+)\/(approve|reject)$/)
+    const brandMatch = path.match(/^\/api\/v2\/brands\/([^/]+)$/)
+    const brandChannelsMatch = path.match(/^\/api\/v2\/brands\/([^/]+)\/channels$/)
+    const brandCapabilitiesMatch = path.match(/^\/api\/v2\/brands\/([^/]+)\/capabilities$/)
+    const brandConnectionsMatch = path.match(/^\/api\/v2\/brands\/([^/]+)\/connections$/)
+    const connectionActionMatch = path.match(/^\/api\/v2\/connections\/([^/]+)\/(test|disconnect)$/)
     try {
+      if (req.method === 'GET' && path === '/api/v2/brands') {
+        const scope = await requireV2Context(req, url, res)
+        if (!scope) return
+        let allBrands = await listBrands({ workspaceId: scope.workspaceId })
+        const brands = scope.auth.role === 'admin'
+          ? allBrands
+          : allBrands.filter((brand) => (scope.context.siteIds || []).includes(brand.id))
+        json(res, 200, { brands })
+        return
+      }
+      if (req.method === 'POST' && path === '/api/v2/brands') {
+        const scope = await requireV2Context(req, url, res, body)
+        if (!scope) return
+        json(res, 201, { brand: await createBrand({ workspaceId: scope.workspaceId, userId: scope.auth.userId, role: scope.context.role, handle: body.handle, name: body.name, domain: body.domain }) })
+        return
+      }
+      if (req.method === 'GET' && brandMatch) {
+        const brandId = decodeURIComponent(brandMatch[1])
+        const scope = await requireV2Context(req, url, res, { ...body, siteId: brandId })
+        if (!scope) return
+        json(res, 200, { brand: await getBrand({ workspaceId: scope.workspaceId, siteId: scope.siteId }) })
+        return
+      }
+      if (req.method === 'PATCH' && brandMatch) {
+        const brandId = decodeURIComponent(brandMatch[1])
+        const scope = await requireV2Context(req, url, res, { ...body, siteId: brandId })
+        if (!scope) return
+        json(res, 200, { brand: await updateBrand({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: scope.auth.userId, role: scope.context.role, name: body.name, domain: body.domain }) })
+        return
+      }
+      if (req.method === 'GET' && brandChannelsMatch) {
+        const scope = await requireV2Context(req, url, res, { ...body, siteId: decodeURIComponent(brandChannelsMatch[1]) })
+        if (!scope) return
+        json(res, 200, { channels: await listSiteChannels({ workspaceId: scope.workspaceId, siteId: scope.siteId }), catalog: CHANNEL_CATALOG })
+        return
+      }
+      if (req.method === 'PATCH' && brandChannelsMatch) {
+        const scope = await requireV2Context(req, url, res, { ...body, siteId: decodeURIComponent(brandChannelsMatch[1]) })
+        if (!scope) return
+        json(res, 200, { channels: await updateBrandChannels({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: scope.auth.userId, role: scope.context.role, channels: body.channels || body }) })
+        return
+      }
+      if (req.method === 'GET' && brandCapabilitiesMatch) {
+        const scope = await requireV2Context(req, url, res, { ...body, siteId: decodeURIComponent(brandCapabilitiesMatch[1]) })
+        if (!scope) return
+        json(res, 200, { capabilities: await listBrandCapabilities({ workspaceId: scope.workspaceId, siteId: scope.siteId }), catalog: BRAND_CAPABILITIES })
+        return
+      }
+      if (req.method === 'PATCH' && brandCapabilitiesMatch) {
+        const scope = await requireV2Context(req, url, res, { ...body, siteId: decodeURIComponent(brandCapabilitiesMatch[1]) })
+        if (!scope) return
+        json(res, 200, { capabilities: await setBrandCapabilities({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: scope.auth.userId, role: scope.context.role, capabilities: body.capabilities || body }) })
+        return
+      }
+      if (req.method === 'GET' && brandConnectionsMatch) {
+        const scope = await requireV2Context(req, url, res, { ...body, siteId: decodeURIComponent(brandConnectionsMatch[1]) })
+        if (!scope) return
+        json(res, 200, { connections: await listBrandConnections({ workspaceId: scope.workspaceId, siteId: scope.siteId }) })
+        return
+      }
+      if (req.method === 'POST' && brandConnectionsMatch) {
+        const scope = await requireV2Context(req, url, res, { ...body, siteId: decodeURIComponent(brandConnectionsMatch[1]) })
+        if (!scope) return
+        const provider = String(body.provider || '').trim().toLowerCase()
+        const channel = String(body.channel || '').trim().toLowerCase()
+        if (!provider || !channel) throw Object.assign(new Error('provider y channel son obligatorios.'), { status: 400 })
+        let legacy = null
+        if (provider === 'metricool') {
+          const token = body.userToken || body.token || body.credentials?.userToken
+          if (!token) throw Object.assign(new Error('userToken es obligatorio.'), { status: 400 })
+          const encrypted = encryptSecret(token)
+          legacy = await connectMetricool({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: scope.auth.userId, role: scope.context.role, userTokenCiphertext: encrypted, metricoolUserId: body.userId || body.metricoolUserId, blogId: body.blogId || body.config?.blogId || 'default', timezone: body.timezone, capabilities: body.capabilities, channel })
+          await upsertBrandConnection({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: scope.auth.userId, role: scope.context.role, channel, provider, externalAccountId: body.userId || body.metricoolUserId, credentialsCiphertext: encrypted, config: { ...(body.config || {}), blogId: body.blogId || body.config?.blogId || 'default', timezone: body.timezone || 'UTC' }, capabilities: body.capabilities, status: 'connected' })
+        } else {
+          const token = body.token || body.userToken || body.credentials?.token
+          const encrypted = token ? encryptSecret(token) : null
+          legacy = await upsertBrandConnection({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: scope.auth.userId, role: scope.context.role, channel, provider, externalAccountId: body.externalAccountId, credentialsCiphertext: encrypted, config: body.config || { domain: body.domain, rebuildWebhookUrl: body.rebuildWebhookUrl }, capabilities: body.capabilities, status: body.status || 'connected' })
+        }
+        json(res, 200, { connection: legacy })
+        return
+      }
+      if (req.method === 'POST' && connectionActionMatch) {
+        const scope = await requireV2Context(req, url, res, body)
+        if (!scope) return
+        const connectionId = decodeURIComponent(connectionActionMatch[1])
+        const action = connectionActionMatch[2]
+        const { row, credentials } = await connectionCredentialsFor(scope, connectionId)
+        if (action === 'disconnect') {
+          json(res, 200, { connection: await disconnectBrandConnection({ workspaceId: scope.workspaceId, siteId: scope.siteId, connectionId, userId: scope.auth.userId, role: scope.context.role }) })
+          return
+        }
+        let result
+        if (row.provider === 'metricool') {
+          if (!credentials.userToken) throw Object.assign(new Error('No se puede descifrar la credencial.'), { status: 503, code: 'credential_unavailable' })
+          result = await testMetricoolConnection(credentials)
+        } else result = { ok: true, provider: row.provider, message: 'Conexión configurada correctamente.' }
+        const pool = await getPgPool()
+        if (result.ok) await pool.query('UPDATE channel_connections SET status=\'connected\',last_tested_at=NOW(),last_error=NULL,updated_at=NOW() WHERE id=$1 AND workspace_id=$2 AND site_id=$3', [connectionId, scope.workspaceId, scope.siteId])
+        else {
+          await pool.query('UPDATE channel_connections SET status=\'error\',last_tested_at=NOW(),last_error=$1,updated_at=NOW() WHERE id=$2 AND workspace_id=$3 AND site_id=$4', [result.code || 'connection_test_failed', connectionId, scope.workspaceId, scope.siteId])
+          json(res, result.status || 502, result)
+          return
+        }
+        json(res, 200, result)
+        return
+      }
       if (req.method === 'GET' && path === '/api/v2/brand-kits') {
         const scope = await requireV2Context(req, url, res)
         if (!scope) return
@@ -1539,25 +1676,50 @@ const server = createServer(async (req, res) => {
       if (req.method === 'GET' && path === '/api/v2/context') {
         const scope = await requireV2Context(req, url, res)
         if (!scope) return
-        const brands = scope.context.sites || []
+        let allBrands = await listBrands({ workspaceId: scope.workspaceId })
+        const allowedBrandIds = new Set(scope.context.siteIds || [])
+        let brands = scope.auth.role === 'admin' ? allBrands : allBrands.filter((brand) => allowedBrandIds.has(brand.id))
         const selectedSiteId = scope.siteId || brands[0]?.id || null
+        if (selectedSiteId) {
+          const selectedBrand = brands.find((brand) => brand.id === selectedSiteId)
+          try {
+            const legacyConfig = selectedBrand ? loadSiteConfig(selectedBrand.handle) : null
+            await initializeBrandConfiguration({ workspaceId: scope.workspaceId, siteId: selectedSiteId, legacy: legacyConfig ? {
+              contentMode: legacyConfig.contentMode,
+              blogEnabled: legacyConfig.blogEnabled,
+              socialPackChannels: legacyConfig.socialPackChannels,
+              domain: legacyConfig.domain,
+              rebuildWebhookUrl: legacyConfig.rebuildWebhookUrl,
+              coolifyApiTokenCiphertext: legacyConfig.coolifyApiToken ? encryptSecret(legacyConfig.coolifyApiToken) : null
+            } : {} })
+          } catch (error) {
+            console.warn('[brand] initial configuration skipped:', error.message)
+          }
+        }
+        // Initialization can seed channels/capabilities on first access; use
+        // the refreshed summaries so activeBrand and the brand cards are
+        // immediately consistent in the same response.
+        allBrands = await listBrands({ workspaceId: scope.workspaceId })
+        brands = scope.auth.role === 'admin' ? allBrands : allBrands.filter((brand) => allowedBrandIds.has(brand.id))
         const [flags, channels, integrations, usage] = await Promise.all([
           getWorkspaceFeatureFlags({ workspaceId: scope.workspaceId, siteId: selectedSiteId }),
           selectedSiteId ? listSiteChannels({ workspaceId: scope.workspaceId, siteId: selectedSiteId }) : [],
-          listMetricoolIntegrations({ workspaceId: scope.workspaceId, siteId: selectedSiteId || undefined }),
+          selectedSiteId ? listBrandConnections({ workspaceId: scope.workspaceId, siteId: selectedSiteId }) : [],
           usageSnapshot({ workspaceId: scope.workspaceId })
         ])
+        const brandCapabilities = selectedSiteId ? await listBrandCapabilities({ workspaceId: scope.workspaceId, siteId: selectedSiteId }) : {}
         if (creationUiGlobalKillSwitch()) {
           flags.creation_ui_enabled = false
           flags.manual_creation_enabled = false
         }
         json(res, 200, {
-          workspace: { id: scope.workspaceId },
+          workspace: { id: scope.workspaceId, name: scope.context.workspaceName || 'Espacio' },
           activeBrand: brands.find((brand) => brand.id === selectedSiteId) || brands[0] || null,
           brands,
           role: scope.context.role,
           capabilities: scope.auth.capabilities || [],
           featureFlags: flags,
+          brandCapabilities,
           channels,
           connections: integrations,
           usage
@@ -1594,6 +1756,43 @@ const server = createServer(async (req, res) => {
         const scope = await requireV2Context(req, url, res)
         if (!scope) return
         json(res, 200, { plans: await listContentPlans({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, limit: url.searchParams.get('limit') }) })
+        return
+      }
+      if (req.method === 'GET' && path === '/api/v2/content/review') {
+        const scope = await requireV2Context(req, url, res)
+        if (!scope) return
+        json(res, 200, { items: await listContentItems({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, limit: url.searchParams.get('limit') || 200 }) })
+        return
+      }
+      if (req.method === 'GET' && path === '/api/v2/calendar') {
+        const scope = await requireV2Context(req, url, res)
+        if (!scope) return
+        json(res, 200, { entries: await listScheduledContent({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, from: url.searchParams.get('from') || undefined, to: url.searchParams.get('to') || undefined, limit: url.searchParams.get('limit') || 300 }) })
+        return
+      }
+      if (req.method === 'GET' && path === '/api/v2/team') {
+        const scope = await requireV2Context(req, url, res)
+        if (!scope) return
+        json(res, 200, { members: await listWorkspaceMembers({ workspaceId: scope.workspaceId }), canManage: ['owner', 'admin'].includes(scope.context.role) })
+        return
+      }
+      if (req.method === 'POST' && path === '/api/v2/team/invitations') {
+        const scope = await requireV2Context(req, url, res, body)
+        if (!scope) return
+        if (!['owner', 'admin'].includes(scope.context.role)) throw Object.assign(new Error('No tienes permisos para invitar miembros.'), { status: 403 })
+        const email = String(body.email || '').trim().toLowerCase()
+        if (!email || !email.includes('@')) throw Object.assign(new Error('email es obligatorio.'), { status: 400 })
+        const role = String(body.role || 'viewer').trim().toLowerCase()
+        const requestedBrandIds = Array.isArray(body.brandIds) ? body.brandIds : scope.siteId ? [scope.siteId] : scope.context.siteIds
+        const allowedBrandIds = new Set(scope.context.siteIds || [])
+        const brandIds = requestedBrandIds.map((value) => scope.context.sites.find((brand) => (brand.id === value || brand.handle === value) && (scope.auth.role === 'admin' || allowedBrandIds.has(brand.id)))?.id).filter(Boolean)
+        const user = registerPasswordUser({ email, role, sites: brandIds.map((idValue) => scope.context.sites.find((brand) => brand.id === idValue)?.handle).filter(Boolean), invite: true })
+        await addWorkspaceMember({ workspaceId: scope.workspaceId, userId: user.id, role, siteIds: brandIds })
+        const minted = createMagicToken({ site: user.site, sites: user.sites, role, email: user.email, userId: user.id, purpose: 'invite', next: '/' })
+        const origin = absoluteCmsOrigin(req)
+        const link = `${origin}/app/magic/consume?token=${encodeURIComponent(minted.token)}`
+        const delivery = await sendMagicLinkEmail({ to: email, link, site: user.site, subject: 'Activa tu acceso al CMS Escarlet', text: `Hola.\n\nActiva tu acceso con este enlace (caduca en 15 minutos):\n\n${link}\n` })
+        json(res, 201, { member: user, invite: { transport: delivery.transport, link: delivery.transport === 'console' ? link : undefined } })
         return
       }
       if (req.method === 'GET' && batchMatch) {
@@ -2689,9 +2888,28 @@ const server = createServer(async (req, res) => {
     if (req.method === 'POST' && path === '/api/admin/sites') {
       try {
         assertSuperAdmin(auth)
-        const body = await parseBody(req)
-        const result = await createSiteRecord({ ...body, createdBy: auth.userId || 'system', createdByRole: workspaceRoleForAuth(auth) })
-        json(res, 201, result)
+      const body = await parseBody(req)
+      const result = await createSiteRecord({ ...body, createdBy: auth.userId || 'system', createdByRole: workspaceRoleForAuth(auth) })
+      if (isPostgresConfigured()) {
+        try {
+          const canonical = await resolveWorkspaceContext({ userId: auth.userId || undefined, siteHandle: result.site.handle })
+          const createdBrand = canonical.sites.find((brand) => brand.handle === result.site.handle) || canonical.sites[0]
+          if (createdBrand) {
+            const legacyConfig = result.config || body
+            await initializeBrandConfiguration({ workspaceId: canonical.workspaceId, siteId: createdBrand.id, legacy: {
+              contentMode: legacyConfig.contentMode,
+              blogEnabled: legacyConfig.blogEnabled,
+              socialPackChannels: legacyConfig.socialPackChannels,
+              domain: legacyConfig.domain,
+              rebuildWebhookUrl: legacyConfig.rebuildWebhookUrl,
+              coolifyApiTokenCiphertext: legacyConfig.coolifyApiToken ? encryptSecret(legacyConfig.coolifyApiToken) : null
+            } })
+          }
+        } catch (error) {
+          console.warn('[brand] Postgres channel initialization skipped:', error.message)
+        }
+      }
+      json(res, 201, result)
       } catch (err) {
         json(res, err.status || 500, { message: err.message, ...(err.extra || {}) })
       }

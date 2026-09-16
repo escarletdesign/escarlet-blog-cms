@@ -3,6 +3,8 @@ import { existsSync, readFileSync, readdirSync, statSync, mkdirSync, copyFileSyn
 import { join } from 'node:path'
 import { dataDir, readDb } from '../lib/db.mjs'
 import { getPgPool, runCoreMigrations, withPgTransaction } from '../lib/pg.mjs'
+import { loadSiteConfig } from '../lib/site-config.mjs'
+import { encryptSecret } from '../lib/secret-crypto.mjs'
 
 const clean = (value, max = 500) => String(value ?? '').trim().slice(0, max)
 const json = (value) => JSON.stringify(value && typeof value === 'object' ? value : {})
@@ -174,6 +176,37 @@ export async function migrateJsonToPostgres({ db = readDb(), users = readJson('u
       const versionId = `${brandKitId}-version-1`
       await client.query('INSERT INTO brand_kit_versions (id,brand_kit_id,version,status,manifest,created_by) VALUES ($1,$2,1,\'published\',$3,$4) ON CONFLICT (brand_kit_id,version) DO UPDATE SET manifest=EXCLUDED.manifest,status=EXCLUDED.status', [versionId, brandKitId, json(brandManifest(site.handle)), 'system'])
       await client.query('UPDATE brand_kits SET active_version_id=$1,updated_at=NOW() WHERE id=$2', [versionId, brandKitId])
+      const legacyConfig = loadSiteConfig(site.handle) || {}
+      const social = legacyConfig.socialPackChannels && typeof legacyConfig.socialPackChannels === 'object' ? legacyConfig.socialPackChannels : {}
+      const channels = {
+        blog: legacyConfig.contentMode !== 'socialmedia' && legacyConfig.blogEnabled !== false,
+        instagram: social.instagramCarousel !== false,
+        linkedin: social.linkedin !== false,
+        x: social.x !== false,
+        video: social.videoScript !== false,
+        substack: social.substack !== false
+      }
+      for (const [channel, enabled] of Object.entries(channels)) {
+        await client.query('INSERT INTO site_channels (site_id,channel,enabled,connection_status) VALUES ($1,$2,$3,\'not_connected\') ON CONFLICT (site_id,channel) DO UPDATE SET enabled=EXCLUDED.enabled,updated_at=NOW()', [siteId, channel, enabled])
+      }
+      const capabilities = {
+        brand_kit_access: true,
+        content_publishing: Object.values(channels).some(Boolean),
+        blog_publishing: Boolean(channels.blog),
+        presentation_generation: false
+      }
+      for (const [key, enabled] of Object.entries(capabilities)) {
+        await client.query('INSERT INTO brand_capabilities (site_id,key,enabled) VALUES ($1,$2,$3) ON CONFLICT (site_id,key) DO UPDATE SET enabled=EXCLUDED.enabled,updated_at=NOW()', [siteId, key, enabled])
+      }
+      if (legacyConfig.domain || legacyConfig.rebuildWebhookUrl || legacyConfig.coolifyApiToken) {
+        let encrypted = null
+        try { encrypted = legacyConfig.coolifyApiToken ? encryptSecret(legacyConfig.coolifyApiToken) : null } catch { encrypted = null }
+        await client.query(`
+          INSERT INTO channel_connections (id,workspace_id,site_id,channel,provider,credentials_ciphertext,config,status,is_primary)
+          VALUES ($1,$2,$3,'blog','web',$4,$5,'connected',TRUE)
+          ON CONFLICT (site_id,channel,provider) DO UPDATE SET credentials_ciphertext=COALESCE(EXCLUDED.credentials_ciphertext,channel_connections.credentials_ciphertext),config=EXCLUDED.config,updated_at=NOW()
+        `, [randomUUID(), workspaceId, siteId, encrypted, json({ domain: legacyConfig.domain || null, rebuildWebhookUrl: legacyConfig.rebuildWebhookUrl || null })])
+      }
       for (const assetPath of brandAssetFiles(site.handle)) {
         const stat = statSync(assetPath)
         await client.query('INSERT INTO brand_assets (id,brand_kit_version_id,name,storage_key,size_bytes,visibility) VALUES ($1,$2,$3,$4,$5,\'private\') ON CONFLICT (id) DO NOTHING', [`brand-asset-${siteId}-${hash(assetPath).slice(0, 16)}`, versionId, assetPath.split('/').pop(), assetPath, stat.size])

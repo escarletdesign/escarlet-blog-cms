@@ -5,10 +5,10 @@ import { Badge, Button, BulkActionBar, Card, ChannelBadge, Checkbox, ContentPlan
 
 const ALL_CHANNELS: ContentChannel[] = ["blog", "instagram", "linkedin", "x", "video", "substack"];
 const channelLabel = (channel: string) => channel === "x" ? "X" : channel.charAt(0).toUpperCase() + channel.slice(1);
-type Props = { site: string; creationEnabled?: boolean; activeChannels?: Array<{ channel: string; enabled: boolean }> };
+type Props = { site: string; creationEnabled?: boolean; activeChannels?: Array<{ channel: string; enabled: boolean }>; mode?: "plans" | "review" };
 type Dialog = { type: "edit" | "reject" | "schedule"; item: ContentItem } | null;
 
-export function ContentBatches({ site, creationEnabled = false, activeChannels }: Props) {
+export function ContentBatches({ site, creationEnabled = false, activeChannels, mode = "plans" }: Props) {
   const [plans, setPlans] = useState<ContentPlanSummary[]>([]);
   const [selectedPlanId, setSelectedPlanId] = useState("");
   const [items, setItems] = useState<ContentItem[]>([]);
@@ -45,8 +45,9 @@ export function ContentBatches({ site, creationEnabled = false, activeChannels }
   const reject = (id: string, comment: string) => run(() => api.rejectContent(id, comment, site));
   const schedule = (id: string, value: string) => run(() => api.scheduleContent(id, value, Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", site));
 
+  const isReview = mode === "review";
   return <main className="page ui-plans-page">
-    <PageHeader eyebrow="Contenido multicanal" title="Planes de contenido" description="Revisa publicaciones y variantes por canal. Aprueba solo lo que quieras enviar a agenda." actions={creationEnabled ? <Button onClick={() => setCreateOpen(true)}>Nuevo plan</Button> : undefined} />
+    <PageHeader eyebrow={isReview ? "Cola de revisión" : "Contenido multicanal"} title={isReview ? "Revisión de publicaciones" : "Planes de contenido"} description={isReview ? "Aprueba, rechaza y edita publicaciones creadas desde ChatGPT antes de enviarlas al calendario." : "Planes = qué contenido estamos preparando. Revisa publicaciones y variantes por canal; aprueba solo lo que quieras enviar a agenda."} actions={creationEnabled && !isReview ? <Button onClick={() => setCreateOpen(true)}>Nuevo plan</Button> : undefined} />
     {error && <Card className="ui-alert-card"><p className="ui-field-error" role="alert">{error}</p><Button variant="ghost" size="sm" onClick={() => void loadPlans()}>Reintentar</Button></Card>}
     {!loading && setupRequired && <EmptyState title="Configura tu marca para comenzar" description="Un administrador debe inicializar el espacio y asignarte una marca antes de mostrar publicaciones." />}
     {!loading && !setupRequired && !plans.length && !error && <EmptyState title="Todavía no hay planes de contenido" description="Los planes se crean desde ChatGPT/MCP. Cuando llegue el primero, podrás revisarlo y agendar sus publicaciones aquí." />}

@@ -39,7 +39,10 @@ import {
   rejectContentBatch,
   scheduleContentBatch,
   createBrandKitVersion,
-  registerBrandAssets
+  registerBrandAssets,
+  listSiteChannels,
+  listBrandCapabilities,
+  listBrandConnections
 } from '../lib/workspace-domain.mjs'
 import { isPostgresConfigured, runCoreMigrations } from '../lib/pg.mjs'
 
@@ -120,7 +123,7 @@ function errorResult(err) {
 }
 
 function resolveToolSite(auth, args = {}) {
-  const requested = args.site || (isSiteScopedRole(auth?.role) ? auth.site : DEFAULT_SITE)
+  const requested = args.site || (isSiteScopedRole(auth?.role) ? (auth.site || auth.sites?.[0]) : DEFAULT_SITE)
   assertSiteAccess(auth, requested)
   return requested
 }
@@ -632,6 +635,7 @@ export function buildToolList(auth) {
   ]
 
   tools.push(
+    { name: 'brand_get_context', description: 'Devuelve el contexto canónico de una marca para usos externos como presentaciones, diseño o publicaciones. Incluye capacidades, canales, conexiones sin credenciales y el brand kit permitido por el token.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, siteId: { type: 'string' } } }, annotations: { readOnlyHint: true } },
     { name: 'content_create_batch', description: 'Crea una campaña de publicaciones independientes por temas y canales. Devuelve batchId, itemIds y jobId.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, title: { type: 'string' }, topics: { type: 'array', items: { type: 'string' } }, channels: { type: 'array', items: { type: 'string', enum: ['blog', 'instagram', 'linkedin', 'x', 'video', 'substack'] } }, brandKitVersionId: { type: 'string' } }, required: ['topics'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_get_batch', description: 'Obtiene el progreso, items y variantes de un batch.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, batchId: { type: 'string' } }, required: ['batchId'] }, annotations: { readOnlyHint: true } },
     { name: 'content_update_item', description: 'Edita el tema o el cuerpo de una variante antes de aprobar.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, topic: { type: 'string' }, channel: { type: 'string' }, body: { type: 'object' }, mediaAssetIds: { type: 'array', items: { type: 'string' } } }, required: ['itemId'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
@@ -715,6 +719,17 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
         if (isSocialMediaOnlySite(loadSiteConfig(site))) {
           throw Object.assign(new Error('Este sitio está configurado como solo Social Media. Usa las herramientas de Social Pack.'), { status: 404 })
         }
+        if (isPostgresConfigured()) {
+          try {
+            const scope = await resolveContentScope(auth, { site })
+            const blog = (await listSiteChannels({ workspaceId: scope.workspaceId, siteId: scope.siteId })).find((channel) => channel.channel === 'blog')
+            if (blog && !blog.enabled) throw Object.assign(new Error('El canal Blog está desactivado para esta marca.'), { status: 409, code: 'channel_disabled' })
+          } catch (error) {
+            if (error.code === 'channel_disabled') throw error
+            // A partially migrated installation can still use its legacy blog
+            // adapter until initializeBrandConfiguration() runs.
+          }
+        }
       }
       if (args.slug && !['blog_create_draft', 'blog_upload_media', 'blog_upload_media_file', 'blog_open_image_drop', 'blog_import_remote_image'].includes(name)) {
         const site = resolveToolSite(auth, args)
@@ -722,6 +737,26 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
         assertPostAccess(post, auth, { write: !tool.annotations?.readOnlyHint })
       }
       switch (name) {
+        case 'brand_get_context': {
+          const scope = await resolveContentScope(auth, args)
+          const brand = scope.sites.find((entry) => entry.id === scope.siteId) || scope.sites[0]
+          const [channels, brandCapabilities, connections, brandKit] = await Promise.all([
+            listSiteChannels({ workspaceId: scope.workspaceId, siteId: scope.siteId }),
+            listBrandCapabilities({ workspaceId: scope.workspaceId, siteId: scope.siteId }),
+            listBrandConnections({ workspaceId: scope.workspaceId, siteId: scope.siteId }),
+            cms.getBrandContext(scope.siteHandle, { auth })
+          ])
+          return textResult({
+            workspace: { id: scope.workspaceId, name: scope.workspaceName || 'Espacio' },
+            brand: { id: brand?.id || scope.siteId, handle: brand?.handle || scope.siteHandle, name: brand?.name || scope.siteHandle },
+            role: scope.role,
+            capabilities: auth?.capabilities || [],
+            brandCapabilities,
+            channels,
+            connections,
+            brandKit
+          })
+        }
         case 'content_create_batch': {
           const scope = await resolveContentScope(auth, args)
           const result = await createContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: auth.userId || null, role: scope.role, title: args.title, topics: args.topics, channels: args.channels, brandKitVersionId: args.brandKitVersionId, metadata: args.metadata })

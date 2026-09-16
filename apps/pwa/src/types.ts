@@ -1,4 +1,5 @@
 export type Role = "owner" | "admin" | "editor" | "author" | "viewer" | "agency_admin" | "client" | "client_mcp" | "site" | string;
+export type BrandCapability = "brand_kit_access" | "content_publishing" | "blog_publishing" | "presentation_generation" | "review_content" | "approve_content" | "schedule_content" | "manage_connections" | "manage_members" | "manage_billing" | string;
 
 export interface Session {
   role: Role;
@@ -17,6 +18,23 @@ export interface Session {
 }
 
 export type ContentChannel = "blog" | "instagram" | "linkedin" | "x" | "video" | "substack";
+export interface BrandChannel {
+  channel: ContentChannel;
+  enabled: boolean;
+  connectionStatus?: string;
+  provider?: string | null;
+  connectionId?: string | null;
+}
+export interface BrandSummary {
+  id: string;
+  workspaceId?: string;
+  handle?: string;
+  name?: string;
+  domain?: string | null;
+  channels?: BrandChannel[];
+  capabilities?: Record<string, boolean>;
+  connections?: Array<Record<string, any>>;
+}
 export type ContentStatus = "draft" | "generated" | "needs_review" | "approved" | "scheduled" | "syncing" | "published" | "failed" | "canceled";
 export interface ContentVariant {
   id: string;
@@ -75,6 +93,7 @@ export interface Post {
   datePublished?: string;
   dateModified?: string;
   publishAt?: string;
+  articleUrl?: string;
   contentSource?: string;
   assistantConversationId?: string;
   /** Decision metadata from content-system visual v2. */
