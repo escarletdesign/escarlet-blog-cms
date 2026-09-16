@@ -135,12 +135,24 @@ function mediaDigest(media) {
   try { return createHash('sha256').update(readFileSync(file)).digest('hex') } catch { return null }
 }
 
-export async function migrateJsonToPostgres({ db = readDb(), users = readJson('users.json', {}).users || [], dryRun = false, backup = true } = {}) {
+export async function migrateJsonToPostgres({ db = readDb(), users = readJson('users.json', {}).users || [], dryRun = false, backup = true, ifEmpty = false } = {}) {
   const sites = Array.isArray(db.sites) ? db.sites : []
   if (dryRun) return { dryRun: true, counts: { sites: sites.length, posts: (db.posts || []).length, media: (db.media || []).length, users: users.length } }
   const pool = await getPgPool()
   if (!pool) throw Object.assign(new Error('DATABASE_URL es obligatorio para la migración.'), { status: 503 })
   await runCoreMigrations()
+  if (ifEmpty) {
+    // A fresh Coolify Postgres starts with the schema but no workspace rows.
+    // Import only in that case so later restarts never re-read JSON or create
+    // a permanent dual-write path.
+    const existing = await pool.query(`
+      SELECT 1
+      FROM workspaces w
+      JOIN sites s ON s.workspace_id=w.id
+      LIMIT 1
+    `)
+    if (existing.rowCount) return { dryRun: false, skipped: true, reason: 'postgres_already_initialized' }
+  }
   const workspaceId = 'workspace-escarlet'
   const counts = { workspaces: 0, members: 0, sites: 0, posts: 0, variants: 0, media: 0, entitlements: 0 }
   const backupInfo = backup ? createMigrationBackup() : null
@@ -310,5 +322,5 @@ export async function migrateJsonToPostgres({ db = readDb(), users = readJson('u
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  migrateJsonToPostgres({ dryRun: process.argv.includes('--dry-run'), backup: !process.argv.includes('--no-backup') }).then((result) => { console.log(JSON.stringify(result, null, 2)); process.exit(0) }).catch((error) => { console.error(error.message); process.exit(1) })
+  migrateJsonToPostgres({ dryRun: process.argv.includes('--dry-run'), backup: !process.argv.includes('--no-backup'), ifEmpty: process.argv.includes('--if-empty') }).then((result) => { console.log(JSON.stringify(result, null, 2)); process.exit(0) }).catch((error) => { console.error(error.message); process.exit(1) })
 }

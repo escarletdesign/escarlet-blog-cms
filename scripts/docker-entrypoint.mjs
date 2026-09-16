@@ -4,7 +4,7 @@
 import { mkdirSync, existsSync, copyFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { seedAllBrandKits } from '../lib/brand-kit.mjs'
 import {
   dataDir,
@@ -57,6 +57,25 @@ const workerEnabled = process.env.WORKER_ENABLED !== '0'
 if (production && !process.env.DATABASE_URL) {
   console.error('[entrypoint] FATAL: DATABASE_URL es obligatorio en producción para API v2 y worker.')
   process.exit(1)
+}
+
+// The v2 runtime is Postgres-first, while an existing deployment may still
+// have its only copy of the brand/content data in /app/data/*.json. Import it
+// once when the database has no workspace/site rows. The importer is
+// idempotent and skips initialized databases; set AUTO_MIGRATE_JSON=0 to run
+// the migration manually instead.
+if (production && process.env.DATABASE_URL && process.env.AUTO_MIGRATE_JSON !== '0') {
+  console.log('[entrypoint] comprobando importación inicial JSON → Postgres')
+  const migration = spawnSync('node', ['scripts/migrate-json-to-postgres.mjs', '--if-empty'], {
+    cwd: root,
+    env: process.env,
+    encoding: 'utf8'
+  })
+  if (migration.stdout?.trim()) process.stdout.write(`[entrypoint] ${migration.stdout.trim()}\n`)
+  if (migration.stderr?.trim()) process.stderr.write(`[entrypoint] ${migration.stderr.trim()}\n`)
+  if (migration.status !== 0) {
+    console.warn(`[entrypoint] importación inicial omitida (código ${migration.status ?? 'desconocido'}); el API continuará y se puede ejecutar npm run db:migrate manualmente`)
+  }
 }
 
 const children = new Map()

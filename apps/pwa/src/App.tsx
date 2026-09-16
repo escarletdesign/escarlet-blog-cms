@@ -783,7 +783,6 @@ function Shell() {
     { to: "/plans", label: t("nav.plans", "Planes"), icon: "plans" },
     { to: "/calendar", label: t("nav.calendar", "Calendario"), icon: "calendar" },
     { to: "/brands", label: t("nav.brands", "Marcas"), icon: "brands" },
-    { to: "/connections", label: t("nav.connections", "Conexiones"), icon: "connections" },
     { to: "/team", label: t("nav.team", "Equipo y acceso"), icon: "team" },
     ...(session.role !== "client_mcp" && workflowFlags.cmsAiEnabled ? [{ to: "/billing", label: t("nav.planUsage", "Plan y uso"), icon: "billing" }] : []),
     ...(workflowFlags.creationUiEnabled && workflowFlags.assistantEnabled && publishingEnabled ? [{ to: "/chat", label: t("nav.assistant"), icon: "assistant" }] : []),
