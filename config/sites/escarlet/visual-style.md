@@ -31,6 +31,8 @@ Los nombres de archivo y el alt siguen `image-guide.md`. Esta guía manda el asp
 
 ## Cómo usar las referencias
 
+Antes de generar cualquier imagen, sea portada, foto de artículo, imagen social, slide, fondo o pieza de apoyo, consulta `referenceImages` en `blog_get_brand_context` y entrega las referencias pertinentes al generador. Las referencias son parte del contexto visual, no una sugerencia opcional.
+
 1. Lista las URLs de `referenceImages` en `blog_get_brand_context`.
 2. Describe paleta, encuadre y oficio que ves.
 3. Genera o elige una portada que podría colgarse al lado de esas fotos.
@@ -41,4 +43,4 @@ Los nombres de archivo y el alt siguen `image-guide.md`. Esta guía manda el asp
 
 Las portadas usan siete arquetipos declarados en `content-system/brand/escarlet-image-archetypes.json`. El agente inspecciona las últimas seis piezas, evita repetir el arquetipo consecutivo y selecciona entre dos y tres referencias aprobadas de `escarlet-reference-library.json`. La coherencia viene de la paleta, la materia, la luz y el contraste; la variedad viene del encuadre, la presencia humana, la abstracción y la metáfora.
 
-Las slides de Instagram se dividen en fondo y composición. El fondo se genera sin texto. El texto se renderiza con los templates `editorial` o `impact` y la fuente declarada, mediante `content-system/instagram-renderer.mjs`. El generador nunca debe intentar escribir la tipografía final.
+Las slides de Instagram se dividen en fondo y composición. El fondo se genera sin texto. El texto se renderiza con los templates `editorial` o `impact` y la fuente declarada, mediante `content-system/instagram-renderer.mjs`. El generador nunca debe intentar escribir la tipografía final. El texto debe ser legible en un móvil desde la primera lectura. Si no cabe, acorta el copy o divide la idea entre slides. Nunca reduzcas la tipografía hasta hacerla ilegible.

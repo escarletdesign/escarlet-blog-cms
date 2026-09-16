@@ -430,7 +430,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_get_brand_context',
       description:
-        'Obligatorio al crear o editar. Incluye mediaUpload A→B→C. Con token de sitio no incluye voz ni image-spec (privados). Si file no es invocable usa contentBase64.',
+        'Obligatorio al crear o editar. Devuelve la política editorial compartida (común a todos los sitios), el brand kit del sitio y mediaUpload A→B→C. Con token de sitio no incluye voz ni image-spec (privados). Si file no es invocable usa contentBase64.',
       inputSchema: {
         type: 'object',
         properties: { site: { type: 'string' } },

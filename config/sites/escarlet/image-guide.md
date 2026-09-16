@@ -37,11 +37,13 @@ Convención del sitio alineada con el curso de SEO. Aplica a portadas, fotos de 
 3. Actualiza `src` y `alt` en el mismo cambio.
 4. Si sustituyes un archivo, deja el viejo un tiempo para no romper caché.
 
+Antes de generar cualquier imagen, consulta `referenceImages` en `blog_get_brand_context` y entrega las referencias pertinentes al generador. Esta regla aplica a portadas, imágenes de artículo, imágenes sociales, slides, fondos y piezas de apoyo.
+
 ## Carrusel Instagram (blog)
 
 Si el site tiene `instagramCarousel` activo, el agente genera 4–7 slides (1080×1350), las sube al CMS con `kind` `social` (`{slug}-ig-01.jpg` …) y las enlaza en `socialPack.instagramSlides`. ChatGPT envía el PNG en `contentBase64` o a trozos. El CMS comprime. El pack admin solo descarga las URLs del CMS.
 
-Regla visual del carrusel: la primera y la última slide pueden usar colores de marca o gradientes suaves. Las slides centrales usan fondos claros, crema o escala de grises y evitan colores saturados. En las piezas de Instagram sí se permite texto, pero debe limitarse al `headline` y `body` entregados por el CMS, con ortografía exacta, jerarquía clara y tipografía legible. Esta configuración vive también en `image-spec.json` para que el agente y el generador la apliquen de forma consistente.
+Regla visual del carrusel: la primera y la última slide pueden usar colores de marca o gradientes suaves. Las slides centrales usan fondos claros, crema o escala de grises y evitan colores saturados. En las piezas de Instagram sí se permite texto, pero debe limitarse al `headline` y `body` entregados por el CMS, con ortografía exacta, jerarquía clara y un tamaño suficiente para leerse en un móvil desde la primera lectura. Si el copy no cabe, acórtalo o divídelo entre slides. Nunca reduzcas la tipografía hasta hacerla ilegible. Esta configuración vive también en `image-spec.json` para que el agente y el generador la apliquen de forma consistente.
 
 ## Lead magnets
 

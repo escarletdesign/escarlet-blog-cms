@@ -50,6 +50,16 @@ test('workflow MCP prioriza /app y oculta sus enlaces al bridge del chat', async
   assert.doesNotMatch(JSON.stringify(bridgePayload), /\/app\/preview/)
 })
 
+test('blog_get_brand_context devuelve la política editorial común a todos los sitios', async () => {
+  const result = await invokeMcpTool('blog_get_brand_context', { site: 'escarlet' }, { role: 'admin' })
+  const payload = JSON.parse(result.content?.[0]?.text || '{}')
+  assert.equal(payload.sharedEditorialPolicy.id, 'storyscope-inspired-human-writing')
+  assert.match(payload.sharedEditorialPolicy.guidance, /No inventes experiencias personales/i)
+  assert.match(payload.sharedEditorialPolicy.guidance, /guiones horizontales/i)
+  assert.match(payload.sharedEditorialPolicy.imageGuidance, /referenceImages/)
+  assert.match(payload.sharedEditorialPolicy.instagramGuidance, /móvil/i)
+})
+
 test('invokeMcpTool reutiliza las mismas tools para la app', async () => {
   const result = await invokeMcpTool('blog_get_quota', { site: 'escarlet' }, { role: 'client', site: 'escarlet' })
   assert.ok(result.content?.[0]?.text?.includes('"site": "escarlet"'))

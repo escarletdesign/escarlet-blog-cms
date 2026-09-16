@@ -18,6 +18,8 @@
 4. Si tienes URL https pública. También vale `imageUrl`. Nunca uses `/mnt/data` como `imageUrl`.
 5. Usa la `media.url` absoluta en el `imageUrl` del post o en cada slide.
 
+Antes de generar cualquier imagen, consulta `referenceImages` en `blog_get_brand_context` y entrega las referencias pertinentes al generador. Esta regla aplica a portadas, imágenes de artículo, imágenes sociales, slides, fondos y piezas de apoyo.
+
 ## Carrusel Instagram (si el canal está activo)
 
 1. Genera 4–7 slides 1080×1350 (o 1080×1080) alineados con visual-style.
@@ -25,3 +27,4 @@
 3. `blog_upload_media` con `kind` `social` por cada slide.
 4. Guarda en `socialPack.instagramSlides` `{ imageUrl, alt, headline? }` y un `instagramCaption` con el canónico.
 5. Si el canal está activo, genera las slides en ChatGPT y guárdalas con `blog_save_social_pack` después de confirmar el contenido. Si no existe artículo, usa `social_save_pack`. El CMS no genera Social Packs desde MCP.
+6. Mantén el headline y el body con un tamaño suficiente para leerse en un móvil. Si el copy no cabe, acórtalo o divídelo entre slides. Nunca lo reduzcas hasta hacerlo ilegible.

@@ -12,6 +12,8 @@
     },
     "referenceSelection": {
       "approvedOnly": true,
+      "mustConsultForAnyImage": true,
+      "passToGenerator": true,
       "coverCountAutomatic": 2,
       "coverCountExploration": 3,
       "socialCount": 1
@@ -33,7 +35,13 @@
     "allowText": true,
     "textSource": "template",
     "textRenderer": "content-system/instagram-renderer.mjs",
-    "textGuidance": "Monta únicamente el headline y body con el template declarado. Mantén el texto breve, legible y con ortografía exacta; no inventes palabras ni logotipos.",
+    "textGuidance": "Monta únicamente el headline y body con el template declarado. Mantén el texto breve, legible en un móvil desde la primera lectura y con ortografía exacta; no inventes palabras ni logotipos. Si no cabe, acorta el copy o divide la idea entre slides. Nunca reduzcas la tipografía hasta hacerla ilegible.",
+    "mobileReadability": {
+      "required": true,
+      "firstRead": true,
+      "allowFontShrinkingToFit": false,
+      "overflowAction": "shorten-or-split"
+    },
     "backgroundGeneration": { "allowText": false, "role": "instagram-carousel-background" },
     "templates": ["editorial", "impact"],
     "firstSlide": {

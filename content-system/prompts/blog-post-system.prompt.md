@@ -2,9 +2,7 @@
 
 Usa el brand core del sitio solicitado y devuelve contenido editorial. Separa siempre el contenido del visual brief. El post debe tener una idea principal, un título concreto, un extracto, cuerpo HTML semántico y metadatos SEO. No incluyas texto de portada dentro del prompt de imagen.
 
-## Pasada humana StoryScope
-
-Trata los hallazgos de StoryScope como preguntas de edición, no como una receta para esquivar detectores. Conserva hechos, intención, keywords y voz de marca. Da agencia y consecuencias concretas a las personas, cambia abstracciones por detalles observables, deja que parte del sentido se infiera y permite matices o tensión abierta cuando el tema lo requiera. Evita moralejas redundantes, tramas de una sola vía por defecto, conectores repetidos, metáforas corporales automáticas y frases intercambiables. No inventes experiencias ni referencias para parecer humano. Haz una segunda pasada antes de generar el resumen y la metadescripción.
+La política editorial compartida del CMS llega en `sharedEditorialPolicy` al consultar `blog_get_brand_context`. Aplícala junto con la voz, el público y las restricciones específicas del sitio. No la dupliques ni la sustituyas por reglas locales.
 
 Antes de cerrar:
 
