@@ -94,7 +94,7 @@ const baseApi = {
     ),
   createDraft: (post: Partial<Post> & { title: string; site?: string }) =>
     request<{ post: Post }>("/api/admin/posts/create-draft", {
-      method: "POST",
+      method: "POST", headers: { "X-Escarlet-Client": "pwa" },
       body: JSON.stringify(post),
     }),
   transcribe: (input: { site?: string; audioBase64: string; mimeType?: string; filename?: string }) =>
@@ -184,6 +184,31 @@ const baseApi = {
     request<{ items: ContentItem[] }>(
       `/api/v2/content/items${site ? `?site=${encodeURIComponent(site)}` : ""}`,
     ),
+  contentPlans: (site?: string) =>
+    request<{ plans: Array<Record<string, any>> }>(
+      `/api/v2/content/plans${site ? `?site=${encodeURIComponent(site)}` : ""}`,
+    ),
+  context: (site?: string) =>
+    request<{
+      workspace: { id: string; name?: string };
+      activeBrand?: { id: string; handle?: string; name?: string } | null;
+      brands: Array<{ id: string; handle?: string; name?: string }>;
+      role: string;
+      capabilities: string[];
+      featureFlags: { creation_ui_enabled: boolean; manual_creation_enabled: boolean; [key: string]: boolean };
+      channels: Array<{ channel: string; enabled: boolean; connectionStatus: string }>;
+      connections: Array<Record<string, any>>;
+      usage?: Record<string, any>;
+    }>(`/api/v2/context${site ? `?site=${encodeURIComponent(site)}` : ""}`),
+  updateFeatureFlags: (flags: Record<string, boolean>, site?: string, scope?: "workspace" | "brand") =>
+    request<{ flags: Record<string, boolean> }>("/api/v2/feature-flags", {
+      method: "PATCH",
+      body: JSON.stringify({ site, scope, flags }),
+    }),
+  metricoolConnect: (input: { site?: string; channel?: string; userToken: string; userId: string; blogId: string; timezone?: string; capabilities?: Record<string, any> }) =>
+    request<Record<string, any>>("/api/v2/integrations/metricool/connect", { method: "POST", body: JSON.stringify(input) }),
+  metricoolTest: (site?: string) =>
+    request<Record<string, any>>(`/api/v2/integrations/metricool/test${site ? `?site=${encodeURIComponent(site)}` : ""}`, { method: "POST", body: JSON.stringify({ site }) }),
   contentBatch: (batchId: string, site?: string) =>
     request<ContentBatch>(
       `/api/v2/content/batches/${encodeURIComponent(batchId)}${site ? `?site=${encodeURIComponent(site)}` : ""}`,
@@ -191,7 +216,7 @@ const baseApi = {
   createContentBatch: (input: { site?: string; title: string; topics: string[]; channels: string[]; brandKitVersionId?: string }) =>
     request<{ batchId: string; itemIds: string[]; jobId: string; totalItems: number }>(
       "/api/v2/content/batches",
-      { method: "POST", body: JSON.stringify(input) },
+      { method: "POST", headers: { "X-Escarlet-Client": "pwa" }, body: JSON.stringify(input) },
     ),
   updateContentItem: (itemId: string, input: { site?: string; topic?: string; channel?: string; body?: Record<string, any>; mediaAssetIds?: string[] }) =>
     request<ContentItem>(
@@ -456,7 +481,7 @@ const baseApi = {
     }),
   workflowFlags: (site?: string) =>
     request<{
-      flags: { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean; updatedAt?: string | null };
+      flags: { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean; creation_ui_enabled?: boolean; manual_creation_enabled?: boolean; updatedAt?: string | null };
     }>(`/api/app/feature-flags${site ? `?site=${encodeURIComponent(site)}` : ""}`),
   creditPacks: () =>
     request<{
@@ -557,7 +582,7 @@ async function aiChat(
   const response = await fetch("/api/ai/chat", {
     method: "POST",
     credentials: "include",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-Escarlet-Client": "pwa" },
     body: JSON.stringify(input),
   });
   if (!response.ok) {

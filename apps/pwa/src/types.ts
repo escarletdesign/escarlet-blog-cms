@@ -1,4 +1,4 @@
-export type Role = "admin" | "agency_admin" | "client" | "client_mcp" | "site" | string;
+export type Role = "owner" | "admin" | "editor" | "author" | "viewer" | "agency_admin" | "client" | "client_mcp" | "site" | string;
 
 export interface Session {
   role: Role;
@@ -43,6 +43,18 @@ export interface ContentBatch {
   generated_items: number;
   failed_items: number;
   items: ContentItem[];
+}
+
+export interface ContentPlanSummary {
+  id: string;
+  title: string;
+  status: ContentStatus;
+  totalItems: number;
+  generatedItems: number;
+  failedItems: number;
+  channels: ContentChannel[];
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface Post {

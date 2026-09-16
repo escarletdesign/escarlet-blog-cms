@@ -23,10 +23,11 @@ import { api } from "./api";
 import type { AiConversation, SocialPackJobResult } from "./api";
 import { getInitialLanguage, Language, translate } from "./i18n";
 import type { Author, MediaItem, Post, Session } from "./types";
-import { ContentBatches } from "./ContentBatches";
+import { ContentPlans } from "./ContentPlans";
+import { Badge, Button, Card, ChannelBadge, ConnectionCard, EmptyState, Field, Inline, PageHeader, TextField } from "./ui";
 
 type Draft = Partial<Post> & { title: string; slug?: string };
-type WorkflowFlags = { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean };
+type WorkflowFlags = { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean; creationUiEnabled: boolean; manualCreationEnabled: boolean };
 type SocialPackChannels = {
   substack: boolean;
   linkedin: boolean;
@@ -54,6 +55,14 @@ type AppState = {
   sites: string[];
   contentMode: "blog" | "socialmedia";
   workflowFlags: WorkflowFlags;
+  channels: Array<{ channel: string; enabled: boolean; connectionStatus?: string }>;
+  productContext?: {
+    workspace: { id: string; name?: string };
+    activeBrand?: { id: string; handle?: string; name?: string } | null;
+    brands: Array<{ id: string; handle?: string; name?: string }>;
+    connections: Array<Record<string, any>>;
+    usage?: Record<string, any>;
+  };
   setSite: (site: string) => void;
   refresh: () => Promise<void>;
 };
@@ -85,7 +94,7 @@ const useToast = () => {
   if (!value) throw new Error("Toast context unavailable");
   return value;
 };
-const isAdmin = (role?: string) => role === "admin" || role === "agency_admin";
+const isAdmin = (role?: string) => role === "admin" || role === "agency_admin" || role === "owner";
 function AiOnly({ children }: { children: ReactNode }) {
   const { session, workflowFlags } = useApp();
   return session.role === "client_mcp" || !workflowFlags.cmsAiEnabled ? null : <>{children}</>;
@@ -296,7 +305,9 @@ function ToastProvider({ children }: { children: ReactNode }) {
 function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [workflowFlags, setWorkflowFlags] = useState<WorkflowFlags>({ cmsAiEnabled: true, assistantEnabled: true, blogWizardEnabled: true });
+  const [workflowFlags, setWorkflowFlags] = useState<WorkflowFlags>({ cmsAiEnabled: true, assistantEnabled: false, blogWizardEnabled: false, creationUiEnabled: false, manualCreationEnabled: false });
+  const [channels, setChannels] = useState<Array<{ channel: string; enabled: boolean; connectionStatus?: string }>>([]);
+  const [productContext, setProductContext] = useState<AppState["productContext"]>();
   const [language, setLanguageState] = useState<Language>(getInitialLanguage);
   const [site, setSiteState] = useState("");
   const [contentMode, setContentMode] = useState<"blog" | "socialmedia">("blog");
@@ -318,12 +329,21 @@ function App() {
           cmsAiEnabled,
           assistantEnabled: cmsAiEnabled && nextFlags.flags?.assistantEnabled !== false,
           blogWizardEnabled: cmsAiEnabled && nextFlags.flags?.blogWizardEnabled !== false,
+          creationUiEnabled: false,
+          manualCreationEnabled: false,
         });
+        try {
+          const context = await api.context(nextSession.site || nextSession.sites?.[0]);
+          setProductContext(context);
+          setChannels(context.channels || []);
+          setWorkflowFlags((current) => ({ ...current, creationUiEnabled: Boolean(context.featureFlags?.creation_ui_enabled), manualCreationEnabled: Boolean(context.featureFlags?.manual_creation_enabled), assistantEnabled: current.assistantEnabled && Boolean(context.featureFlags?.creation_ui_enabled), blogWizardEnabled: current.blogWizardEnabled && Boolean(context.featureFlags?.manual_creation_enabled) }));
+        } catch { setChannels([]); setProductContext(undefined); }
       } catch {
-        setWorkflowFlags({ cmsAiEnabled: nextSession.role !== "client_mcp", assistantEnabled: nextSession.role !== "client_mcp", blogWizardEnabled: nextSession.role !== "client_mcp" });
+        setWorkflowFlags({ cmsAiEnabled: nextSession.role !== "client_mcp", assistantEnabled: false, blogWizardEnabled: false, creationUiEnabled: false, manualCreationEnabled: false });
       }
     } catch {
       setSession(null);
+      setProductContext(undefined);
     } finally {
       setLoading(false);
     }
@@ -416,6 +436,8 @@ function App() {
                 : [session.site || "escarlet"],
               contentMode,
               workflowFlags,
+              channels,
+              productContext,
               setSite,
               refresh,
             }}
@@ -428,24 +450,29 @@ function App() {
                 </>
               ) : <Route element={<Shell />}>
                 <Route path="/" element={<Home />} />
-                {contentMode === "blog" && workflowFlags.assistantEnabled && <Route path="/chat" element={<Chat />} />}
-                {contentMode === "blog" && workflowFlags.blogWizardEnabled && <Route path="/quick-create" element={<QuickCreate />} />}
-                {contentMode === "blog" && <>
+                {contentMode === "blog" && workflowFlags.creationUiEnabled && workflowFlags.assistantEnabled && <Route path="/chat" element={<Chat />} />}
+                {contentMode === "blog" && workflowFlags.manualCreationEnabled && workflowFlags.blogWizardEnabled && <Route path="/quick-create" element={<QuickCreate />} />}
+                {contentMode === "blog" && workflowFlags.manualCreationEnabled && <>
                   <Route path="/manual/:slug?" element={<ManualPost />} />
                   <Route path="/preview/:slug" element={<Preview />} />
                   <Route path="/schedule/:slug" element={<Schedule />} />
                   <Route path="/publish/:slug" element={<PublishSocial />} />
                   <Route path="/posts" element={<Posts />} />
-                  <Route path="/calendar" element={<Calendar />} />
                 </>}
+                <Route path="/calendar" element={<Calendar />} />
                 <Route path="/social-pack" element={<SocialPack />} />
                 {contentMode === "blog" && <Route path="/social-pack/:slug" element={<SocialPack />} />}
-                <Route path="/batches" element={<ContentBatches site={site} />} />
+                <Route path="/plans" element={<ContentPlans site={site} creationEnabled={workflowFlags.creationUiEnabled} activeChannels={channels} />} />
+                <Route path="/review" element={<ContentPlans site={site} creationEnabled={workflowFlags.creationUiEnabled} activeChannels={channels} />} />
+                <Route path="/batches" element={<Navigate to="/plans" replace />} />
+                <Route path="/brands" element={<BrandsView />} />
+                <Route path="/connections" element={<ConnectionsView />} />
+                <Route path="/team" element={<TeamView />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/author-invite" element={<AuthorInvite />} />
-                {session.role !== "client_mcp" && contentMode === "blog" && <Route path="/billing" element={<Billing />} />}
+                {session.role !== "client_mcp" && <Route path="/billing" element={<Billing />} />}
                 <Route path="/admin" element={<AdminGate />} />
-                <Route path="*" element={<Navigate to={contentMode === "socialmedia" ? "/social-pack" : "/"} replace />} />
+                  <Route path="*" element={<Navigate to="/plans" replace />} />
               </Route>}
             </Routes>
           </SessionContext.Provider>
@@ -723,11 +750,15 @@ function Shell() {
   useEffect(() => setOpen(false), [location.pathname]);
   const blogMode = contentMode === "blog";
   const links = [
-    { to: "/", label: t("nav.home"), icon: "home" },
-    ...(blogMode && workflowFlags.assistantEnabled ? [{ to: "/chat", label: t("nav.assistant"), icon: "assistant" }] : []),
-    ...(blogMode ? [{ to: "/posts", label: t("nav.posts"), icon: "posts" }] : []),
-    { to: "/batches", label: "Batches", icon: "posts" },
-    { to: "/social-pack", label: t("nav.socialPack"), icon: "social" },
+    { to: "/", label: t("nav.home", "Resumen"), icon: "home" },
+    { to: "/review", label: t("nav.review", "Revisión"), icon: "posts" },
+    { to: "/plans", label: t("nav.plans", "Planes"), icon: "posts" },
+    { to: "/calendar", label: t("nav.calendar", "Calendario"), icon: "calendar" },
+    { to: "/brands", label: t("nav.brands", "Marcas"), icon: "site" },
+    { to: "/connections", label: t("nav.connections", "Conexiones"), icon: "integration" },
+    { to: "/team", label: t("nav.team", "Equipo y acceso"), icon: "team" },
+    ...(session.role !== "client_mcp" ? [{ to: "/billing", label: t("nav.planUsage", "Plan y uso"), icon: "billing" }] : []),
+    ...(blogMode && workflowFlags.creationUiEnabled && workflowFlags.assistantEnabled ? [{ to: "/chat", label: t("nav.assistant"), icon: "assistant" }] : []),
   ];
   return (
     <div className="app-shell">
@@ -745,7 +776,7 @@ function Shell() {
           </button>
         </div>
         <div className={`site-switcher ${sites.length < 2 ? "single" : ""}`}>
-          <span className="site-switcher-label">{t("site.label")}</span>
+          <span className="site-switcher-label">{t("brand.label", "Marca activa")}</span>
           {sites.length > 1 ? (
             <ChoicePills
               value={site}
@@ -1036,12 +1067,15 @@ function Home() {
   return (
     <main className="page home">
       <div className="home-intro">
-        <p className="eyebrow">{site}</p>
-        <h1>{t(socialOnly ? "home.socialOnlyTitle" : "home.title")}</h1>
-        <p className="muted">{t(socialOnly ? "home.socialOnlyDescription" : "home.description")}</p>
+        <p className="eyebrow">Marca · {site}</p>
+        <h1>{!workflowFlags.creationUiEnabled ? "Tu contenido listo para revisar" : t(socialOnly ? "home.socialOnlyTitle" : "home.title")}</h1>
+        <p className="muted">{!workflowFlags.creationUiEnabled ? "Los planes creados desde ChatGPT aparecen aquí para aprobarlos y programarlos." : t(socialOnly ? "home.socialOnlyDescription" : "home.description")}</p>
       </div>
       <div className="choice-grid">
-        {socialOnly ? (
+        {!workflowFlags.creationUiEnabled ? <>
+          <button className="choice-card" onClick={() => nav("/review")}><span>✓</span><strong>Revisar publicaciones</strong><small>Aprueba, rechaza y edita el contenido creado desde ChatGPT.</small><b>Ir a revisión →</b></button>
+          <button className="choice-card" onClick={() => nav("/calendar")}><span>▦</span><strong>Calendario de publicación</strong><small>Consulta lo agendado y el estado de cada canal.</small><b>Ver calendario →</b></button>
+        </> : socialOnly ? (
           <button className="choice-card" onClick={() => nav("/social-pack")}>
             <span>✦</span>
             <strong>{t("home.social.title")}</strong>
@@ -4771,7 +4805,7 @@ function Billing() {
     <section className="card settings-card">
       <h2>{t("billing.cmsAiDisabledTitle")}</h2>
       <p className="muted">{t("billing.cmsAiDisabledHelp")}</p>
-      <NavLink className="text-link" to="/manual">{t("home.manual.action")}</NavLink>
+      <NavLink className="text-link" to="/plans">{t("nav.plans", "Ver planes")}</NavLink>
     </section>
   </main>;
   const testCreditsEnabled = Boolean(snapshot?.stripe?.testCreditsEnabled);
@@ -4970,6 +5004,8 @@ function Admin() {
   const [cmsAiSaving, setCmsAiSaving] = useState(false);
   const [assistantEnabled, setAssistantEnabled] = useState(true);
   const [blogWizardEnabled, setBlogWizardEnabled] = useState(true);
+  const [creationUiEnabled, setCreationUiEnabled] = useState(false);
+  const [manualCreationEnabled, setManualCreationEnabled] = useState(false);
   const [workflowSaving, setWorkflowSaving] = useState(false);
   const [busy, setBusy] = useState("");
   const report = (value: string, kind: "success" | "error" = "success") => {
@@ -5036,6 +5072,11 @@ function Admin() {
       setBillingTestMode(Boolean(featureFlagData.flags?.creditCheckoutWithoutStripe));
       setAssistantEnabled(enabled && featureFlagData.flags?.assistantEnabled !== false);
       setBlogWizardEnabled(enabled && featureFlagData.flags?.blogWizardEnabled !== false);
+      try {
+        const productContext = await api.context(site);
+        setCreationUiEnabled(Boolean(productContext.featureFlags?.creation_ui_enabled));
+        setManualCreationEnabled(Boolean(productContext.featureFlags?.manual_creation_enabled));
+      } catch { /* Postgres context may not be initialized during cutover */ }
       if (!enabled) {
         setProviders([]);
         setPacks([]);
@@ -5461,6 +5502,7 @@ function Admin() {
     setWorkflowSaving(true);
     try {
       const result = await api.saveFeatureFlags({ assistantEnabled, blogWizardEnabled });
+      await api.updateFeatureFlags({ creation_ui_enabled: creationUiEnabled, manual_creation_enabled: manualCreationEnabled }, site);
       setAssistantEnabled(result.flags?.assistantEnabled !== false);
       setBlogWizardEnabled(result.flags?.blogWizardEnabled !== false);
       report(t("admin.savedWorkflowFlags"));
@@ -5759,9 +5801,11 @@ function Admin() {
                   ariaLabel={t("admin.userRole")}
                   onChange={(value) => setUserForm({ ...userForm, role: value })}
                   options={[
-                    { value: "client", label: roleLabel("client", t) },
-                    { value: "client_mcp", label: roleLabel("client_mcp", t) },
-                    { value: "agency_admin", label: roleLabel("agency_admin", t) },
+                    { value: "owner", label: roleLabel("owner", t) },
+                    { value: "admin", label: roleLabel("admin", t) },
+                    { value: "editor", label: roleLabel("editor", t) },
+                    { value: "author", label: roleLabel("author", t) },
+                    { value: "viewer", label: roleLabel("viewer", t) },
                   ]}
                 />
               </label>
@@ -5840,18 +5884,9 @@ function Admin() {
                   {t("admin.clearCoolifyToken")}
                 </label>
               )}
-              <label>
-                {t("admin.siteContentMode")}
-                <ChoicePills
-                  value={siteForm.contentMode}
-                  ariaLabel={t("admin.siteContentMode")}
-                  onChange={(value) => setSiteForm({ ...siteForm, contentMode: value as "blog" | "socialmedia", blogEnabled: value === "blog" })}
-                  options={[
-                    { value: "blog", label: t("admin.siteContentModeBlog") },
-                    { value: "socialmedia", label: t("admin.siteContentModeSocial") },
-                  ]}
-                />
-                <span className="tiny">{t("admin.siteContentModeHelp")}</span>
+              <label className="switch-row">
+                <span><b>Canal blog</b><small>{t("admin.siteContentModeHelp")}</small></span>
+                <input type="checkbox" checked={siteForm.blogEnabled} onChange={(event) => setSiteForm({ ...siteForm, blogEnabled: event.target.checked, contentMode: event.target.checked ? "blog" : "socialmedia" })} />
               </label>
               <fieldset className="social-pack-channel-settings">
                 <legend>{t("admin.socialPackChannels")}</legend>
@@ -6136,6 +6171,20 @@ function Admin() {
               </span>
               <input type="checkbox" checked={blogWizardEnabled} onChange={(event) => setBlogWizardEnabled(event.target.checked)} />
             </label>
+            <label className="switch-row">
+              <span>
+                <b>Creación desde la aplicación</b>
+                <small>{creationUiEnabled ? "Visible para este espacio/marca" : "Desactivada: la creación se hace desde ChatGPT/MCP"}</small>
+              </span>
+              <input type="checkbox" checked={creationUiEnabled} onChange={(event) => setCreationUiEnabled(event.target.checked)} />
+            </label>
+            <label className="switch-row">
+              <span>
+                <b>Creación manual</b>
+                <small>{manualCreationEnabled ? "Editor manual habilitado" : "Oculta mientras se valida el flujo MCP"}</small>
+              </span>
+              <input type="checkbox" checked={manualCreationEnabled} onChange={(event) => setManualCreationEnabled(event.target.checked)} />
+            </label>
             <div className="form-actions">
               <button className="primary" type="button" disabled={workflowSaving} onClick={() => void saveWorkflowFlags()}>
                 {workflowSaving ? t("admin.saving") : t("admin.saveWorkflowFlags")}
@@ -6256,17 +6305,8 @@ function Admin() {
                 />
               </label>
               <label className="modal-field">
-                {t("admin.siteContentMode")}
-                <ChoicePills
-                  value={newSiteForm.contentMode}
-                  ariaLabel={t("admin.siteContentMode")}
-                  onChange={(value) => setNewSiteForm({ ...newSiteForm, contentMode: value as "blog" | "socialmedia" })}
-                  options={[
-                    { value: "blog", label: t("admin.siteContentModeBlog") },
-                    { value: "socialmedia", label: t("admin.siteContentModeSocial") },
-                  ]}
-                />
-                <span className="optional">{t("admin.siteContentModeHelp")}</span>
+                <span><b>Canal blog</b></span>
+                <span className="optional">Se crea como un canal más de la marca y puede desactivarse después.</span>
               </label>
               <label className="modal-field">
                 {t("admin.siteAuthors")}
@@ -6373,6 +6413,33 @@ function Loading() {
       <div className="loading">{t("common.loading")}</div>
     </main>
   );
+}
+
+function BrandsView() {
+  const { site, sites, channels, productContext } = useApp();
+  return <main className="page"><PageHeader eyebrow={productContext?.workspace.name || "Espacio"} title="Marcas" description="Cada marca reúne su identidad, canales activos y conexiones de publicación." /><div className="ui-brand-grid">{sites.map((handle) => <Card key={handle} className={handle === site ? "ui-brand-active" : ""}><div className="ui-card-head"><div><span className="ui-eyebrow">Marca</span><h2>{handle}</h2></div>{handle === site && <Badge tone="success">Activa</Badge>}</div>{handle === site && <div className="ui-channel-list">{channels.filter((channel) => channel.enabled).map((channel) => <ChannelBadge key={channel.channel} channel={channel.channel} />)}</div>}<p className="muted">El brand kit y la configuración se gestionan desde Administración.</p></Card>)}</div>{!sites.length && <EmptyState title="Configura tu primera marca" description="Un administrador debe crear una marca para comenzar." />}</main>;
+}
+
+function TeamView() {
+  const { site, session } = useApp();
+  const { t } = useI18n();
+  const [members, setMembers] = useState<Array<Record<string, any>>>([]);
+  const [error, setError] = useState("");
+  useEffect(() => { api.users(site, isAdmin(session.role)).then((result) => setMembers(result.users || [])).catch((err) => setError(err?.message || "No se pudo cargar el equipo.")); }, [site, session.role]);
+  return <main className="page"><PageHeader eyebrow="Espacio" title="Equipo y acceso" description="Roles y permisos de las personas que pueden revisar este contenido." />{error && <Card><p className="ui-field-error">{error}</p></Card>}{members.length ? <div className="ui-member-list">{members.map((member) => <Card key={member.id || member.email}><div className="ui-card-head"><div><h3>{member.displayName || member.email || "Miembro"}</h3><p className="muted">{member.email || ""}</p></div><Badge tone="info">{roleLabel(member.role, t)}</Badge></div></Card>)}</div> : !error && <EmptyState title="Todavía no hay miembros" description="Un administrador puede invitar al equipo desde Administración." />}</main>;
+}
+
+function ConnectionsView() {
+  const { site, session, channels: configuredChannels } = useApp();
+  const [connections, setConnections] = useState<Array<Record<string, any>>>([]);
+  const [error, setError] = useState("");
+  const [form, setForm] = useState({ channel: "instagram", userToken: "", userId: "", blogId: "", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" });
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  useEffect(() => { api.context(site).then((context) => setConnections(context.connections || [])).catch((err) => setError(err?.message || "No se pudieron cargar las conexiones.")); }, [site]);
+  const connect = async (event: FormEvent) => { event.preventDefault(); setBusy(true); setMessage(""); try { await api.metricoolConnect({ site, ...form }); const context = await api.context(site); setConnections(context.connections || []); setMessage("Conexión guardada y lista para probar."); setForm((current) => ({ ...current, userToken: "" })); } catch (err: any) { setMessage(err?.message || "No se pudo conectar Metricool."); } finally { setBusy(false); } };
+  const canManage = isAdmin(session.role);
+  return <main className="page"><PageHeader eyebrow="Publicación" title="Conexiones" description="Comprueba las cuentas y proveedores que recibirán las publicaciones aprobadas." />{error && <Card><p className="ui-field-error">{error}</p></Card>}{connections.length ? <div className="ui-connection-grid">{connections.map((connection) => <ConnectionCard key={connection.id} provider="Metricool" status={connection.enabled ? "connected" : "disabled"} account={connection.userId ? `Cuenta ${connection.userId}` : undefined} actions={<Button variant="ghost" size="sm" onClick={async () => { try { await api.metricoolTest(site); setMessage("Prueba correcta."); } catch (err: any) { setMessage(err?.message || "La prueba falló."); } }}>Probar conexión</Button>} />)}</div> : !error && <EmptyState title="Aún no hay conexiones" description="Conecta Metricool para poder agendar publicaciones." />}{canManage && <Card className="ui-connection-form"><div className="ui-card-head"><div><span className="ui-eyebrow">Administrador</span><h2>Conectar Metricool</h2></div></div><form className="ui-stack ui-stack-md" onSubmit={(event) => void connect(event)}><Field label="Canal"><select className="ui-input" value={form.channel} onChange={(event) => setForm({ ...form, channel: event.target.value })}>{configuredChannels.filter((channel) => channel.enabled).map((channel) => <option key={channel.channel} value={channel.channel}>{channel.channel}</option>)}</select></Field><Field label="Token de usuario" hint="Se cifra en el servidor y nunca se vuelve a mostrar." required><TextField type="password" value={form.userToken} onChange={(event) => setForm({ ...form, userToken: event.target.value })} required /></Field><Inline gap="md"><Field label="userId" required><TextField value={form.userId} onChange={(event) => setForm({ ...form, userId: event.target.value })} required /></Field><Field label="blogId" required><TextField value={form.blogId} onChange={(event) => setForm({ ...form, blogId: event.target.value })} required /></Field></Inline><Field label="Zona horaria"><TextField value={form.timezone} onChange={(event) => setForm({ ...form, timezone: event.target.value })} /></Field><Button type="submit" loading={busy}>Guardar conexión</Button>{message && <p className={message.includes("falló") || message.includes("No se") ? "ui-field-error" : "success"}>{message}</p>}</form></Card>}</main>;
 }
 
 export default App;

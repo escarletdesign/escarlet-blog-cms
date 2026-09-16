@@ -1,70 +1,58 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api } from "./api";
-import type { ContentItem } from "./types";
+import type { ContentChannel, ContentItem, ContentPlanSummary } from "./types";
+import { Badge, Button, BulkActionBar, Card, ChannelBadge, Checkbox, ContentPlanCard, EmptyState, Field, Inline, Modal, PageHeader, Progress, ReviewToolbar, Select, Stack, StatusBadge, TextField, Textarea } from "./ui";
 
-type Props = { site: string };
+const ALL_CHANNELS: ContentChannel[] = ["blog", "instagram", "linkedin", "x", "video", "substack"];
+const channelLabel = (channel: string) => channel === "x" ? "X" : channel.charAt(0).toUpperCase() + channel.slice(1);
+type Props = { site: string; creationEnabled?: boolean; activeChannels?: Array<{ channel: string; enabled: boolean }> };
+type Dialog = { type: "edit" | "reject" | "schedule"; item: ContentItem } | null;
 
-export function ContentBatches({ site }: Props) {
+export function ContentBatches({ site, creationEnabled = false, activeChannels }: Props) {
+  const [plans, setPlans] = useState<ContentPlanSummary[]>([]);
+  const [selectedPlanId, setSelectedPlanId] = useState("");
   const [items, setItems] = useState<ContentItem[]>([]);
-  const [title, setTitle] = useState("");
-  const [topics, setTopics] = useState("");
-  const [channels, setChannels] = useState<string[]>(["blog", "instagram", "linkedin"]);
+  const [loading, setLoading] = useState(true);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [setupRequired, setSetupRequired] = useState(false);
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterChannel, setFilterChannel] = useState("all");
+  const [selected, setSelected] = useState<string[]>([]);
+  const [dialog, setDialog] = useState<Dialog>(null);
+  const [bulkRejectOpen, setBulkRejectOpen] = useState(false);
+  const [modalValue, setModalValue] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [topics, setTopics] = useState("");
+  const channels = (activeChannels?.filter((channel) => channel.enabled).map((channel) => channel.channel).filter((channel): channel is ContentChannel => ALL_CHANNELS.includes(channel as ContentChannel)) || ALL_CHANNELS).slice(0, 6);
+  const selectedPlan = plans.find((plan) => plan.id === selectedPlanId);
+  const loadPlans = async () => { setLoading(true); setError(""); setSetupRequired(false); try { const response = await api.contentPlans(site); const next = (response.plans || []) as ContentPlanSummary[]; setPlans(next); setSelectedPlanId((current) => current && next.some((plan) => plan.id === current) ? current : next[0]?.id || ""); } catch (err: any) { if (err?.status === 404 || /workspace|sitio|marca/i.test(err?.message || "")) setSetupRequired(true); else setError(err?.message || "No se pudieron cargar los planes."); } finally { setLoading(false); } };
+  const loadItems = async (planId: string) => { if (!planId) { setItems([]); return; } setDetailLoading(true); setSelected([]); try { const response = await api.contentBatch(planId, site); setItems((response.items || []) as ContentItem[]); } catch (err: any) { setError(err?.message || "No se pudo cargar el plan."); setItems([]); } finally { setDetailLoading(false); } };
+  useEffect(() => { void loadPlans(); }, [site]);
+  useEffect(() => { void loadItems(selectedPlanId); }, [selectedPlanId, site]);
+  const visibleItems = useMemo(() => items.filter((item) => (filterStatus === "all" || item.status === filterStatus) && (filterChannel === "all" || (item.variants || []).some((variant) => variant.channel === filterChannel))), [items, filterStatus, filterChannel]);
+  const run = async (action: () => Promise<unknown>) => { setBusy(true); setError(""); let failure = ""; try { await action(); } catch (err: any) { failure = err?.message || "No se pudo completar la operación."; } finally { await loadPlans().catch(() => undefined); await loadItems(selectedPlanId).catch(() => undefined); if (failure) setError(failure); setBusy(false); } };
+  const toggle = (id: string) => setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  const toggleAll = () => setSelected((current) => current.length === visibleItems.length ? [] : visibleItems.map((item) => item.id));
+  const create = async (event: FormEvent) => { event.preventDefault(); const cleanTopics = topics.split(/\r?\n|,/).map((topic) => topic.trim()).filter(Boolean); if (!cleanTopics.length) { setError("Añade al menos un tema."); return; } await run(async () => { await api.createContentBatch({ site, title: title.trim() || `Plan de contenidos ${new Date().toLocaleDateString()}`, topics: cleanTopics, channels }); setTitle(""); setTopics(""); setCreateOpen(false); }); };
+  const bulkApprove = () => run(async () => { const results = await Promise.allSettled(selected.map((id) => api.approveContent(id, site))); const failed = results.filter((result) => result.status === "rejected").length; if (failed) throw new Error(`${failed} publicaciones no pudieron aprobarse; el resto se actualizó.`); });
+  const bulkReject = (reason: string) => run(async () => { const results = await Promise.allSettled(selected.map((id) => api.rejectContent(id, reason, site))); const failed = results.filter((result) => result.status === "rejected").length; if (failed) throw new Error(`${failed} publicaciones no pudieron rechazarse; el resto se actualizó.`); });
+  const approve = (id: string) => run(() => api.approveContent(id, site));
+  const cancel = (id: string) => run(() => api.cancelContent(id, site));
+  const update = (id: string, topic: string) => run(() => api.updateContentItem(id, { site, topic }));
+  const reject = (id: string, comment: string) => run(() => api.rejectContent(id, comment, site));
+  const schedule = (id: string, value: string) => run(() => api.scheduleContent(id, value, Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", site));
 
-  const load = () => api.contentBatches(site).then((result) => setItems(result.items || [])).catch((err) => setError(err.message));
-  useEffect(() => { void load(); }, [site]);
-
-  const batches = useMemo(() => {
-    const grouped = new Map<string, ContentItem[]>();
-    for (const item of items) {
-      const key = item.batch_id || item.batchId || "unbatched";
-      grouped.set(key, [...(grouped.get(key) || []), item]);
-    }
-    return [...grouped.entries()];
-  }, [items]);
-
-  const create = async (event: FormEvent) => {
-    event.preventDefault();
-    const cleanTopics = topics.split(/\r?\n|,/).map((topic) => topic.trim()).filter(Boolean);
-    if (!cleanTopics.length) { setError("Añade al menos un tema."); return; }
-    setBusy(true); setError("");
-    try {
-      await api.createContentBatch({ site, title: title.trim() || `Batch ${new Date().toLocaleDateString()}`, topics: cleanTopics, channels });
-      setTitle(""); setTopics(""); await load();
-    } catch (err: any) { setError(err.message || "No se pudo crear el batch."); }
-    finally { setBusy(false); }
-  };
-
-  const approve = async (itemId: string) => { setBusy(true); try { await api.approveContent(itemId, site); await load(); } catch (err: any) { setError(err.message); } finally { setBusy(false); } };
-  const edit = async (item: ContentItem) => {
-    const value = window.prompt("Tema", item.topic);
-    if (!value || value.trim() === item.topic) return;
-    setBusy(true); try { await api.updateContentItem(item.id, { site, topic: value.trim() }); await load(); } catch (err: any) { setError(err.message); } finally { setBusy(false); }
-  };
-  const reject = async (itemId: string) => {
-    const comment = window.prompt("Motivo del rechazo (opcional)") || "";
-    setBusy(true); try { await api.rejectContent(itemId, comment, site); await load(); } catch (err: any) { setError(err.message); } finally { setBusy(false); }
-  };
-  const schedule = async (itemId: string) => {
-    const value = window.prompt("Fecha y hora ISO (ej. 2026-09-20T10:00:00+02:00)");
-    if (!value) return;
-    setBusy(true); try { await api.scheduleContent(itemId, value, Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", site); await load(); } catch (err: any) { setError(err.message); } finally { setBusy(false); }
-  };
-  const cancel = async (itemId: string) => { setBusy(true); try { await api.cancelContent(itemId, site); await load(); } catch (err: any) { setError(err.message); } finally { setBusy(false); } };
-
-  return <main className="page">
-    <header className="page-head"><div><span className="eyebrow">Contenido multicanal</span><h1>Campañas y batches</h1><p className="muted">Genera muchos temas, revisa cada variante y agenda solo lo aprobado.</p></div></header>
-    <section className="panel">
-      <form onSubmit={create} className="stack">
-        <label className="field"><span>Título de campaña</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Plan editorial de septiembre" /></label>
-        <label className="field"><span>Temas (uno por línea)</span><textarea value={topics} onChange={(event) => setTopics(event.target.value)} rows={5} placeholder="Cómo elegir una paleta\nErrores de marca\nIdeas para LinkedIn" /></label>
-        <fieldset className="field"><legend>Canales</legend><div className="choice-pills">{["blog", "instagram", "linkedin", "x", "video", "substack"].map((channel) => <label key={channel}><input type="checkbox" checked={channels.includes(channel)} onChange={(event) => setChannels((current) => event.target.checked ? [...current, channel] : current.filter((value) => value !== channel))} /> {channel}</label>)}</div></fieldset>
-        {error && <p className="form-error" role="alert">{error}</p>}
-        <button className="primary" disabled={busy}>{busy ? "Creando…" : "Crear batch"}</button>
-      </form>
-    </section>
-    <section className="stack">{batches.map(([batchId, batchItems]) => <article className="panel" key={batchId}><div className="panel-head"><div><span className="eyebrow">Batch</span><h2>{batchId}</h2></div><span className="status-badge">{batchItems.length} temas</span></div><div className="stack">{batchItems.map((item) => <div className="content-item-row" key={item.id}><div><strong>{item.topic}</strong><span className="muted"> · {item.status}</span><div className="muted">{(item.variants || []).map((variant) => variant.channel).join(" · ")}</div></div><div className="form-actions"><button className="ghost" disabled={busy || ["published", "canceled"].includes(item.status)} onClick={() => void edit(item)}>Editar</button><button className="secondary" disabled={busy || item.status === "approved" || item.status === "scheduled" || item.status === "published" || item.status === "canceled"} onClick={() => void approve(item.id)}>Aprobar</button><button className="ghost" disabled={busy || !["generated", "needs_review", "approved"].includes(item.status)} onClick={() => void reject(item.id)}>Rechazar</button><button className="ghost" disabled={busy || item.status !== "approved"} onClick={() => void schedule(item.id)}>Agendar</button><button className="ghost" disabled={busy || ["published", "canceled"].includes(item.status)} onClick={() => void cancel(item.id)}>Cancelar</button></div></div>)}</div></article>)}</section>
-    {!batches.length && <p className="empty-state">Todavía no hay batches para este sitio.</p>}
+  return <main className="page ui-plans-page">
+    <PageHeader eyebrow="Contenido multicanal" title="Planes de contenido" description="Revisa publicaciones y variantes por canal. Aprueba solo lo que quieras enviar a agenda." actions={creationEnabled ? <Button onClick={() => setCreateOpen(true)}>Nuevo plan</Button> : undefined} />
+    {error && <Card className="ui-alert-card"><p className="ui-field-error" role="alert">{error}</p><Button variant="ghost" size="sm" onClick={() => void loadPlans()}>Reintentar</Button></Card>}
+    {!loading && setupRequired && <EmptyState title="Configura tu marca para comenzar" description="Un administrador debe inicializar el espacio y asignarte una marca antes de mostrar publicaciones." />}
+    {!loading && !setupRequired && !plans.length && !error && <EmptyState title="Todavía no hay planes de contenido" description="Los planes se crean desde ChatGPT/MCP. Cuando llegue el primero, podrás revisarlo y agendar sus publicaciones aquí." />}
+    {loading ? <Stack gap="md"><Card><Progress value={35} /><p className="muted">Cargando planes…</p></Card></Stack> : plans.length > 0 && <div className="ui-plans-layout"><Stack gap="md" className="ui-plan-list">{plans.map((plan) => <ContentPlanCard key={plan.id} title={plan.title} total={plan.totalItems ?? (plan as any).item_count ?? 0} generated={plan.generatedItems ?? (plan as any).ready_count ?? 0} failed={plan.failedItems ?? (plan as any).error_count ?? 0} status={plan.status} channels={plan.channels} onClick={() => setSelectedPlanId(plan.id)} />)}</Stack><section className="ui-plan-detail"><Card><div className="ui-card-head"><div><span className="ui-eyebrow">Revisión</span><h2>{selectedPlan?.title || "Selecciona un plan"}</h2></div>{selectedPlan && <StatusBadge status={selectedPlan.status} />}</div>{selectedPlan && <ReviewToolbar><Field label="Estado"><Select value={filterStatus} onChange={(event) => setFilterStatus(event.target.value)}><option value="all">Todos los estados</option>{["draft", "generated", "needs_review", "approved", "scheduled", "failed"].map((status) => <option key={status} value={status}>{status.replace(/_/g, " ")}</option>)}</Select></Field><Field label="Canal"><Select value={filterChannel} onChange={(event) => setFilterChannel(event.target.value)}><option value="all">Todos los canales</option>{channels.map((channel) => <option key={channel} value={channel}>{channelLabel(channel)}</option>)}</Select></Field><div className="ui-filter-summary"><span>{visibleItems.length} publicaciones</span><span>{selected.length} seleccionadas</span></div><Checkbox label="Seleccionar todas" checked={Boolean(visibleItems.length && selected.length === visibleItems.length)} onChange={toggleAll} /></ReviewToolbar>}{detailLoading ? <p className="muted">Cargando publicaciones…</p> : visibleItems.length ? <Stack gap="sm">{visibleItems.map((item) => <Card className="ui-review-item" key={item.id}><div className="ui-card-head"><div className="ui-review-item-title"><Checkbox label="" aria-label={`Seleccionar ${item.topic}`} checked={selected.includes(item.id)} onChange={() => toggle(item.id)} /><div><h3>{item.topic}</h3><Inline gap="sm">{(item.variants || []).map((variant) => <ChannelBadge key={variant.id} channel={variant.channel} />)}</Inline></div></div><StatusBadge status={item.status} /></div>{item.error && <p className="ui-field-error">{item.error}</p>}<div className="ui-card-actions"><Button variant="ghost" size="sm" disabled={busy || ["published", "canceled"].includes(item.status)} onClick={() => { setDialog({ type: "edit", item }); setModalValue(item.topic); }}>Editar</Button><Button variant="secondary" size="sm" disabled={busy || ["approved", "scheduled", "published", "canceled"].includes(item.status)} onClick={() => void approve(item.id)}>Aprobar</Button><Button variant="ghost" size="sm" disabled={busy || !["generated", "needs_review", "approved"].includes(item.status)} onClick={() => { setDialog({ type: "reject", item }); setModalValue(""); }}>Rechazar</Button><Button variant="ghost" size="sm" disabled={busy || item.status !== "approved"} onClick={() => { setDialog({ type: "schedule", item }); setModalValue(""); }}>Agendar</Button><Button variant="ghost" size="sm" disabled={busy || ["published", "canceled"].includes(item.status)} onClick={() => void cancel(item.id)}>Cancelar</Button></div></Card>)}</Stack> : <EmptyState title="No hay publicaciones con estos filtros" description="Prueba otro estado o canal." />}<BulkActionBar selected={selected.length}><Inline gap="sm"><Button size="sm" onClick={() => void bulkApprove()} disabled={busy}>Aprobar</Button><Button size="sm" variant="danger" onClick={() => { setModalValue(""); setBulkRejectOpen(true); }} disabled={busy}>Rechazar</Button></Inline></BulkActionBar></Card></section></div>}
+    <Modal open={Boolean(dialog)} title={dialog?.type === "edit" ? "Editar publicación" : dialog?.type === "reject" ? "Rechazar publicación" : "Agendar publicación"} onClose={() => setDialog(null)}>{dialog?.type === "edit" && <form className="ui-stack ui-stack-md" onSubmit={(event) => { event.preventDefault(); if (modalValue.trim()) void update(dialog.item.id, modalValue.trim()).then(() => setDialog(null)); }}><Field label="Tema" required><TextField value={modalValue} onChange={(event) => setModalValue(event.target.value)} autoFocus required /></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setDialog(null)}>Cancelar</Button><Button type="submit" loading={busy}>Guardar</Button></Inline></form>}{dialog?.type === "reject" && <form className="ui-stack ui-stack-md" onSubmit={(event) => { event.preventDefault(); void reject(dialog.item.id, modalValue).then(() => setDialog(null)); }}><Field label="Motivo" hint="Opcional"><Textarea value={modalValue} onChange={(event) => setModalValue(event.target.value)} autoFocus placeholder="Qué debería cambiar…" /></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setDialog(null)}>Cancelar</Button><Button type="submit" variant="danger" loading={busy}>Rechazar</Button></Inline></form>}{dialog?.type === "schedule" && <form className="ui-stack ui-stack-md" onSubmit={(event) => { event.preventDefault(); if (modalValue) void schedule(dialog.item.id, new Date(modalValue).toISOString()).then(() => setDialog(null)); }}><Field label="Fecha y hora" hint="Se usará tu zona horaria local." required><TextField type="datetime-local" value={modalValue} onChange={(event) => setModalValue(event.target.value)} autoFocus required /></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setDialog(null)}>Cancelar</Button><Button type="submit" loading={busy}>Agendar</Button></Inline></form>}</Modal>
+    <Modal open={bulkRejectOpen} title={`Rechazar ${selected.length} publicaciones`} onClose={() => setBulkRejectOpen(false)}><form className="ui-stack ui-stack-md" onSubmit={(event) => { event.preventDefault(); void bulkReject(modalValue).then(() => setBulkRejectOpen(false)); }}><Field label="Motivo" hint="Opcional"><Textarea value={modalValue} onChange={(event) => setModalValue(event.target.value)} autoFocus placeholder="Qué debería cambiar…" /></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setBulkRejectOpen(false)}>Cancelar</Button><Button type="submit" variant="danger" loading={busy}>Rechazar</Button></Inline></form></Modal>
+    <Modal open={createOpen} title="Nuevo plan de contenidos" onClose={() => setCreateOpen(false)}><form className="ui-stack ui-stack-md" onSubmit={(event) => void create(event)}><Field label="Título del plan"><TextField value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Plan editorial de septiembre" /></Field><Field label="Temas" hint="Un tema por línea o separados por coma." required><Textarea value={topics} onChange={(event) => setTopics(event.target.value)} rows={7} required placeholder="Ideas para LinkedIn\nErrores frecuentes de marca" /></Field><fieldset className="ui-field"><legend className="ui-field-label">Canales activos</legend><Inline gap="md">{channels.map((channel) => <Badge key={channel} tone="info">{channelLabel(channel)}</Badge>)}</Inline><small className="ui-field-hint">Los canales se configuran en la marca.</small></fieldset><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setCreateOpen(false)}>Cancelar</Button><Button type="submit" loading={busy}>Crear plan</Button></Inline></form></Modal>
   </main>;
 }

@@ -205,9 +205,14 @@ import {
 } from './lib/post-utils.mjs'
 import {
   resolveWorkspaceContext,
+  getWorkspaceFeatureFlags,
+  setWorkspaceFeatureFlags,
+  listSiteChannels,
+  listMetricoolIntegrations,
   createContentBatch,
   getContentBatch,
   listContentItems,
+  listContentPlans,
   updateContentItem,
   approveContentItem,
   rejectContentItem,
@@ -680,6 +685,10 @@ async function metricoolCredentialsFor(scope) {
   const userToken = decryptSecret(integration.user_token_ciphertext)
   if (!userToken) throw Object.assign(new Error('No se puede descifrar la credencial Metricool.'), { status: 503, code: 'metricool_credential_unavailable' })
   return { integration, credentials: { userToken, userId: integration.metricool_user_id, blogId: integration.blog_id, timezone: integration.timezone } }
+}
+
+function creationUiGlobalKillSwitch() {
+  return ['1', 'true', 'yes', 'on'].includes(String(process.env.CREATION_UI_KILL_SWITCH || '').trim().toLowerCase())
 }
 
 function sanitizeV2BrandKit(kit, auth) {
@@ -1527,6 +1536,41 @@ const server = createServer(async (req, res) => {
         json(res, 200, sanitizeV2BrandKit(await getActiveBrandKit({ workspaceId: scope.workspaceId, siteId: scope.siteId }), scope.auth))
         return
       }
+      if (req.method === 'GET' && path === '/api/v2/context') {
+        const scope = await requireV2Context(req, url, res)
+        if (!scope) return
+        const brands = scope.context.sites || []
+        const selectedSiteId = scope.siteId || brands[0]?.id || null
+        const [flags, channels, integrations, usage] = await Promise.all([
+          getWorkspaceFeatureFlags({ workspaceId: scope.workspaceId, siteId: selectedSiteId }),
+          selectedSiteId ? listSiteChannels({ workspaceId: scope.workspaceId, siteId: selectedSiteId }) : [],
+          listMetricoolIntegrations({ workspaceId: scope.workspaceId, siteId: selectedSiteId || undefined }),
+          usageSnapshot({ workspaceId: scope.workspaceId })
+        ])
+        if (creationUiGlobalKillSwitch()) {
+          flags.creation_ui_enabled = false
+          flags.manual_creation_enabled = false
+        }
+        json(res, 200, {
+          workspace: { id: scope.workspaceId },
+          activeBrand: brands.find((brand) => brand.id === selectedSiteId) || brands[0] || null,
+          brands,
+          role: scope.context.role,
+          capabilities: scope.auth.capabilities || [],
+          featureFlags: flags,
+          channels,
+          connections: integrations,
+          usage
+        })
+        return
+      }
+      if (req.method === 'PATCH' && path === '/api/v2/feature-flags') {
+        const scope = await requireV2Context(req, url, res, body)
+        if (!scope) return
+        const siteId = body.scope === 'workspace' ? null : body.siteId || scope.siteId || null
+        json(res, 200, { flags: await setWorkspaceFeatureFlags({ workspaceId: scope.workspaceId, siteId, userId: scope.auth.userId, role: scope.context.role, flags: body.flags || body }) })
+        return
+      }
       if (req.method === 'POST' && path === '/api/v2/brand-kits/versions') {
         const scope = await requireV2Context(req, url, res, body)
         if (!scope) return
@@ -1536,10 +1580,20 @@ const server = createServer(async (req, res) => {
       if (req.method === 'POST' && path === '/api/v2/content/batches') {
         const scope = await requireV2Context(req, url, res, body)
         if (!scope) return
+        if (String(req.headers['x-escarlet-client'] || '').toLowerCase() === 'pwa') {
+          const flags = await getWorkspaceFeatureFlags({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined })
+          if (creationUiGlobalKillSwitch() || !flags.creation_ui_enabled) throw Object.assign(new Error('La creación desde la aplicación está desactivada.'), { status: 403, code: 'creation_ui_disabled' })
+        }
         const siteId = scope.siteId || scope.context.siteIds[0]
         if (!siteId) throw Object.assign(new Error('siteId es obligatorio.'), { status: 400 })
         const result = await createContentBatch({ workspaceId: scope.workspaceId, siteId, userId: scope.auth.userId || null, role: scope.context.role, title: body.title, topics: v2Topics(body), channels: body.channels, brandKitVersionId: body.brandKitVersionId, metadata: body.metadata })
         json(res, 202, result)
+        return
+      }
+      if (req.method === 'GET' && path === '/api/v2/content/plans') {
+        const scope = await requireV2Context(req, url, res)
+        if (!scope) return
+        json(res, 200, { plans: await listContentPlans({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, limit: url.searchParams.get('limit') }) })
         return
       }
       if (req.method === 'GET' && batchMatch) {
@@ -1613,8 +1667,14 @@ const server = createServer(async (req, res) => {
         if (!scope) return
         const siteId = scope.siteId || body.siteId || null
         const encrypted = encryptSecret(body.userToken)
-        const result = await connectMetricool({ workspaceId: scope.workspaceId, siteId, userId: scope.auth.userId, role: scope.context.role, userTokenCiphertext: encrypted, metricoolUserId: body.userId || body.metricoolUserId, blogId: body.blogId, timezone: body.timezone, capabilities: body.capabilities })
+        const result = await connectMetricool({ workspaceId: scope.workspaceId, siteId, userId: scope.auth.userId, role: scope.context.role, userTokenCiphertext: encrypted, metricoolUserId: body.userId || body.metricoolUserId, blogId: body.blogId, timezone: body.timezone, capabilities: body.capabilities, channel: body.channel })
         json(res, 200, result)
+        return
+      }
+      if (req.method === 'GET' && path === '/api/v2/integrations/metricool') {
+        const scope = await requireV2Context(req, url, res)
+        if (!scope) return
+        json(res, 200, { connections: await listMetricoolIntegrations({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined }) })
         return
       }
       if (req.method === 'POST' && path === '/api/v2/integrations/metricool/test') {
@@ -1864,11 +1924,22 @@ const server = createServer(async (req, res) => {
       const db = readDb()
       const cmsAiEnabled = isCmsAiEnabled({ db })
       const workflow = getWorkflowFlags(db)
+      let productFlags = { creation_ui_enabled: false, manual_creation_enabled: false }
+      if (isPostgresConfigured()) {
+        try {
+          const context = await resolveWorkspaceContext({ userId: auth.userId || undefined, ...(site ? { siteHandle: site } : {}) })
+          const selected = context.sites.find((entry) => entry.handle === site) || context.sites[0]
+          productFlags = await getWorkspaceFeatureFlags({ workspaceId: context.workspaceId, siteId: selected?.id })
+        } catch { /* legacy users may not have been imported yet */ }
+      }
+      if (creationUiGlobalKillSwitch()) productFlags = { creation_ui_enabled: false, manual_creation_enabled: false }
       json(res, 200, {
         flags: {
           cmsAiEnabled,
           assistantEnabled: cmsAiEnabled && auth.role !== 'client_mcp' && workflow.assistantEnabled,
           blogWizardEnabled: cmsAiEnabled && auth.role !== 'client_mcp' && workflow.blogWizardEnabled,
+          creation_ui_enabled: Boolean(productFlags.creation_ui_enabled),
+          manual_creation_enabled: Boolean(productFlags.manual_creation_enabled),
           updatedAt: workflow.updatedAt
         }
       })
@@ -2178,6 +2249,12 @@ const server = createServer(async (req, res) => {
       const body = await parseBody(req)
       const site = siteFrom(auth, body.site || DEFAULT_SITE)
       assertSiteAccess(auth, site)
+      if (String(req.headers['x-escarlet-client'] || '').toLowerCase() === 'pwa' && isPostgresConfigured()) {
+        const canonical = await resolveWorkspaceContext({ userId: auth.userId || undefined, siteHandle: site })
+        const selected = canonical.sites.find((entry) => entry.handle === site) || canonical.sites[0]
+        const flags = await getWorkspaceFeatureFlags({ workspaceId: canonical.workspaceId, siteId: selected?.id })
+        if (creationUiGlobalKillSwitch() || !flags.creation_ui_enabled) throw Object.assign(new Error('La creación desde la aplicación está desactivada.'), { status: 403, code: 'creation_ui_disabled' })
+      }
       assertAiRateLimit(aiRateLimitKey(auth, site, requestIp(req)), { limit: 30 })
 
       // Structured chat requests can create a persistent multi-channel batch in
@@ -3070,6 +3147,12 @@ const server = createServer(async (req, res) => {
       const body = await parseBody(req)
       const site = siteFrom(auth, body.site || DEFAULT_SITE)
       try {
+        if (String(req.headers['x-escarlet-client'] || '').toLowerCase() === 'pwa' && isPostgresConfigured()) {
+          const canonical = await resolveWorkspaceContext({ userId: auth.userId || undefined, siteHandle: site })
+          const selected = canonical.sites.find((entry) => entry.handle === site) || canonical.sites[0]
+          const flags = await getWorkspaceFeatureFlags({ workspaceId: canonical.workspaceId, siteId: selected?.id })
+          if (creationUiGlobalKillSwitch() || !flags.manual_creation_enabled) throw Object.assign(new Error('La creación manual está desactivada.'), { status: 403, code: 'manual_creation_disabled' })
+        }
         assertSiteAccess(auth, site)
         assertBlogSite(site)
         assertAuthorAllowed({ site, authorName: body.authorName || body.author, requesterId: auth.userId, requesterRole: auth.role })
