@@ -1653,8 +1653,9 @@ const server = createServer(async (req, res) => {
           if (!token) throw Object.assign(new Error('apiToken es obligatorio para Planable.'), { status: 400 })
           const workspaceId = body.workspaceId || body.config?.workspaceId
           const pageId = body.pageId || body.externalAccountId || body.config?.pageId
+          const pageIds = Array.isArray(body.pageIds || body.config?.pageIds) ? (body.pageIds || body.config?.pageIds).filter(Boolean) : []
           if (!workspaceId) throw Object.assign(new Error('workspaceId es obligatorio para Planable.'), { status: 400 })
-          if (!pageId && !body.config?.pageIds) throw Object.assign(new Error('pageId es obligatorio para Planable.'), { status: 400 })
+          if (!pageId && !pageIds.length) throw Object.assign(new Error('pageId es obligatorio para Planable.'), { status: 400 })
           const encrypted = encryptSecret(token)
           legacy = await upsertBrandConnection({
             workspaceId: scope.workspaceId,
@@ -1665,7 +1666,7 @@ const server = createServer(async (req, res) => {
             provider,
             externalAccountId: pageId,
             credentialsCiphertext: encrypted,
-            config: { ...(body.config || {}), workspaceId, ...(pageId ? { pageId } : {}), timezone: body.timezone || body.config?.timezone || 'UTC' },
+            config: { ...(body.config || {}), workspaceId, ...(pageId ? { pageId } : { pageIds }), timezone: body.timezone || body.config?.timezone || 'UTC' },
             capabilities: body.capabilities || { drafts: true, scheduling: true, media: true },
             status: body.status || 'connected'
           })
