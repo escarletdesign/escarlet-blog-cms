@@ -243,12 +243,14 @@ import {
   getMetricoolIntegration,
   createBrandKitVersion,
   getActiveBrandKit,
-  enqueueJob
+  enqueueJob,
+  assertWorkspaceRole
 } from './lib/workspace-domain.mjs'
 import { isPostgresConfigured, getPgPool, runCoreMigrations } from './lib/pg.mjs'
 import { encryptSecret, decryptSecret } from './lib/secret-crypto.mjs'
 import { testMetricoolConnection, scheduleMetricoolPost, syncMetricoolPost } from './lib/metricool.mjs'
 import { testPlanableConnection } from './lib/planable.mjs'
+import { listPostizIntegrations, testPostizConnection, postizProviderForChannel } from './lib/postiz.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = __dirname
@@ -721,6 +723,8 @@ async function connectionCredentialsFor(scope, connectionId) {
       workspaceId: row.config?.workspaceId || row.config?.workspace_id || '',
       pageId: row.config?.pageId || row.config?.page_id || row.external_account_id || '',
       pageIds: row.config?.pageIds || row.config?.page_ids || [],
+      integrationId: row.config?.integrationId || row.config?.integration_id || row.external_account_id || '',
+      providerType: row.config?.providerType || row.config?.provider_type || '',
       apiBaseUrl: row.config?.apiBaseUrl || row.config?.api_base_url || '',
       timezone: row.config?.timezone || 'UTC'
     }
@@ -1573,6 +1577,7 @@ const server = createServer(async (req, res) => {
     const brandChannelsMatch = path.match(/^\/api\/v2\/brands\/([^/]+)\/channels$/)
     const brandCapabilitiesMatch = path.match(/^\/api\/v2\/brands\/([^/]+)\/capabilities$/)
     const brandConnectionsMatch = path.match(/^\/api\/v2\/brands\/([^/]+)\/connections$/)
+    const postizIntegrationsMatch = path.match(/^\/api\/v2\/brands\/([^/]+)\/connections\/postiz\/integrations$/)
     const connectionActionMatch = path.match(/^\/api\/v2\/connections\/([^/]+)\/(test|disconnect)$/)
     try {
       if (req.method === 'GET' && path === '/api/v2/brands') {
@@ -1635,6 +1640,16 @@ const server = createServer(async (req, res) => {
         json(res, 200, { connections: await listBrandConnections({ workspaceId: scope.workspaceId, siteId: scope.siteId }) })
         return
       }
+      if (req.method === 'POST' && postizIntegrationsMatch) {
+        const scope = await requireV2Context(req, url, res, { ...body, siteId: decodeURIComponent(postizIntegrationsMatch[1]) })
+        if (!scope) return
+        assertWorkspaceRole(scope.context.role, ['owner', 'admin'])
+        const token = body.apiToken || body.token || body.userToken || body.credentials?.apiToken || body.credentials?.token
+        if (!token) throw Object.assign(new Error('apiToken es obligatorio para consultar Postiz.'), { status: 400 })
+        const integrations = await listPostizIntegrations({ apiToken: token, apiBaseUrl: body.apiBaseUrl || body.config?.apiBaseUrl || body.config?.api_base_url })
+        json(res, 200, { integrations: integrations.map((integration) => ({ id: integration.id, name: integration.name, identifier: integration.identifier, profile: integration.profile, picture: integration.picture, disabled: Boolean(integration.disabled) })) })
+        return
+      }
       if (req.method === 'POST' && brandConnectionsMatch) {
         const scope = await requireV2Context(req, url, res, { ...body, siteId: decodeURIComponent(brandConnectionsMatch[1]) })
         if (!scope) return
@@ -1670,6 +1685,27 @@ const server = createServer(async (req, res) => {
             capabilities: body.capabilities || { drafts: true, scheduling: true, media: true },
             status: body.status || 'connected'
           })
+        } else if (provider === 'postiz') {
+          const token = body.apiToken || body.token || body.userToken || body.credentials?.apiToken || body.credentials?.token
+          if (!token) throw Object.assign(new Error('apiToken es obligatorio para Postiz.'), { status: 400 })
+          const integrationId = body.integrationId || body.externalAccountId || body.config?.integrationId || body.config?.integration_id
+          if (!integrationId) throw Object.assign(new Error('integrationId es obligatorio para Postiz.'), { status: 400 })
+          const apiBaseUrl = body.apiBaseUrl || body.config?.apiBaseUrl || body.config?.api_base_url || ''
+          const providerType = body.providerType || body.config?.providerType || body.config?.provider_type || postizProviderForChannel(channel)
+          const encrypted = encryptSecret(token)
+          legacy = await upsertBrandConnection({
+            workspaceId: scope.workspaceId,
+            siteId: scope.siteId,
+            userId: scope.auth.userId,
+            role: scope.context.role,
+            channel,
+            provider,
+            externalAccountId: integrationId,
+            credentialsCiphertext: encrypted,
+            config: { ...(body.config || {}), apiBaseUrl, integrationId, providerType, timezone: body.timezone || body.config?.timezone || 'UTC' },
+            capabilities: body.capabilities || { drafts: true, scheduling: true, media: true, integrations: true },
+            status: body.status || 'connected'
+          })
         } else {
           const token = body.token || body.userToken || body.credentials?.token
           const encrypted = token ? encryptSecret(token) : null
@@ -1695,6 +1731,9 @@ const server = createServer(async (req, res) => {
         } else if (row.provider === 'planable') {
           if (!credentials.apiToken) throw Object.assign(new Error('No se puede descifrar la credencial.'), { status: 503, code: 'credential_unavailable' })
           result = await testPlanableConnection(credentials)
+        } else if (row.provider === 'postiz') {
+          if (!credentials.apiToken) throw Object.assign(new Error('No se puede descifrar la credencial.'), { status: 503, code: 'credential_unavailable' })
+          result = await testPostizConnection(credentials)
         } else result = { ok: true, provider: row.provider, message: 'Conexión configurada correctamente.' }
         const pool = await getPgPool()
         if (result.ok) await pool.query('UPDATE channel_connections SET status=\'connected\',last_tested_at=NOW(),last_error=NULL,updated_at=NOW() WHERE id=$1 AND workspace_id=$2 AND site_id=$3', [connectionId, scope.workspaceId, scope.siteId])

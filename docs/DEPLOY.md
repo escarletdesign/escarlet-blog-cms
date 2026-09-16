@@ -177,6 +177,26 @@ el outbox al aprobar y sincroniza estados periódicamente; revisa los logs
 
 Documentación de referencia: [scheduler de Metricool](https://help.metricool.com/wli-scheduler-endpoint-example-on-a-custom-backend-proxy-frko7) y [autenticación/media](https://help.metricool.com/common-questions-and-errors-when-using-the-api-8x9nq).
 
+### Postiz self-hosted (proveedor recomendado)
+
+Postiz se despliega como un recurso separado de Coolify con su compose oficial y
+volúmenes persistentes. En el CMS configura opcionalmente:
+
+```
+POSTIZ_API_BASE_URL=https://sociales.example.com/api
+```
+
+La URL debe ser la del backend público de Postiz (normalmente termina en `/api`),
+no la URL interna de PostgreSQL o Redis. En la PWA, entra en **Marca → Conexiones**,
+selecciona **Postiz (self-hosted)**, pega la API key de **Settings → Developers →
+Public API** o un OAuth token, pulsa **Cargar cuentas** y elige la integración de
+Instagram, LinkedIn, X u otra cuenta conectada. Escarlet guarda el token cifrado;
+las credenciales OAuth de las redes permanecen dentro de Postiz.
+
+Antes de activar publicaciones reales, prueba una cuenta de staging y verifica
+subida de imágenes, publicación programada, reinicio del stack y sincronización de
+estados. El worker del CMS envía a Postiz únicamente variantes aprobadas.
+
 Webhook por site. Configúralo en dashboard → **Sitio** (recomendado). Opcional fallback env `REBUILD_WEBHOOK_URL`.
 
 `CMS_PUBLIC_URL` en producción tiene que ser `https://blog-cms.escarlet.cc`. Si queda vacío o en `localhost`, el MCP igual devolverá links absolutos con fallback a `https://blog-cms.escarlet.cc` (preview y media) para que Hermes pueda pegar un enlace clicable.

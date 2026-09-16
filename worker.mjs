@@ -5,6 +5,7 @@ import { claimJobs, finishJob, claimOutbox, finishOutbox, recordUsage, enqueueJo
 import { decryptSecret } from './lib/secret-crypto.mjs'
 import { scheduleMetricoolPost, syncMetricoolPost } from './lib/metricool.mjs'
 import { schedulePlanablePost, syncPlanablePost, planableStatus } from './lib/planable.mjs'
+import { schedulePostizPost, syncPostizPost, postizPostId, postizProviderForChannel, postizStatus } from './lib/postiz.mjs'
 
 function loadEnv() {
   const path = new URL('./.env', import.meta.url)
@@ -84,7 +85,11 @@ async function processExternalPublicationEvent(event) {
     WHERE ci.id=$1 AND ci.workspace_id=$2 AND cv.status<>'canceled'`, [itemId, event.workspace_id])
   if (event.type === 'content.item.approved' && variants.rows.every((variant) => !variant.publication_date)) return
   for (const variant of variants.rows) {
-    if (variant.channel === 'blog') {
+    // Blog remains a first-class channel. Keep the legacy CMS/webhook path for
+    // existing web connections, but allow Postiz's WordPress integration to
+    // execute it like any other provider when explicitly configured.
+    const configuredProvider = String(variant.connection_provider || '').toLowerCase()
+    if (variant.channel === 'blog' && configuredProvider !== 'postiz') {
       const publicationDate = variant.publication_date ? new Date(variant.publication_date) : null
       if (publicationDate && publicationDate.getTime() > Date.now()) {
         await enqueueJob({ workspaceId: event.workspace_id, type: 'content.publish_blog', payload: { variantId: variant.id }, idempotencyKey: `blog-publish:${variant.id}:${publicationDate.toISOString()}`, availableAt: publicationDate })
@@ -115,13 +120,19 @@ async function processExternalPublicationEvent(event) {
       response = variant.provider_post_id
         ? await syncPlanablePost({ apiToken: token, providerPostId: variant.provider_post_id, apiBaseUrl: connectionConfig.apiBaseUrl || connectionConfig.api_base_url })
         : await schedulePlanablePost({ apiToken: token, workspaceId, pageId, pageIds: connectionConfig.pageIds || connectionConfig.page_ids, publicationDate: variant.publication_date || new Date().toISOString(), text, media: mediaRows.rows.filter((asset) => asset.url), idempotencyKey: `planable:${variant.id}:${variant.publication_date || 'now'}`, apiBaseUrl: connectionConfig.apiBaseUrl || connectionConfig.api_base_url })
+    } else if (provider === 'postiz') {
+      const integrationId = connectionConfig.integrationId || connectionConfig.integration_id || variant.connection_external_account_id
+      const postType = variant.publication_date ? 'schedule' : 'draft'
+      response = variant.provider_post_id
+        ? await syncPostizPost({ apiToken: token, providerPostId: variant.provider_post_id, apiBaseUrl: connectionConfig.apiBaseUrl || connectionConfig.api_base_url })
+        : await schedulePostizPost({ apiToken: token, integrationId, publicationDate: variant.publication_date || new Date().toISOString(), timezone: variant.timezone || connectionConfig.timezone || 'UTC', text, channel: variant.channel, providerType: connectionConfig.providerType || connectionConfig.provider_type || postizProviderForChannel(variant.channel), providerSettings: connectionConfig.providerSettings || connectionConfig.provider_settings || {}, media: mediaRows.rows.filter((asset) => asset.url), idempotencyKey: `postiz:${variant.id}:${variant.publication_date || 'draft'}`, apiBaseUrl: connectionConfig.apiBaseUrl || connectionConfig.api_base_url, postType })
     } else throw new Error(`El proveedor ${provider} aún no tiene un adaptador de publicación.`)
-    const providerPostId = response?.id || response?.postId || response?.data?.id || response?.posts?.[0]?.id || variant.provider_post_id || null
-    const remoteStatus = provider === 'planable' ? planableStatus(response) : String(response?.status || response?.data?.status || '').toLowerCase()
-    const status = ['failed', 'error', 'rejected'].includes(remoteStatus) ? 'failed' : remoteStatus === 'published' ? 'published' : 'syncing'
+    const providerPostId = provider === 'postiz' ? (postizPostId(response) || variant.provider_post_id || null) : (response?.id || response?.postId || response?.data?.id || response?.posts?.[0]?.id || variant.provider_post_id || null)
+    const remoteStatus = provider === 'planable' ? planableStatus(response) : provider === 'postiz' ? postizStatus(response) : String(response?.status || response?.data?.status || '').toLowerCase()
+    const status = ['failed', 'error', 'rejected'].includes(remoteStatus) ? 'failed' : remoteStatus === 'published' ? 'published' : provider === 'postiz' && remoteStatus === 'canceled' ? 'canceled' : provider === 'postiz' && remoteStatus === 'scheduled' ? 'scheduled' : 'syncing'
     await pool.query('UPDATE content_variants SET status=$1,updated_at=NOW() WHERE id=$2', [status, variant.id])
     await pool.query('UPDATE schedules SET status=$1,provider=$2,provider_post_id=COALESCE($3,provider_post_id),attempts=attempts+1,last_error=NULL,updated_at=NOW() WHERE variant_id=$4', [status, provider, providerPostId, variant.id])
-    if (status === 'syncing' && providerPostId) {
+    if ((status === 'syncing' || (provider === 'postiz' && status === 'scheduled')) && providerPostId) {
       const nextPoll = new Date(Date.now() + metricoolPollMs)
       await enqueueJob({ workspaceId: event.workspace_id, type: `${provider}.sync`, payload: { siteId: variant.site_id }, idempotencyKey: `${provider}:poll:${variant.id}:${Math.floor(nextPoll.getTime() / metricoolPollMs)}`, availableAt: nextPoll })
     }
@@ -161,7 +172,7 @@ async function processMetricoolSyncJob(job) {
     await pool.query('UPDATE content_variants SET status=$1,updated_at=NOW() WHERE id=$2', [status, row.id])
     await pool.query('UPDATE schedules SET status=$1,last_error=NULL,updated_at=NOW() WHERE variant_id=$2', [status, row.id])
     await recordUsage({ workspaceId: job.workspace_id, siteId: row.site_id, kind: 'external_syncs', quantity: 1, idempotencyKey: `sync:${job.id}:${row.id}`, metadata: { itemId: row.item_id, channel: row.channel, provider: 'metricool' } })
-    if (status === 'syncing') {
+    if (status === 'syncing' || status === 'scheduled') {
       const nextPoll = new Date(Date.now() + metricoolPollMs)
       await enqueueJob({ workspaceId: job.workspace_id, type: 'metricool.sync', payload: { siteId: row.site_id }, idempotencyKey: `metricool:poll:${row.id}:${Math.floor(nextPoll.getTime() / metricoolPollMs)}`, availableAt: nextPoll })
     }
@@ -203,6 +214,39 @@ async function processPlanableSyncJob(job) {
   return { synced }
 }
 
+async function processPostizSyncJob(job) {
+  const pool = await getPgPool()
+  if (!pool) throw new Error('Postgres no está configurado.')
+  const siteId = job.payload?.siteId || null
+  const params = [job.workspace_id]
+  const siteClause = siteId ? 'AND ci.site_id=$2' : ''
+  if (siteId) params.push(siteId)
+  const rows = await pool.query(`SELECT cv.id,cv.item_id,cv.channel,ci.site_id,s.provider_post_id,cc.credentials_ciphertext,cc.config
+    FROM content_variants cv JOIN content_items ci ON ci.id=cv.item_id
+    JOIN schedules s ON s.variant_id=cv.id
+    JOIN LATERAL (SELECT credentials_ciphertext,config FROM channel_connections WHERE workspace_id=cv.workspace_id AND site_id=ci.site_id AND channel=cv.channel AND provider='postiz' AND status='connected' ORDER BY is_primary DESC,updated_at DESC LIMIT 1) cc ON TRUE
+    WHERE cv.workspace_id=$1 AND s.provider='postiz' AND s.provider_post_id IS NOT NULL AND s.status IN ('scheduled','syncing') ${siteClause}
+    ORDER BY s.updated_at ASC LIMIT 100`, params)
+  let synced = 0
+  for (const row of rows.rows) {
+    const token = decryptSecret(row.credentials_ciphertext)
+    if (!token) throw new Error('Postiz no está configurado para la marca.')
+    const config = row.config && typeof row.config === 'object' ? row.config : {}
+    const response = await syncPostizPost({ apiToken: token, providerPostId: row.provider_post_id, apiBaseUrl: config.apiBaseUrl || config.api_base_url })
+    const remoteStatus = postizStatus(response)
+    const status = remoteStatus === 'failed' ? 'failed' : remoteStatus === 'published' ? 'published' : remoteStatus === 'canceled' ? 'canceled' : remoteStatus === 'draft' || remoteStatus === 'scheduled' ? 'scheduled' : 'syncing'
+    await pool.query('UPDATE content_variants SET status=$1,updated_at=NOW() WHERE id=$2', [status, row.id])
+    await pool.query('UPDATE schedules SET status=$1,last_error=NULL,updated_at=NOW() WHERE variant_id=$2', [status, row.id])
+    await recordUsage({ workspaceId: job.workspace_id, siteId: row.site_id, kind: 'external_syncs', quantity: 1, idempotencyKey: `sync:${job.id}:${row.id}`, metadata: { itemId: row.item_id, channel: row.channel, provider: 'postiz' } })
+    if (status === 'syncing') {
+      const nextPoll = new Date(Date.now() + metricoolPollMs)
+      await enqueueJob({ workspaceId: job.workspace_id, type: 'postiz.sync', payload: { siteId: row.site_id }, idempotencyKey: `postiz:poll:${row.id}:${Math.floor(nextPoll.getTime() / metricoolPollMs)}`, availableAt: nextPoll })
+    }
+    synced++
+  }
+  return { synced }
+}
+
 async function processJob(job) {
   if (job.type === 'content.generate_batch') {
     const result = await processGenerationJob(job)
@@ -212,6 +256,7 @@ async function processJob(job) {
   if (job.type === 'content.publish_blog') return processBlogPublishJob(job)
   if (job.type === 'metricool.sync') return processMetricoolSyncJob(job)
   if (job.type === 'planable.sync') return processPlanableSyncJob(job)
+  if (job.type === 'postiz.sync') return processPostizSyncJob(job)
   throw new Error(`Tipo de job no soportado: ${job.type}`)
 }
 
@@ -234,10 +279,11 @@ async function drainOnce() {
       const pool = await getPgPool()
       const itemId = event.payload?.itemId || event.aggregate_id
       const terminalFailure = event.attempts >= maxAttempts
+      const errorMessage = String(error.message || 'External provider error').slice(0, 2000)
       if (pool && itemId && terminalFailure) {
-        await pool.query(`UPDATE content_items SET status='failed',error=$1,updated_at=NOW() WHERE id=$2`, [String(error.message || 'Metricool error').slice(0, 2000), itemId])
+        await pool.query(`UPDATE content_items SET status='failed',error=$1,updated_at=NOW() WHERE id=$2`, [errorMessage, itemId])
         await pool.query(`UPDATE content_variants SET status='failed',updated_at=NOW() WHERE item_id=$1 AND status IN ('scheduled','syncing')`, [itemId])
-        await pool.query(`UPDATE schedules SET status='failed',last_error=$1,updated_at=NOW() WHERE variant_id IN (SELECT id FROM content_variants WHERE item_id=$2)`, [String(error.message || 'Metricool error').slice(0, 2000), itemId])
+        await pool.query(`UPDATE schedules SET status='failed',last_error=$1,updated_at=NOW() WHERE variant_id IN (SELECT id FROM content_variants WHERE item_id=$2)`, [errorMessage, itemId])
       }
       await finishOutbox(event.id, { ok: false, error: error.message, retryAt: terminalFailure ? null : retryAt(event.attempts), deadLetter: terminalFailure })
     }

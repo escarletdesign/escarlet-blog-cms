@@ -221,6 +221,8 @@ const baseApi = {
     request<{ connections: Array<Record<string, any>> }>(`/api/v2/brands/${encodeURIComponent(brandId)}/connections`),
   saveBrandConnection: (brandId: string, input: Record<string, any>) =>
     request<{ connection: Record<string, any> }>(`/api/v2/brands/${encodeURIComponent(brandId)}/connections`, { method: "POST", body: JSON.stringify(input) }),
+  postizIntegrations: (brandId: string, input: { apiToken: string; apiBaseUrl?: string }) =>
+    request<{ integrations: Array<Record<string, any>> }>(`/api/v2/brands/${encodeURIComponent(brandId)}/connections/postiz/integrations`, { method: "POST", body: JSON.stringify(input) }),
   testConnection: (connectionId: string, site?: string) =>
     request<Record<string, any>>(`/api/v2/connections/${encodeURIComponent(connectionId)}/test${site ? `?site=${encodeURIComponent(site)}` : ""}`, { method: "POST", body: JSON.stringify({ site }) }),
   disconnectConnection: (connectionId: string, site?: string) =>
