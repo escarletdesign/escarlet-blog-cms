@@ -748,7 +748,18 @@ function sanitizeV2BrandKit(kit, auth) {
     : {}
   const fullAccess = auth?.role === 'admin' || auth?.role === 'client_mcp'
   const assets = Array.isArray(kit.assets)
-    ? kit.assets.filter((asset) => fullAccess || asset.visibility === 'public' || (asset.visibility === 'role_limited' && ['owner', 'admin', 'editor'].includes(auth?.role)))
+    ? kit.assets
+      .filter((asset) => fullAccess || asset.visibility === 'public' || (asset.visibility === 'role_limited' && ['owner', 'admin', 'editor'].includes(auth?.role)))
+      .map((asset) => ({
+        id: asset.id,
+        name: asset.name,
+        publicUrl: asset.publicUrl || null,
+        contentType: asset.contentType || null,
+        sizeBytes: asset.sizeBytes || null,
+        sha256: asset.sha256 || null,
+        visibility: asset.visibility || 'private',
+        metadata: asset.metadata && typeof asset.metadata === 'object' ? { alt: String(asset.metadata.alt || '') } : {}
+      }))
     : []
   return { ...kit, manifest, assets }
 }

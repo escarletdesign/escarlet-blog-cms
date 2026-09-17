@@ -61,6 +61,63 @@ test('blog_get_brand_context devuelve la política editorial común a todos los 
   assert.match(payload.sharedEditorialPolicy.instagramGuidance, /móvil/i)
 })
 
+test('brand_get_context no degrada al editor y entrega referencias inspeccionables', async () => {
+  const result = await invokeMcpTool(
+    'brand_get_context',
+    { site: 'escarlet' },
+    { role: 'editor', site: 'escarlet', capabilities: ['brand_kit_access'] }
+  )
+  const payload = JSON.parse(result.content?.[0]?.text || '{}')
+  assert.equal(payload.brandAccessLevel, 'sanitized')
+  assert.equal(payload.brandCapabilityEffective, true)
+  assert.equal(payload.brandKit.brandCapabilities.brand_kit_access, true)
+  assert.ok(payload.visualContext.palette.includes('#1F4D3A'))
+  assert.equal(payload.visualContext.typography.heading, 'Inter, Arial, sans-serif')
+  assert.ok(payload.referenceDelivery.inspectable)
+  assert.ok(result.content.some((block) => block.type === 'image' || block.type === 'resource_link'))
+  assert.equal(payload.files['visual-style.md'], undefined)
+  assert.equal(payload.files['image-spec.json'], undefined)
+  assert.doesNotMatch(JSON.stringify(payload), /ADMIN_TOKEN|CMS_ADMIN_TOKEN|credentials_ciphertext|storageKey/i)
+})
+
+test('los recursos MCP solo anuncian archivos que el rol puede leer', async () => {
+  const server = createMcpServer({ role: 'editor', site: 'escarlet', capabilities: ['brand_kit_access'] })
+  const handler = server._requestHandlers.get('resources/list')
+  const listed = await handler({ method: 'resources/list', params: {} })
+  const names = listed.resources.map((resource) => resource.name)
+  assert.ok(names.includes('escarlet agent-rules'))
+  assert.ok(names.includes('escarlet keywords'))
+  assert.ok(!names.includes('escarlet visual-style'))
+  assert.ok(!names.includes('escarlet image-spec'))
+})
+
+test('el super-admin conserva los archivos completos del brand kit', async () => {
+  const result = await invokeMcpTool('brand_get_context', { site: 'escarlet' }, { role: 'admin' })
+  const payload = JSON.parse(result.content?.[0]?.text || '{}')
+  assert.equal(payload.brandAccessLevel, 'full')
+  assert.ok(payload.brandKit.files.includes('visual-style.md'))
+  assert.ok(payload.brandKit.files.includes('image-spec.json'))
+})
+
+test('un cliente sin la capacidad visual conserva solo los documentos limitados', async () => {
+  const result = await invokeMcpTool('brand_get_context', { site: 'escarlet' }, { role: 'client', site: 'escarlet', capabilities: [] })
+  const payload = JSON.parse(result.content?.[0]?.text || '{}')
+  assert.equal(payload.brandAccessLevel, 'limited')
+  assert.deepEqual(payload.files.sort(), ['AGENT.md', 'keywords.md'])
+  assert.equal(payload.visualContext, undefined)
+  assert.equal(payload.brandCapabilityEffective, false)
+})
+
+test('el token de un sitio no puede consultar el brand kit de otro sitio', async () => {
+  const result = await invokeMcpTool(
+    'brand_get_context',
+    { site: 'otro-sitio' },
+    { role: 'client', site: 'escarlet', capabilities: [] }
+  )
+  assert.equal(result.isError, true)
+  assert.match(result.content?.[0]?.text || '', /solo gestiona el sitio autorizado|solo gestiona el sitio/i)
+})
+
 test('invokeMcpTool reutiliza las mismas tools para la app', async () => {
   const result = await invokeMcpTool('blog_get_quota', { site: 'escarlet' }, { role: 'client', site: 'escarlet' })
   assert.ok(result.content?.[0]?.text?.includes('"site": "escarlet"'))

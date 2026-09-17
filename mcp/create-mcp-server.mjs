@@ -1,4 +1,6 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { extname, join } from 'node:path'
 import {
   CallToolRequestSchema,
   ListResourcesRequestSchema,
@@ -13,10 +15,10 @@ import {
 } from '../lib/media-upload-contract.mjs'
 import { openaiFileDefs, connectorFileMeta } from '../lib/openai-file.mjs'
 import { assertSiteAccess, assertSuperAdmin, allowedSiteHandles, isSiteScopedRole, workspaceRoleForAuth } from '../lib/auth.mjs'
-import { isSecretBrandFile } from '../lib/brand-kit.mjs'
+import { brandFilesForAuth } from '../lib/brand-kit.mjs'
 import { assertChatToolAllowed, assertSafeToolArguments } from '../lib/ai-security.mjs'
 import { loadSiteConfig, isSocialMediaOnlySite } from '../lib/site-config.mjs'
-import { readDb } from '../lib/db.mjs'
+import { mediaDir, readDb } from '../lib/db.mjs'
 import {
   getStandaloneSocialPack,
   listStandaloneSocialPacks,
@@ -42,7 +44,8 @@ import {
   registerBrandAssets,
   listSiteChannels,
   listBrandCapabilities,
-  listBrandConnections
+  listBrandConnections,
+  getActiveBrandKit
 } from '../lib/workspace-domain.mjs'
 import { isPostgresConfigured, runCoreMigrations } from '../lib/pg.mjs'
 
@@ -103,6 +106,89 @@ function textResult(payload) {
   const safePayload = redactWorkflowLinks(payload)
   return {
     content: [{ type: 'text', text: typeof safePayload === 'string' ? safePayload : JSON.stringify(safePayload, null, 2) }]
+  }
+}
+
+function referenceDiskPath(item) {
+  const raw = String(item?.path || '').trim()
+  if (!raw.startsWith('/media/')) return ''
+  const relative = raw.slice('/media/'.length)
+  if (!relative || relative.includes('..')) return ''
+  const candidate = join(mediaDir, relative)
+  if (!existsSync(candidate)) return ''
+  try {
+    const resolved = realpathSync(candidate)
+    const mediaRoot = `${realpathSync(mediaDir).replace(/\/$/, '')}/`
+    return resolved.startsWith(mediaRoot) ? resolved : ''
+  } catch {
+    return ''
+  }
+}
+
+function imageMimeType(filename) {
+  const ext = extname(String(filename || '')).toLowerCase()
+  return {
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.webp': 'image/webp',
+    '.gif': 'image/gif'
+  }[ext] || ''
+}
+
+/**
+ * MCP hosts often cannot dereference a URL from a text response. Attach local
+ * references as image content and retain a resource link for an approved
+ * remote URL. Metadata remains in the text block so ids and hashes survive.
+ */
+async function brandContextResult(payload) {
+  const safePayload = redactWorkflowLinks(payload)
+  const references = Array.isArray(payload?.brandKit?.referenceImages)
+    ? payload.brandKit.referenceImages
+    : Array.isArray(payload?.referenceImages)
+      ? payload.referenceImages
+      : []
+  const content = []
+  const delivery = { total: references.length, imageBlocks: 0, resourceLinks: 0, unavailable: 0 }
+  for (const reference of references) {
+    const disk = referenceDiskPath(reference)
+    const mimeType = imageMimeType(reference?.filename || reference?.path)
+    if (disk && mimeType) {
+      try {
+        content.push({ type: 'image', data: readFileSync(disk).toString('base64'), mimeType })
+        delivery.imageBlocks += 1
+        continue
+      } catch {
+        // Fall through to an authorized URL or an unavailable marker.
+      }
+    }
+    const url = String(reference?.url || '').trim()
+    if (/^https:\/\//i.test(url)) {
+      content.push({
+        type: 'resource_link',
+        uri: url,
+        name: String(reference?.filename || reference?.id || 'reference-image'),
+        title: String(reference?.alt || reference?.filename || 'Referencia visual'),
+        description: String(reference?.alt || ''),
+        mimeType: mimeType || 'image/*'
+      })
+      delivery.resourceLinks += 1
+    } else {
+      delivery.unavailable += 1
+    }
+  }
+  const textPayload = {
+    ...safePayload,
+    referenceDelivery: {
+      ...delivery,
+      inspectable: delivery.imageBlocks + delivery.resourceLinks === delivery.total
+    }
+  }
+  return {
+    content: [
+      { type: 'text', text: typeof textPayload === 'string' ? textPayload : JSON.stringify(textPayload, null, 2) },
+      ...content
+    ]
   }
 }
 
@@ -666,11 +752,12 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
 
   server.setRequestHandler(ListResourcesRequestSchema, async () => {
     const sites = allowedSiteHandles(auth)
+    const allowedFiles = new Set(brandFilesForAuth(auth))
     const resources = []
     for (const site of sites) {
       for (const key of Object.keys(RESOURCE_MAP)) {
         const file = RESOURCE_MAP[key]
-        if ((auth?.role === 'site' || auth?.role === 'client') && isSecretBrandFile(file)) continue
+        if (!allowedFiles.has(file)) continue
         const mimeType = file.endsWith('.json') ? 'application/json' : 'text/markdown'
         resources.push({
           uri: `brand://${site}/${key}`,
@@ -738,20 +825,108 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
       }
       switch (name) {
         case 'brand_get_context': {
+          // Legacy JSON deployments do not have the v2 workspace tables yet.
+          // Keep this read-only tool useful there while retaining the same
+          // site ACL and normalized response contract.
+          if (!isPostgresConfigured()) {
+            const site = resolveToolSite(auth, args)
+            const brandKit = await cms.getBrandContext(site, { auth })
+            const declaredCapabilities = Array.isArray(auth?.capabilities) ? auth.capabilities : []
+            const effectiveBrandAccess = brandKit.brandCapabilityEffective === true
+            brandKit.brandCapabilities = { brand_kit_access: effectiveBrandAccess }
+            return brandContextResult({
+              workspace: { id: auth?.workspaceId || null, name: 'Espacio' },
+              brand: { id: site, handle: site, name: loadSiteConfig(site)?.name || site },
+              role: auth?.role || 'unknown',
+              capabilities: declaredCapabilities,
+              declaredCapabilities,
+              effectiveCapabilities: effectiveBrandAccess ? [...new Set([...declaredCapabilities, 'brand_kit_access'])] : declaredCapabilities.filter((capability) => capability !== 'brand_kit_access'),
+              brandCapabilities: { brand_kit_access: effectiveBrandAccess },
+              brandCapabilityDeclared: brandKit.brandCapabilityDeclared === true,
+              brandCapabilityEffective: effectiveBrandAccess,
+              brandAccessLevel: brandKit.brandAccessLevel,
+              grantedBrandResources: brandKit.grantedBrandResources || [],
+              deniedBrandResources: brandKit.deniedBrandResources || [],
+              denialReasons: brandKit.denialReasons || {},
+              brandKitVersionId: brandKit.brandKitVersionId || `brand-${site}-version-1`,
+              visualContext: brandKit.visualContext,
+              referenceImages: brandKit.referenceImages || [],
+              files: brandKit.files || {},
+              channels: [],
+              connections: [],
+              brandKit
+            })
+          }
           const scope = await resolveContentScope(auth, args)
           const brand = scope.sites.find((entry) => entry.id === scope.siteId) || scope.sites[0]
-          const [channels, brandCapabilities, connections, brandKit] = await Promise.all([
+          const [channels, brandCapabilities, connections, activeBrandKit] = await Promise.all([
             listSiteChannels({ workspaceId: scope.workspaceId, siteId: scope.siteId }),
             listBrandCapabilities({ workspaceId: scope.workspaceId, siteId: scope.siteId }),
             listBrandConnections({ workspaceId: scope.workspaceId, siteId: scope.siteId }),
-            cms.getBrandContext(scope.siteHandle, { auth })
+            getActiveBrandKit({ workspaceId: scope.workspaceId, siteId: scope.siteId }).catch(() => null)
           ])
-          return textResult({
+          const brandKit = await cms.getBrandContext(scope.siteHandle, {
+            auth,
+            brandCapabilities,
+            canonicalManifest: activeBrandKit?.manifest,
+            brandKitVersionId: activeBrandKit?.id || undefined,
+            brandKitVersion: activeBrandKit ? { id: activeBrandKit.id, version: activeBrandKit.version, status: activeBrandKit.status } : undefined
+          })
+          const canReadVisualBrandAssets = brandKit.brandCapabilityEffective === true
+          const visibleAssets = Array.isArray(activeBrandKit?.assets)
+            ? activeBrandKit.assets.filter((asset) => asset.visibility === 'public' || (canReadVisualBrandAssets && (auth?.role === 'admin' || auth?.role === 'client_mcp' || (asset.visibility === 'role_limited' && ['owner', 'admin', 'editor', 'author', 'client', 'site'].includes(auth?.role)))))
+            : []
+          const canonicalReferences = visibleAssets.map((asset) => ({
+            id: asset.id,
+            filename: asset.name,
+            kind: 'reference',
+            alt: asset.metadata?.alt || asset.name,
+            mediaId: asset.id,
+            ...(String(asset.storageKey || '').startsWith('media/') ? { path: `/${asset.storageKey}` } : {}),
+            ...(asset.publicUrl ? { url: asset.publicUrl } : {}),
+            ...(asset.sha256 ? { sha256: asset.sha256 } : {}),
+            ...(activeBrandKit?.version ? { version: activeBrandKit.version } : {})
+          }))
+          brandKit.assets = visibleAssets.map((asset) => ({
+            id: asset.id,
+            filename: asset.name,
+            kind: 'reference',
+            publicUrl: asset.publicUrl || null,
+            contentType: asset.contentType || null,
+            sizeBytes: asset.sizeBytes || null,
+            sha256: asset.sha256 || null,
+            visibility: asset.visibility || 'private',
+            metadata: asset.metadata && typeof asset.metadata === 'object'
+              ? { alt: String(asset.metadata.alt || '') }
+              : {}
+          }))
+          const seenReferenceIds = new Set((brandKit.referenceImages || []).flatMap((item) => [item.id, item.mediaId, item.filename].filter(Boolean)))
+          brandKit.referenceImages = [...(brandKit.referenceImages || []), ...canonicalReferences.filter((item) => {
+            const identities = [item.id, item.mediaId, item.filename].filter(Boolean)
+            return !identities.some((identity) => seenReferenceIds.has(identity))
+          })]
+          if (brandKit.visualContext && typeof brandKit.visualContext === 'object') {
+            brandKit.visualContext = { ...brandKit.visualContext, referenceImages: brandKit.referenceImages }
+          }
+          const declaredCapabilities = Array.isArray(auth?.capabilities) ? auth.capabilities : []
+          const effectiveBrandAccess = brandKit.brandCapabilityEffective === true
+          brandKit.brandCapabilities = { ...brandCapabilities, brand_kit_access: effectiveBrandAccess }
+          return brandContextResult({
             workspace: { id: scope.workspaceId, name: scope.workspaceName || 'Espacio' },
             brand: { id: brand?.id || scope.siteId, handle: brand?.handle || scope.siteHandle, name: brand?.name || scope.siteHandle },
             role: scope.role,
-            capabilities: auth?.capabilities || [],
-            brandCapabilities,
+            capabilities: declaredCapabilities,
+            declaredCapabilities,
+            effectiveCapabilities: effectiveBrandAccess ? [...new Set([...declaredCapabilities, 'brand_kit_access'])] : declaredCapabilities.filter((capability) => capability !== 'brand_kit_access'),
+            brandCapabilities: { ...brandCapabilities, brand_kit_access: effectiveBrandAccess },
+            brandAccessLevel: brandKit.brandAccessLevel,
+            grantedBrandResources: brandKit.grantedBrandResources || [],
+            deniedBrandResources: brandKit.deniedBrandResources || [],
+            denialReasons: brandKit.denialReasons || {},
+            brandKitVersionId: brandKit.brandKitVersionId || activeBrandKit?.id || null,
+            visualContext: brandKit.visualContext,
+            referenceImages: brandKit.referenceImages || [],
+            files: brandKit.files || {},
             channels,
             connections,
             brandKit
@@ -960,7 +1135,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
         }
         case 'blog_get_brand_context': {
           const site = resolveToolSite(auth, args)
-          return textResult(await cms.getBrandContext(site, { auth }))
+          return brandContextResult(await cms.getBrandContext(site, { auth }))
         }
         case 'blog_update_brand_file': {
           const site = resolveToolSite(auth, args)
@@ -1007,7 +1182,10 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             const scope = await resolveContentScope(auth, { site })
             const version = await createBrandKitVersion({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: auth.userId, role: scope.role, manifest: imported.brand?.files || {}, status: 'published' })
             const origin = cmsOrigin()
-            const assets = (imported.importedImages || []).map((name) => ({ name, storageKey: `media/${site}/reference/${name}`, publicUrl: `${origin}/media/${site}/reference/${encodeURIComponent(name)}`, visibility: 'private' }))
+            // Reference images are visual guidance, not private credentials.
+            // Keep them scoped to the brand and readable by editors through
+            // the role-limited asset policy.
+            const assets = (imported.importedImages || []).map((name) => ({ name, storageKey: `media/${site}/reference/${name}`, publicUrl: `${origin}/media/${site}/reference/${encodeURIComponent(name)}`, visibility: 'role_limited' }))
             await registerBrandAssets({ workspaceId: scope.workspaceId, siteId: scope.siteId, brandKitVersionId: version.id, userId: auth.userId, role: scope.role, assets })
             return textResult({ ...imported, canonicalBrandKitVersionId: version.id, canonicalAssets: assets.length })
           }
