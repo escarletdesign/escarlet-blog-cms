@@ -13,6 +13,8 @@ export interface Session {
   avatarUrl?: string;
   profileComplete?: boolean;
   allowPublishingAs?: boolean;
+  hasLoginToken?: boolean;
+  loginTokenHint?: string;
   workspaceId?: string;
   workspaceRole?: "owner" | "admin" | "editor" | "author" | "viewer" | string;
 }

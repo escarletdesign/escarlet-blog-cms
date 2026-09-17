@@ -59,6 +59,14 @@ const baseApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+  issueOwnUserToken: () =>
+    request<{ ok: boolean; profile: Record<string, any>; token: string }>("/api/auth/profile/token", {
+      method: "POST",
+    }),
+  revokeOwnUserToken: () =>
+    request<{ ok: boolean; profile: Record<string, any> }>("/api/auth/profile/token/revoke", {
+      method: "POST",
+    }),
   createAuthorInvite: (site?: string) =>
     request<{ ok: boolean; link: string; token: string; expiresAt: string }>("/api/auth/profile/publishing-link", {
       method: "POST",

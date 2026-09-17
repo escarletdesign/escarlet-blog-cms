@@ -964,7 +964,7 @@ const server = createServer(async (req, res) => {
       })
       res.end(
         JSON.stringify({
-          message: 'No autorizado. Usa Bearer ADMIN_TOKEN, token de sitio o OAuth (ChatGPT).'
+          message: 'No autorizado. Usa Bearer con tu token de usuario, token de sitio, token de agencia, ADMIN_TOKEN u OAuth (ChatGPT).'
         })
       )
       return
@@ -1411,6 +1411,37 @@ const server = createServer(async (req, res) => {
         avatarDataUrl: body.avatarDataUrl,
         allowPublishingAs: body.allowPublishingAs
       })
+      json(res, 200, { ok: true, profile })
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
+    }
+    return
+  }
+
+  // Each signed-in human user can mint and revoke their own durable login
+  // token for external clients such as ChatGPT. The full token is returned
+  // only from the mint operation; sessions expose only hasLoginToken and a
+  // four-character hint.
+  if (isProductRestructureV1() && req.method === 'POST' && path === '/api/auth/profile/token') {
+    const auth = requireAuth(req, url, res)
+    if (!auth) return
+    try {
+      if (!auth.userId) throw Object.assign(new Error('Esta sesión no tiene un perfil de usuario'), { status: 403 })
+      const minted = mintUserLoginToken({ id: auth.userId })
+      const { token, ...profile } = minted
+      json(res, 200, { ok: true, profile, token })
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
+    }
+    return
+  }
+
+  if (isProductRestructureV1() && req.method === 'POST' && path === '/api/auth/profile/token/revoke') {
+    const auth = requireAuth(req, url, res)
+    if (!auth) return
+    try {
+      if (!auth.userId) throw Object.assign(new Error('Esta sesión no tiene un perfil de usuario'), { status: 403 })
+      const profile = revokeUserLoginToken({ id: auth.userId })
       json(res, 200, { ok: true, profile })
     } catch (error) {
       json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })

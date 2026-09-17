@@ -4640,6 +4640,10 @@ function Settings() {
   const [bio, setBio] = useState(session.bio || "");
   const [avatarDataUrl, setAvatarDataUrl] = useState(session.avatarUrl || "");
   const [profileSaving, setProfileSaving] = useState(false);
+  const [personalToken, setPersonalToken] = useState("");
+  const [personalTokenBusy, setPersonalTokenBusy] = useState(false);
+  const [hasPersonalToken, setHasPersonalToken] = useState(Boolean(session.hasLoginToken));
+  const [personalTokenHint, setPersonalTokenHint] = useState(session.loginTokenHint || "");
   const [delegates, setDelegates] = useState<Array<Record<string, any>>>([]);
   const [delegateBusy, setDelegateBusy] = useState("");
   useEffect(() => {
@@ -4661,6 +4665,10 @@ function Settings() {
       .then((result) => setDelegates(result.users || []))
       .catch(() => setDelegates([]));
   }, [session.userId, site]);
+  useEffect(() => {
+    setHasPersonalToken(Boolean(session.hasLoginToken));
+    setPersonalTokenHint(session.loginTokenHint || "");
+  }, [session.hasLoginToken, session.loginTokenHint]);
   const save = () => {
     localStorage.setItem("escarlet_model", model);
     setError("");
@@ -4700,6 +4708,44 @@ function Settings() {
       setAvatarDataUrl(await fileAsBase64(file));
     } catch {
       showToast(t("editor.readImageError"), "error");
+    }
+  };
+  const copyPersonalToken = async () => {
+    if (!personalToken) return;
+    await navigator.clipboard?.writeText(personalToken).catch(() => {});
+    showToast(t("settings.mcpTokenCopied"));
+  };
+  const issuePersonalToken = async () => {
+    if (hasPersonalToken && !window.confirm(t("settings.mcpTokenRegenerateConfirm"))) return;
+    setPersonalTokenBusy(true);
+    try {
+      const result = await api.issueOwnUserToken();
+      setPersonalToken(result.token || "");
+      setHasPersonalToken(true);
+      setPersonalTokenHint(result.profile?.loginTokenHint || "");
+      await navigator.clipboard?.writeText(result.token).catch(() => {});
+      showToast(t("settings.mcpTokenReady"));
+      await refresh();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : t("common.error"), "error");
+    } finally {
+      setPersonalTokenBusy(false);
+    }
+  };
+  const revokePersonalToken = async () => {
+    if (!window.confirm(t("settings.mcpTokenRevokeConfirm"))) return;
+    setPersonalTokenBusy(true);
+    try {
+      await api.revokeOwnUserToken();
+      setPersonalToken("");
+      setHasPersonalToken(false);
+      setPersonalTokenHint("");
+      showToast(t("settings.mcpTokenRevoked"));
+      await refresh();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : t("common.error"), "error");
+    } finally {
+      setPersonalTokenBusy(false);
     }
   };
   const toggleDelegate = async (delegate: Record<string, any>) => {
@@ -4744,6 +4790,33 @@ function Settings() {
           <label>{t("settings.bio")}<textarea value={bio} onChange={(event) => setBio(event.target.value)} placeholder={t("settings.bioPlaceholder")} rows={4} /></label>
           <button className="primary" disabled={profileSaving}>{profileSaving ? "…" : t("settings.profileSave")}</button>
         </form>
+      )}
+      {session.userId && (
+        <section className="card settings-card personal-token-card">
+          <p className="eyebrow">{t("settings.mcpTokenEyebrow")}</p>
+          <h2>{t("settings.mcpTokenTitle")}</h2>
+          <p className="muted">{t("settings.mcpTokenHelp")}</p>
+          {personalToken ? (
+            <div className="site-token-box personal-token-box">
+              <div>
+                <strong>{t("settings.mcpTokenLabel")}</strong>
+                <code>{personalToken}</code>
+              </div>
+              <button type="button" className="secondary" onClick={() => void copyPersonalToken()}>{t("settings.mcpTokenCopy")}</button>
+              <p className="tiny">{t("settings.mcpTokenShownOnce")}</p>
+            </div>
+          ) : (
+            <p className="tiny personal-token-status">
+              {hasPersonalToken ? `${t("settings.mcpTokenActive")}${personalTokenHint ? ` ${personalTokenHint}` : ""}` : t("settings.mcpTokenNone")}
+            </p>
+          )}
+          <div className="form-actions">
+            <button type="button" className="primary" onClick={() => void issuePersonalToken()} disabled={personalTokenBusy}>
+              {personalTokenBusy ? "…" : hasPersonalToken ? t("settings.mcpTokenRegenerate") : t("settings.mcpTokenGenerate")}
+            </button>
+            {hasPersonalToken && <button type="button" className="danger-link" onClick={() => void revokePersonalToken()} disabled={personalTokenBusy}>{t("settings.mcpTokenRevoke")}</button>}
+          </div>
+        </section>
       )}
       {session.userId && (
         <section className="card settings-card delegation-card">
@@ -6976,7 +7049,7 @@ function ConnectionsView({ brandId, backTo }: { brandId?: string; backTo?: strin
   return <main className="page">
     <PageHeader eyebrow={brandId ? `Marca · ${brandOptions.find((brand) => brand.id === selectedBrandId)?.name || brandOptions.find((brand) => brand.id === selectedBrandId)?.handle || "Conexiones"}` : "Proveedores por canal"} title="Conexiones" description="Buffer, Postiz, Metricool, Planable, web y futuros proveedores se gestionan desde un único catálogo." back={backTo ? <NavLink to={backTo}>← Volver a la marca</NavLink> : undefined} actions={!brandId && brandOptions.length > 1 ? <Select aria-label="Filtrar por marca" value={selectedBrandId} onChange={(event) => setSelectedBrandId(event.target.value)}>{brandOptions.map((brand) => <option key={brand.id} value={brand.id}>{brand.name || brand.handle}</option>)}</Select> : undefined} />
     {error && <Card><p className="ui-field-error">{error}</p></Card>}
-    <Card className="ui-mcp-card"><div className="ui-card-head"><div><span className="ui-eyebrow">Conexión externa</span><h2>Conectar esta marca con ChatGPT</h2><p className="muted">Usa el MCP para crear contenido, consultar el brand kit o trabajar con esta marca desde ChatGPT.</p></div>{mcpInfo?.agentIcon?.exists && mcpInfo.agentIcon.url && <img className="ui-mcp-icon" src={mcpInfo.agentIcon.url} alt="Icono de la marca" />}</div>{mcpInfo?.mcpUrl ? <div className="ui-mcp-details"><div className="ui-mcp-value"><div><span className="ui-field-label">URL del MCP</span><code>{mcpInfo.mcpUrl}</code></div><Button type="button" variant="ghost" size="sm" onClick={() => void copyMcpValue(mcpInfo.mcpUrl, "URL del MCP")}>Copiar</Button></div><p className="ui-field-hint">En ChatGPT añade esta URL como conector y completa OAuth. Para Cursor/Hermes usa Bearer.</p>{mcpToken && <div className="ui-mcp-value ui-mcp-token"><div><span className="ui-field-label">Token de esta marca</span><code>{mcpToken}</code></div><Button type="button" variant="ghost" size="sm" onClick={() => void copyMcpValue(mcpToken, "Token MCP")}>Copiar</Button></div>}{session.role === "admin" && <Button type="button" variant="secondary" size="sm" loading={mcpBusy} onClick={() => void issueMcpToken()}>{mcpToken ? "Generar otro token" : "Generar token MCP"}</Button>}{session.role !== "admin" && <p className="ui-field-hint">Solo un administrador puede generar o rotar el token. Solicita acceso si necesitas conectarla.</p>}</div> : <p className="ui-field-error">No se pudo cargar la configuración MCP de esta marca.</p>}</Card>
+    <Card className="ui-mcp-card"><div className="ui-card-head"><div><span className="ui-eyebrow">Conexión externa</span><h2>Conectar esta marca con ChatGPT</h2><p className="muted">Usa el MCP para crear contenido, consultar el brand kit o trabajar con esta marca desde ChatGPT.</p></div>{mcpInfo?.agentIcon?.exists && mcpInfo.agentIcon.url && <img className="ui-mcp-icon" src={mcpInfo.agentIcon.url} alt="Icono de la marca" />}</div>{mcpInfo?.mcpUrl ? <div className="ui-mcp-details"><div className="ui-mcp-value"><div><span className="ui-field-label">URL del MCP</span><code>{mcpInfo.mcpUrl}</code></div><Button type="button" variant="ghost" size="sm" onClick={() => void copyMcpValue(mcpInfo.mcpUrl, "URL del MCP")}>Copiar</Button></div><p className="ui-field-hint">En ChatGPT añade esta URL como conector y completa OAuth. Para Cursor/Hermes usa Bearer. También puedes generar tu token personal en Ajustes.</p>{mcpToken && <div className="ui-mcp-value ui-mcp-token"><div><span className="ui-field-label">Token de esta marca</span><code>{mcpToken}</code></div><Button type="button" variant="ghost" size="sm" onClick={() => void copyMcpValue(mcpToken, "Token MCP")}>Copiar</Button></div>}{session.role === "admin" && <Button type="button" variant="secondary" size="sm" loading={mcpBusy} onClick={() => void issueMcpToken()}>{mcpToken ? "Generar otro token" : "Generar token MCP"}</Button>}{session.role !== "admin" && <p className="ui-field-hint">Solo un administrador puede generar o rotar el token de esta marca. Usa tu token personal desde Ajustes si necesitas conectarla.</p>}</div> : <p className="ui-field-error">No se pudo cargar la configuración MCP de esta marca.</p>}</Card>
     {connections.length ? <div className="ui-connection-grid">{connections.map((connection) => <ConnectionCard key={connection.id} provider={`${connection.provider || "Proveedor"} · ${connection.channel || "canal"}`} status={connection.status || (connection.enabled ? "connected" : "disabled")} account={connection.externalAccountId || connection.userId ? `Cuenta ${connection.externalAccountId || connection.userId}` : undefined} actions={<Inline gap="sm"><Button variant="ghost" size="sm" onClick={async () => { try { await api.testConnection(connection.id, selectedBrandId); setMessage("Prueba correcta."); } catch (err: any) { setMessage(err?.message || "La prueba falló."); } }}>Probar</Button>{canManage && <Button variant="ghost" size="sm" onClick={async () => { try { await api.disconnectConnection(connection.id, selectedBrandId); setConnections((current) => current.filter((item) => item.id !== connection.id)); } catch (err: any) { setMessage(err?.message || "No se pudo desconectar."); } }}>Desconectar</Button>}</Inline>} />)}</div> : !error && <UiEmptyState title="Aún no hay conexiones" description="Activa un canal y conecta el proveedor que lo ejecutará." />}
     {canManage && <Card className="ui-connection-form"><div className="ui-card-head"><div><span className="ui-eyebrow">Administrador</span><h2>Añadir conexión</h2></div></div><form className="ui-stack ui-stack-md" onSubmit={(event) => void connect(event)}>
       <Field label="Proveedor"><Select value={form.provider} onChange={(event) => { const provider = event.target.value; setForm((current) => ({ ...current, provider, channel: provider === "web" ? "blog" : current.channel === "blog" ? "instagram" : current.channel })); setPostizIntegrations([]); setBufferOrganizations([]); setBufferChannels([]); }}><option value="buffer">Buffer (API)</option><option value="postiz">Postiz (self-hosted)</option><option value="metricool">Metricool</option><option value="planable">Planable.io</option><option value="web">Web / WordPress</option></Select></Field>
