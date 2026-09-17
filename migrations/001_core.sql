@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS brand_assets (
   brand_kit_version_id TEXT NOT NULL REFERENCES brand_kit_versions(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   storage_key TEXT NOT NULL,
+  public_url TEXT,
   content_type TEXT,
   size_bytes BIGINT,
   sha256 TEXT,
