@@ -49,6 +49,7 @@ const SOCIAL_PACK_CHANNEL_KEYS: Array<{ key: keyof SocialPackChannels; labelKey:
   { key: "videoScript", labelKey: "admin.socialPackVideo" },
   { key: "instagramCarousel", labelKey: "admin.socialPackInstagram" },
 ];
+const uniqueSiteHandles = (values: Array<string | undefined> = []) => [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
 type AppState = {
   session: Session;
   site: string;
@@ -364,8 +365,8 @@ function App() {
   useEffect(() => {
     if (!session) return;
     const available = session.sites?.length
-      ? session.sites
-      : [session.site || "escarlet"];
+      ? uniqueSiteHandles(session.sites)
+      : uniqueSiteHandles([session.site || "escarlet"]);
     const requested = new URLSearchParams(window.location.search).get("site")?.trim().toLowerCase() || "";
     const requestedHandle = requested
       ? available.find((candidate) => {
@@ -453,8 +454,8 @@ function App() {
               session,
               site: site || session.site || session.sites?.[0] || "escarlet",
               sites: session.sites?.length
-                ? session.sites
-                : [session.site || "escarlet"],
+                ? uniqueSiteHandles(session.sites)
+                : uniqueSiteHandles([session.site || "escarlet"]),
               contentMode,
               workflowFlags,
               channels,
@@ -6464,22 +6465,101 @@ function NewBrandView() {
 }
 
 function TeamView() {
-  const { session } = useApp();
+  const { session, site } = useApp();
   const nav = useNavigate();
   const { t } = useI18n();
   const [members, setMembers] = useState<Array<Record<string, any>>>([]);
   const [canManage, setCanManage] = useState(false);
+  const [canonicalTeam, setCanonicalTeam] = useState(false);
   const [error, setError] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [form, setForm] = useState({ email: "", role: "viewer" });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-  const load = () => api.teamV2().then((result) => { setMembers(result.members || []); setCanManage(Boolean(result.canManage)); }).catch(async () => {
-    try { const legacy = await api.users("", session.role === "admin"); setMembers(legacy.users || []); setCanManage(isAdmin(session.role)); } catch (err: any) { setError(err?.message || "No se pudo cargar el equipo."); }
+  const [userForm, setUserForm] = useState<{ id: string; email: string; role: string; sites: string[]; allowPublishingAs: boolean } | null>(null);
+  const [userBusy, setUserBusy] = useState(false);
+  const canAdminUsers = session.role === "admin";
+  const load = () => api.teamV2().then((result) => { setMembers(result.members || []); setCanManage(Boolean(result.canManage)); setCanonicalTeam(true); }).catch(async () => {
+    try { const legacy = await api.users("", session.role === "admin"); setMembers(legacy.users || []); setCanManage(isAdmin(session.role)); setCanonicalTeam(false); } catch (err: any) { setError(err?.message || "No se pudo cargar el equipo."); }
   });
   useEffect(() => { void load(); }, [session.role]);
   const invite = async (event: FormEvent) => { event.preventDefault(); setBusy(true); setMessage(""); try { const result = await api.inviteTeamMember({ email: form.email, role: form.role }); setMessage(result.invite?.link ? `Invitación creada: ${result.invite.link}` : "Invitación enviada."); setForm({ email: "", role: "viewer" }); setInviteOpen(false); await load(); } catch (err: any) { setMessage(err?.message || "No se pudo invitar al miembro."); } finally { setBusy(false); } };
-  return <main className="page"><PageHeader eyebrow="Espacio" title="Equipo y acceso" description="Roles y permisos de las personas que pueden revisar este contenido." actions={canManage ? <Button onClick={() => nav("/team/invite")}>Invitar miembro</Button> : undefined} />{error && <Card><p className="ui-field-error">{error}</p></Card>}{members.length ? <div className="ui-member-list">{members.map((member) => { const memberName = member.displayName || member.name || member.email || (member.userId === "system" ? "Escarlet" : member.userId) || "Miembro"; return <Card key={member.id || member.userId || member.email}><div className="ui-card-head"><div className="ui-team-member"><UserAvatar src={member.avatarUrl} name={memberName} size="sm" /><div><h3>{memberName}</h3><p className="muted">{member.email || (member.brands || []).map((brand: any) => brand.name || brand.handle).join(", ")}</p></div></div><Badge tone="info">{roleLabel(member.role, t)}</Badge></div></Card>; })}</div> : !error && <UiEmptyState title="Todavía no hay miembros" description={canManage ? "Invita a la primera persona para empezar a trabajar en equipo." : "Un administrador debe invitar a los miembros de este espacio."} action={canManage ? <Button onClick={() => nav("/team/invite")}>Invitar miembro</Button> : undefined} />}{message && <p className="success">{message}</p>}<Modal open={inviteOpen} title="Invitar miembro" onClose={() => setInviteOpen(false)}><form className="ui-stack ui-stack-md" onSubmit={(event) => void invite(event)}><Field label="Correo electrónico" required><TextField type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required autoFocus /></Field><Field label="Rol"><Select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}><option value="viewer">{roleLabel("viewer", t)}</option><option value="author">{roleLabel("author", t)}</option><option value="editor">{roleLabel("editor", t)}</option><option value="admin">{roleLabel("admin", t)}</option></Select></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setInviteOpen(false)}>Cancelar</Button><Button type="submit" loading={busy}>Enviar invitación</Button></Inline></form></Modal></main>;
+  const userId = (member: Record<string, any>) => String(member.userId || member.id || "");
+  const sitesForMember = (member: Record<string, any>) => uniqueSiteHandles([
+    ...(Array.isArray(member.sites) ? member.sites : []),
+    ...(Array.isArray(member.brands) ? member.brands.map((brand: any) => brand.handle) : []),
+  ]);
+  const availableSiteHandles = uniqueSiteHandles([
+    ...(session.sites || []),
+    ...members.flatMap((member) => sitesForMember(member)),
+  ]);
+  const openUserEditor = (member: Record<string, any>) => {
+    const id = userId(member);
+    if (!id || id === "system") return;
+    setUserForm({
+      id,
+      email: String(member.email || ""),
+      role: String(member.role || "viewer"),
+      sites: sitesForMember(member).length ? sitesForMember(member) : [site],
+      allowPublishingAs: Boolean(member.allowPublishingAs),
+    });
+  };
+  const saveUser = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!userForm) return;
+    setUserBusy(true);
+    try {
+      await api.updateUser(userForm);
+      if (canonicalTeam) await api.updateTeamMember(userForm.id, { role: userForm.role, brandIds: userForm.sites });
+      setUserForm(null);
+      setMessage(t("admin.userSaved"));
+      await load();
+    } catch (err: any) {
+      setMessage(err?.message || "No se pudo guardar el usuario.");
+    } finally {
+      setUserBusy(false);
+    }
+  };
+  const issueOrRevokeUserToken = async (member: Record<string, any>) => {
+    const id = userId(member);
+    if (!id || id === "system") return;
+    setUserBusy(true);
+    try {
+      if (member.hasLoginToken) {
+        await api.revokeUserToken(id);
+        setMembers((current) => current.map((row) => userId(row) === id ? { ...row, hasLoginToken: false } : row));
+        setMessage(t("admin.userTokenRevoked"));
+      } else {
+        const result = await api.issueUserToken(id);
+        await navigator.clipboard?.writeText(result.token).catch(() => {});
+        setMembers((current) => current.map((row) => userId(row) === id ? { ...row, hasLoginToken: true } : row));
+        setMessage(`${t("admin.userTokenReady")} ${result.token}`);
+      }
+    } catch (err: any) {
+      setMessage(err?.message || "No se pudo actualizar el token.");
+    } finally {
+      setUserBusy(false);
+    }
+  };
+  const sendUserMagicLink = async (member: Record<string, any>) => {
+    const email = String(member.email || "").trim();
+    if (!email) return;
+    setUserBusy(true);
+    try {
+      const result = await api.sendMagicLink({ email, site, role: member.role === "agency_admin" ? "agency_admin" : "client" });
+      if (result.link) {
+        await navigator.clipboard?.writeText(result.link).catch(() => {});
+        setMessage(`${t("admin.magicLinkReady")} ${result.link}`);
+      } else {
+        setMessage(t("admin.magicLinkSent"));
+      }
+    } catch (err: any) {
+      setMessage(err?.message || "No se pudo enviar el enlace.");
+    } finally {
+      setUserBusy(false);
+    }
+  };
+  return <main className="page"><PageHeader eyebrow="Espacio" title="Equipo y acceso" description="Roles y permisos de las personas que pueden revisar este contenido." actions={<Inline gap="sm">{canAdminUsers && <Button variant="ghost" onClick={() => nav("/admin")}>{t("admin.users")}</Button>}{canManage && <Button onClick={() => nav("/team/invite")}>Invitar miembro</Button>}</Inline>} />{error && <Card><p className="ui-field-error">{error}</p></Card>}{members.length ? <div className="ui-member-list">{members.map((member) => { const memberName = member.displayName || member.name || member.email || (member.userId === "system" ? "Escarlet" : member.userId) || "Miembro"; const id = userId(member); const canAct = canAdminUsers && Boolean(id) && id !== "system" && Boolean(member.email); return <Card key={member.id || member.userId || member.email}><div className="ui-card-head"><div className="ui-team-member"><UserAvatar src={member.avatarUrl} name={memberName} size="sm" /><div><h3>{memberName}</h3><p className="muted">{member.email || (member.brands || []).map((brand: any) => brand.name || brand.handle).join(", ")}</p></div></div><Badge tone="info">{roleLabel(member.role, t)}</Badge></div>{canAct && <div className="ui-card-actions ui-team-actions"><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => openUserEditor(member)} aria-label={t("admin.editUser")} title={t("admin.editUser")}><AdminActionIcon kind="edit" /></button><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => void issueOrRevokeUserToken(member)} aria-label={member.hasLoginToken ? t("admin.revokeToken") : t("admin.issueToken")} title={member.hasLoginToken ? t("admin.revokeToken") : t("admin.issueToken")}><AdminActionIcon kind="key" /></button><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => void sendUserMagicLink(member)} aria-label={t("admin.magicLink")} title={t("admin.magicLink")}><AdminActionIcon kind="mail" /></button></div>}</Card>; })}</div> : !error && <UiEmptyState title="Todavía no hay miembros" description={canManage ? "Invita a la primera persona para empezar a trabajar en equipo." : "Un administrador debe invitar a los miembros de este espacio."} action={canManage ? <Button onClick={() => nav("/team/invite")}>Invitar miembro</Button> : undefined} />}{message && <p className="success ui-team-message">{message}</p>}<Modal open={inviteOpen} title="Invitar miembro" onClose={() => setInviteOpen(false)}><form className="ui-stack ui-stack-md" onSubmit={(event) => void invite(event)}><Field label="Correo electrónico" required><TextField type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required autoFocus /></Field><Field label="Rol"><Select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}><option value="viewer">{roleLabel("viewer", t)}</option><option value="author">{roleLabel("author", t)}</option><option value="editor">{roleLabel("editor", t)}</option><option value="admin">{roleLabel("admin", t)}</option></Select></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setInviteOpen(false)}>Cancelar</Button><Button type="submit" loading={busy}>Enviar invitación</Button></Inline></form></Modal><Modal open={Boolean(userForm)} title={t("admin.editUser")} onClose={() => setUserForm(null)}>{userForm && <form className="ui-stack ui-stack-md" onSubmit={(event) => void saveUser(event)}><Field label={t("admin.userEmail")} required><TextField type="email" required value={userForm.email} onChange={(event) => setUserForm({ ...userForm, email: event.target.value })} /></Field><Field label={t("admin.userRole")} required><Select value={userForm.role} onChange={(event) => setUserForm({ ...userForm, role: event.target.value })}>{["owner", "admin", "editor", "author", "viewer"].map((role) => <option key={role} value={role}>{roleLabel(role, t)}</option>)}</Select></Field><fieldset className="ui-site-checks"><legend>{t("admin.userSites")}</legend>{availableSiteHandles.map((handle) => <label key={handle} className="ui-checkbox"><input type="checkbox" checked={userForm.sites.includes(handle)} onChange={(event) => setUserForm({ ...userForm, sites: event.target.checked ? uniqueSiteHandles([...userForm.sites, handle]) : userForm.sites.filter((item) => item !== handle) })} /><span>{handle}</span></label>)}</fieldset><label className="ui-toggle-row"><span><b>{t("settings.authorPermission")}</b><small>{t("settings.authorPermissionHelp")}</small></span><input type="checkbox" checked={userForm.allowPublishingAs} onChange={(event) => setUserForm({ ...userForm, allowPublishingAs: event.target.checked })} /></label><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setUserForm(null)}>{t("editor.close")}</Button><Button type="submit" disabled={!userForm.sites.length} loading={userBusy}>{t("admin.save")}</Button></Inline></form>}</Modal></main>;
 }
 
 function TeamInviteView() {

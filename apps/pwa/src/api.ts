@@ -235,6 +235,8 @@ const baseApi = {
     request<{ entries: Array<Record<string, any>> }>(`/api/v2/calendar${site ? `?site=${encodeURIComponent(site)}` : ""}`),
   teamV2: () =>
     request<{ members: Array<Record<string, any>>; canManage: boolean }>("/api/v2/team"),
+  updateTeamMember: (userId: string, input: { role: string; brandIds?: string[] }) =>
+    request<{ member: Record<string, any> }>(`/api/v2/team/members/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify(input) }),
   inviteTeamMember: (input: { email: string; role: string; brandIds?: string[]; site?: string }) =>
     request<{ member: Record<string, any>; invite?: Record<string, any> }>("/api/v2/team/invitations", { method: "POST", body: JSON.stringify(input) }),
   updateFeatureFlags: (flags: Record<string, boolean>, site?: string, scope?: "workspace" | "brand") =>

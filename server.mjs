@@ -222,6 +222,7 @@ import {
   disconnectBrandConnection,
   listWorkspaceMembers,
   addWorkspaceMember,
+  updateWorkspaceMember,
   listScheduledContent,
   CHANNEL_CATALOG,
   BRAND_CAPABILITIES,
@@ -757,12 +758,17 @@ async function publicSessionForAuth(auth) {
   try {
     const context = await resolveWorkspaceContext({ userId: auth.userId || undefined, ...(auth.userId ? {} : auth.site ? { siteHandle: auth.site } : {}) })
     const workspaceRole = auth.role === 'admin' ? 'admin' : auth.userId ? context.role || workspaceRoleForAuth(auth) : workspaceRoleForAuth(auth)
+    const contextSites = [...new Set((context.sites || []).map((site) => String(site.handle || '').trim()).filter(Boolean))]
+    const sessionSites = [...new Set((session.sites || []).map((site) => String(site || '').trim()).filter(Boolean))]
+    // Super-admins can see legacy and canonical brands during the migration;
+    // merge both sources while collapsing duplicate handles.
+    const sites = auth.role === 'admin' ? [...new Set([...sessionSites, ...contextSites])] : contextSites
     return {
       ...session,
       workspaceId: context.workspaceId,
       workspaceRole,
-      sites: context.sites.map((site) => site.handle),
-      site: session.site || context.sites[0]?.handle || null
+      sites,
+      site: session.site || sites[0] || null
     }
   } catch {
     return session
@@ -1912,10 +1918,29 @@ const server = createServer(async (req, res) => {
             bio: String(profile?.bio || ''),
             avatarUrl: String(profile?.avatarDataUrl || profile?.avatarUrl || ''),
             profileComplete: Boolean(profile?.profileCompletedAt),
-            mustSetPassword: Boolean(profile?.mustSetPassword)
+            allowPublishingAs: Boolean(profile?.allowPublishingAs),
+            mustSetPassword: Boolean(profile?.mustSetPassword),
+            hasLoginToken: Boolean(profile?.loginToken),
+            loginTokenHint: String(profile?.loginTokenHint || '')
           }
         })
         json(res, 200, { members: hydratedMembers, canManage: ['owner', 'admin'].includes(scope.context.role) })
+        return
+      }
+      const teamMemberMatch = path.match(/^\/api\/v2\/team\/members\/([^/]+)$/)
+      if (req.method === 'PATCH' && teamMemberMatch) {
+        const scope = await requireV2Context(req, url, res, body)
+        if (!scope) return
+        if (!['owner', 'admin'].includes(scope.context.role)) throw Object.assign(new Error('No tienes permisos para editar miembros.'), { status: 403 })
+        const userId = decodeURIComponent(teamMemberMatch[1])
+        const catalog = scope.auth.role === 'admin' ? await listBrands({ workspaceId: scope.workspaceId }) : scope.context.sites
+        const requestedSites = Array.isArray(body.brandIds) ? body.brandIds : undefined
+        const siteIds = requestedSites
+          ? [...new Set(requestedSites.map((value) => catalog.find((brand) => brand.id === value || brand.handle === value)?.id).filter(Boolean))]
+          : undefined
+        if (requestedSites && !siteIds.length) throw Object.assign(new Error('No puedes asignar esas marcas.'), { status: 403 })
+        const member = await updateWorkspaceMember({ workspaceId: scope.workspaceId, userId, role: String(body.role || 'viewer'), siteIds })
+        json(res, 200, { member })
         return
       }
       if (req.method === 'POST' && path === '/api/v2/team/invitations') {
