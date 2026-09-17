@@ -1851,7 +1851,28 @@ const server = createServer(async (req, res) => {
       if (req.method === 'GET' && path === '/api/v2/team') {
         const scope = await requireV2Context(req, url, res)
         if (!scope) return
-        json(res, 200, { members: await listWorkspaceMembers({ workspaceId: scope.workspaceId }), canManage: ['owner', 'admin'].includes(scope.context.role) })
+        const members = await listWorkspaceMembers({ workspaceId: scope.workspaceId })
+        // Workspace membership is canonical in Postgres while profile details
+        // still live in the password-auth store. Hydrate only public profile
+        // fields so the v2 team view can show the name instead of the opaque
+        // user id (and never leak password material).
+        const hydratedMembers = members.map((member) => {
+          let profile = null
+          try { profile = getPasswordUserById(member.userId) } catch { /* auth store may be disabled during migration */ }
+          const displayName = String(profile?.displayName || '').trim()
+          const email = String(profile?.email || '').trim()
+          return {
+            ...member,
+            email,
+            displayName,
+            name: displayName || email || (member.userId === 'system' ? 'Escarlet' : member.userId),
+            bio: String(profile?.bio || ''),
+            avatarUrl: String(profile?.avatarDataUrl || profile?.avatarUrl || ''),
+            profileComplete: Boolean(profile?.profileCompletedAt),
+            mustSetPassword: Boolean(profile?.mustSetPassword)
+          }
+        })
+        json(res, 200, { members: hydratedMembers, canManage: ['owner', 'admin'].includes(scope.context.role) })
         return
       }
       if (req.method === 'POST' && path === '/api/v2/team/invitations') {

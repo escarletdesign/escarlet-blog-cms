@@ -621,6 +621,7 @@ function ProfileAvatarField({
   label,
   help,
   chooseLabel,
+  placeholderLabel,
   removeLabel,
   onChange,
   onRemove,
@@ -630,6 +631,7 @@ function ProfileAvatarField({
   label: string;
   help: string;
   chooseLabel: string;
+  placeholderLabel: string;
   removeLabel: string;
   onChange: (file?: File) => void | Promise<void>;
   onRemove: () => void;
@@ -643,8 +645,8 @@ function ProfileAvatarField({
         onClick={() => fileRef.current?.click()}
         aria-label={chooseLabel}
       >
-        <UserAvatar src={src} name={name} size="lg" />
-        <span aria-hidden="true">✎</span>
+        {src ? <UserAvatar src={src} name={name} size="lg" /> : <span className="profile-avatar-placeholder"><span aria-hidden="true">＋</span><small>{placeholderLabel}</small></span>}
+        <span className="profile-avatar-edit" aria-hidden="true">✎</span>
       </button>
       <div className="profile-avatar-copy">
         <strong>{label}</strong>
@@ -675,11 +677,10 @@ function ProfileAvatarField({
 }
 
 function Onboarding() {
-  const { session, contentMode, refresh } = useApp();
+  const { session, refresh } = useApp();
   const { t } = useI18n();
   const { showToast } = useToast();
   const nav = useNavigate();
-  const [step, setStep] = useState(0);
   const [displayName, setDisplayName] = useState(session.displayName || "");
   const [bio, setBio] = useState(session.bio || "");
   const [avatarDataUrl, setAvatarDataUrl] = useState(session.avatarUrl || "");
@@ -706,64 +707,43 @@ function Onboarding() {
     }
   };
   return (
-    <main className="onboarding-page">
-      <div className="onboarding-shell">
-        <div className="onboarding-brand brand"><AppBrand /></div>
-        <div className="onboarding-progress" aria-label={`${step + 1} / 3`}>
-          {[0, 1, 2].map((item) => <span key={item} className={item <= step ? "active" : ""} />)}
-        </div>
-        <p className="eyebrow">{t("onboarding.eyebrow")}</p>
-        <h1>{t("onboarding.title")}</h1>
-        {step === 0 && (
-          <section className="onboarding-slide">
-            <div className="onboarding-copy">
-              <h2>{t("onboarding.profileTitle")}</h2>
-              <p className="muted">{t("onboarding.profileHelp")}</p>
-            </div>
-            <ProfileAvatarField
-              src={avatarDataUrl}
-              name={displayName || session.email}
-              label={t("settings.avatar")}
-              help={t("settings.avatarHelp")}
-              chooseLabel={t("settings.avatarChoose")}
-              removeLabel={t("settings.avatarRemove")}
-              onChange={chooseAvatar}
-              onRemove={() => setAvatarDataUrl("")}
-            />
-            <label>{t("settings.displayName")}<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder={t("settings.displayNamePlaceholder")} autoFocus /></label>
-            <label>{t("settings.bio")}<textarea value={bio} onChange={(event) => setBio(event.target.value)} placeholder={t("settings.bioPlaceholder")} rows={4} /></label>
-          </section>
-        )}
-        {step === 1 && (
-          <section className="onboarding-slide onboarding-permission-slide">
-            <div className="onboarding-icon">✦</div>
-            <h2>{t("onboarding.permissionsTitle")}</h2>
-            <p className="muted">{t("onboarding.permissionsHelp")}</p>
-            <div className="onboarding-delegation-note">
-              <b>{t("onboarding.delegatesTitle")}</b>
-              <p className="muted">{t("onboarding.delegatesHelp")}</p>
-            </div>
-          </section>
-        )}
-        {step === 2 && (
-          <section className="onboarding-slide onboarding-tour-slide">
-            <div className="onboarding-icon">◎</div>
-            <h2>{t("onboarding.tourTitle")}</h2>
-            <p className="muted">{t(contentMode === "socialmedia" || session.role === "client_mcp" ? "mcp.help" : "onboarding.tourHelp")}</p>
-            <div className="onboarding-tour-list">
-              <span>✦<b>{t(contentMode === "socialmedia" || session.role === "client_mcp" ? "mcp.connector" : "onboarding.tourAssistant")}</b></span>
-              {contentMode === "blog" && <>
-                <span>▤<b>{t("onboarding.tourPosts")}</b></span>
-                <span>□<b>{t("onboarding.tourCalendar")}</b></span>
-              </>}
-            </div>
-          </section>
-        )}
-        <div className="onboarding-actions">
-          {step > 0 && <button type="button" className="secondary" onClick={() => setStep((value) => value - 1)}>{t("onboarding.back")}</button>}
-          {step < 2 ? <button type="button" className="primary" onClick={() => setStep((value) => value + 1)}>{t("onboarding.next")}</button> : <button type="button" className="primary" disabled={busy} onClick={() => void save()}>{busy ? "…" : t("onboarding.finish")}</button>}
-        </div>
-        <button type="button" className="onboarding-skip" disabled={busy} onClick={() => void save()}>{t("onboarding.skip")}</button>
+    <main className="page onboarding-v2-page">
+      <div className="onboarding-v2-brand brand"><AppBrand /></div>
+      <PageHeader eyebrow={t("onboarding.eyebrow")} title={t("onboarding.title")} description={t("onboarding.profileHelp")} />
+      <div className="onboarding-v2-grid">
+        <Card className="onboarding-v2-profile-card">
+          <span className="ui-eyebrow">{t("onboarding.profileTitle")}</span>
+          <h2>{t("settings.profileTitle")}</h2>
+          <p className="muted">{t("settings.profileHelp")}</p>
+          <ProfileAvatarField
+            src={avatarDataUrl}
+            name={displayName || session.email}
+            label={t("settings.avatar")}
+            help={t("settings.avatarHelp")}
+            chooseLabel={t("settings.avatarChoose")}
+            placeholderLabel={t("settings.avatarPlaceholder")}
+            removeLabel={t("settings.avatarRemove")}
+            onChange={chooseAvatar}
+            onRemove={() => setAvatarDataUrl("")}
+          />
+          <label className="ui-field"><span className="ui-field-label">{t("settings.displayName")}</span><input className="ui-input" value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder={t("settings.displayNamePlaceholder")} autoFocus /></label>
+          <label className="ui-field"><span className="ui-field-label">{t("settings.bio")}</span><textarea className="ui-input ui-textarea" value={bio} onChange={(event) => setBio(event.target.value)} placeholder={t("settings.bioPlaceholder")} rows={4} /></label>
+        </Card>
+        <Card className="onboarding-v2-space-card">
+          <span className="ui-eyebrow">{t("onboarding.workspaceEyebrow")}</span>
+          <h2>{t("onboarding.workspaceTitle")}</h2>
+          <p className="muted">{t("onboarding.workspaceHelp")}</p>
+          <div className="onboarding-v2-nav-list">
+            <div><span aria-hidden="true">▤</span><strong>{t("nav.brands")}</strong><small>{t("onboarding.workspaceBrands")}</small></div>
+            <div><span aria-hidden="true">✦</span><strong>{t("nav.plans")}</strong><small>{t("onboarding.workspacePlans")}</small></div>
+            <div><span aria-hidden="true">□</span><strong>{t("nav.review")}</strong><small>{t("onboarding.workspaceReview")}</small></div>
+            <div><span aria-hidden="true">◷</span><strong>{t("nav.calendar")}</strong><small>{t("onboarding.workspaceCalendar")}</small></div>
+          </div>
+        </Card>
+      </div>
+      <div className="onboarding-v2-actions">
+        <Button type="button" variant="ghost" disabled={busy} onClick={() => void save(false)}>{t("onboarding.skip")}</Button>
+        <Button type="button" disabled={busy} loading={busy} onClick={() => void save()}>{t("onboarding.finish")}</Button>
       </div>
     </main>
   );
@@ -4707,6 +4687,7 @@ function Settings() {
             label={t("settings.avatar")}
             help={t("settings.avatarHelp")}
             chooseLabel={t("settings.avatarChoose")}
+            placeholderLabel={t("settings.avatarPlaceholder")}
             removeLabel={t("settings.avatarRemove")}
             onChange={chooseProfileAvatar}
             onRemove={() => setAvatarDataUrl("")}
@@ -6498,7 +6479,7 @@ function TeamView() {
   });
   useEffect(() => { void load(); }, [session.role]);
   const invite = async (event: FormEvent) => { event.preventDefault(); setBusy(true); setMessage(""); try { const result = await api.inviteTeamMember({ email: form.email, role: form.role }); setMessage(result.invite?.link ? `Invitación creada: ${result.invite.link}` : "Invitación enviada."); setForm({ email: "", role: "viewer" }); setInviteOpen(false); await load(); } catch (err: any) { setMessage(err?.message || "No se pudo invitar al miembro."); } finally { setBusy(false); } };
-  return <main className="page"><PageHeader eyebrow="Espacio" title="Equipo y acceso" description="Roles y permisos de las personas que pueden revisar este contenido." actions={canManage ? <Button onClick={() => nav("/team/invite")}>Invitar miembro</Button> : undefined} />{error && <Card><p className="ui-field-error">{error}</p></Card>}{members.length ? <div className="ui-member-list">{members.map((member) => <Card key={member.id || member.userId || member.email}><div className="ui-card-head"><div><h3>{member.displayName || member.email || member.userId || "Miembro"}</h3><p className="muted">{member.email || (member.brands || []).map((brand: any) => brand.name || brand.handle).join(", ")}</p></div><Badge tone="info">{roleLabel(member.role, t)}</Badge></div></Card>)}</div> : !error && <UiEmptyState title="Todavía no hay miembros" description={canManage ? "Invita a la primera persona para empezar a trabajar en equipo." : "Un administrador debe invitar a los miembros de este espacio."} action={canManage ? <Button onClick={() => nav("/team/invite")}>Invitar miembro</Button> : undefined} />}{message && <p className="success">{message}</p>}<Modal open={inviteOpen} title="Invitar miembro" onClose={() => setInviteOpen(false)}><form className="ui-stack ui-stack-md" onSubmit={(event) => void invite(event)}><Field label="Correo electrónico" required><TextField type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required autoFocus /></Field><Field label="Rol"><Select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}><option value="viewer">{roleLabel("viewer", t)}</option><option value="author">{roleLabel("author", t)}</option><option value="editor">{roleLabel("editor", t)}</option><option value="admin">{roleLabel("admin", t)}</option></Select></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setInviteOpen(false)}>Cancelar</Button><Button type="submit" loading={busy}>Enviar invitación</Button></Inline></form></Modal></main>;
+  return <main className="page"><PageHeader eyebrow="Espacio" title="Equipo y acceso" description="Roles y permisos de las personas que pueden revisar este contenido." actions={canManage ? <Button onClick={() => nav("/team/invite")}>Invitar miembro</Button> : undefined} />{error && <Card><p className="ui-field-error">{error}</p></Card>}{members.length ? <div className="ui-member-list">{members.map((member) => { const memberName = member.displayName || member.name || member.email || (member.userId === "system" ? "Escarlet" : member.userId) || "Miembro"; return <Card key={member.id || member.userId || member.email}><div className="ui-card-head"><div className="ui-team-member"><UserAvatar src={member.avatarUrl} name={memberName} size="sm" /><div><h3>{memberName}</h3><p className="muted">{member.email || (member.brands || []).map((brand: any) => brand.name || brand.handle).join(", ")}</p></div></div><Badge tone="info">{roleLabel(member.role, t)}</Badge></div></Card>; })}</div> : !error && <UiEmptyState title="Todavía no hay miembros" description={canManage ? "Invita a la primera persona para empezar a trabajar en equipo." : "Un administrador debe invitar a los miembros de este espacio."} action={canManage ? <Button onClick={() => nav("/team/invite")}>Invitar miembro</Button> : undefined} />}{message && <p className="success">{message}</p>}<Modal open={inviteOpen} title="Invitar miembro" onClose={() => setInviteOpen(false)}><form className="ui-stack ui-stack-md" onSubmit={(event) => void invite(event)}><Field label="Correo electrónico" required><TextField type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required autoFocus /></Field><Field label="Rol"><Select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}><option value="viewer">{roleLabel("viewer", t)}</option><option value="author">{roleLabel("author", t)}</option><option value="editor">{roleLabel("editor", t)}</option><option value="admin">{roleLabel("admin", t)}</option></Select></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setInviteOpen(false)}>Cancelar</Button><Button type="submit" loading={busy}>Enviar invitación</Button></Inline></form></Modal></main>;
 }
 
 function TeamInviteView() {
@@ -6527,29 +6508,101 @@ function BrandDetailView() {
 function BrandIdentityView() {
   const { brandId = "" } = useParams();
   const { session } = useApp();
+  const { t } = useI18n();
   const { showToast } = useToast();
   const [brand, setBrand] = useState<BrandSummary | null>(null);
   const [kit, setKit] = useState<Record<string, any> | null>(null);
+  const [brandFiles, setBrandFiles] = useState<string[]>([]);
+  const [selectedBrandFile, setSelectedBrandFile] = useState("");
+  const [brandContent, setBrandContent] = useState("");
+  const [brandSaving, setBrandSaving] = useState(false);
   const [error, setError] = useState("");
   const [form, setForm] = useState({ name: "", domain: "" });
   const [busy, setBusy] = useState(false);
-  useEffect(() => { Promise.all([api.brandV2(brandId), api.brandKitV2(brandId)]).then(([brandResult, kitResult]) => { setBrand(brandResult.brand); setForm({ name: String(brandResult.brand.name || ""), domain: String(brandResult.brand.domain || "") }); setKit(kitResult); }).catch((err) => setError(err?.message || "No se pudo cargar la identidad.")); }, [brandId]);
+  const [brandZipBusy, setBrandZipBusy] = useState(false);
+  const brandZipInputRef = useRef<HTMLInputElement | null>(null);
   const canEdit = isAdmin(session.role);
+  const canImportBrandKit = session.role === "admin";
+  useEffect(() => {
+    let active = true;
+    setError("");
+    Promise.all([api.brandV2(brandId), api.brandKitV2(brandId)])
+      .then(async ([brandResult, kitResult]) => {
+        if (!active) return;
+        const nextBrand = brandResult.brand;
+        setBrand(nextBrand);
+        setForm({ name: String(nextBrand.name || ""), domain: String(nextBrand.domain || "") });
+        setKit(kitResult);
+        const legacy = nextBrand.handle ? await api.brand(nextBrand.handle).catch(() => null) : null;
+        if (!active) return;
+        const manifest = kitResult && typeof kitResult.manifest === "object" ? kitResult.manifest : {};
+        const files = [...new Set([...(legacy?.files || []), ...Object.keys(manifest)])];
+        setBrandFiles(files);
+        setSelectedBrandFile((current) => current && files.includes(current) ? current : files[0] || "");
+      })
+      .catch((err) => { if (active) setError(err?.message || "No se pudo cargar la identidad."); });
+    return () => { active = false; };
+  }, [brandId]);
+  useEffect(() => {
+    if (!canEdit || !brand?.handle || !selectedBrandFile) {
+      setBrandContent("");
+      return;
+    }
+    let active = true;
+    api.brandFile(brand.handle, selectedBrandFile)
+      .then((data) => { if (active) setBrandContent(data.content || ""); })
+      .catch(() => { if (active) setBrandContent(""); });
+    return () => { active = false; };
+  }, [brand?.handle, canEdit, selectedBrandFile]);
   const save = async (event: FormEvent) => { event.preventDefault(); setBusy(true); try { const result = await api.updateBrandV2(brandId, { name: form.name, domain: form.domain || undefined }); setBrand(result.brand); showToast("Identidad guardada."); } catch (err: any) { showToast(err?.message || "No se pudo guardar la identidad.", "error"); } finally { setBusy(false); } };
-  return <main className="page"><PageHeader eyebrow="Marca · Identidad" title={brand?.name || "Identidad y brand kit"} description="La identidad queda disponible para publicaciones, presentaciones y herramientas externas autorizadas." />{error ? <Card><p className="ui-field-error">{error}</p></Card> : <div className="ui-identity-grid"><Card><span className="ui-eyebrow">Brand kit activo</span><h2>{kit?.version ? `Versión ${kit.version}` : "Sin versión publicada"}</h2><div className="ui-file-list">{Object.keys(kit?.manifest || {}).map((file) => <Badge key={file} tone="neutral">{file}</Badge>)}</div><p className="muted">Las referencias privadas solo se muestran según el rol y la capacidad de acceso.</p></Card><Card><span className="ui-eyebrow">Datos de la marca</span><h2>Identidad pública</h2>{canEdit ? <form className="ui-stack ui-stack-md" onSubmit={(event) => void save(event)}><Field label="Nombre" required><TextField value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></Field><Field label="Dominio web opcional"><TextField type="url" value={form.domain} onChange={(event) => setForm({ ...form, domain: event.target.value })} placeholder="https://marca.com" /></Field><Button type="submit" loading={busy}>Guardar identidad</Button></form> : <p className="muted">{brand?.domain || "Sin dominio configurado"}</p>}</Card><Card><span className="ui-eyebrow">Acceso externo</span><h2>Presentaciones y diseño</h2><p className="muted">ChatGPT/MCP puede usar esta identidad sin guardar credenciales de Google Slides en Escarlet.</p><Badge tone={brand?.capabilities?.presentation_generation ? "success" : "warning"}>{brand?.capabilities?.presentation_generation ? "Habilitado" : "Deshabilitado"}</Badge></Card></div>}</main>;
+  const saveBrandFile = async () => {
+    if (!brand?.handle || !selectedBrandFile) return;
+    setBrandSaving(true);
+    try {
+      await api.saveBrandFile(brand.handle, selectedBrandFile, brandContent);
+      showToast(t("admin.savedBrand"));
+    } catch (err: any) {
+      showToast(err?.message || "No se pudo guardar el archivo.", "error");
+    } finally {
+      setBrandSaving(false);
+    }
+  };
+  const importBrandKit = async (file?: File) => {
+    if (!file || !brand?.handle) return;
+    setBrandZipBusy(true);
+    try {
+      const result = await api.importBrandZip(brand.handle, await fileAsBase64(file));
+      const legacy = await api.brand(brand.handle).catch(() => null);
+      const importedFiles = [...(result.importedMd || []), ...(result.importedData || [])];
+      const nextFiles = [...new Set([...(legacy?.files || []), ...brandFiles, ...importedFiles])];
+      setBrandFiles(nextFiles);
+      if (importedFiles.length) setSelectedBrandFile(importedFiles[0]);
+      setKit((current) => current ? { ...current, manifest: { ...(current.manifest || {}), ...Object.fromEntries(importedFiles.map((name) => [name, current.manifest?.[name] ?? {}])) } } : current);
+      showToast(`${t("admin.brandZipImported")} ${(result.importedImages || []).length} ${t("admin.brandZipImages")}`);
+    } catch (err: any) {
+      showToast(err?.message || "No se pudo importar el brand kit.", "error");
+    } finally {
+      setBrandZipBusy(false);
+      if (brandZipInputRef.current) brandZipInputRef.current.value = "";
+    }
+  };
+  const visibleBrandFiles = [...new Set([...brandFiles, ...Object.keys(kit?.manifest || {})])];
+  return <main className="page"><PageHeader eyebrow="Marca · Identidad" title={brand?.name || "Identidad y brand kit"} description="Edita la identidad y las referencias del brand kit que usarán las herramientas autorizadas." />{error ? <Card><p className="ui-field-error">{error}</p></Card> : <div className="ui-identity-grid"><Card className="ui-identity-brand-card"><div className="ui-card-head ui-identity-brand-head"><div><span className="ui-eyebrow">Brand kit activo</span><h2>{kit?.version ? `Versión ${kit.version}` : "Sin versión publicada"}</h2><p className="muted">Edita los archivos de referencia sin salir de la vista v2.</p></div>{canImportBrandKit && <><Button type="button" variant="secondary" onClick={() => brandZipInputRef.current?.click()} loading={brandZipBusy}>{t("admin.importBrandZip")}</Button><input ref={brandZipInputRef} type="file" accept=".zip,application/zip,application/x-zip-compressed" hidden disabled={brandZipBusy} onChange={(event) => void importBrandKit(event.target.files?.[0])} /></>}</div>{visibleBrandFiles.length ? <div className="ui-file-list">{visibleBrandFiles.map((file) => canEdit ? <button key={file} type="button" className={`ui-brand-file-button ${selectedBrandFile === file ? "active" : ""}`} onClick={() => setSelectedBrandFile(file)}>{file}</button> : <Badge key={file} tone="neutral">{file}</Badge>)}</div> : <p className="muted">Todavía no hay archivos en este brand kit.</p>}{canEdit && selectedBrandFile && <div className="ui-brand-editor"><label className="ui-field"><span className="ui-field-label">{selectedBrandFile}</span><textarea className="ui-input ui-textarea" rows={15} value={brandContent} onChange={(event) => setBrandContent(event.target.value)} /></label><div className="ui-card-actions"><Button type="button" onClick={() => void saveBrandFile()} loading={brandSaving}>{t("admin.saveBrand")}</Button></div></div>}<p className="muted">Las referencias privadas solo se muestran según el rol y la capacidad de acceso.</p></Card><Card><span className="ui-eyebrow">Datos de la marca</span><h2>Identidad pública</h2>{canEdit ? <form className="ui-stack ui-stack-md" onSubmit={(event) => void save(event)}><Field label="Nombre" required><TextField value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></Field><Field label="Dominio web opcional"><TextField type="url" value={form.domain} onChange={(event) => setForm({ ...form, domain: event.target.value })} placeholder="https://marca.com" /></Field><Button type="submit" loading={busy}>Guardar identidad</Button></form> : <p className="muted">{brand?.domain || "Sin dominio configurado"}</p>}</Card></div>}</main>;
 }
 
 function BrandChannelsView() {
   const { brandId = "" } = useParams();
+  const { session } = useApp();
   const { showToast } = useToast();
   const [channels, setChannels] = useState<Array<{ channel: string; enabled: boolean }>>([]);
   const [caps, setCaps] = useState<Record<string, boolean>>({});
   const [brand, setBrand] = useState<BrandSummary | null>(null);
   const [web, setWeb] = useState({ domain: "", rebuildWebhookUrl: "", token: "" });
   const [busy, setBusy] = useState(false);
+  const canManage = isAdmin(session.role);
   useEffect(() => { Promise.all([api.brandV2(brandId), api.brandChannels(brandId), api.brandConnections(brandId), api.brandCapabilities(brandId)]).then(([brandResult, channelResult, connectionResult, capResult]) => { setBrand(brandResult.brand); setChannels(channelResult.channels || []); setCaps(capResult.capabilities || {}); const connection = (connectionResult.connections || []).find((item) => item.channel === "blog" && item.provider === "web"); setWeb({ domain: String(connection?.config?.domain || brandResult.brand.domain || ""), rebuildWebhookUrl: String(connection?.config?.rebuildWebhookUrl || ""), token: "" }); }).catch(() => undefined); }, [brandId]);
   const save = async () => { setBusy(true); try { const channelMap = Object.fromEntries(channels.map((channel) => [channel.channel, channel.enabled])); await api.updateBrandChannels(brandId, channelMap); await api.updateBrandCapabilities(brandId, { ...caps, content_publishing: Object.values(channelMap).some(Boolean), blog_publishing: Boolean(channelMap.blog) }); if (channelMap.blog && (web.domain || web.rebuildWebhookUrl || web.token)) { await api.updateBrandV2(brandId, { domain: web.domain || undefined }); await api.saveBrandConnection(brandId, { provider: "web", channel: "blog", token: web.token || undefined, config: { domain: web.domain, rebuildWebhookUrl: web.rebuildWebhookUrl } }); } showToast("Canales y capacidades guardados."); } catch (err: any) { showToast(err?.message || "No se pudo guardar la configuración.", "error"); } finally { setBusy(false); } };
-  return <main className="page"><PageHeader eyebrow="Marca · Canales" title={brand?.name || "Canales activos"} description="Activa solo los canales que esta marca utiliza. Cada uno puede tener su propia conexión primaria." actions={<Button onClick={() => void save()} loading={busy}>Guardar cambios</Button>} /><div className="ui-channel-settings-grid"><Card><span className="ui-eyebrow">Canales</span><h2>Publicación multicanal</h2><Stack gap="sm">{channels.map((channel) => <label className="ui-toggle-row" key={channel.channel}><span><b>{channel.channel === "x" ? "X" : channel.channel.charAt(0).toUpperCase() + channel.channel.slice(1)}</b><small>{channel.enabled ? "Activo" : "Inactivo"}</small></span><input type="checkbox" checked={Boolean(channel.enabled)} onChange={(event) => setChannels((current) => current.map((item) => item.channel === channel.channel ? { ...item, enabled: event.target.checked } : item))} /></label>)}</Stack></Card><Card><span className="ui-eyebrow">Usos de marca</span><h2>Capacidades</h2><Stack gap="sm"><label className="ui-toggle-row"><span><b>Presentaciones</b><small>Permite usar el brand kit desde ChatGPT/MCP.</small></span><input type="checkbox" checked={Boolean(caps.presentation_generation)} onChange={(event) => setCaps((current) => ({ ...current, presentation_generation: event.target.checked }))} /></label><label className="ui-toggle-row"><span><b>Publicaciones</b><small>Se activa automáticamente al encender un canal.</small></span><input type="checkbox" checked={Boolean(caps.content_publishing)} readOnly /></label></Stack></Card>{channels.some((channel) => channel.channel === "blog" && channel.enabled) && <Card className="ui-blog-connection-card"><span className="ui-eyebrow">Conexión del canal Blog</span><h2>Web y webhook</h2><p className="muted">Estos datos solo aparecen porque el canal Blog está activo.</p><Stack gap="md"><Field label="Dominio público"><TextField type="url" value={web.domain} onChange={(event) => setWeb({ ...web, domain: event.target.value })} placeholder="https://marca.com" /></Field><Field label="Webhook de rebuild"><TextField value={web.rebuildWebhookUrl} onChange={(event) => setWeb({ ...web, rebuildWebhookUrl: event.target.value })} placeholder="https://…" /></Field><Field label="Token de la conexión" hint="Se cifra y no vuelve a mostrarse."><TextField type="password" value={web.token} onChange={(event) => setWeb({ ...web, token: event.target.value })} placeholder="Pega un token nuevo para reemplazarlo" /></Field></Stack></Card>}</div></main>;
+  return <main className="page"><PageHeader eyebrow="Marca · Canales" title={brand?.name || "Canales activos"} description="Activa solo los canales que esta marca utiliza. Cada uno puede tener su propia conexión primaria." actions={canManage ? <Button onClick={() => void save()} loading={busy}>Guardar cambios</Button> : undefined} /><div className="ui-channel-settings-grid"><Card><span className="ui-eyebrow">Canales</span><h2>Publicación multicanal</h2><Stack gap="sm">{channels.map((channel) => <label className="ui-toggle-row" key={channel.channel}><span><b>{channel.channel === "x" ? "X" : channel.channel.charAt(0).toUpperCase() + channel.channel.slice(1)}</b><small>{channel.enabled ? "Activo" : "Inactivo"}</small></span><input type="checkbox" disabled={!canManage} checked={Boolean(channel.enabled)} onChange={(event) => setChannels((current) => current.map((item) => item.channel === channel.channel ? { ...item, enabled: event.target.checked } : item))} /></label>)}</Stack></Card><Card><span className="ui-eyebrow">Usos de marca</span><h2>Capacidades</h2><Stack gap="sm"><label className="ui-toggle-row"><span><b>Presentaciones</b><small>Permite usar el brand kit desde ChatGPT/MCP.</small></span><input type="checkbox" disabled={!canManage} checked={Boolean(caps.presentation_generation)} onChange={(event) => setCaps((current) => ({ ...current, presentation_generation: event.target.checked }))} /></label><label className="ui-toggle-row"><span><b>Publicaciones</b><small>Se activa automáticamente al encender un canal.</small></span><input type="checkbox" checked={Boolean(caps.content_publishing)} readOnly /></label></Stack></Card>{channels.some((channel) => channel.channel === "blog" && channel.enabled) && <Card className="ui-blog-connection-card"><span className="ui-eyebrow">Conexión del canal Blog</span><h2>Web y webhook</h2><p className="muted">Estos datos solo aparecen porque el canal Blog está activo.</p><Stack gap="md"><Field label="Dominio público"><TextField type="url" value={web.domain} onChange={(event) => setWeb({ ...web, domain: event.target.value })} placeholder="https://marca.com" /></Field><Field label="Webhook de rebuild"><TextField value={web.rebuildWebhookUrl} onChange={(event) => setWeb({ ...web, rebuildWebhookUrl: event.target.value })} placeholder="https://…" /></Field><Field label="Token de la conexión" hint="Se cifra y no vuelve a mostrarse."><TextField type="password" value={web.token} onChange={(event) => setWeb({ ...web, token: event.target.value })} placeholder="Pega un token nuevo para reemplazarlo" /></Field></Stack></Card>}</div></main>;
 }
 
 function BrandConnectionsView() {
