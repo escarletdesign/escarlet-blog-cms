@@ -124,6 +124,7 @@ export interface MediaItem {
   alt?: string;
   kind?: string;
   metadata?: Record<string, any>;
+  metadataSanitized?: boolean;
 }
 
 export interface GeneratedImage extends MediaItem {
