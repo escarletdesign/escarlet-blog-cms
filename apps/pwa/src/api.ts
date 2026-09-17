@@ -418,6 +418,11 @@ const baseApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+  updateMedia: (input: { site?: string; id: string; filename?: string; alt?: string; usage?: string }) =>
+    request<{ media: MediaItem }>("/api/admin/media/update", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   generateImage: (input: {
     site?: string;
     prompt: string;

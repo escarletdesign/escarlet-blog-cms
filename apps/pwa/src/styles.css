@@ -757,3 +757,51 @@
 .ui-calendar-item { display: grid; gap: 3px; margin-top: 7px; } .ui-calendar-item .ui-badge { overflow: hidden; max-width: 100%; font-size: .62rem; } .ui-calendar-item small { display: block; overflow: hidden; color: var(--ui-muted); font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 620px) { .ui-calendar-day { min-height: 76px; padding: 5px; } .ui-calendar-item small { display: none; } .ui-calendar-item .ui-badge { padding-inline: 4px; font-size: .55rem; } }
 @media (max-width: 760px) { .ui-admin-index-grid, .ui-brand-detail-grid, .ui-identity-grid, .ui-channel-settings-grid { grid-template-columns: 1fr; } .ui-blog-connection-card { grid-column: auto; } }
+.ui-page-back { display: block; margin-bottom: 14px; }
+.ui-page-back > a { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 7px 11px; border: 1px solid var(--ui-border-strong); border-radius: 9px; color: var(--ui-text); background: transparent; font-size: .8rem; font-weight: 750; text-decoration: none; }
+.ui-page-back > a:hover, .ui-page-back > a:focus-visible { color: var(--ui-accent); border-color: var(--ui-accent); outline: none; background: rgba(185,251,84,.08); }
+.ui-channel-badge { color: var(--ui-text); border-color: var(--ui-border-strong); background: rgba(255,255,255,.04); }
+.ui-channel-blog { color: #ffd27a; }
+.ui-channel-instagram { color: #f3a7cf; }
+.ui-channel-linkedin { color: #9fd8ff; }
+.ui-channel-x { color: #f4f8f4; }
+.ui-channel-video { color: #c8b4ff; }
+.ui-channel-substack { color: #ffb37a; }
+.ui-brandkit-workspace { display: grid; grid-template-columns: minmax(190px,.4fr) minmax(0,1fr); gap: 18px; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--ui-border); }
+.ui-brand-file-nav { display: grid; align-content: start; gap: 8px; padding: 12px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); background: rgba(8,14,13,.35); }
+.ui-brand-file-nav .ui-field-label { margin-bottom: 3px; }
+.ui-brand-file-nav .ui-brand-file-button { width: 100%; min-height: 38px; padding: 8px 10px; border-radius: 9px; text-align: left; }
+.ui-brand-file-button.active { color: #152013; }
+.ui-brandkit-workspace .ui-brand-editor { min-width: 0; margin-top: 0; padding-top: 0; border-top: 0; }
+.ui-brand-editor .ui-textarea { min-height: 360px; }
+.ui-reference-toolbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin-bottom: 14px; }
+.ui-reference-toolbar h3 { margin: 4px 0 0; }
+.ui-reference-toolbar .ui-inline { align-items: flex-end; }
+.ui-file-upload-button { position: relative; overflow: hidden; cursor: pointer; }
+.ui-file-upload-button input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.ui-reference-grid { grid-template-columns: repeat(var(--reference-columns,3), minmax(0,1fr)); gap: 12px; }
+.ui-reference-grid-2 { --reference-columns: 2; }
+.ui-reference-grid-3 { --reference-columns: 3; }
+.ui-reference-grid-4 { --reference-columns: 4; }
+.ui-brand-reference-library .reference-card img { aspect-ratio: 4/3; object-fit: contain; background: #0d1312; }
+.ui-brand-reference-library .reference-image-button:disabled { cursor: default; }
+.ui-brand-reference-library .reference-image-button:disabled .reference-edit-icon { display: none; }
+.ui-brand-reference-library .reference-card-actions { min-height: 58px; align-items: flex-start; }
+.ui-brand-reference-library .reference-meta { min-width: 0; }
+.ui-brand-reference-library .reference-meta strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reference-modal-fields { display: grid; gap: 14px; margin-top: 16px; }
+.modal-field select { width: 100%; color: var(--text); background: #101817; border: 1px solid #465850; border-radius: 11px; padding: 12px 13px; outline: 0; }
+.modal-field select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(185,245,98,.12); }
+@media (max-width: 760px) {
+  .ui-brandkit-workspace { grid-template-columns: 1fr; }
+  .ui-brand-file-nav { display: flex; flex-wrap: wrap; }
+  .ui-brand-file-nav .ui-field-label { width: 100%; }
+  .ui-brand-file-nav .ui-brand-file-button { width: auto; }
+  .ui-reference-toolbar { align-items: flex-start; flex-direction: column; }
+  .ui-reference-toolbar .ui-inline { width: 100%; justify-content: space-between; }
+  .ui-reference-grid-4 { --reference-columns: 2; }
+}
+@media (max-width: 540px) {
+  .ui-reference-grid-3, .ui-reference-grid-4 { --reference-columns: 2; }
+  .ui-reference-grid-2 { --reference-columns: 1; }
+}

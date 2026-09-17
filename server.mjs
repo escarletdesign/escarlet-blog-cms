@@ -132,6 +132,7 @@ import {
   validateSeo as cmsValidateSeo,
   deleteMedia as cmsDeleteMedia,
   updateMediaAlt as cmsUpdateMediaAlt,
+  updateMediaDetails as cmsUpdateMediaDetails,
   updatePost as cmsUpdatePost,
   unpublishPost as cmsUnpublishPost,
   deletePost as cmsDeletePost,
@@ -3504,6 +3505,19 @@ const server = createServer(async (req, res) => {
         const site = siteFrom(auth, body.site || DEFAULT_SITE)
         assertSiteAccess(auth, site)
         const result = await cmsUpdateMediaAlt(site, body.id, body.alt, { membershipUserId: auth.userId || '' })
+        json(res, 200, result)
+      } catch (err) {
+        json(res, err.status || 400, { message: err.message })
+      }
+      return
+    }
+
+    if (req.method === 'POST' && path === '/api/admin/media/update') {
+      const body = await parseBody(req)
+      try {
+        const site = siteFrom(auth, body.site || DEFAULT_SITE)
+        assertSiteAccess(auth, site)
+        const result = await cmsUpdateMediaDetails(site, body.id, body, { membershipUserId: auth.userId || '' })
         json(res, 200, result)
       } catch (err) {
         json(res, err.status || 400, { message: err.message })

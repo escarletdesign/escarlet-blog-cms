@@ -123,6 +123,7 @@ export interface MediaItem {
   filename?: string;
   alt?: string;
   kind?: string;
+  metadata?: Record<string, any>;
 }
 
 export interface GeneratedImage extends MediaItem {
