@@ -91,11 +91,11 @@ Deploy producción. [docs/DEPLOY.md](docs/DEPLOY.md).
 | `content_get_batch` | Progreso, items y variantes de un batch |
 | `content_update_item` | Editar tema, variante y media enlazada |
 | `content_approve` / `content_reject` | Revisión individual o masiva |
-| `content_schedule` | Agenda individual o masiva; entrega a outbox/Metricool, Planable o Postiz según la conexión de la marca |
+| `content_schedule` | Agenda individual o masiva; entrega a outbox/Buffer, Metricool, Planable o Postiz según la conexión de la marca |
 
 Resources. `brand://{handle}/voice`, `keywords`, `agent`, `image-guide`, `visual-style`, `image-spec`
 
-Contratos HTTP v2: `/api/v2/content/batches`, `/api/v2/content/items` (incluye revisión, cancelación y agenda), `/api/v2/usage`, `/api/v2/brand-kits` y `/api/v2/brands/:id/connections` (Postiz, Metricool, Planable y web). App y MCP llaman al mismo servicio de dominio; `/api/sites/:handle/posts` permanece como read adapter público.
+Contratos HTTP v2: `/api/v2/content/batches`, `/api/v2/content/items` (incluye revisión, cancelación y agenda), `/api/v2/usage`, `/api/v2/brand-kits` y `/api/v2/brands/:id/connections` (Buffer, Postiz, Metricool, Planable y web). App y MCP llaman al mismo servicio de dominio; `/api/sites/:handle/posts` permanece como read adapter público.
 
 Hermes (otro servidor) no clona el CMS. En su `mcp.json`:
 

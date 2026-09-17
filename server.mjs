@@ -251,6 +251,7 @@ import { encryptSecret, decryptSecret } from './lib/secret-crypto.mjs'
 import { testMetricoolConnection, scheduleMetricoolPost, syncMetricoolPost } from './lib/metricool.mjs'
 import { testPlanableConnection } from './lib/planable.mjs'
 import { listPostizIntegrations, testPostizConnection, postizProviderForChannel } from './lib/postiz.mjs'
+import { listBufferOrganizations, listBufferChannels, testBufferConnection } from './lib/buffer.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = __dirname
@@ -724,6 +725,8 @@ async function connectionCredentialsFor(scope, connectionId) {
       pageId: row.config?.pageId || row.config?.page_id || row.external_account_id || '',
       pageIds: row.config?.pageIds || row.config?.page_ids || [],
       integrationId: row.config?.integrationId || row.config?.integration_id || row.external_account_id || '',
+      organizationId: row.config?.organizationId || row.config?.organization_id || '',
+      channelId: row.config?.channelId || row.config?.channel_id || row.external_account_id || '',
       providerType: row.config?.providerType || row.config?.provider_type || '',
       apiBaseUrl: row.config?.apiBaseUrl || row.config?.api_base_url || '',
       timezone: row.config?.timezone || 'UTC'
@@ -1578,6 +1581,7 @@ const server = createServer(async (req, res) => {
     const brandCapabilitiesMatch = path.match(/^\/api\/v2\/brands\/([^/]+)\/capabilities$/)
     const brandConnectionsMatch = path.match(/^\/api\/v2\/brands\/([^/]+)\/connections$/)
     const postizIntegrationsMatch = path.match(/^\/api\/v2\/brands\/([^/]+)\/connections\/postiz\/integrations$/)
+    const bufferChannelsMatch = path.match(/^\/api\/v2\/brands\/([^/]+)\/connections\/buffer\/channels$/)
     const connectionActionMatch = path.match(/^\/api\/v2\/connections\/([^/]+)\/(test|disconnect)$/)
     try {
       if (req.method === 'GET' && path === '/api/v2/brands') {
@@ -1650,6 +1654,21 @@ const server = createServer(async (req, res) => {
         json(res, 200, { integrations: integrations.map((integration) => ({ id: integration.id, name: integration.name, identifier: integration.identifier, profile: integration.profile, picture: integration.picture, disabled: Boolean(integration.disabled) })) })
         return
       }
+      if (req.method === 'POST' && bufferChannelsMatch) {
+        const scope = await requireV2Context(req, url, res, { ...body, siteId: decodeURIComponent(bufferChannelsMatch[1]) })
+        if (!scope) return
+        assertWorkspaceRole(scope.context.role, ['owner', 'admin'])
+        const token = body.apiToken || body.token || body.userToken || body.credentials?.apiToken || body.credentials?.token
+        if (!token) throw Object.assign(new Error('apiToken es obligatorio para consultar Buffer.'), { status: 400 })
+        const organizations = await listBufferOrganizations({ apiToken: token, apiBaseUrl: body.apiBaseUrl || body.config?.apiBaseUrl || body.config?.api_base_url })
+        const requestedOrganizationId = String(body.organizationId || body.config?.organizationId || body.config?.organization_id || '').trim()
+        const selectedOrganization = requestedOrganizationId ? organizations.find((organization) => String(organization.id) === requestedOrganizationId) : organizations[0]
+        const channels = selectedOrganization
+          ? await listBufferChannels({ apiToken: token, organizationId: selectedOrganization.id, apiBaseUrl: body.apiBaseUrl || body.config?.apiBaseUrl || body.config?.api_base_url })
+          : []
+        json(res, 200, { organizations: organizations.map((organization) => ({ id: organization.id, name: organization.name, channelCount: organization.channelCount })), organizationId: selectedOrganization?.id || requestedOrganizationId || null, channels: channels.map((channel) => ({ id: channel.id, name: channel.name, displayName: channel.displayName, descriptor: channel.descriptor, service: channel.service, externalLink: channel.externalLink, organizationId: channel.organizationId, isDisconnected: Boolean(channel.isDisconnected), isLocked: Boolean(channel.isLocked) })) })
+        return
+      }
       if (req.method === 'POST' && brandConnectionsMatch) {
         const scope = await requireV2Context(req, url, res, { ...body, siteId: decodeURIComponent(brandConnectionsMatch[1]) })
         if (!scope) return
@@ -1706,6 +1725,27 @@ const server = createServer(async (req, res) => {
             capabilities: body.capabilities || { drafts: true, scheduling: true, media: true, integrations: true },
             status: body.status || 'connected'
           })
+        } else if (provider === 'buffer') {
+          const token = body.apiToken || body.token || body.userToken || body.credentials?.apiToken || body.credentials?.token
+          if (!token) throw Object.assign(new Error('apiToken es obligatorio para Buffer.'), { status: 400 })
+          const organizationId = body.organizationId || body.config?.organizationId || body.config?.organization_id
+          const channelId = body.channelId || body.externalAccountId || body.config?.channelId || body.config?.channel_id
+          if (!organizationId) throw Object.assign(new Error('organizationId es obligatorio para Buffer.'), { status: 400 })
+          if (!channelId) throw Object.assign(new Error('channelId es obligatorio para Buffer.'), { status: 400 })
+          const encrypted = encryptSecret(token)
+          legacy = await upsertBrandConnection({
+            workspaceId: scope.workspaceId,
+            siteId: scope.siteId,
+            userId: scope.auth.userId,
+            role: scope.context.role,
+            channel,
+            provider,
+            externalAccountId: channelId,
+            credentialsCiphertext: encrypted,
+            config: { ...(body.config || {}), organizationId, channelId, timezone: body.timezone || body.config?.timezone || 'UTC' },
+            capabilities: body.capabilities || { drafts: true, scheduling: true, media: true, channels: true },
+            status: body.status || 'connected'
+          })
         } else {
           const token = body.token || body.userToken || body.credentials?.token
           const encrypted = token ? encryptSecret(token) : null
@@ -1734,6 +1774,9 @@ const server = createServer(async (req, res) => {
         } else if (row.provider === 'postiz') {
           if (!credentials.apiToken) throw Object.assign(new Error('No se puede descifrar la credencial.'), { status: 503, code: 'credential_unavailable' })
           result = await testPostizConnection(credentials)
+        } else if (row.provider === 'buffer') {
+          if (!credentials.apiToken) throw Object.assign(new Error('No se puede descifrar la credencial.'), { status: 503, code: 'credential_unavailable' })
+          result = await testBufferConnection({ ...credentials, organizationId: credentials.organizationId || row.config?.organizationId, channelId: credentials.channelId || row.config?.channelId })
         } else result = { ok: true, provider: row.provider, message: 'Conexión configurada correctamente.' }
         const pool = await getPgPool()
         if (result.ok) await pool.query('UPDATE channel_connections SET status=\'connected\',last_tested_at=NOW(),last_error=NULL,updated_at=NOW() WHERE id=$1 AND workspace_id=$2 AND site_id=$3', [connectionId, scope.workspaceId, scope.siteId])

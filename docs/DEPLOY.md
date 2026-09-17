@@ -197,6 +197,12 @@ Antes de activar publicaciones reales, prueba una cuenta de staging y verifica
 subida de imágenes, publicación programada, reinicio del stack y sincronización de
 estados. El worker del CMS envía a Postiz únicamente variantes aprobadas.
 
+### Buffer (API gratuita)
+
+Buffer puede usarse como proveedor adicional sin desplegar otro servidor. En Buffer crea una API key desde sus ajustes y, en Escarlet, abre **Administración → Conexiones**, selecciona **Buffer (API)**, pega la key y pulsa **Cargar canales**. Elige la organización y la cuenta social de Buffer antes de guardar.
+
+La API key se cifra en Postgres y nunca se devuelve al navegador. El worker publica con el endpoint GraphQL de Buffer y consulta el estado del post para actualizar el calendario de Escarlet. Buffer limita la API gratuita a una key y 3.000 solicitudes cada 30 días, por lo que conviene dejar el polling con el intervalo predeterminado y no registrar la misma cuenta repetidamente.
+
 Webhook por site. Configúralo en dashboard → **Sitio** (recomendado). Opcional fallback env `REBUILD_WEBHOOK_URL`.
 
 `CMS_PUBLIC_URL` en producción tiene que ser `https://blog-cms.escarlet.cc`. Si queda vacío o en `localhost`, el MCP igual devolverá links absolutos con fallback a `https://blog-cms.escarlet.cc` (preview y media) para que Hermes pueda pegar un enlace clicable.

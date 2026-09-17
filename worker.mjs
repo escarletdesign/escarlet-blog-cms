@@ -6,6 +6,7 @@ import { decryptSecret } from './lib/secret-crypto.mjs'
 import { scheduleMetricoolPost, syncMetricoolPost } from './lib/metricool.mjs'
 import { schedulePlanablePost, syncPlanablePost, planableStatus } from './lib/planable.mjs'
 import { schedulePostizPost, syncPostizPost, postizPostId, postizProviderForChannel, postizStatus } from './lib/postiz.mjs'
+import { scheduleBufferPost, syncBufferPost, bufferPostId, bufferStatus } from './lib/buffer.mjs'
 
 function loadEnv() {
   const path = new URL('./.env', import.meta.url)
@@ -126,13 +127,20 @@ async function processExternalPublicationEvent(event) {
       response = variant.provider_post_id
         ? await syncPostizPost({ apiToken: token, providerPostId: variant.provider_post_id, apiBaseUrl: connectionConfig.apiBaseUrl || connectionConfig.api_base_url })
         : await schedulePostizPost({ apiToken: token, integrationId, publicationDate: variant.publication_date || new Date().toISOString(), timezone: variant.timezone || connectionConfig.timezone || 'UTC', text, channel: variant.channel, providerType: connectionConfig.providerType || connectionConfig.provider_type || postizProviderForChannel(variant.channel), providerSettings: connectionConfig.providerSettings || connectionConfig.provider_settings || {}, media: mediaRows.rows.filter((asset) => asset.url), idempotencyKey: `postiz:${variant.id}:${variant.publication_date || 'draft'}`, apiBaseUrl: connectionConfig.apiBaseUrl || connectionConfig.api_base_url, postType })
+    } else if (provider === 'buffer') {
+      const organizationId = connectionConfig.organizationId || connectionConfig.organization_id
+      const channelId = connectionConfig.channelId || connectionConfig.channel_id || variant.connection_external_account_id
+      const postType = variant.publication_date ? 'schedule' : 'draft'
+      response = variant.provider_post_id
+        ? await syncBufferPost({ apiToken: token, providerPostId: variant.provider_post_id })
+        : await scheduleBufferPost({ apiToken: token, organizationId, channelId, publicationDate: variant.publication_date || null, text, media: mediaRows.rows.filter((asset) => asset.url), idempotencyKey: `buffer:${variant.id}:${variant.publication_date || 'draft'}`, postType })
     } else throw new Error(`El proveedor ${provider} aún no tiene un adaptador de publicación.`)
-    const providerPostId = provider === 'postiz' ? (postizPostId(response) || variant.provider_post_id || null) : (response?.id || response?.postId || response?.data?.id || response?.posts?.[0]?.id || variant.provider_post_id || null)
-    const remoteStatus = provider === 'planable' ? planableStatus(response) : provider === 'postiz' ? postizStatus(response) : String(response?.status || response?.data?.status || '').toLowerCase()
-    const status = ['failed', 'error', 'rejected'].includes(remoteStatus) ? 'failed' : remoteStatus === 'published' ? 'published' : provider === 'postiz' && remoteStatus === 'canceled' ? 'canceled' : provider === 'postiz' && remoteStatus === 'scheduled' ? 'scheduled' : 'syncing'
+    const providerPostId = provider === 'postiz' ? (postizPostId(response) || variant.provider_post_id || null) : provider === 'buffer' ? (bufferPostId(response) || variant.provider_post_id || null) : (response?.id || response?.postId || response?.data?.id || response?.posts?.[0]?.id || variant.provider_post_id || null)
+    const remoteStatus = provider === 'planable' ? planableStatus(response) : provider === 'postiz' ? postizStatus(response) : provider === 'buffer' ? bufferStatus(response) : String(response?.status || response?.data?.status || '').toLowerCase()
+    const status = ['failed', 'error', 'rejected'].includes(remoteStatus) ? 'failed' : remoteStatus === 'published' ? 'published' : ['postiz', 'buffer'].includes(provider) && remoteStatus === 'canceled' ? 'canceled' : ['postiz', 'buffer'].includes(provider) && (remoteStatus === 'scheduled' || remoteStatus === 'draft') ? 'scheduled' : 'syncing'
     await pool.query('UPDATE content_variants SET status=$1,updated_at=NOW() WHERE id=$2', [status, variant.id])
     await pool.query('UPDATE schedules SET status=$1,provider=$2,provider_post_id=COALESCE($3,provider_post_id),attempts=attempts+1,last_error=NULL,updated_at=NOW() WHERE variant_id=$4', [status, provider, providerPostId, variant.id])
-    if ((status === 'syncing' || (provider === 'postiz' && status === 'scheduled')) && providerPostId) {
+    if ((status === 'syncing' || (['postiz', 'buffer'].includes(provider) && status === 'scheduled')) && providerPostId) {
       const nextPoll = new Date(Date.now() + metricoolPollMs)
       await enqueueJob({ workspaceId: event.workspace_id, type: `${provider}.sync`, payload: { siteId: variant.site_id }, idempotencyKey: `${provider}:poll:${variant.id}:${Math.floor(nextPoll.getTime() / metricoolPollMs)}`, availableAt: nextPoll })
     }
@@ -247,6 +255,39 @@ async function processPostizSyncJob(job) {
   return { synced }
 }
 
+async function processBufferSyncJob(job) {
+  const pool = await getPgPool()
+  if (!pool) throw new Error('Postgres no está configurado.')
+  const siteId = job.payload?.siteId || null
+  const params = [job.workspace_id]
+  const siteClause = siteId ? 'AND ci.site_id=$2' : ''
+  if (siteId) params.push(siteId)
+  const rows = await pool.query(`SELECT cv.id,cv.item_id,cv.channel,ci.site_id,s.provider_post_id,cc.credentials_ciphertext,cc.config
+    FROM content_variants cv JOIN content_items ci ON ci.id=cv.item_id
+    JOIN schedules s ON s.variant_id=cv.id
+    JOIN LATERAL (SELECT credentials_ciphertext,config FROM channel_connections WHERE workspace_id=cv.workspace_id AND site_id=ci.site_id AND channel=cv.channel AND provider='buffer' AND status='connected' ORDER BY is_primary DESC,updated_at DESC LIMIT 1) cc ON TRUE
+    WHERE cv.workspace_id=$1 AND s.provider='buffer' AND s.provider_post_id IS NOT NULL AND s.status IN ('scheduled','syncing') ${siteClause}
+    ORDER BY s.updated_at ASC LIMIT 100`, params)
+  let synced = 0
+  for (const row of rows.rows) {
+    const token = decryptSecret(row.credentials_ciphertext)
+    if (!token) throw new Error('Buffer no está configurado para la marca.')
+    const config = row.config && typeof row.config === 'object' ? row.config : {}
+    const response = await syncBufferPost({ apiToken: token, providerPostId: row.provider_post_id, apiBaseUrl: config.apiBaseUrl || config.api_base_url })
+    const remoteStatus = bufferStatus(response)
+    const status = remoteStatus === 'failed' ? 'failed' : remoteStatus === 'published' ? 'published' : remoteStatus === 'canceled' ? 'canceled' : remoteStatus === 'draft' || remoteStatus === 'scheduled' ? 'scheduled' : 'syncing'
+    await pool.query('UPDATE content_variants SET status=$1,updated_at=NOW() WHERE id=$2', [status, row.id])
+    await pool.query('UPDATE schedules SET status=$1,last_error=NULL,updated_at=NOW() WHERE variant_id=$2', [status, row.id])
+    await recordUsage({ workspaceId: job.workspace_id, siteId: row.site_id, kind: 'external_syncs', quantity: 1, idempotencyKey: `sync:${job.id}:${row.id}`, metadata: { itemId: row.item_id, channel: row.channel, provider: 'buffer' } })
+    if (status === 'syncing' || status === 'scheduled') {
+      const nextPoll = new Date(Date.now() + metricoolPollMs)
+      await enqueueJob({ workspaceId: job.workspace_id, type: 'buffer.sync', payload: { siteId: row.site_id }, idempotencyKey: `buffer:poll:${row.id}:${Math.floor(nextPoll.getTime() / metricoolPollMs)}`, availableAt: nextPoll })
+    }
+    synced++
+  }
+  return { synced }
+}
+
 async function processJob(job) {
   if (job.type === 'content.generate_batch') {
     const result = await processGenerationJob(job)
@@ -257,6 +298,7 @@ async function processJob(job) {
   if (job.type === 'metricool.sync') return processMetricoolSyncJob(job)
   if (job.type === 'planable.sync') return processPlanableSyncJob(job)
   if (job.type === 'postiz.sync') return processPostizSyncJob(job)
+  if (job.type === 'buffer.sync') return processBufferSyncJob(job)
   throw new Error(`Tipo de job no soportado: ${job.type}`)
 }
 
