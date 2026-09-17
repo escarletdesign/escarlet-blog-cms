@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: Escarlet Blog Client
- * Description: Sincroniza el blog público desde el CMS Escarlet y abre el panel editorial (token de sitio) desde wp-admin. Sin packs HTML estáticos.
+ * Description: Sincroniza el blog público desde el CMS Escarlet y abre el panel editorial con un PAT personal desde wp-admin. Sin packs HTML estáticos.
  * Version: 1.1.0
  * Author: Escarlet
  * License: GPL-2.0-or-later

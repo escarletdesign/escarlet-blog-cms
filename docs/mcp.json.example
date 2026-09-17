@@ -3,7 +3,7 @@
     "escarlet-blog": {
       "url": "https://blog-cms.escarlet.cc/mcp",
       "headers": {
-        "Authorization": "Bearer EL_MISMO_ADMIN_TOKEN_DEL_CMS"
+        "Authorization": "Bearer TU_PAT_PERSONAL_user_..."
       }
     }
   }

@@ -70,7 +70,7 @@ test('brand_get_context no degrada al editor y entrega referencias inspeccionabl
   const payload = JSON.parse(result.content?.[0]?.text || '{}')
   assert.equal(payload.brandAccessLevel, 'sanitized')
   assert.equal(payload.brandCapabilityEffective, true)
-  assert.equal(payload.brandKit.brandCapabilities.brand_kit_access, true)
+  assert.deepEqual(payload.brandKit.brandCapabilities, {})
   assert.ok(payload.visualContext.palette.includes('#1F4D3A'))
   assert.equal(payload.visualContext.typography.heading, 'Inter, Arial, sans-serif')
   assert.ok(payload.referenceDelivery.inspectable)
@@ -87,6 +87,7 @@ test('los recursos MCP solo anuncian archivos que el rol puede leer', async () =
   const names = listed.resources.map((resource) => resource.name)
   assert.ok(names.includes('escarlet agent-rules'))
   assert.ok(names.includes('escarlet keywords'))
+  assert.ok(names.includes('escarlet normalized brand context'))
   assert.ok(!names.includes('escarlet visual-style'))
   assert.ok(!names.includes('escarlet image-spec'))
 })
@@ -99,13 +100,13 @@ test('el super-admin conserva los archivos completos del brand kit', async () =>
   assert.ok(payload.brandKit.files.includes('image-spec.json'))
 })
 
-test('un cliente sin la capacidad visual conserva solo los documentos limitados', async () => {
+test('un cliente recibe el contexto normalizado sin capacidad especial', async () => {
   const result = await invokeMcpTool('brand_get_context', { site: 'escarlet' }, { role: 'client', site: 'escarlet', capabilities: [] })
   const payload = JSON.parse(result.content?.[0]?.text || '{}')
-  assert.equal(payload.brandAccessLevel, 'limited')
+  assert.equal(payload.brandAccessLevel, 'sanitized')
   assert.deepEqual(payload.files.sort(), ['AGENT.md', 'keywords.md'])
-  assert.equal(payload.visualContext, undefined)
-  assert.equal(payload.brandCapabilityEffective, false)
+  assert.ok(payload.visualContext)
+  assert.equal(payload.brandCapabilityEffective, true)
 })
 
 test('el token de un sitio no puede consultar el brand kit de otro sitio', async () => {

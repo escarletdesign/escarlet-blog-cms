@@ -243,9 +243,9 @@ const baseApi = {
     request<{ entries: Array<Record<string, any>> }>(`/api/v2/calendar${site ? `?site=${encodeURIComponent(site)}` : ""}`),
   teamV2: () =>
     request<{ members: Array<Record<string, any>>; canManage: boolean }>("/api/v2/team"),
-  updateTeamMember: (userId: string, input: { role: string; brandIds?: string[] }) =>
+  updateTeamMember: (userId: string, input: { role: string; brandIds?: string[]; brandRoles?: Record<string, string> }) =>
     request<{ member: Record<string, any> }>(`/api/v2/team/members/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify(input) }),
-  inviteTeamMember: (input: { email: string; role: string; brandIds?: string[]; site?: string }) =>
+  inviteTeamMember: (input: { email: string; role: string; brandIds?: string[]; brandRoles?: Record<string, string>; site?: string }) =>
     request<{ member: Record<string, any>; invite?: Record<string, any> }>("/api/v2/team/invitations", { method: "POST", body: JSON.stringify(input) }),
   updateFeatureFlags: (flags: Record<string, boolean>, site?: string, scope?: "workspace" | "brand") =>
     request<{ flags: Record<string, boolean> }>("/api/v2/feature-flags", {
@@ -352,11 +352,6 @@ const baseApi = {
     request<{ rebuild: Record<string, any>; message?: string }>(
       `/api/admin/site-config/${encodeURIComponent(site)}/test-rebuild`,
       { method: "POST" },
-    ),
-  issueSiteToken: (site: string, refreshIcon = false) =>
-    request<{ siteAccessToken: string; message?: string; mcpUrl?: string; mcpChatGptUrl?: string; mcpClaudeUrl?: string; mcpAuthHint?: string; mcpClaudeHint?: string; mcpCursorHint?: string; agentIcon?: Record<string, any> }>(
-      `/api/admin/site-config/${encodeURIComponent(site)}/access-token`,
-      { method: "POST", body: JSON.stringify({ refreshIcon }) },
     ),
   mcpConnection: (site: string) =>
     request<{ mcpUrl: string; mcpChatGptUrl?: string; mcpClaudeUrl?: string; mcpAuthHint?: string; mcpClaudeHint?: string; agentIcon?: Record<string, any> }>(

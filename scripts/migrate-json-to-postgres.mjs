@@ -154,7 +154,7 @@ export async function migrateJsonToPostgres({ db = readDb(), users = readJson('u
     if (existing.rowCount) return { dryRun: false, skipped: true, reason: 'postgres_already_initialized' }
   }
   const workspaceId = 'workspace-escarlet'
-  const counts = { workspaces: 0, members: 0, sites: 0, posts: 0, variants: 0, media: 0, entitlements: 0 }
+  const counts = { workspaces: 0, members: 0, users: 0, sites: 0, posts: 0, variants: 0, media: 0, entitlements: 0 }
   const backupInfo = backup ? createMigrationBackup() : null
   await withPgTransaction(pool, async (client) => {
     await client.query('INSERT INTO workspaces (id,name,slug) VALUES ($1,$2,$3) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name,updated_at=NOW()', [workspaceId, sites[0]?.name || 'Escarlet', 'escarlet'])
@@ -163,6 +163,8 @@ export async function migrateJsonToPostgres({ db = readDb(), users = readJson('u
     const workspaceOwnerId = users.find((user) => ['admin', 'agency_admin'].includes(user.role))?.id || users[0]?.id || 'system'
     for (const user of users) {
       const userId = id(user.id)
+      await client.query('INSERT INTO users (id,email,password_hash,password_salt,display_name,bio,avatar_url,disabled,must_set_password,allow_publishing_as,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW()) ON CONFLICT (id) DO UPDATE SET email=EXCLUDED.email,updated_at=NOW()', [userId, clean(user.email, 320).toLowerCase(), user.hash || null, user.salt || null, clean(user.displayName, 120), clean(user.bio, 500), user.avatarDataUrl || user.avatarUrl || '', Boolean(user.disabled), Boolean(user.mustSetPassword), Boolean(user.allowPublishingAs), user.createdAt ? isoDate(user.createdAt) : null])
+      counts.users++
       const memberId = `member-${workspaceId}-${userId}`
       await client.query('INSERT INTO workspace_members (id,workspace_id,user_id,role) VALUES ($1,$2,$3,$4) ON CONFLICT (workspace_id,user_id) DO UPDATE SET role=EXCLUDED.role,updated_at=NOW()', [memberId, workspaceId, userId, mapRole(user.role)])
       memberIds.set(userId, memberId)
@@ -179,10 +181,10 @@ export async function migrateJsonToPostgres({ db = readDb(), users = readJson('u
       counts.sites++
       for (const user of users) {
         const handles = Array.isArray(user.sites) && user.sites.length ? user.sites : user.site ? [user.site] : []
-        if (handles.includes(site.handle)) await client.query('INSERT INTO workspace_member_sites (member_id,site_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [memberIds.get(user.id), siteId])
+        if (handles.includes(site.handle)) await client.query('INSERT INTO workspace_member_sites (member_id,site_id,role) VALUES ($1,$2,$3) ON CONFLICT (member_id,site_id) DO UPDATE SET role=EXCLUDED.role', [memberIds.get(user.id), siteId, mapRole(user.role)])
       }
-      await client.query('INSERT INTO workspace_member_sites (member_id,site_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [memberIds.get(workspaceOwnerId), siteId])
-      if (!users.length) await client.query('INSERT INTO workspace_member_sites (member_id,site_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [memberIds.get('system'), siteId])
+      await client.query('INSERT INTO workspace_member_sites (member_id,site_id,role) VALUES ($1,$2,$3) ON CONFLICT (member_id,site_id) DO UPDATE SET role=EXCLUDED.role', [memberIds.get(workspaceOwnerId), siteId, 'owner'])
+      if (!users.length) await client.query('INSERT INTO workspace_member_sites (member_id,site_id,role) VALUES ($1,$2,$3) ON CONFLICT (member_id,site_id) DO UPDATE SET role=EXCLUDED.role', [memberIds.get('system'), siteId, 'owner'])
       await client.query('INSERT INTO brand_kits (id,site_id) VALUES ($1,$2) ON CONFLICT (site_id) DO NOTHING', [`brand-${siteId}`, siteId])
       const brandKitId = `brand-${siteId}`
       const versionId = `${brandKitId}-version-1`
@@ -202,7 +204,6 @@ export async function migrateJsonToPostgres({ db = readDb(), users = readJson('u
         await client.query('INSERT INTO site_channels (site_id,channel,enabled,connection_status) VALUES ($1,$2,$3,\'not_connected\') ON CONFLICT (site_id,channel) DO UPDATE SET enabled=EXCLUDED.enabled,updated_at=NOW()', [siteId, channel, enabled])
       }
       const capabilities = {
-        brand_kit_access: true,
         content_publishing: Object.values(channels).some(Boolean),
         blog_publishing: Boolean(channels.blog),
         presentation_generation: false

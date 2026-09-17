@@ -53,7 +53,6 @@ import {
   isSuperAdmin,
   isAgencyOrAdmin,
   isSiteScopedRole,
-  generateSiteAccessToken,
   publicSiteConfigForAuth,
   extractBearerOrCookie,
   resolveRequestAuthAsync,
@@ -104,13 +103,16 @@ import {
 import {
   isPasswordAuthEnabled,
   registerPasswordUser,
+  syncLegacyUsersToPostgres,
   loginPasswordUser,
   listPasswordUsers,
   deletePasswordUser,
   googleAuthStatus,
   updatePasswordUser,
   mintUserLoginToken,
+  mintUserLoginTokenAsync,
   revokeUserLoginToken,
+  revokeUserLoginTokenAsync,
   setUserPassword,
   getPasswordUserByEmail,
   getPasswordUserById,
@@ -206,6 +208,7 @@ import {
 } from './lib/post-utils.mjs'
 import {
   resolveWorkspaceContext,
+  createWorkspace,
   getWorkspaceFeatureFlags,
   setWorkspaceFeatureFlags,
   listSiteChannels,
@@ -279,6 +282,7 @@ const coreMigrationPromise = isPostgresConfigured() ? runCoreMigrations().catch(
   console.error('[postgres] migration failed:', error.message)
   return false
 }) : Promise.resolve(false)
+if (isPostgresConfigured()) coreMigrationPromise.then(() => syncLegacyUsersToPostgres().catch((error) => console.warn('[postgres] user migration skipped:', error.message)))
 
 const PORT = Number(process.env.PORT || 3040)
 const ADMIN_TOKEN = String(process.env.ADMIN_TOKEN || '').trim()
@@ -310,6 +314,30 @@ function html(res, status, body, extraHeaders = {}) {
 
 function requireAuth(req, url, res) {
   const auth = resolveRequestAuth(req, url)
+  if (!auth) {
+    json(res, 401, { message: 'No autorizado' })
+    return null
+  }
+  if (url.pathname.startsWith('/api/ai/')) {
+    try {
+      assertCmsAiEnabled({ db: readDb() })
+      assertCmsAiAllowed(auth)
+    } catch (error) {
+      json(res, 403, { message: error.message, ...(error.extra || {}) })
+      return null
+    }
+  }
+  return auth
+}
+
+async function requireAuthAsync(req, url, res) {
+  let auth
+  try {
+    auth = await resolveRequestAuthAsync(req, url)
+  } catch (error) {
+    json(res, error.status || 503, { message: error.message || 'No se pudo resolver la identidad.' })
+    return null
+  }
   if (!auth) {
     json(res, 401, { message: 'No autorizado' })
     return null
@@ -676,7 +704,7 @@ async function requireV2Context(req, url, res, body = {}) {
     const requestedWorkspace = String(body.workspaceId || url.searchParams.get('workspaceId') || '').trim()
     const requestedSite = String(body.siteId || body.site || url.searchParams.get('siteId') || url.searchParams.get('site') || auth.site || (Array.isArray(auth.sites) && auth.sites.length === 1 ? auth.sites[0] : '')).trim()
     if (auth.role !== 'admin' && !auth.userId && auth.site && requestedSite && requestedSite !== auth.site) throw Object.assign(new Error('Este token solo gestiona el sitio autorizado.'), { status: 403 })
-    const common = { userId: auth.userId || undefined, workspaceId: requestedWorkspace || undefined, role: auth.role === 'admin' ? undefined : undefined }
+    const common = { userId: auth.userId || undefined, workspaceId: requestedWorkspace || undefined }
     let context
     try {
       context = await resolveWorkspaceContext({ ...common, ...(requestedSite ? { siteId: requestedSite } : {}) })
@@ -684,9 +712,8 @@ async function requireV2Context(req, url, res, body = {}) {
       if (!requestedSite) throw error
       context = await resolveWorkspaceContext({ ...common, siteHandle: requestedSite })
     }
-    // A site/agency access token has no user row to resolve. Never let the
-    // first workspace member (usually the owner) elevate that token.
-    const role = auth.role === 'admin' ? 'admin' : auth.userId ? context.role || workspaceRoleForAuth(auth) : workspaceRoleForAuth(auth)
+    if (auth.role !== 'admin' && !auth.userId) throw Object.assign(new Error('Se requiere un token personal de usuario.'), { status: 401 })
+    const role = auth.role === 'admin' ? 'admin' : context.role || workspaceRoleForAuth(auth)
     const site = requestedSite ? context.sites.find((entry) => entry.id === requestedSite || entry.handle === requestedSite) : context.sites[0]
     if (requestedSite && !site) throw Object.assign(new Error('Sin acceso al sitio.'), { status: 403 })
     return { auth, context: { ...context, role, siteId: site?.id || null, siteHandle: site?.handle || null }, workspaceId: context.workspaceId, siteId: site?.id || null }
@@ -746,7 +773,7 @@ function sanitizeV2BrandKit(kit, auth) {
   const manifest = kit.manifest && typeof kit.manifest === 'object'
     ? Object.fromEntries(Object.entries(kit.manifest).filter(([name]) => allowed.has(name)))
     : {}
-  const fullAccess = auth?.role === 'admin' || auth?.role === 'client_mcp'
+  const fullAccess = auth?.role === 'admin' || auth?.role === 'owner'
   const assets = Array.isArray(kit.assets)
     ? kit.assets
       .filter((asset) => fullAccess || asset.visibility === 'public' || (asset.visibility === 'role_limited' && ['owner', 'admin', 'editor'].includes(auth?.role)))
@@ -765,9 +792,8 @@ function sanitizeV2BrandKit(kit, auth) {
 }
 
 // New v2 brands live in Postgres and may not have a legacy data/site-config
-// file yet. MCP access tokens still use the compatibility resolver, so expose
-// a minimal validated config for those brands and let the first token issue
-// materialize the legacy token record without making users hunt for /admin.
+// file yet. Expose a minimal validated config so a personal PAT or OAuth
+// grant can address the brand without requiring a legacy /admin record.
 async function siteConfigForMcp(handle, auth) {
   const legacy = loadSiteConfig(handle)
   if (legacy) return legacy
@@ -787,7 +813,7 @@ async function publicSessionForAuth(auth) {
   if (!session || !isPostgresConfigured()) return session
   try {
     const context = await resolveWorkspaceContext({ userId: auth.userId || undefined, ...(auth.userId ? {} : auth.site ? { siteHandle: auth.site } : {}) })
-    const workspaceRole = auth.role === 'admin' ? 'admin' : auth.userId ? context.role || workspaceRoleForAuth(auth) : workspaceRoleForAuth(auth)
+    const workspaceRole = auth.role === 'admin' ? 'admin' : context.role || workspaceRoleForAuth(auth)
     const contextSites = [...new Set((context.sites || []).map((site) => String(site.handle || '').trim()).filter(Boolean))]
     const sessionSites = [...new Set((session.sites || []).map((site) => String(site || '').trim()).filter(Boolean))]
     // Super-admins can see legacy and canonical brands during the migration;
@@ -798,6 +824,7 @@ async function publicSessionForAuth(auth) {
       workspaceId: context.workspaceId,
       workspaceRole,
       sites,
+      brandRoles: auth.role === 'admin' ? {} : (context.brandRoles || auth.brandRoles || {}),
       site: session.site || sites[0] || null
     }
   } catch {
@@ -975,7 +1002,7 @@ const server = createServer(async (req, res) => {
       })
       res.end(
         JSON.stringify({
-          message: 'No autorizado. Usa Bearer con tu token de usuario, token de sitio, token de agencia, ADMIN_TOKEN u OAuth (ChatGPT).'
+          message: 'No autorizado. Usa Bearer con tu PAT personal u OAuth (ChatGPT/Claude). ADMIN_TOKEN solo sirve para operaciones internas del servidor.'
         })
       )
       return
@@ -1290,8 +1317,24 @@ const server = createServer(async (req, res) => {
   }
 
   if (isProductRestructureV1() && req.method === 'POST' && path === '/api/auth/register') {
-    const auth = requireAuth(req, url, res)
-    if (!auth) return
+    const auth = await resolveRequestAuthAsync(req, url)
+    if (!auth) {
+      try {
+        if (!isPostgresConfigured()) throw Object.assign(new Error('El registro requiere Postgres.'), { status: 503 })
+        const body = await parseBody(req)
+        const user = registerPasswordUser({ email: body.email, password: body.password, role: 'owner', allowNoSite: true })
+        await syncLegacyUsersToPostgres()
+        const workspace = await createWorkspace({ name: body.workspaceName || body.name || `${user.email} workspace`, slug: body.workspaceSlug || body.slug || user.email.split('@')[0], userId: user.id })
+        const brand = await createBrand({ workspaceId: workspace.id, userId: user.id, role: 'owner', handle: body.brandHandle || workspace.slug, name: body.brandName || body.workspaceName || body.name || workspace.name, domain: body.domain || null })
+        const login = loginPasswordUser({ email: body.email, password: body.password })
+        const session = await publicSessionForAuth(resolveAuth(login.token))
+        res.writeHead(201, { 'Content-Type': 'application/json; charset=utf-8', 'Set-Cookie': `escarlet_cms=${encodeURIComponent(login.token)}; Path=/; HttpOnly; SameSite=Lax` })
+        res.end(JSON.stringify({ ok: true, user, workspace, brand, ...login, session }))
+      } catch (error) {
+        json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
+      }
+      return
+    }
     try {
       assertAgencyOps(auth)
       const body = await parseBody(req)
@@ -1393,6 +1436,7 @@ const server = createServer(async (req, res) => {
       }
       const targetId = auth.role === 'admin' && body.id ? body.id : auth.userId
       const user = setUserPassword({ id: targetId, password: body.password })
+      await syncLegacyUsersToPostgres()
       json(res, 200, { ok: true, user })
     } catch (error) {
       json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
@@ -1422,6 +1466,7 @@ const server = createServer(async (req, res) => {
         avatarDataUrl: body.avatarDataUrl,
         allowPublishingAs: body.allowPublishingAs
       })
+      await syncLegacyUsersToPostgres()
       json(res, 200, { ok: true, profile })
     } catch (error) {
       json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
@@ -1438,7 +1483,7 @@ const server = createServer(async (req, res) => {
     if (!auth) return
     try {
       if (!auth.userId) throw Object.assign(new Error('Esta sesión no tiene un perfil de usuario'), { status: 403 })
-      const minted = mintUserLoginToken({ id: auth.userId })
+      const minted = await mintUserLoginTokenAsync({ id: auth.userId })
       const { token, ...profile } = minted
       json(res, 200, { ok: true, profile, token })
     } catch (error) {
@@ -1452,7 +1497,7 @@ const server = createServer(async (req, res) => {
     if (!auth) return
     try {
       if (!auth.userId) throw Object.assign(new Error('Esta sesión no tiene un perfil de usuario'), { status: 403 })
-      const profile = revokeUserLoginToken({ id: auth.userId })
+      const profile = await revokeUserLoginTokenAsync({ id: auth.userId })
       json(res, 200, { ok: true, profile })
     } catch (error) {
       json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
@@ -1567,7 +1612,7 @@ const server = createServer(async (req, res) => {
         return
       }
       const body = await parseBody(req)
-      const minted = mintUserLoginToken({ id: body.id })
+      const minted = await mintUserLoginTokenAsync({ id: body.id })
       json(res, 200, { ok: true, user: minted, token: minted.token })
     } catch (error) {
       json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
@@ -1584,7 +1629,7 @@ const server = createServer(async (req, res) => {
         return
       }
       const body = await parseBody(req)
-      const user = revokeUserLoginToken({ id: body.id })
+      const user = await revokeUserLoginTokenAsync({ id: body.id })
       json(res, 200, { ok: true, user })
     } catch (error) {
       json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
@@ -1609,6 +1654,7 @@ const server = createServer(async (req, res) => {
         sites.forEach((site) => assertSiteAccess(auth, site))
       }
       const user = updatePasswordUser({ id: body.id, email: body.email, sites, role: body.role, allowPublishingAs: body.allowPublishingAs })
+      await syncLegacyUsersToPostgres()
       json(res, 200, { ok: true, user })
     } catch (error) {
       json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
@@ -1664,7 +1710,7 @@ const server = createServer(async (req, res) => {
       if (req.method === 'POST' && path === '/api/v2/brands') {
         const scope = await requireV2Context(req, url, res, body)
         if (!scope) return
-        json(res, 201, { brand: await createBrand({ workspaceId: scope.workspaceId, userId: scope.auth.userId, role: scope.context.role, handle: body.handle, name: body.name, domain: body.domain }) })
+        json(res, 201, { brand: await createBrand({ workspaceId: scope.workspaceId, userId: scope.auth.userId, role: scope.context.workspaceRole || scope.context.role, handle: body.handle, name: body.name, domain: body.domain }) })
         return
       }
       if (req.method === 'GET' && brandMatch) {
@@ -1865,7 +1911,10 @@ const server = createServer(async (req, res) => {
         const scope = await requireV2Context(req, url, res)
         if (!scope) return
         let allBrands = await listBrands({ workspaceId: scope.workspaceId })
-        const allowedBrandIds = new Set(scope.context.siteIds || [])
+        const membershipContext = scope.auth.role === 'admin'
+          ? scope.context
+          : await resolveWorkspaceContext({ userId: scope.auth.userId, workspaceId: scope.workspaceId })
+        const allowedBrandIds = new Set(membershipContext.siteIds || [])
         let brands = scope.auth.role === 'admin' ? allBrands : allBrands.filter((brand) => allowedBrandIds.has(brand.id))
         const selectedSiteId = scope.siteId || brands[0]?.id || null
         if (selectedSiteId) {
@@ -1900,10 +1949,12 @@ const server = createServer(async (req, res) => {
           flags.creation_ui_enabled = false
           flags.manual_creation_enabled = false
         }
+        const brandRoles = Object.fromEntries((membershipContext.sites || []).map((brand) => [brand.id, brand.role || membershipContext.workspaceRole || membershipContext.role]))
+        const brandsWithRoles = brands.map((brand) => ({ ...brand, role: brandRoles[brand.id] || (scope.auth.role === 'admin' ? 'admin' : scope.context.role) }))
         json(res, 200, {
           workspace: { id: scope.workspaceId, name: scope.context.workspaceName || 'Espacio' },
-          activeBrand: brands.find((brand) => brand.id === selectedSiteId) || brands[0] || null,
-          brands,
+          activeBrand: brandsWithRoles.find((brand) => brand.id === selectedSiteId) || brandsWithRoles[0] || null,
+          brands: brandsWithRoles,
           role: scope.context.role,
           capabilities: scope.auth.capabilities || [],
           featureFlags: flags,
@@ -1985,14 +2036,14 @@ const server = createServer(async (req, res) => {
             loginTokenHint: String(profile?.loginTokenHint || '')
           }
         })
-        json(res, 200, { members: hydratedMembers, canManage: ['owner', 'admin'].includes(scope.context.role) })
+        json(res, 200, { members: hydratedMembers, canManage: ['owner', 'admin'].includes(scope.context.workspaceRole || scope.context.role) })
         return
       }
       const teamMemberMatch = path.match(/^\/api\/v2\/team\/members\/([^/]+)$/)
       if (req.method === 'PATCH' && teamMemberMatch) {
         const scope = await requireV2Context(req, url, res, body)
         if (!scope) return
-        if (!['owner', 'admin'].includes(scope.context.role)) throw Object.assign(new Error('No tienes permisos para editar miembros.'), { status: 403 })
+        if (!['owner', 'admin'].includes(scope.context.workspaceRole || scope.context.role)) throw Object.assign(new Error('No tienes permisos para editar miembros.'), { status: 403 })
         const userId = decodeURIComponent(teamMemberMatch[1])
         const catalog = scope.auth.role === 'admin' ? await listBrands({ workspaceId: scope.workspaceId }) : scope.context.sites
         const requestedSites = Array.isArray(body.brandIds) ? body.brandIds : undefined
@@ -2000,22 +2051,30 @@ const server = createServer(async (req, res) => {
           ? [...new Set(requestedSites.map((value) => catalog.find((brand) => brand.id === value || brand.handle === value)?.id).filter(Boolean))]
           : undefined
         if (requestedSites && !siteIds.length) throw Object.assign(new Error('No puedes asignar esas marcas.'), { status: 403 })
-        const member = await updateWorkspaceMember({ workspaceId: scope.workspaceId, userId, role: String(body.role || 'viewer'), siteIds })
+        const brandRoles = body.brandRoles && typeof body.brandRoles === 'object'
+          ? Object.fromEntries((catalog || []).flatMap((brand) => body.brandRoles[brand.id] || body.brandRoles[brand.handle] ? [[brand.id, body.brandRoles[brand.id] || body.brandRoles[brand.handle]]] : []))
+          : {}
+        const member = await updateWorkspaceMember({ workspaceId: scope.workspaceId, userId, role: String(body.role || 'viewer'), siteIds, brandRoles })
         json(res, 200, { member })
         return
       }
       if (req.method === 'POST' && path === '/api/v2/team/invitations') {
         const scope = await requireV2Context(req, url, res, body)
         if (!scope) return
-        if (!['owner', 'admin'].includes(scope.context.role)) throw Object.assign(new Error('No tienes permisos para invitar miembros.'), { status: 403 })
+        if (!['owner', 'admin'].includes(scope.context.workspaceRole || scope.context.role)) throw Object.assign(new Error('No tienes permisos para invitar miembros.'), { status: 403 })
         const email = String(body.email || '').trim().toLowerCase()
         if (!email || !email.includes('@')) throw Object.assign(new Error('email es obligatorio.'), { status: 400 })
         const role = String(body.role || 'viewer').trim().toLowerCase()
         const requestedBrandIds = Array.isArray(body.brandIds) ? body.brandIds : scope.siteId ? [scope.siteId] : scope.context.siteIds
         const allowedBrandIds = new Set(scope.context.siteIds || [])
         const brandIds = requestedBrandIds.map((value) => scope.context.sites.find((brand) => (brand.id === value || brand.handle === value) && (scope.auth.role === 'admin' || allowedBrandIds.has(brand.id)))?.id).filter(Boolean)
+        if (!brandIds.length) throw Object.assign(new Error('Selecciona al menos una marca.'), { status: 400 })
+        const brandRolesById = body.brandRoles && typeof body.brandRoles === 'object'
+          ? Object.fromEntries((scope.context.sites || []).flatMap((brand) => body.brandRoles[brand.id] || body.brandRoles[brand.handle] ? [[brand.id, body.brandRoles[brand.id] || body.brandRoles[brand.handle]]] : []))
+          : {}
         const user = registerPasswordUser({ email, role, sites: brandIds.map((idValue) => scope.context.sites.find((brand) => brand.id === idValue)?.handle).filter(Boolean), invite: true })
-        await addWorkspaceMember({ workspaceId: scope.workspaceId, userId: user.id, role, siteIds: brandIds })
+        await syncLegacyUsersToPostgres()
+        await addWorkspaceMember({ workspaceId: scope.workspaceId, userId: user.id, role, siteIds: brandIds, brandRoles: brandRolesById })
         const minted = createMagicToken({ site: user.site, sites: user.sites, role, email: user.email, userId: user.id, purpose: 'invite', next: '/' })
         const origin = absoluteCmsOrigin(req)
         const link = `${origin}/app/magic/consume?token=${encodeURIComponent(minted.token)}`
@@ -2363,8 +2422,8 @@ const server = createServer(async (req, res) => {
       json(res, 200, {
         flags: {
           cmsAiEnabled,
-          assistantEnabled: cmsAiEnabled && auth.role !== 'client_mcp' && workflow.assistantEnabled,
-          blogWizardEnabled: cmsAiEnabled && auth.role !== 'client_mcp' && workflow.blogWizardEnabled,
+          assistantEnabled: cmsAiEnabled && workflow.assistantEnabled,
+          blogWizardEnabled: cmsAiEnabled && workflow.blogWizardEnabled,
           creation_ui_enabled: Boolean(productFlags.creation_ui_enabled),
           manual_creation_enabled: Boolean(productFlags.manual_creation_enabled),
           updatedAt: workflow.updatedAt
@@ -2794,7 +2853,7 @@ const server = createServer(async (req, res) => {
   }
 
   if (path.startsWith('/api/admin')) {
-    const auth = requireAuth(req, url, res)
+    const auth = await requireAuthAsync(req, url, res)
     if (!auth) return
     const db = readDb()
     if (req.method === 'GET' && path === '/api/admin/session') {
@@ -3270,47 +3329,7 @@ const server = createServer(async (req, res) => {
 
     const siteTokenMatch = path.match(/^\/api\/admin\/site-config\/([^/]+)\/access-token$/)
     if (siteTokenMatch && req.method === 'POST') {
-      const handle = siteTokenMatch[1]
-      try {
-        assertSuperAdmin(auth)
-      } catch (err) {
-        json(res, err.status || 403, { message: err.message })
-        return
-      }
-      const siteCfg = await siteConfigForMcp(handle, auth)
-      if (!siteCfg) {
-        json(res, 404, { message: 'Site no encontrado' })
-        return
-      }
-      const body = await parseBody(req).catch(() => ({}))
-      if (body.clear) {
-        const config = saveSiteConfig(handle, { clearSiteAccessToken: true })
-        json(res, 200, {
-          config: publicSiteConfigForAuth(config, auth),
-          siteAccessToken: null,
-          message: 'Token de sitio eliminado'
-        })
-        return
-      }
-      const token = generateSiteAccessToken()
-      const config = saveSiteConfig(handle, { siteAccessToken: token })
-      const mcp = getMcpConnectionInfo({ cmsUrl: CMS_PUBLIC_URL })
-      const agentIcon = await prepareSiteAgentIcon(handle, siteCfg.domain || '', {
-        soft: true,
-        force: Boolean(body.refreshIcon)
-      })
-      json(res, 200, {
-        config: publicSiteConfigForAuth(config, auth),
-        siteAccessToken: token,
-        message: 'Copia este token ahora. Solo se muestra una vez.',
-        mcpUrl: mcp.mcpUrl,
-        mcpChatGptUrl: mcp.chatgpt.url,
-        mcpClaudeUrl: mcp.claude.url,
-        mcpAuthHint: mcp.chatgpt.hint,
-        mcpClaudeHint: mcp.claude.hint,
-        mcpCursorHint: mcp.cursorHermes.hint,
-        agentIcon
-      })
+      json(res, 410, { message: 'Los tokens de sitio se han retirado. Usa tu token personal o OAuth.' })
       return
     }
 
@@ -3622,7 +3641,7 @@ const server = createServer(async (req, res) => {
           ownerId: auth.userId || '',
           membershipUserId: auth.userId || '',
           skipQuota,
-          contentSource: body.contentSource || (['client', 'client_mcp'].includes(auth.role) ? 'client' : 'agency')
+          contentSource: body.contentSource || (auth.role === 'client' ? 'client' : 'agency')
         })
         json(res, 201, result)
       } catch (error) {

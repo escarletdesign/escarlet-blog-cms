@@ -60,7 +60,7 @@ type AppState = {
   brandCapabilities: Record<string, boolean>;
   productContext?: {
     workspace: { id: string; name?: string };
-    activeBrand?: { id: string; handle?: string; name?: string } | null;
+    activeBrand?: { id: string; handle?: string; name?: string; role?: string } | null;
     brands: BrandSummary[];
     channels?: Array<{ channel: string; enabled: boolean }>;
     connections: Array<Record<string, any>>;
@@ -99,12 +99,13 @@ const useToast = () => {
   return value;
 };
 const isAdmin = (role?: string) => role === "admin" || role === "agency_admin" || role === "owner";
+const isWorkspaceAdmin = (session?: Pick<Session, "role" | "workspaceRole">) => Boolean(session && (isAdmin(session.workspaceRole) || isAdmin(session.role)));
 function AiOnly({ children }: { children: ReactNode }) {
   const { session, workflowFlags } = useApp();
-  return session.role === "client_mcp" || !workflowFlags.cmsAiEnabled ? null : <>{children}</>;
+  return !workflowFlags.cmsAiEnabled ? null : <>{children}</>;
 }
 const roleLabel = (role: string | undefined, t: (key: string, fallback?: string) => string) => {
-  const value = String(role || "client").trim().toLowerCase();
+  const value = String(role || "viewer").trim().toLowerCase();
   return t(`role.${value}`, value.replace(/_/g, " "));
 };
 const uiStatus = (status?: string) => {
@@ -329,7 +330,7 @@ function App() {
       setSession(nextSession);
       try {
         const nextFlags = await api.workflowFlags(nextSession.site || nextSession.sites?.[0]);
-        const cmsAiEnabled = nextSession.role !== "client_mcp" && nextFlags.flags?.cmsAiEnabled !== false;
+        const cmsAiEnabled = nextFlags.flags?.cmsAiEnabled !== false;
         setWorkflowFlags({
           cmsAiEnabled,
           assistantEnabled: cmsAiEnabled && nextFlags.flags?.assistantEnabled !== false,
@@ -343,13 +344,14 @@ function App() {
             ? savedBrand
             : nextSession.site || nextSession.sites?.[0];
           const context = await api.context(preferredBrand);
+          setSession((current) => current ? { ...current, role: context.activeBrand?.role || current.role, workspaceRole: nextSession.workspaceRole || current.workspaceRole } : current);
           setProductContext(context);
           setChannels(context.channels || []);
           setBrandCapabilities(context.brandCapabilities || {});
           setWorkflowFlags((current) => ({ ...current, creationUiEnabled: Boolean(context.featureFlags?.creation_ui_enabled), manualCreationEnabled: Boolean(context.featureFlags?.manual_creation_enabled), assistantEnabled: current.assistantEnabled && Boolean(context.featureFlags?.creation_ui_enabled), blogWizardEnabled: current.blogWizardEnabled && Boolean(context.featureFlags?.manual_creation_enabled) }));
         } catch { setChannels([]); setBrandCapabilities({}); setProductContext(undefined); }
       } catch {
-        setWorkflowFlags({ cmsAiEnabled: nextSession.role !== "client_mcp", assistantEnabled: false, blogWizardEnabled: false, creationUiEnabled: false, manualCreationEnabled: false });
+        setWorkflowFlags({ cmsAiEnabled: true, assistantEnabled: false, blogWizardEnabled: false, creationUiEnabled: false, manualCreationEnabled: false });
       }
     } catch {
       setSession(null);
@@ -409,6 +411,7 @@ function App() {
     window.localStorage.setItem("escarlet_site", next);
     if (!session) return;
     void api.context(next).then((context) => {
+      setSession((current) => current ? { ...current, role: context.activeBrand?.role || current.role } : current);
       setProductContext(context);
       setChannels(context.channels || []);
       setBrandCapabilities(context.brandCapabilities || {});
@@ -499,7 +502,7 @@ function App() {
                 <Route path="/team/invite" element={<TeamInviteView />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/author-invite" element={<AuthorInvite />} />
-                {session.role !== "client_mcp" && workflowFlags.cmsAiEnabled && <Route path="/billing" element={<Billing />} />}
+                {workflowFlags.cmsAiEnabled && <Route path="/billing" element={<Billing />} />}
                 <Route path="/admin" element={<AdminGate />} />
                   <Route path="*" element={<Navigate to="/plans" replace />} />
               </Route>}
@@ -793,7 +796,7 @@ function Shell() {
     { to: "/calendar", label: t("nav.calendar", "Calendario"), icon: "calendar" },
     { to: "/brands", label: t("nav.brands", "Marcas"), icon: "brands" },
     { to: "/team", label: t("nav.team", "Equipo y acceso"), icon: "team" },
-    ...(session.role !== "client_mcp" && workflowFlags.cmsAiEnabled ? [{ to: "/billing", label: t("nav.planUsage", "Plan y uso"), icon: "billing" }] : []),
+    ...(workflowFlags.cmsAiEnabled ? [{ to: "/billing", label: t("nav.planUsage", "Plan y uso"), icon: "billing" }] : []),
     ...(workflowFlags.creationUiEnabled && workflowFlags.assistantEnabled && publishingEnabled ? [{ to: "/chat", label: t("nav.assistant"), icon: "assistant" }] : []),
   ];
   return (
@@ -844,7 +847,7 @@ function Shell() {
               {link.icon === "assistant" && <SidebarConversations site={site} />}
             </div>
           ))}
-          {isAdmin(session.role) && (
+          {isWorkspaceAdmin(session) && (
             <NavLink to="/admin" className="nav-link">
               <NavIcon kind="admin" />
               {t("nav.admin")}
@@ -1036,7 +1039,7 @@ function CreditIndicator({ site }: { site: string }) {
   const [snapshot, setSnapshot] = useState<Record<string, any> | null>(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    if (session.role === "client_mcp" || !workflowFlags.cmsAiEnabled) {
+    if (!workflowFlags.cmsAiEnabled) {
       setSnapshot(null);
       setLoading(false);
       return () => {};
@@ -1050,7 +1053,7 @@ function CreditIndicator({ site }: { site: string }) {
       .finally(() => active && setLoading(false));
     return () => { active = false; };
   }, [site, session.role, workflowFlags.cmsAiEnabled]);
-  if (session.role === "client_mcp") return null;
+  if (!workflowFlags.cmsAiEnabled) return null;
   const available = Number(snapshot?.ai?.tokenCredits?.available);
   const hasCredits = Number.isFinite(available);
   const displayCredits = hasCredits ? available.toLocaleString(language === "en" ? "en-GB" : "es-ES") : loading ? "…" : "—";
@@ -1119,7 +1122,7 @@ function Home() {
         <RecentPosts />
         <div className="quick-actions">
           <button onClick={() => nav("/posts?status=scheduled&view=month")}>{t("home.calendar")}</button>
-          {isAdmin(session.role) && (
+          {isWorkspaceAdmin(session) && (
             <button onClick={() => nav("/admin")}>{t("home.openAdmin")}</button>
           )}
         </div>
@@ -4878,7 +4881,7 @@ function Settings() {
         <p className="muted">
           {t("settings.role")}: {roleLabel(session.role, t)}
         </p>
-        {session.role !== "client_mcp" && workflowFlags.cmsAiEnabled && <NavLink className="text-link" to="/billing">{t("settings.credits")}</NavLink>}
+        {workflowFlags.cmsAiEnabled && <NavLink className="text-link" to="/billing">{t("settings.credits")}</NavLink>}
       </section>
       <button
         type="button"
@@ -5035,7 +5038,7 @@ function Billing() {
 
 function AdminGate() {
   const { session } = useApp();
-  return isAdmin(session.role) ? <AdminIndex /> : <Navigate to="/" replace />;
+  return isWorkspaceAdmin(session) ? <AdminIndex /> : <Navigate to="/" replace />;
 }
 
 function AdminIndex() {
@@ -5053,9 +5056,8 @@ function Admin() {
   const { site, session, setSite, refresh } = useApp();
   const { t } = useI18n();
   const { showToast } = useToast();
-  const canIssueSiteToken = session.role === "admin";
   const [adminScope, setAdminScope] = useState<"site" | "global">(
-    session.role === "admin" ? "global" : "site",
+    isWorkspaceAdmin(session) ? "global" : "site",
   );
   const [sites, setSites] = useState<string[]>([]);
   const [showCreateSite, setShowCreateSite] = useState(false);
@@ -5109,7 +5111,6 @@ function Admin() {
     socialPackChannels: { ...DEFAULT_SOCIAL_PACK_CHANNELS },
   });
   const [siteSaving, setSiteSaving] = useState(false);
-  const [siteToken, setSiteToken] = useState("");
   const [teamUnavailable, setTeamUnavailable] = useState(false);
   const [message, setMessage] = useState("");
   const [messageKind, setMessageKind] = useState<"success" | "error">("success");
@@ -5522,18 +5523,6 @@ function Admin() {
       setSiteSaving(false);
     }
   };
-  const issueSiteToken = async () => {
-    setSiteSaving(true);
-    try {
-      const result = await api.issueSiteToken(site, true);
-      setSiteToken(result.siteAccessToken || "");
-      report(t("admin.siteTokenReady"));
-    } catch (err) {
-      report(err instanceof Error ? err.message : t("common.error"), "error");
-    } finally {
-      setSiteSaving(false);
-    }
-  };
   const saveProvider = async (
     provider: {
       provider: string;
@@ -5690,7 +5679,7 @@ function Admin() {
           {message}
         </div>
       )}
-      {session.role === "admin" && (
+      {isWorkspaceAdmin(session) && (
         <div className="admin-scope-toolbar">
           <div className="admin-scope-switch" role="tablist" aria-label={t("admin.scopeSwitch")}>
             <button type="button" role="tab" aria-selected={adminScope === "site"} className={adminScope === "site" ? "selected" : ""} onClick={() => setAdminScope("site")}>{t("admin.siteScope")}</button>
@@ -5743,7 +5732,7 @@ function Admin() {
           <p className="admin-scope-kicker">{t("admin.siteScope")}</p>
           <div className="section-title">
             <h2>{t("admin.brand")}</h2>
-            {session.role === "admin" && (
+            {isWorkspaceAdmin(session) && (
               <label className="secondary upload-reference-button">
                 {brandZipBusy ? t("admin.saving") : t("admin.importBrandZip")}
                 <input
@@ -6058,16 +6047,6 @@ function Admin() {
                 <button className="ghost" type="button" disabled={siteSaving} onClick={() => void testSite()}>{t("admin.testRebuild")}</button>
                 <button className="primary" disabled={siteSaving}>{siteSaving ? t("admin.saving") : t("admin.save")}</button>
               </div>
-              {canIssueSiteToken && (
-                <div className="site-token-box">
-                  <div>
-                    <strong>{t("admin.siteToken")}</strong>
-                    <p className="tiny">{t("admin.siteTokenHelp")}</p>
-                  </div>
-                  <button className="ghost" type="button" disabled={siteSaving} onClick={() => void issueSiteToken()}>{t("admin.issueSiteToken")}</button>
-                  {siteToken && <code>{siteToken}</code>}
-                </div>
-              )}
             </form>
           )}
         </section>
@@ -6565,7 +6544,7 @@ function BrandsView() {
   const { site, productContext, session } = useApp();
   const brands = productContext?.brands || [];
   const activeBrandId = productContext?.activeBrand?.id || "";
-  const canCreate = isAdmin(session.role);
+  const canCreate = isWorkspaceAdmin(session);
   return <main className="page"><PageHeader eyebrow={productContext?.workspace.name || "Espacio"} title="Marcas" description="Cada marca reúne identidad, capacidades, canales y conexiones." actions={canCreate ? <NavLink className="ui-button ui-button-primary" to="/brands/new">Añadir marca</NavLink> : undefined} /><div className="ui-brand-grid">{brands.map((brand) => { const active = brand.id === activeBrandId || (!activeBrandId && brand.handle === site); return <NavLink key={brand.id} to={`/brands/${encodeURIComponent(brand.id)}`} className={`ui-card ui-brand-card ${active ? "ui-brand-active" : ""}`}><div className="ui-card-head"><div><span className="ui-eyebrow">Marca</span><h2>{brand.name || brand.handle}</h2><p className="ui-brand-handle">{brand.handle}</p></div>{active && <Badge tone="success">Activa</Badge>}</div><div className="ui-channel-list">{(brand.channels || []).filter((channel) => channel.enabled).map((channel) => <ChannelBadge key={channel.channel} channel={channel.channel} />)}</div><div className="ui-capability-list">{brand.capabilities?.presentation_generation && <Badge tone="info">Presentaciones</Badge>}{brand.capabilities?.content_publishing && <Badge tone="success">Publicaciones</Badge>}{!brand.capabilities?.content_publishing && !brand.capabilities?.presentation_generation && <Badge tone="neutral">Sin capacidades activas</Badge>}</div><p className="muted">Ver configuración, brand kit y conexiones →</p></NavLink>; })}</div>{!brands.length && <UiEmptyState title="Configura tu primera marca" description="Un administrador debe crear una marca para comenzar." action={canCreate ? <NavLink className="ui-button ui-button-primary" to="/brands/new">Añadir marca</NavLink> : undefined} />}</main>;
 }
 
@@ -6575,7 +6554,7 @@ function NewBrandView() {
   const [form, setForm] = useState({ handle: "", name: "", domain: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  if (!isAdmin(session.role)) return <main className="page narrow"><UiEmptyState title="No tienes permisos para crear marcas" description="Solicita acceso a un administrador del espacio." action={<Button onClick={() => nav("/brands")}>Volver a marcas</Button>} /></main>;
+  if (!isWorkspaceAdmin(session)) return <main className="page narrow"><UiEmptyState title="No tienes permisos para crear marcas" description="Solicita acceso a un administrador del espacio." action={<Button onClick={() => nav("/brands")}>Volver a marcas</Button>} /></main>;
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true); setError("");
     try { const result = await api.createBrand(form); await refresh(); nav(`/brands/${encodeURIComponent(result.brand.id)}`); }
@@ -6597,11 +6576,11 @@ function TeamView() {
   const [form, setForm] = useState({ email: "", role: "viewer" });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-  const [userForm, setUserForm] = useState<{ id: string; email: string; role: string; sites: string[]; allowPublishingAs: boolean } | null>(null);
+  const [userForm, setUserForm] = useState<{ id: string; email: string; role: string; sites: string[]; brandRoles: Record<string, string>; allowPublishingAs: boolean } | null>(null);
   const [userBusy, setUserBusy] = useState(false);
-  const canAdminUsers = session.role === "admin";
+  const canAdminUsers = isWorkspaceAdmin(session);
   const load = () => api.teamV2().then((result) => { setMembers(result.members || []); setCanManage(Boolean(result.canManage)); setCanonicalTeam(true); }).catch(async () => {
-    try { const legacy = await api.users("", session.role === "admin"); setMembers(legacy.users || []); setCanManage(isAdmin(session.role)); setCanonicalTeam(false); } catch (err: any) { setError(err?.message || "No se pudo cargar el equipo."); }
+    try { const legacy = await api.users("", session.role === "admin"); setMembers(legacy.users || []); setCanManage(isWorkspaceAdmin(session)); setCanonicalTeam(false); } catch (err: any) { setError(err?.message || "No se pudo cargar el equipo."); }
   });
   useEffect(() => { void load(); }, [session.role]);
   const invite = async (event: FormEvent) => { event.preventDefault(); setBusy(true); setMessage(""); try { const result = await api.inviteTeamMember({ email: form.email, role: form.role }); setMessage(result.invite?.link ? `Invitación creada: ${result.invite.link}` : "Invitación enviada."); setForm({ email: "", role: "viewer" }); setInviteOpen(false); await load(); } catch (err: any) { setMessage(err?.message || "No se pudo invitar al miembro."); } finally { setBusy(false); } };
@@ -6622,6 +6601,10 @@ function TeamView() {
       email: String(member.email || ""),
       role: String(member.role || "viewer"),
       sites: sitesForMember(member).length ? sitesForMember(member) : [site],
+      brandRoles: Object.fromEntries((Array.isArray(member.brands) ? member.brands : []).flatMap((brand: any) => {
+        const value = String(brand.role || member.role || "viewer");
+        return [brand.id, brand.handle].filter(Boolean).map((key) => [String(key), value]);
+      })),
       allowPublishingAs: Boolean(member.allowPublishingAs),
     });
   };
@@ -6631,7 +6614,7 @@ function TeamView() {
     setUserBusy(true);
     try {
       await api.updateUser(userForm);
-      if (canonicalTeam) await api.updateTeamMember(userForm.id, { role: userForm.role, brandIds: userForm.sites });
+      if (canonicalTeam) await api.updateTeamMember(userForm.id, { role: userForm.role, brandIds: userForm.sites, brandRoles: userForm.brandRoles });
       setUserForm(null);
       setMessage(t("admin.userSaved"));
       await load();
@@ -6680,19 +6663,28 @@ function TeamView() {
       setUserBusy(false);
     }
   };
-  return <main className="page"><PageHeader eyebrow="Espacio" title="Equipo y acceso" description="Roles y permisos de las personas que pueden revisar este contenido." actions={<Inline gap="sm">{canAdminUsers && <Button variant="ghost" onClick={() => nav("/admin")}>{t("admin.users")}</Button>}{canManage && <Button onClick={() => nav("/team/invite")}>Invitar miembro</Button>}</Inline>} />{error && <Card><p className="ui-field-error">{error}</p></Card>}{members.length ? <div className="ui-member-list">{members.map((member) => { const memberName = member.displayName || member.name || member.email || (member.userId === "system" ? "Escarlet" : member.userId) || "Miembro"; const id = userId(member); const canAct = canAdminUsers && Boolean(id) && id !== "system" && Boolean(member.email); return <Card key={member.id || member.userId || member.email}><div className="ui-card-head"><div className="ui-team-member"><UserAvatar src={member.avatarUrl} name={memberName} size="sm" /><div><h3>{memberName}</h3><p className="muted">{member.email || (member.brands || []).map((brand: any) => brand.name || brand.handle).join(", ")}</p></div></div><Badge tone="info">{roleLabel(member.role, t)}</Badge></div>{canAct && <div className="ui-card-actions ui-team-actions"><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => openUserEditor(member)} aria-label={t("admin.editUser")} title={t("admin.editUser")}><AdminActionIcon kind="edit" /></button><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => void issueOrRevokeUserToken(member)} aria-label={member.hasLoginToken ? t("admin.revokeToken") : t("admin.issueToken")} title={member.hasLoginToken ? t("admin.revokeToken") : t("admin.issueToken")}><AdminActionIcon kind="key" /></button><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => void sendUserMagicLink(member)} aria-label={t("admin.magicLink")} title={t("admin.magicLink")}><AdminActionIcon kind="mail" /></button></div>}</Card>; })}</div> : !error && <UiEmptyState title="Todavía no hay miembros" description={canManage ? "Invita a la primera persona para empezar a trabajar en equipo." : "Un administrador debe invitar a los miembros de este espacio."} action={canManage ? <Button onClick={() => nav("/team/invite")}>Invitar miembro</Button> : undefined} />}{message && <p className="success ui-team-message">{message}</p>}<Modal open={inviteOpen} title="Invitar miembro" onClose={() => setInviteOpen(false)}><form className="ui-stack ui-stack-md" onSubmit={(event) => void invite(event)}><Field label="Correo electrónico" required><TextField type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required autoFocus /></Field><Field label="Rol"><Select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}><option value="viewer">{roleLabel("viewer", t)}</option><option value="author">{roleLabel("author", t)}</option><option value="editor">{roleLabel("editor", t)}</option><option value="admin">{roleLabel("admin", t)}</option></Select></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setInviteOpen(false)}>Cancelar</Button><Button type="submit" loading={busy}>Enviar invitación</Button></Inline></form></Modal><Modal open={Boolean(userForm)} title={t("admin.editUser")} onClose={() => setUserForm(null)}>{userForm && <form className="ui-stack ui-stack-md" onSubmit={(event) => void saveUser(event)}><Field label={t("admin.userEmail")} required><TextField type="email" required value={userForm.email} onChange={(event) => setUserForm({ ...userForm, email: event.target.value })} /></Field><Field label={t("admin.userRole")} required><Select value={userForm.role} onChange={(event) => setUserForm({ ...userForm, role: event.target.value })}>{["owner", "admin", "editor", "author", "viewer"].map((role) => <option key={role} value={role}>{roleLabel(role, t)}</option>)}</Select></Field><fieldset className="ui-site-checks"><legend>{t("admin.userSites")}</legend>{availableSiteHandles.map((handle) => <label key={handle} className="ui-checkbox"><input type="checkbox" checked={userForm.sites.includes(handle)} onChange={(event) => setUserForm({ ...userForm, sites: event.target.checked ? uniqueSiteHandles([...userForm.sites, handle]) : userForm.sites.filter((item) => item !== handle) })} /><span>{handle}</span></label>)}</fieldset><label className="ui-toggle-row"><span><b>{t("settings.authorPermission")}</b><small>{t("settings.authorPermissionHelp")}</small></span><input type="checkbox" checked={userForm.allowPublishingAs} onChange={(event) => setUserForm({ ...userForm, allowPublishingAs: event.target.checked })} /></label><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setUserForm(null)}>{t("editor.close")}</Button><Button type="submit" disabled={!userForm.sites.length} loading={userBusy}>{t("admin.save")}</Button></Inline></form>}</Modal></main>;
+  return <main className="page"><PageHeader eyebrow="Espacio" title="Equipo y acceso" description="Roles y permisos de las personas que pueden revisar este contenido." actions={<Inline gap="sm">{canAdminUsers && <Button variant="ghost" onClick={() => nav("/admin")}>{t("admin.users")}</Button>}{canManage && <Button onClick={() => nav("/team/invite")}>Invitar miembro</Button>}</Inline>} />{error && <Card><p className="ui-field-error">{error}</p></Card>}{members.length ? <div className="ui-member-list">{members.map((member) => { const memberName = member.displayName || member.name || member.email || (member.userId === "system" ? "Escarlet" : member.userId) || "Miembro"; const id = userId(member); const canAct = canAdminUsers && Boolean(id) && id !== "system" && Boolean(member.email); return <Card key={member.id || member.userId || member.email}><div className="ui-card-head"><div className="ui-team-member"><UserAvatar src={member.avatarUrl} name={memberName} size="sm" /><div><h3>{memberName}</h3><p className="muted">{member.email || (member.brands || []).map((brand: any) => brand.name || brand.handle).join(", ")}</p></div></div><Badge tone="info">{roleLabel(member.role, t)}</Badge></div>{canAct && <div className="ui-card-actions ui-team-actions"><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => openUserEditor(member)} aria-label={t("admin.editUser")} title={t("admin.editUser")}><AdminActionIcon kind="edit" /></button><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => void issueOrRevokeUserToken(member)} aria-label={member.hasLoginToken ? t("admin.revokeToken") : t("admin.issueToken")} title={member.hasLoginToken ? t("admin.revokeToken") : t("admin.issueToken")}><AdminActionIcon kind="key" /></button><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => void sendUserMagicLink(member)} aria-label={t("admin.magicLink")} title={t("admin.magicLink")}><AdminActionIcon kind="mail" /></button></div>}</Card>; })}</div> : !error && <UiEmptyState title="Todavía no hay miembros" description={canManage ? "Invita a la primera persona para empezar a trabajar en equipo." : "Un administrador debe invitar a los miembros de este espacio."} action={canManage ? <Button onClick={() => nav("/team/invite")}>Invitar miembro</Button> : undefined} />}{message && <p className="success ui-team-message">{message}</p>}<Modal open={inviteOpen} title="Invitar miembro" onClose={() => setInviteOpen(false)}><form className="ui-stack ui-stack-md" onSubmit={(event) => void invite(event)}><Field label="Correo electrónico" required><TextField type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required autoFocus /></Field><Field label="Rol"><Select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}><option value="viewer">{roleLabel("viewer", t)}</option><option value="author">{roleLabel("author", t)}</option><option value="editor">{roleLabel("editor", t)}</option><option value="admin">{roleLabel("admin", t)}</option></Select></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setInviteOpen(false)}>Cancelar</Button><Button type="submit" loading={busy}>Enviar invitación</Button></Inline></form></Modal><Modal open={Boolean(userForm)} title={t("admin.editUser")} onClose={() => setUserForm(null)}>{userForm && <form className="ui-stack ui-stack-md" onSubmit={(event) => void saveUser(event)}><Field label={t("admin.userEmail")} required><TextField type="email" required value={userForm.email} onChange={(event) => setUserForm({ ...userForm, email: event.target.value })} /></Field><Field label={t("admin.userRole")} required><Select value={userForm.role} onChange={(event) => setUserForm({ ...userForm, role: event.target.value })}>{["owner", "admin", "editor", "author", "viewer"].map((role) => <option key={role} value={role}>{roleLabel(role, t)}</option>)}</Select></Field><fieldset className="ui-site-checks"><legend>{t("admin.userSites")}</legend>{availableSiteHandles.map((handle) => { const selected = userForm.sites.includes(handle); const brandRole = userForm.brandRoles[handle] || userForm.role; return <div key={handle} className="ui-team-brand-row"><label className="ui-checkbox"><input type="checkbox" checked={selected} onChange={(event) => setUserForm({ ...userForm, sites: event.target.checked ? uniqueSiteHandles([...userForm.sites, handle]) : userForm.sites.filter((item) => item !== handle) })} /><span>{handle}</span></label>{selected && <Select aria-label={`Rol en ${handle}`} value={brandRole} onChange={(event) => setUserForm({ ...userForm, brandRoles: { ...userForm.brandRoles, [handle]: event.target.value } })}><option value="owner">{roleLabel("owner", t)}</option><option value="admin">{roleLabel("admin", t)}</option><option value="editor">{roleLabel("editor", t)}</option><option value="author">{roleLabel("author", t)}</option><option value="viewer">{roleLabel("viewer", t)}</option></Select>}</div> })}</fieldset><label className="ui-toggle-row"><span><b>{t("settings.authorPermission")}</b><small>{t("settings.authorPermissionHelp")}</small></span><input type="checkbox" checked={userForm.allowPublishingAs} onChange={(event) => setUserForm({ ...userForm, allowPublishingAs: event.target.checked })} /></label><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setUserForm(null)}>{t("editor.close")}</Button><Button type="submit" disabled={!userForm.sites.length} loading={userBusy}>{t("admin.save")}</Button></Inline></form>}</Modal></main>;
 }
 
 function TeamInviteView() {
   const nav = useNavigate();
-  const { session } = useApp();
+  const { session, productContext } = useApp();
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("viewer");
+  const [brandIds, setBrandIds] = useState<string[]>([]);
+  const [brandRoles, setBrandRoles] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-  if (!isAdmin(session.role)) return <main className="page narrow"><UiEmptyState title="No tienes permisos para invitar" description="Solicita acceso a un administrador del espacio." action={<Button onClick={() => nav("/team")}>Volver al equipo</Button>} /></main>;
-  const submit = async (event: FormEvent) => { event.preventDefault(); setBusy(true); setMessage(""); try { const result = await api.inviteTeamMember({ email, role }); setMessage(result.invite?.link ? `Invitación creada: ${result.invite.link}` : "Invitación enviada."); setEmail(""); } catch (err: any) { setMessage(err?.message || "No se pudo invitar al miembro."); } finally { setBusy(false); } };
-  return <main className="page narrow"><PageHeader eyebrow="Equipo y acceso" title="Invitar miembro" description="Elige el rol inicial. Podrás asignar marcas y ajustar permisos después." back={<NavLink to="/team">← Volver al equipo</NavLink>} /><Card><form className="ui-stack ui-stack-md" onSubmit={(event) => void submit(event)}><Field label="Correo electrónico" required><TextField type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoFocus /></Field><Field label="Rol"><Select value={role} onChange={(event) => setRole(event.target.value)}><option value="viewer">Visor</option><option value="author">Autor</option><option value="editor">Editor</option><option value="admin">Administrador</option></Select></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => nav("/team")}>Cancelar</Button><Button type="submit" loading={busy}>Enviar invitación</Button></Inline>{message && <p className={message.startsWith("No se") ? "ui-field-error" : "success"}>{message}</p>}</form></Card></main>;
+  const brands = productContext?.brands || (session.sites || []).map((handle) => ({ id: handle, handle, name: handle }));
+  useEffect(() => {
+    if (!brandIds.length && brands.length) {
+      setBrandIds(brands.map((brand) => brand.id));
+      setBrandRoles(Object.fromEntries(brands.map((brand) => [brand.id, role])));
+    }
+  }, [brands, brandIds.length, role]);
+  if (!isWorkspaceAdmin(session)) return <main className="page narrow"><UiEmptyState title="No tienes permisos para invitar" description="Solicita acceso a un administrador del espacio." action={<Button onClick={() => nav("/team")}>Volver al equipo</Button>} /></main>;
+  const submit = async (event: FormEvent) => { event.preventDefault(); if (!brandIds.length) { setMessage("Selecciona al menos una marca."); return; } setBusy(true); setMessage(""); try { const result = await api.inviteTeamMember({ email, role, brandIds, brandRoles }); setMessage(result.invite?.link ? `Invitación creada: ${result.invite.link}` : "Invitación enviada."); setEmail(""); } catch (err: any) { setMessage(err?.message || "No se pudo invitar al miembro."); } finally { setBusy(false); } };
+  return <main className="page narrow"><PageHeader eyebrow="Equipo y acceso" title="Invitar miembro" description="Asigna una o varias marcas y un rol independiente para cada una." back={<NavLink to="/team">← Volver al equipo</NavLink>} /><Card><form className="ui-stack ui-stack-md" onSubmit={(event) => void submit(event)}><Field label="Correo electrónico" required><TextField type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoFocus /></Field><Field label="Rol predeterminado"><Select value={role} onChange={(event) => { setRole(event.target.value); setBrandRoles((current) => Object.fromEntries(Object.entries(current).map(([id]) => [id, event.target.value]))); }}><option value="viewer">Visor</option><option value="author">Autor</option><option value="editor">Editor</option><option value="admin">Administrador</option></Select></Field><fieldset className="ui-site-checks"><legend>Marcas y rol</legend>{brands.map((brand) => { const selected = brandIds.includes(brand.id); return <div key={brand.id} className="ui-team-brand-row"><label className="ui-checkbox"><input type="checkbox" checked={selected} onChange={(event) => setBrandIds((current) => event.target.checked ? [...current, brand.id] : current.filter((id) => id !== brand.id))} /><span>{brand.name || brand.handle || brand.id}</span></label>{selected && <Select aria-label={`Rol en ${brand.name || brand.handle || brand.id}`} value={brandRoles[brand.id] || role} onChange={(event) => setBrandRoles((current) => ({ ...current, [brand.id]: event.target.value }))}><option value="owner">Owner</option><option value="admin">Administrador</option><option value="editor">Editor</option><option value="author">Autor</option><option value="viewer">Visor</option></Select>}</div> })}</fieldset><Inline gap="md"><Button type="button" variant="ghost" onClick={() => nav("/team")}>Cancelar</Button><Button type="submit" loading={busy}>Enviar invitación</Button></Inline>{message && <p className={message.startsWith("No se") ? "ui-field-error" : "success"}>{message}</p>}</form></Card></main>;
 }
 
 function BrandDetailView() {
@@ -6726,7 +6718,7 @@ function BrandIdentityView() {
   const [busy, setBusy] = useState(false);
   const [brandZipBusy, setBrandZipBusy] = useState(false);
   const brandZipInputRef = useRef<HTMLInputElement | null>(null);
-  const canEdit = isAdmin(session.role);
+  const canEdit = isWorkspaceAdmin(session);
   const canImportBrandKit = session.role === "admin";
   useEffect(() => {
     let active = true;
@@ -6890,7 +6882,7 @@ function BrandChannelsView() {
   const [brand, setBrand] = useState<BrandSummary | null>(null);
   const [web, setWeb] = useState({ domain: "", rebuildWebhookUrl: "", token: "" });
   const [busy, setBusy] = useState(false);
-  const canManage = isAdmin(session.role);
+  const canManage = isWorkspaceAdmin(session);
   useEffect(() => { Promise.all([api.brandV2(brandId), api.brandChannels(brandId), api.brandConnections(brandId), api.brandCapabilities(brandId)]).then(([brandResult, channelResult, connectionResult, capResult]) => { setBrand(brandResult.brand); setChannels(channelResult.channels || []); setCaps(capResult.capabilities || {}); const connection = (connectionResult.connections || []).find((item) => item.channel === "blog" && item.provider === "web"); setWeb({ domain: String(connection?.config?.domain || brandResult.brand.domain || ""), rebuildWebhookUrl: String(connection?.config?.rebuildWebhookUrl || ""), token: "" }); }).catch(() => undefined); }, [brandId]);
   const save = async () => { setBusy(true); try { const channelMap = Object.fromEntries(channels.map((channel) => [channel.channel, channel.enabled])); await api.updateBrandChannels(brandId, channelMap); await api.updateBrandCapabilities(brandId, { ...caps, content_publishing: Object.values(channelMap).some(Boolean), blog_publishing: Boolean(channelMap.blog) }); if (channelMap.blog && (web.domain || web.rebuildWebhookUrl || web.token)) { await api.updateBrandV2(brandId, { domain: web.domain || undefined }); await api.saveBrandConnection(brandId, { provider: "web", channel: "blog", token: web.token || undefined, config: { domain: web.domain, rebuildWebhookUrl: web.rebuildWebhookUrl } }); } showToast("Canales y capacidades guardados."); } catch (err: any) { showToast(err?.message || "No se pudo guardar la configuración.", "error"); } finally { setBusy(false); } };
   return <main className="page"><PageHeader eyebrow="Marca · Canales" title={brand?.name || "Canales activos"} description="Activa solo los canales que esta marca utiliza. Cada uno puede tener su propia conexión primaria." back={<NavLink to={`/brands/${encodeURIComponent(brandId)}`}>← Volver a la marca</NavLink>} actions={canManage ? <Button onClick={() => void save()} loading={busy}>Guardar cambios</Button> : undefined} /><div className="ui-channel-settings-grid"><Card><span className="ui-eyebrow">Canales</span><h2>Publicación multicanal</h2><Stack gap="sm">{channels.map((channel) => <label className="ui-toggle-row" key={channel.channel}><span><b>{channel.channel === "x" ? "X" : channel.channel.charAt(0).toUpperCase() + channel.channel.slice(1)}</b><small>{channel.enabled ? "Activo" : "Inactivo"}</small></span><input type="checkbox" disabled={!canManage} checked={Boolean(channel.enabled)} onChange={(event) => setChannels((current) => current.map((item) => item.channel === channel.channel ? { ...item, enabled: event.target.checked } : item))} /></label>)}</Stack></Card><Card><span className="ui-eyebrow">Usos de marca</span><h2>Capacidades</h2><Stack gap="sm"><label className="ui-toggle-row"><span><b>Presentaciones</b><small>Permite usar el brand kit desde ChatGPT/MCP.</small></span><input type="checkbox" disabled={!canManage} checked={Boolean(caps.presentation_generation)} onChange={(event) => setCaps((current) => ({ ...current, presentation_generation: event.target.checked }))} /></label><label className="ui-toggle-row"><span><b>Publicaciones</b><small>Se activa automáticamente al encender un canal.</small></span><input type="checkbox" checked={Boolean(caps.content_publishing)} readOnly /></label></Stack></Card>{channels.some((channel) => channel.channel === "blog" && channel.enabled) && <Card className="ui-blog-connection-card"><span className="ui-eyebrow">Conexión del canal Blog</span><h2>Web y webhook</h2><p className="muted">Estos datos solo aparecen porque el canal Blog está activo.</p><Stack gap="md"><Field label="Dominio público"><TextField type="url" value={web.domain} onChange={(event) => setWeb({ ...web, domain: event.target.value })} placeholder="https://marca.com" /></Field><Field label="Webhook de rebuild"><TextField value={web.rebuildWebhookUrl} onChange={(event) => setWeb({ ...web, rebuildWebhookUrl: event.target.value })} placeholder="https://…" /></Field><Field label="Token de la conexión" hint="Se cifra y no vuelve a mostrarse."><TextField type="password" value={web.token} onChange={(event) => setWeb({ ...web, token: event.target.value })} placeholder="Pega un token nuevo para reemplazarlo" /></Field></Stack></Card>}</div></main>;
@@ -6920,7 +6912,7 @@ function LegacyConnectionsView({ brandId }: { brandId?: string }) {
   const connect = async (event: FormEvent) => { event.preventDefault(); setBusy(true); setMessage(""); try { await api.saveBrandConnection(selectedBrandId, { ...form, provider: form.provider, token: form.userToken, userToken: form.userToken, apiToken: ["planable", "postiz", "buffer"].includes(form.provider) ? form.userToken : undefined, workspaceId: form.provider === "planable" ? form.workspaceId : undefined, pageId: form.provider === "planable" ? form.pageId : undefined, integrationId: form.provider === "postiz" ? form.integrationId : undefined, organizationId: form.provider === "buffer" ? form.organizationId : undefined, channelId: form.provider === "buffer" ? form.channelId : undefined, apiBaseUrl: form.provider === "postiz" ? form.apiBaseUrl : undefined, providerType: form.provider === "postiz" ? form.providerType : undefined, config: { ...(form.provider === "metricool" ? { blogId: form.blogId } : {}), ...(form.provider === "planable" ? { workspaceId: form.workspaceId, pageId: form.pageId } : {}), ...(form.provider === "postiz" ? { apiBaseUrl: form.apiBaseUrl, integrationId: form.integrationId, providerType: form.providerType } : {}), ...(form.provider === "buffer" ? { organizationId: form.organizationId, channelId: form.channelId } : {}), timezone: form.timezone } }); const result = await api.brandConnections(selectedBrandId); setConnections(result.connections || []); setMessage("Conexión guardada y lista para probar."); setForm((current) => ({ ...current, userToken: "" })); } catch (err: any) { setMessage(err?.message || "No se pudo guardar la conexión."); } finally { setBusy(false); } };
   const loadPostizAccounts = async () => { if (!form.userToken) { setMessage("Pega primero la API key u OAuth token de Postiz."); return; } setLoadingPostizIntegrations(true); setMessage(""); try { const result = await api.postizIntegrations(selectedBrandId, { apiToken: form.userToken, apiBaseUrl: form.apiBaseUrl || undefined }); const integrations = result.integrations || []; setPostizIntegrations(integrations); if (integrations.length === 1) setForm((current) => ({ ...current, integrationId: String(integrations[0].id || ""), providerType: String(integrations[0].identifier || current.providerType || "") })); setMessage(integrations.length ? "Cuentas de Postiz cargadas." : "Postiz no devolvió cuentas conectadas."); } catch (err: any) { setMessage(err?.message || "No se pudieron cargar las cuentas de Postiz."); } finally { setLoadingPostizIntegrations(false); } };
   const loadBufferChannels = async (organizationId = form.organizationId) => { if (!form.userToken) { setMessage("Pega primero la API key de Buffer."); return; } setLoadingBufferChannels(true); setMessage(""); try { const result = await api.bufferChannels(selectedBrandId, { apiToken: form.userToken, organizationId: organizationId || undefined }); const organizations = result.organizations || []; const selectedOrganizationId = String(result.organizationId || organizationId || organizations[0]?.id || ""); const channels = result.channels || []; setBufferOrganizations(organizations); setBufferChannels(channels); setForm((current) => ({ ...current, organizationId: selectedOrganizationId, channelId: current.channelId || String(channels[0]?.id || "") })); setMessage(channels.length ? "Canales de Buffer cargados." : "Buffer no devolvió canales para esa organización."); } catch (err: any) { setMessage(err?.message || "No se pudieron cargar los canales de Buffer."); } finally { setLoadingBufferChannels(false); } };
-  const canManage = isAdmin(session.role);
+  const canManage = isWorkspaceAdmin(session);
   const brandOptions = productContext?.brands || [];
   /*
   return <main className="page"><PageHeader eyebrow="Proveedores por canal" title="Conexiones" description="Postiz, Metricool, Planable, web y futuros proveedores se gestionan desde un único catálogo." actions={!brandId && brandOptions.length > 1 ? <Select aria-label="Filtrar por marca" value={selectedBrandId} onChange={(event) => setSelectedBrandId(event.target.value)}>{brandOptions.map((brand) => <option key={brand.id} value={brand.id}>{brand.name || brand.handle}</option>)}</Select> : undefined} />{error && <Card><p className="ui-field-error">{error}</p></Card>}{connections.length ? <div className="ui-connection-grid">{connections.map((connection) => <ConnectionCard key={connection.id} provider={`${connection.provider || "Proveedor"} · ${connection.channel || "canal"}`} status={connection.status || (connection.enabled ? "connected" : "disabled")} account={connection.externalAccountId || connection.userId ? `Cuenta ${connection.externalAccountId || connection.userId}` : undefined} actions={<Inline gap="sm"><Button variant="ghost" size="sm" onClick={async () => { try { await api.testConnection(connection.id, selectedBrandId); setMessage("Prueba correcta."); } catch (err: any) { setMessage(err?.message || "La prueba falló."); } }}>Probar</Button>{canManage && <Button variant="ghost" size="sm" onClick={async () => { try { await api.disconnectConnection(connection.id, selectedBrandId); setConnections((current) => current.filter((item) => item.id !== connection.id)); } catch (err: any) { setMessage(err?.message || "No se pudo desconectar."); } }}>Desconectar</Button>}</Inline>} />)}</div> : !error && <UiEmptyState title="Aún no hay conexiones" description="Activa un canal y conecta el proveedor que lo ejecutará." />}{canManage && <Card className="ui-connection-form"><div className="ui-card-head"><div><span className="ui-eyebrow">Administrador</span><h2>Añadir conexión</h2></div></div><form className="ui-stack ui-stack-md" onSubmit={(event) => void connect(event)}><Field label="Proveedor"><Select value={form.provider} onChange={(event) => { setForm((current) => { const provider = event.target.value; return { ...current, provider, channel: provider === "postiz" || current.channel !== "blog" ? current.channel : "instagram" }; }); setPostizIntegrations([]); }}><option value="postiz">Postiz (self-hosted)</option><option value="metricool">Metricool</option><option value="planable">Planable.io</option><option value="web">Web / WordPress</option></Select></Field><Field label="Canal"><Select value={form.channel} onChange={(event) => setForm({ ...form, channel: event.target.value })}>{availableChannels.filter((channel) => channel.enabled && (channel.channel !== "blog" || form.provider === "postiz")).map((channel) => <option key={channel.channel} value={channel.channel}>{channel.channel}</option>)}</Select></Field><Field label={form.provider === "planable" || form.provider === "postiz" ? (form.provider === "postiz" ? "API key / OAuth token" : "API token") : "Token"} hint={form.provider === "planable" ? "Planable → Ajustes de cuenta → Integraciones → Public API. Se cifra en el servidor y nunca se vuelve a mostrar." : form.provider === "postiz" ? "Postiz → Settings → Developers → Public API. Para OAuth usa el token pos_…; se cifra en el servidor." : "Se cifra en el servidor y nunca se vuelve a mostrar."} required><TextField type="password" value={form.userToken} onChange={(event) => setForm({ ...form, userToken: event.target.value })} required /></Field>{form.provider === "postiz" && <><Field label="URL de Postiz" hint="Deja vacío para Postiz Cloud. En self-hosted usa la URL pública, por ejemplo https://sociales.marca.com/api."><TextField type="url" value={form.apiBaseUrl} onChange={(event) => setForm({ ...form, apiBaseUrl: event.target.value })} placeholder="https://postiz.tudominio.com/api" /></Field><Inline gap="md"><Field label="Integration ID" hint="Es el id de la cuenta conectada que devuelve GET /integrations." required><TextField value={form.integrationId} onChange={(event) => setForm({ ...form, integrationId: event.target.value })} required /></Field><Button type="button" variant="ghost" size="sm" onClick={() => void loadPostizAccounts()} loading={loadingPostizIntegrations}>Cargar cuentas</Button><Field label="Tipo de proveedor" hint="Opcional; se deduce del canal (video → youtube)."><TextField value={form.providerType} onChange={(event) => setForm({ ...form, providerType: event.target.value })} placeholder="instagram, linkedin, x…" /></Field></Inline>{postizIntegrations.length > 0 && <Field label="Cuenta conectada"><Select value={form.integrationId} onChange={(event) => { const integration = postizIntegrations.find((item) => String(item.id) === event.target.value); setForm({ ...form, integrationId: event.target.value, providerType: String(integration?.identifier || form.providerType || "") }); }}>{postizIntegrations.map((integration) => <option key={integration.id} value={integration.id}>{integration.name || integration.profile || integration.identifier || integration.id} · {integration.identifier || "canal"}</option>)}</Select></Field>}</>}{form.provider === "metricool" && <Inline gap="md"><Field label="userId" required><TextField value={form.userId} onChange={(event) => setForm({ ...form, userId: event.target.value })} required /></Field><Field label="blogId" required><TextField value={form.blogId} onChange={(event) => setForm({ ...form, blogId: event.target.value })} required /></Field></Inline>}{form.provider === "planable" && <Inline gap="md"><Field label="Workspace ID" hint="Lo encuentras en la URL o en la API de Planable." required><TextField value={form.workspaceId} onChange={(event) => setForm({ ...form, workspaceId: event.target.value })} required /></Field><Field label="Page ID" hint="La cuenta social de Planable que recibirá esta variante." required><TextField value={form.pageId} onChange={(event) => setForm({ ...form, pageId: event.target.value })} required /></Field></Inline>}<Field label="Zona horaria"><TextField value={form.timezone} onChange={(event) => setForm({ ...form, timezone: event.target.value })} /></Field><Button type="submit" loading={busy}>Guardar conexión</Button>{message && <p className={message.includes("falló") || message.includes("No se") ? "ui-field-error" : "success"}>{message}</p>}</form></Card>}</main>;
@@ -6942,8 +6934,6 @@ function ConnectionsView({ brandId, backTo }: { brandId?: string; backTo?: strin
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [mcpInfo, setMcpInfo] = useState<Record<string, any> | null>(null);
-  const [mcpToken, setMcpToken] = useState("");
-  const [mcpBusy, setMcpBusy] = useState(false);
 
   useEffect(() => { setSelectedBrandId(brandId || productContext?.activeBrand?.id || site); }, [brandId, productContext?.activeBrand?.id, site]);
   useEffect(() => {
@@ -7014,42 +7004,24 @@ function ConnectionsView({ brandId, backTo }: { brandId?: string; backTo?: strin
     } catch (err: any) { setMessage(err?.message || "No se pudieron cargar los canales de Buffer."); } finally { setLoadingBufferChannels(false); }
   };
 
-  const canManage = isAdmin(session.role);
+  const canManage = isWorkspaceAdmin(session);
   const brandOptions = productContext?.brands || [];
   const selectedBrandHandle = brandOptions.find((brand) => brand.id === selectedBrandId)?.handle || selectedBrandId;
   useEffect(() => {
     if (!selectedBrandHandle) return;
     setMcpInfo(null);
-    setMcpToken("");
-    api.mcpConnection(selectedBrandHandle)
-      .then((result) => setMcpInfo(result))
-      .catch(() => setMcpInfo(null));
+    api.mcpConnection(selectedBrandHandle).then(setMcpInfo).catch(() => setMcpInfo(null));
   }, [selectedBrandHandle]);
-  const copyMcpValue = async (value: string, label: string) => {
-    if (!value) return;
-    await navigator.clipboard?.writeText(value).catch(() => {});
-    setMessage(`${label} copiado.`);
-  };
-  const issueMcpToken = async () => {
-    if (!selectedBrandHandle || session.role !== "admin") return;
-    setMcpBusy(true);
-    setMessage("");
-    try {
-      const result = await api.issueSiteToken(selectedBrandHandle, true);
-      setMcpToken(result.siteAccessToken || "");
-      setMcpInfo((current) => ({ ...(current || {}), ...result }));
-      setMessage("Token MCP generado. Cópialo ahora; no se volverá a mostrar.");
-    } catch (err: any) {
-      setMessage(err?.message || "No se pudo generar el token MCP.");
-    } finally {
-      setMcpBusy(false);
-    }
+  const copyMcpUrl = async () => {
+    if (!mcpInfo?.mcpUrl) return;
+    await navigator.clipboard?.writeText(mcpInfo.mcpUrl).catch(() => {});
+    setMessage("URL del MCP copiada.");
   };
   const tokenLabel = form.provider === "postiz" ? "API key / OAuth token" : form.provider === "planable" ? "API token" : form.provider === "buffer" ? "API key de Buffer" : "Token";
   return <main className="page">
     <PageHeader eyebrow={brandId ? `Marca · ${brandOptions.find((brand) => brand.id === selectedBrandId)?.name || brandOptions.find((brand) => brand.id === selectedBrandId)?.handle || "Conexiones"}` : "Proveedores por canal"} title="Conexiones" description="Buffer, Postiz, Metricool, Planable, web y futuros proveedores se gestionan desde un único catálogo." back={backTo ? <NavLink to={backTo}>← Volver a la marca</NavLink> : undefined} actions={!brandId && brandOptions.length > 1 ? <Select aria-label="Filtrar por marca" value={selectedBrandId} onChange={(event) => setSelectedBrandId(event.target.value)}>{brandOptions.map((brand) => <option key={brand.id} value={brand.id}>{brand.name || brand.handle}</option>)}</Select> : undefined} />
     {error && <Card><p className="ui-field-error">{error}</p></Card>}
-    <Card className="ui-mcp-card"><div className="ui-card-head"><div><span className="ui-eyebrow">Conexión externa</span><h2>Conectar esta marca con ChatGPT</h2><p className="muted">Usa el MCP para crear contenido, consultar el brand kit o trabajar con esta marca desde ChatGPT.</p></div>{mcpInfo?.agentIcon?.exists && mcpInfo.agentIcon.url && <img className="ui-mcp-icon" src={mcpInfo.agentIcon.url} alt="Icono de la marca" />}</div>{mcpInfo?.mcpUrl ? <div className="ui-mcp-details"><div className="ui-mcp-value"><div><span className="ui-field-label">URL del MCP</span><code>{mcpInfo.mcpUrl}</code></div><Button type="button" variant="ghost" size="sm" onClick={() => void copyMcpValue(mcpInfo.mcpUrl, "URL del MCP")}>Copiar</Button></div><p className="ui-field-hint">En ChatGPT añade esta URL como conector y completa OAuth. Para Cursor/Hermes usa Bearer. También puedes generar tu token personal en Ajustes.</p>{mcpToken && <div className="ui-mcp-value ui-mcp-token"><div><span className="ui-field-label">Token de esta marca</span><code>{mcpToken}</code></div><Button type="button" variant="ghost" size="sm" onClick={() => void copyMcpValue(mcpToken, "Token MCP")}>Copiar</Button></div>}{session.role === "admin" && <Button type="button" variant="secondary" size="sm" loading={mcpBusy} onClick={() => void issueMcpToken()}>{mcpToken ? "Generar otro token" : "Generar token MCP"}</Button>}{session.role !== "admin" && <p className="ui-field-hint">Solo un administrador puede generar o rotar el token de esta marca. Usa tu token personal desde Ajustes si necesitas conectarla.</p>}</div> : <p className="ui-field-error">No se pudo cargar la configuración MCP de esta marca.</p>}</Card>
+    <Card className="ui-mcp-card"><div className="ui-card-head"><div><span className="ui-eyebrow">Conexión externa</span><h2>Conectar esta marca con ChatGPT</h2><p className="muted">Añade la URL del MCP y completa OAuth con tu cuenta. El acceso se resuelve por tus membresías actuales de marca.</p></div></div>{mcpInfo?.mcpUrl && <div className="ui-mcp-value"><div><span className="ui-field-label">URL del MCP</span><code>{mcpInfo.mcpUrl}</code></div><Button type="button" variant="ghost" size="sm" onClick={() => void copyMcpUrl()}>Copiar</Button></div>}<p className="ui-field-hint">No existen tokens de marca. Para Cursor, Claude u otros clientes usa tu PAT personal desde Ajustes o el flujo OAuth.</p></Card>
     {connections.length ? <div className="ui-connection-grid">{connections.map((connection) => <ConnectionCard key={connection.id} provider={`${connection.provider || "Proveedor"} · ${connection.channel || "canal"}`} status={connection.status || (connection.enabled ? "connected" : "disabled")} account={connection.externalAccountId || connection.userId ? `Cuenta ${connection.externalAccountId || connection.userId}` : undefined} actions={<Inline gap="sm"><Button variant="ghost" size="sm" onClick={async () => { try { await api.testConnection(connection.id, selectedBrandId); setMessage("Prueba correcta."); } catch (err: any) { setMessage(err?.message || "La prueba falló."); } }}>Probar</Button>{canManage && <Button variant="ghost" size="sm" onClick={async () => { try { await api.disconnectConnection(connection.id, selectedBrandId); setConnections((current) => current.filter((item) => item.id !== connection.id)); } catch (err: any) { setMessage(err?.message || "No se pudo desconectar."); } }}>Desconectar</Button>}</Inline>} />)}</div> : !error && <UiEmptyState title="Aún no hay conexiones" description="Activa un canal y conecta el proveedor que lo ejecutará." />}
     {canManage && <Card className="ui-connection-form"><div className="ui-card-head"><div><span className="ui-eyebrow">Administrador</span><h2>Añadir conexión</h2></div></div><form className="ui-stack ui-stack-md" onSubmit={(event) => void connect(event)}>
       <Field label="Proveedor"><Select value={form.provider} onChange={(event) => { const provider = event.target.value; setForm((current) => ({ ...current, provider, channel: provider === "web" ? "blog" : current.channel === "blog" ? "instagram" : current.channel })); setPostizIntegrations([]); setBufferOrganizations([]); setBufferChannels([]); }}><option value="buffer">Buffer (API)</option><option value="postiz">Postiz (self-hosted)</option><option value="metricool">Metricool</option><option value="planable">Planable.io</option><option value="web">Web / WordPress</option></Select></Field>

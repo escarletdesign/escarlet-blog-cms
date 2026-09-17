@@ -26,12 +26,13 @@ El agente separa pasos tuyos (webhook, tokens) de lo que hace él (sync, rutas, 
 
 ---
 
-## Acceso por sitio (tokens)
+## Acceso de usuario y membresías
 
-- **Admin global** (`ADMIN_TOKEN`). Ve todos los sitios, crea handles, webhooks y tokens de cliente.
-- **Token de sitio**. En `/app/admin` → Sitio → Token de acceso del cliente → Generar. Ese token solo gestiona ese handle (app + MCP).
+- **Admin global** (`ADMIN_TOKEN`). Es un secreto de servidor para operaciones internas, no una credencial humana ni de MCP.
+- **Token personal (PAT)**. En Ajustes del perfil genera un token revocable. El acceso a cada marca se deriva de tus membresías actuales.
+- **OAuth**. ChatGPT y Claude autorizan al usuario y reciben el mismo alcance dinámico que su PAT.
 
-Los clientes reciben su token. Tú te quedas con el `ADMIN_TOKEN`.
+Las invitaciones asignan una o varias marcas y un rol independiente por marca. Revocar una membresía corta el acceso sin reconectar el cliente.
 
 ## A. Site nuevo en el CMS (5 min)
 
@@ -148,13 +149,13 @@ Plugin principal. [`../integrations/wordpress-blog-client`](../integrations/word
 |-------|----------------|
 | Sync | `GET /api/sites/{handle}/posts` → entradas nativas en `/blog` |
 | Webhook | `GET/POST /wp-json/escarlet-blog/v1/sync` con Bearer. Pégalo en CMS → Sitio como webhook |
-| Panel | wp-admin → Escarlet Blog → Abrir panel Escarlet (SSO con token de sitio) |
+| Panel | wp-admin → Escarlet Blog → Abrir panel Escarlet (SSO con PAT personal) |
 | Packs | Se usan en el CMS Escarlet. WordPress **no** genera HTML estático de packs |
 
 ### Pasos
 
 1. Activa el plugin en WordPress.
-2. Escarlet Blog → Ajustes. `BLOG_CMS_URL`, handle, token de sitio (CMS → Sitio → Generar).
+2. Escarlet Blog → Ajustes. `BLOG_CMS_URL`, handle y PAT personal generado en el perfil.
 3. Copia URL de webhook + secreto Bearer al CMS → Sitio. Probar webhook.
 4. Publica un post en el CMS → sync → `https://dominio/blog/{slug}`.
 5. Packs y edición. botón Abrir panel Escarlet (o la fila «Abrir pack en CMS»).
@@ -173,14 +174,14 @@ SSO. El plugin llama `POST /api/embed/session` y redirige a `/api/embed/consume?
     "escarlet-blog": {
       "url": "https://blog-cms.escarlet.cc/mcp",
       "headers": {
-        "Authorization": "Bearer EL_MISMO_ADMIN_TOKEN_DEL_CMS"
+        "Authorization": "Bearer TU_PAT_PERSONAL_user_..."
       }
     }
   }
 }
 ```
 
-ChatGPT. Connectors → Create → URL `https://blog-cms.escarlet.cc/mcp` → OAuth. Es el mismo conector para todos los roles. Al autorizar pega el token de usuario (`user_...`), sesión (`sess_...`), agencia, sitio (`/app/admin` → Sitio → Generar token) o `ADMIN_TOKEN`. El MCP conserva rol, usuario y sitios asignados; no concede acceso adicional. El panel también ofrece el PNG del favicon (<10 KB) en `/media/{handle}/agent-icon.png`.
+ChatGPT. Connectors → Create → URL `https://blog-cms.escarlet.cc/mcp` → OAuth. Es el mismo conector para todos los roles. También puedes usar un PAT personal (`user_...`) en clientes que acepten Bearer. El MCP conserva rol, usuario y marcas asignadas; no concede acceso adicional. El panel también ofrece el PNG del favicon (<10 KB) en `/media/{handle}/agent-icon.png`.
 
 Claude. Customize → Connectors → Add custom connector → URL `https://blog-cms.escarlet.cc/mcp` → OAuth. Usa los mismos tokens y el mismo alcance por rol. Puede usar el mismo icono PNG.
 
@@ -201,7 +202,7 @@ Claude. Customize → Connectors → Add custom connector → URL `https://blog-
 | Editar | `blog_get_post` + `blog_update_post` (mismo slug) |
 | Setup site | `blog_get_onboarding` / `blog_create_site` |
 
-**Token de cliente.** El token estándar solo toca `AGENT.md`, `keywords.md` e imágenes de referencia. El rol `client_mcp` puede leer el brandkit completo en modo solo lectura; ningún token MCP puede usar la IA del CMS.
+**Acceso MCP.** OAuth y los PAT personales comparten la identidad del usuario. El contexto normalizado de la marca incluye voz, keywords, paleta, tipografías, composición, arquetipos, templates y referencias aprobadas. Los archivos fuente privados no se solicitan ni se entregan al MCP.
 
 **Sitio.** Interruptor «Confirmar publicaciones programadas» (default on). Con él, un post programado espera tu OK antes de entrar en cola.
 
@@ -221,10 +222,14 @@ Prohibido. Commitear posts al git del frontend. Usar `create_draft` para editar.
 
 ## E. Checklist rápido
 
+### Registro y membresías
+
+`POST /api/auth/register` permite el alta propia cuando no hay sesión. El usuario crea su workspace y su primera marca, recibe membresía `owner` y puede generar un PAT personal. Las invitaciones posteriores aceptan varias marcas y un rol independiente por marca mediante `brandIds` y `brandRoles`. Revocar la fila de `workspace_member_sites` corta el acceso de inmediato en la app y en MCP.
+
 - [ ] `site:init` o `blog_create_site` con handle + domain
 - [ ] Brand kit relleno + 2–4 referencias
 - [ ] Frontend Vite. sync en prebuild + env Coolify **o** WordPress. plugin + webhook de sync
-- [ ] Webhook + token en tab Sitio (probado)
+- [ ] Webhook + secreto del proveedor en tab Sitio (probado)
 - [ ] Interruptor Blog en la web pública encendido
 - [ ] MCP `/mcp` + regla `blog-via-mcp.mdc` con el handle correcto (landings Vite)
 - [ ] Publicar post de prueba → rebuild/sync → aparece en `/blog/{slug}`

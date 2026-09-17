@@ -82,8 +82,8 @@ Deploy producción. [docs/DEPLOY.md](docs/DEPLOY.md).
 | `blog_cancel_schedule` | Cancelar programación |
 | `blog_list_calendar` | Posts del calendario |
 | `blog_get_seo_context` | Keywords y reglas |
-| `blog_get_brand_context` | Contexto de marca (site token sin voz ni image-spec) |
-| `blog_update_brand_file` | Site token. solo AGENT.md y keywords.md |
+| `blog_get_brand_context` | Contexto normalizado completo de la marca por membresía |
+| `blog_update_brand_file` | Actualiza archivos permitidos desde la app con PAT personal |
 | `blog_upload_media` | PNG/JPG en `contentBase64` o `blob` (2–3 MB valen). `kind` `post` o `social`. El CMS comprime a JPEG. Si recorta, `uploadId` a trozos |
 | `blog_import_remote_image` | Solo URL https pública (atajo) |
 | `blog_import_brand_zip` | ZIP de brand kit (cualquier estructura). Preferir `zipUrl` |
@@ -93,7 +93,7 @@ Deploy producción. [docs/DEPLOY.md](docs/DEPLOY.md).
 | `content_approve` / `content_reject` | Revisión individual o masiva |
 | `content_schedule` | Agenda individual o masiva; entrega a outbox/Buffer, Metricool, Planable o Postiz según la conexión de la marca |
 
-Resources. `brand://{handle}/voice`, `keywords`, `agent`, `image-guide`, `visual-style`, `image-spec`
+Resources. `brand://{handle}/context` devuelve el contexto normalizado completo. Los archivos fuente privados solo se gestionan desde la app por owner/admin; `AGENT.md` y `keywords.md` quedan como adaptadores de compatibilidad.
 
 Contratos HTTP v2: `/api/v2/content/batches`, `/api/v2/content/items` (incluye revisión, cancelación y agenda), `/api/v2/usage`, `/api/v2/brand-kits` y `/api/v2/brands/:id/connections` (Buffer, Postiz, Metricool, Planable y web). App y MCP llaman al mismo servicio de dominio; `/api/sites/:handle/posts` permanece como read adapter público.
 
@@ -105,16 +105,16 @@ Hermes (otro servidor) no clona el CMS. En su `mcp.json`:
     "escarlet-blog": {
       "url": "https://blog-cms.escarlet.cc/mcp",
       "headers": {
-        "Authorization": "Bearer EL_MISMO_ADMIN_TOKEN_DEL_CMS"
+        "Authorization": "Bearer TU_PAT_PERSONAL_user_..."
       }
     }
   }
 }
 ```
 
-ChatGPT (Developer Mode / Connectors). URL `https://blog-cms.escarlet.cc/mcp`, autenticación **OAuth**. Es el mismo conector para todos los roles: al autorizar pega el token de usuario (`user_...`), sesión (`sess_...`), agencia, sitio o `ADMIN_TOKEN`. El token conserva rol, usuario y sitios asignados; nunca se mezclan permisos entre cuentas. `/app/admin` genera un PNG del favicon (<10 KB) para el icono del conector.
+ChatGPT (Developer Mode / Connectors). URL `https://blog-cms.escarlet.cc/mcp`, autenticación **OAuth**. Es el mismo conector para todos los roles. Autoriza con tu usuario o usa un PAT personal (`user_...`). El rol y las marcas se resuelven desde las membresías actuales en cada solicitud; `ADMIN_TOKEN` queda reservado al servidor. `/app/admin` genera un PNG del favicon (<10 KB) para el icono del conector.
 
-Claude (Customize / Connectors). URL `https://blog-cms.escarlet.cc/mcp`, autenticación **OAuth**. Usa los mismos tokens y alcance que ChatGPT. Puede usar el mismo icono PNG.
+Claude (Customize / Connectors). URL `https://blog-cms.escarlet.cc/mcp`, autenticación **OAuth**. Usa el mismo PAT personal y alcance por membresía que ChatGPT. Puede usar el mismo icono PNG.
 
 ## Integración frontend
 

@@ -10,7 +10,7 @@ Nota de continuidad (sep 2026). El change `product-restructure` (F0–F5) está 
 |-----------|------------|--------|
 | Crear / editar / publicar posts (app + MCP) | Sí | Sin flag también funciona el flujo manual |
 | Review agency / motivo de rechazo / magic + review links | Sí | Requiere `PRODUCT_RESTRUCTURE_V1=1` |
-| Roles agency vs client en el mismo admin | Sí | Token de sitio = client; agency token = agency_admin |
+| Roles por marca en el mismo workspace | Sí | PAT u OAuth de usuario; el rol se deriva de cada membresía |
 | Social Pack en el CMS | Sí | Canónico en CMS. La PWA Vite en la landing es legado |
 | Cupos de plan + suspend | Sí | Planes en `db.json`; gate en MCP y REST |
 | Stripe Payment Links + webhook | Código listo | Hace falta secretos + links en Stripe (ops) |
@@ -66,13 +66,13 @@ Código histórico: `Documents/Escarlet/_plugins/escarlet-blog-client`. El bridg
 |-------|----------------|
 | Sync | API pública del CMS → posts nativos WP (`/blog`) |
 | Webhook | ` /wp-json/escarlet-blog/v1/sync` → pegar en CMS → Sitio |
-| SSO | `POST /api/embed/session` → panel CMS (token de sitio) |
+| SSO | `POST /api/embed/session` → panel CMS (PAT personal) |
 | Packs | **No** genera PWA en WP. Packs se abren en el CMS |
 
 ### Cómo se integra un WP cliente
 
 1. Instalar / activar `escarlet-blog-client`.
-2. Ajustes: URL del CMS, handle, token de sitio.
+2. Ajustes: URL del CMS, handle y PAT personal.
 3. Copiar webhook + bearer al CMS → Sitio.
 4. Publicar en CMS → sync → ver en `https://dominio/blog/{slug}`.
 5. Packs / brand / review: botón “Abrir panel Escarlet” (SSO).
@@ -83,7 +83,7 @@ Código histórico: `Documents/Escarlet/_plugins/escarlet-blog-client`. El bridg
 |-----------|------------------|
 | Review / cupos / membership | **No** (viven en CMS; MCP/app) |
 | Social Pack host en CMS | **No obligatorio** (ya no dependía del generador Vite) |
-| Email/password humanos | **No** (login en CMS; SSO embed sigue con token) |
+| Email/password humanos | **No** (login en CMS; SSO embed usa PAT personal) |
 | Stripe | **No** |
 | Sync de posts | Solo si cambia el contrato JSON público (hoy es **aditivo**; no breaking) |
 
@@ -179,7 +179,7 @@ Conclusión. El sync **ya funciona** con el CMS en producción. Las features V1 
 ### WordPress — checklist (cuando tengas un WP de prueba)
 
 1. Activar `escarlet-blog-client`
-2. Ajustes: CMS URL, handle, token de sitio
+2. Ajustes: CMS URL, handle, PAT personal
 3. Pegar webhook sync en CMS → Sitio
 4. Publicar en CMS → comprobar `/blog/{slug}` en WP
 5. SSO “Abrir panel Escarlet”

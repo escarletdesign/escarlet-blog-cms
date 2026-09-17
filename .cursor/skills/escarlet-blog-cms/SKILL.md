@@ -24,7 +24,7 @@ Los posts viven en el CMS. El frontend solo hace pull en build.
 ## Primera acción del agente
 
 1. Si el humano pide **setup / instalar / otro sitio** desde **cualquier** workspace → skill global `escarlet-blog-integrate` (`~/.cursor/skills/escarlet-blog-integrate/`)
-2. Si pide construir el brand kit → skill global `escarlet-blog-brandkit` (`~/.cursor/skills/escarlet-blog-brandkit/`)
+2. Si pide construir el brand kit → skill global `escarlet-cms-brandkit` (`~/.cursor/skills/escarlet-cms-brandkit/`)
 3. En este repo o con MCP. `blog_get_onboarding` (y si hace falta `blog_create_site`)
 4. Si pide **escribir o editar un post** → `blog_get_brand_context` con el `site` correcto
 5. Leer también `docs/ONBOARDING.md` si trabajas en el workspace del CMS
@@ -47,7 +47,7 @@ blog_get_onboarding { site: handle }
 ```
 
 Luego brand kit. Dashboard `/app/admin`, `blog_update_brand_file` o la skill
-`escarlet-blog-brandkit` + fotos `kind=reference`.
+`escarlet-cms-brandkit` + fotos `kind=reference`.
 
 ## Frontend
 
@@ -91,7 +91,7 @@ Git push = código (con caché). Webhook del CMS = contenido. Usa force=true par
 
 **Programar.** `publishAt` YYYY-MM-DD futuro. Con el interruptor del sitio activo queda `pending_schedule` hasta `blog_confirm_schedule` (solo super-admin). Luego `scheduled` y el ticker lo publica el día. Calendario en `/app/calendar`.
 
-**Brand kit y token de cliente.** El site token solo lee/edita `AGENT.md` y `keywords.md` (+ fotos reference). Voz, visual-style, image-guide, image-spec y JSON visuales son privados para administración. Para construirlos desde una landing usa `escarlet-blog-brandkit` y luego importa el ZIP con `blog_import_brand_zip`.
+**Brand kit y PAT personal.** El MCP recibe el contexto normalizado completo de la marca, incluidos voz, estilo, paleta, tipografías, composición, arquetipos, templates y referencias aprobadas. Los archivos fuente privados quedan en la app para owner/admin. Para construirlos desde una landing usa `escarlet-cms-brandkit` y luego importa el ZIP con `blog_import_brand_zip`.
 
 Prohibido. Commitear posts al frontend. Usar `create_draft` para editar.
 
@@ -106,6 +106,6 @@ Solo `published`.
 
 ## Docs
 
-- `docs/ONBOARDING.md` — checklist completo
-- `docs/DEPLOY.md` — volumen CMS + Coolify
-- `docs/HANDOFF.md` — contexto histórico escarlet002
+- `docs/ONBOARDING.md`: checklist completo
+- `docs/DEPLOY.md`: volumen CMS + Coolify
+- `docs/HANDOFF.md`: contexto histórico escarlet002

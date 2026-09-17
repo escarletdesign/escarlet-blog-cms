@@ -236,14 +236,14 @@ El MCP corre **dentro del CMS**. Hermes no clona el repo. Solo apunta a la URL.
     "escarlet-blog": {
       "url": "https://blog-cms.escarlet.cc/mcp",
       "headers": {
-        "Authorization": "Bearer EL_MISMO_ADMIN_TOKEN_DEL_CMS"
+        "Authorization": "Bearer TU_PAT_PERSONAL_user_..."
       }
     }
   }
 }
 ```
 
-Local. `http://localhost:3040/mcp` con el mismo `ADMIN_TOKEN`.
+Local. `http://localhost:3040/mcp` con un PAT personal de usuario. Reserva `ADMIN_TOKEN` para el servidor.
 
 Reinicia el servidor MCP en Cursor. Prueba `blog_list_posts` con site `escarlet`.
 
@@ -255,7 +255,7 @@ ChatGPT solo ofrece OAuth (o sin autenticación). El CMS incluye un OAuth 2.1 m�
 2. URL. `https://blog-cms.escarlet.cc/mcp`
 3. Autenticación. **OAuth**
 4. Nombre. `escarlet-blog` (o el del cliente)
-5. Al conectar, ChatGPT abre la pantalla del CMS. Pega el **token de sitio** (dashboard → Sitio → Generar token) o el `ADMIN_TOKEN` y autoriza una vez.
+5. Al conectar, ChatGPT abre la pantalla del CMS. Usa OAuth o pega tu PAT personal y autoriza una vez.
 6. Icono. Descarga el PNG del favicon (<10 KB) que muestra el panel al generar el token. Ruta pública típica. `https://blog-cms.escarlet.cc/media/{handle}/agent-icon.png`
 
 Cursor y Hermes siguen con Bearer directo. No hace falta migrarlos a OAuth.
@@ -268,7 +268,7 @@ Claude también puede usar el mismo endpoint OAuth del CMS.
 2. URL. `https://blog-cms.escarlet.cc/mcp`
 3. Autenticación. **OAuth**
 4. Nombre. `escarlet-blog` (o el del cliente)
-5. Al conectar, Claude abre la pantalla del CMS. Pega el **token de sitio** o el `ADMIN_TOKEN` y autoriza una vez.
+5. Al conectar, Claude abre la pantalla del CMS. Usa OAuth o pega tu PAT personal y autoriza una vez.
 6. Si quieres un icono, usa el mismo PNG del favicon que genera el panel.
 
 ChatGPT y Claude comparten el mismo OAuth del CMS. Cursor y Hermes siguen con Bearer directo.

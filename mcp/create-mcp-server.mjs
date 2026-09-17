@@ -15,7 +15,7 @@ import {
 } from '../lib/media-upload-contract.mjs'
 import { openaiFileDefs, connectorFileMeta } from '../lib/openai-file.mjs'
 import { assertSiteAccess, assertSuperAdmin, allowedSiteHandles, isSiteScopedRole, workspaceRoleForAuth } from '../lib/auth.mjs'
-import { brandFilesForAuth } from '../lib/brand-kit.mjs'
+import { brandFilesForAuth, SECRET_BRAND_FILES } from '../lib/brand-kit.mjs'
 import { assertChatToolAllowed, assertSafeToolArguments } from '../lib/ai-security.mjs'
 import { loadSiteConfig, isSocialMediaOnlySite } from '../lib/site-config.mjs'
 import { mediaDir, readDb } from '../lib/db.mjs'
@@ -68,8 +68,34 @@ const BLOG_CONTENT_TOOLS = new Set([
   'blog_list_calendar',
   'blog_get_seo_context'
 ])
+const BLOG_READ_ONLY_TOOLS = new Set([
+  'blog_get_workflow',
+  'blog_list_posts',
+  'blog_get_post',
+  'blog_validate_seo',
+  'blog_list_calendar',
+  'blog_get_seo_context'
+])
+const MUTATING_SITE_TOOLS = new Set([
+  'social_save_pack',
+  'blog_save_social_pack',
+  'blog_create_draft',
+  'blog_update_post',
+  'blog_unpublish',
+  'blog_delete_post',
+  'blog_publish',
+  'blog_request_changes',
+  'blog_schedule_post',
+  'blog_cancel_schedule',
+  'blog_update_brand_file',
+  'blog_upload_media_file',
+  'blog_open_image_drop',
+  'blog_upload_media',
+  'blog_import_remote_image'
+])
 
 export const RESOURCE_MAP = {
+  context: null,
   voice: 'voice.md',
   keywords: 'keywords.md',
   'agent-rules': 'AGENT.md',
@@ -192,6 +218,25 @@ async function brandContextResult(payload) {
   }
 }
 
+function normalizedBrandFields(brandKit = {}) {
+  const keys = [
+    'brandContextContract',
+    'voice',
+    'keywords',
+    'visualStyle',
+    'imageGuide',
+    'imageSpec',
+    'brandCore',
+    'visualSystem',
+    'imageArchetypes',
+    'referenceLibrary',
+    'socialTemplates',
+    'visualContext',
+    'referenceImages'
+  ]
+  return Object.fromEntries(keys.filter((key) => brandKit[key] !== undefined).map((key) => [key, brandKit[key]]))
+}
+
 function errorResult(err) {
   const payload = redactWorkflowLinks({
     message: err.message,
@@ -227,10 +272,8 @@ async function resolveContentScope(auth, args = {}) {
     if (!requestedSite) throw error
     context = await resolveWorkspaceContext({ ...common, siteHandle: requestedSite })
   }
-  // Site/agency access tokens do not have a Postgres user row. Resolving the
-  // first member of a workspace must never turn one of those scoped tokens
-  // into the workspace owner.
-  const role = auth?.role === 'admin' ? 'admin' : auth?.userId ? context.role || workspaceRoleForAuth(auth) : workspaceRoleForAuth(auth)
+  if (auth?.role !== 'admin' && !auth?.userId) throw Object.assign(new Error('Se requiere un token personal de usuario.'), { status: 401 })
+  const role = auth?.role === 'admin' ? 'admin' : context.role || workspaceRoleForAuth(auth)
   const site = requestedSite ? context.sites.find((entry) => entry.id === requestedSite || entry.handle === requestedSite) : context.sites[0]
   if (!site) throw Object.assign(new Error('Sin acceso al sitio.'), { status: 403 })
   return { ...context, role, siteId: site.id, siteHandle: site.handle }
@@ -289,7 +332,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_get_onboarding',
       description:
-        'Playbook setup + Coolify + flujo posts. Con token de sitio solo aplica a ese handle.',
+        'Playbook setup + Coolify + flujo posts. El acceso se limita a las membresías actuales del usuario.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -556,7 +599,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_get_brand_context',
       description:
-        'Obligatorio al crear o editar. Devuelve la política editorial compartida (común a todos los sitios), el brand kit del sitio y mediaUpload A→B→C. Con token de sitio no incluye voz ni image-spec (privados). Si file no es invocable usa contentBase64.',
+        'Obligatorio al crear o editar. Devuelve la política editorial compartida, el contexto normalizado completo de la marca y mediaUpload A→B→C. Los archivos fuente privados no se solicitan. Si file no es invocable usa contentBase64.',
       inputSchema: {
         type: 'object',
         properties: { site: { type: 'string' } },
@@ -567,7 +610,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_update_brand_file',
       description:
-        'Con token de sitio solo AGENT.md y keywords.md. Voz, estilo, image-guide e image-spec son solo super-admin.',
+        'Los miembros reciben el contexto normalizado completo. Los archivos fuente privados quedan en la app para owner/admin.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -733,7 +776,6 @@ export function buildToolList(auth) {
   return tools
     .filter((t) => !CMS_AI_TOOLS.has(t.name))
     .filter((t) => !(t.adminOnly && auth?.role !== 'admin'))
-    .filter((t) => !(auth?.role === 'client_mcp' && t.name === 'blog_update_brand_file'))
     .map(({ adminOnly, ...rest }) => rest)
 }
 
@@ -752,11 +794,17 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
 
   server.setRequestHandler(ListResourcesRequestSchema, async () => {
     const sites = allowedSiteHandles(auth)
-    const allowedFiles = new Set(brandFilesForAuth(auth))
+    const allowedFiles = new Set(brandFilesForAuth(auth).filter((file) => !SECRET_BRAND_FILES.includes(file)))
     const resources = []
     for (const site of sites) {
+      resources.push({
+        uri: `brand://${site}/context`,
+        name: `${site} normalized brand context`,
+        mimeType: 'application/json'
+      })
       for (const key of Object.keys(RESOURCE_MAP)) {
         const file = RESOURCE_MAP[key]
+        if (!file) continue
         if (!allowedFiles.has(file)) continue
         const mimeType = file.endsWith('.json') ? 'application/json' : 'text/markdown'
         resources.push({
@@ -774,8 +822,13 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
     if (!match) throw new Error(`URI desconocida: ${request.params.uri}`)
     const [, site, key] = match
     assertSiteAccess(auth, site)
+    if (key === 'context') {
+      const context = await cms.getBrandContext(site, { auth })
+      return { contents: [{ uri: request.params.uri, mimeType: 'application/json', text: JSON.stringify(context) }] }
+    }
     const file = RESOURCE_MAP[key]
     if (!file) throw new Error(`Recurso desconocido: ${key}`)
+    if (SECRET_BRAND_FILES.includes(file)) throw Object.assign(new Error('Los archivos fuente privados solo se consultan desde la app.'), { status: 403 })
     const data = await cms.getBrandFile(site, file, { auth })
     const mimeType = file.endsWith('.json') ? 'application/json' : 'text/markdown'
     let text = data.content || ''
@@ -790,6 +843,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
   server.setRequestHandler(CallToolRequestSchema, async (request) => withGenerationPolicy({ externalMcp: !['app', 'chat'].includes(source), auth }, async () => {
     const { name, arguments: args = {} } = request.params
     try {
+      let scopedAuth = auth
       if (CMS_AI_TOOLS.has(name)) {
         assertCmsAiAllowed(auth)
         throw Object.assign(new Error('Usa el servicio interno de generación de /app, no una herramienta MCP.'), { status: 403 })
@@ -801,27 +855,53 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
       if (restrictMutations) assertChatToolAllowed(name, args)
       const tool = buildToolList(auth).find((t) => t.name === name)
       if (!tool) throw Object.assign(new Error('Herramienta no disponible para este acceso.'), { status: 403 })
+      if (MUTATING_SITE_TOOLS.has(name) && auth?.role === 'viewer') {
+        throw Object.assign(new Error('El rol viewer solo puede consultar contenido.'), { status: 403 })
+      }
+      if (MUTATING_SITE_TOOLS.has(name) && !BLOG_CONTENT_TOOLS.has(name) && isPostgresConfigured()) {
+        const site = resolveToolSite(auth, args)
+        const scope = await resolveContentScope(auth, { site })
+        scopedAuth = {
+          ...auth,
+          role: scope.role,
+          site: scope.siteHandle,
+          sites: [scope.siteHandle],
+          workspaceId: scope.workspaceId,
+          workspaceRole: scope.workspaceRole,
+          brandRole: scope.brandRole
+        }
+        if (scope.role === 'viewer') throw Object.assign(new Error('El rol viewer solo puede consultar contenido.'), { status: 403 })
+      }
       if (BLOG_CONTENT_TOOLS.has(name)) {
         const site = resolveToolSite(auth, args)
         if (isSocialMediaOnlySite(loadSiteConfig(site))) {
           throw Object.assign(new Error('Este sitio está configurado como solo Social Media. Usa las herramientas de Social Pack.'), { status: 404 })
         }
+        if (!BLOG_READ_ONLY_TOOLS.has(name) && auth?.role === 'viewer') {
+          throw Object.assign(new Error('El rol viewer solo puede consultar contenido.'), { status: 403 })
+        }
         if (isPostgresConfigured()) {
-          try {
-            const scope = await resolveContentScope(auth, { site })
-            const blog = (await listSiteChannels({ workspaceId: scope.workspaceId, siteId: scope.siteId })).find((channel) => channel.channel === 'blog')
-            if (blog && !blog.enabled) throw Object.assign(new Error('El canal Blog está desactivado para esta marca.'), { status: 409, code: 'channel_disabled' })
-          } catch (error) {
-            if (error.code === 'channel_disabled') throw error
-            // A partially migrated installation can still use its legacy blog
-            // adapter until initializeBrandConfiguration() runs.
+          const scope = await resolveContentScope(auth, { site })
+          scopedAuth = {
+            ...auth,
+            role: scope.role,
+            site: scope.siteHandle,
+            sites: [scope.siteHandle],
+            workspaceId: scope.workspaceId,
+            workspaceRole: scope.workspaceRole,
+            brandRole: scope.brandRole
           }
+          if (!BLOG_READ_ONLY_TOOLS.has(name) && scope.role === 'viewer') {
+            throw Object.assign(new Error('El rol viewer solo puede consultar contenido.'), { status: 403 })
+          }
+          const blog = (await listSiteChannels({ workspaceId: scope.workspaceId, siteId: scope.siteId })).find((channel) => channel.channel === 'blog')
+          if (blog && !blog.enabled) throw Object.assign(new Error('El canal Blog está desactivado para esta marca.'), { status: 409, code: 'channel_disabled' })
         }
       }
       if (args.slug && !['blog_create_draft', 'blog_upload_media', 'blog_upload_media_file', 'blog_open_image_drop', 'blog_import_remote_image'].includes(name)) {
         const site = resolveToolSite(auth, args)
         const { post } = await cms.getPost(site, args.originalSlug || args.slug)
-        assertPostAccess(post, auth, { write: !tool.annotations?.readOnlyHint })
+        assertPostAccess(post, scopedAuth, { write: !tool.annotations?.readOnlyHint })
       }
       switch (name) {
         case 'brand_get_context': {
@@ -830,18 +910,18 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           // site ACL and normalized response contract.
           if (!isPostgresConfigured()) {
             const site = resolveToolSite(auth, args)
-            const brandKit = await cms.getBrandContext(site, { auth })
-            const declaredCapabilities = Array.isArray(auth?.capabilities) ? auth.capabilities : []
-            const effectiveBrandAccess = brandKit.brandCapabilityEffective === true
-            brandKit.brandCapabilities = { brand_kit_access: effectiveBrandAccess }
+            const brandKit = await cms.getBrandContext(site, { auth: scopedAuth })
+            const declaredCapabilities = Array.isArray(auth?.capabilities) ? auth.capabilities.filter((capability) => capability !== 'brand_kit_access') : []
+            const effectiveBrandAccess = brandKit.brandAccessLevel !== 'none'
+            brandKit.brandCapabilities = {}
             return brandContextResult({
               workspace: { id: auth?.workspaceId || null, name: 'Espacio' },
               brand: { id: site, handle: site, name: loadSiteConfig(site)?.name || site },
               role: auth?.role || 'unknown',
               capabilities: declaredCapabilities,
               declaredCapabilities,
-              effectiveCapabilities: effectiveBrandAccess ? [...new Set([...declaredCapabilities, 'brand_kit_access'])] : declaredCapabilities.filter((capability) => capability !== 'brand_kit_access'),
-              brandCapabilities: { brand_kit_access: effectiveBrandAccess },
+              effectiveCapabilities: declaredCapabilities,
+              brandCapabilities: {},
               brandCapabilityDeclared: brandKit.brandCapabilityDeclared === true,
               brandCapabilityEffective: effectiveBrandAccess,
               brandAccessLevel: brandKit.brandAccessLevel,
@@ -849,6 +929,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
               deniedBrandResources: brandKit.deniedBrandResources || [],
               denialReasons: brandKit.denialReasons || {},
               brandKitVersionId: brandKit.brandKitVersionId || `brand-${site}-version-1`,
+              ...normalizedBrandFields(brandKit),
               visualContext: brandKit.visualContext,
               referenceImages: brandKit.referenceImages || [],
               files: brandKit.files || {},
@@ -866,15 +947,15 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             getActiveBrandKit({ workspaceId: scope.workspaceId, siteId: scope.siteId }).catch(() => null)
           ])
           const brandKit = await cms.getBrandContext(scope.siteHandle, {
-            auth,
+            auth: scopedAuth,
             brandCapabilities,
             canonicalManifest: activeBrandKit?.manifest,
             brandKitVersionId: activeBrandKit?.id || undefined,
             brandKitVersion: activeBrandKit ? { id: activeBrandKit.id, version: activeBrandKit.version, status: activeBrandKit.status } : undefined
           })
-          const canReadVisualBrandAssets = brandKit.brandCapabilityEffective === true
+          const canReadVisualBrandAssets = brandKit.brandAccessLevel !== 'none'
           const visibleAssets = Array.isArray(activeBrandKit?.assets)
-            ? activeBrandKit.assets.filter((asset) => asset.visibility === 'public' || (canReadVisualBrandAssets && (auth?.role === 'admin' || auth?.role === 'client_mcp' || (asset.visibility === 'role_limited' && ['owner', 'admin', 'editor', 'author', 'client', 'site'].includes(auth?.role)))))
+            ? activeBrandKit.assets.filter((asset) => asset.visibility === 'public' || (canReadVisualBrandAssets && (scopedAuth?.role === 'admin' || (asset.visibility === 'role_limited' && ['owner', 'admin', 'editor', 'author', 'client', 'viewer'].includes(scopedAuth?.role)))))
             : []
           const canonicalReferences = visibleAssets.map((asset) => ({
             id: asset.id,
@@ -908,22 +989,23 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           if (brandKit.visualContext && typeof brandKit.visualContext === 'object') {
             brandKit.visualContext = { ...brandKit.visualContext, referenceImages: brandKit.referenceImages }
           }
-          const declaredCapabilities = Array.isArray(auth?.capabilities) ? auth.capabilities : []
+          const declaredCapabilities = Array.isArray(auth?.capabilities) ? auth.capabilities.filter((capability) => capability !== 'brand_kit_access') : []
           const effectiveBrandAccess = brandKit.brandCapabilityEffective === true
-          brandKit.brandCapabilities = { ...brandCapabilities, brand_kit_access: effectiveBrandAccess }
+          brandKit.brandCapabilities = { ...brandCapabilities }
           return brandContextResult({
             workspace: { id: scope.workspaceId, name: scope.workspaceName || 'Espacio' },
             brand: { id: brand?.id || scope.siteId, handle: brand?.handle || scope.siteHandle, name: brand?.name || scope.siteHandle },
             role: scope.role,
             capabilities: declaredCapabilities,
             declaredCapabilities,
-            effectiveCapabilities: effectiveBrandAccess ? [...new Set([...declaredCapabilities, 'brand_kit_access'])] : declaredCapabilities.filter((capability) => capability !== 'brand_kit_access'),
-            brandCapabilities: { ...brandCapabilities, brand_kit_access: effectiveBrandAccess },
+            effectiveCapabilities: declaredCapabilities,
+            brandCapabilities,
             brandAccessLevel: brandKit.brandAccessLevel,
             grantedBrandResources: brandKit.grantedBrandResources || [],
             deniedBrandResources: brandKit.deniedBrandResources || [],
             denialReasons: brandKit.denialReasons || {},
             brandKitVersionId: brandKit.brandKitVersionId || activeBrandKit?.id || null,
+            ...normalizedBrandFields(brandKit),
             visualContext: brandKit.visualContext,
             referenceImages: brandKit.referenceImages || [],
             files: brandKit.files || {},
@@ -965,7 +1047,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
         }
         case 'blog_list_authors': {
           const site = resolveToolSite(auth, args)
-          return textResult({ authors: listSiteAuthors({ site, requesterId: auth.userId, requesterRole: auth.role }) })
+          return textResult({ authors: listSiteAuthors({ site, requesterId: scopedAuth.userId, requesterRole: scopedAuth.role }) })
         }
         case 'social_save_pack': {
           const site = resolveToolSite(auth, args)
@@ -973,7 +1055,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             pack: saveStandaloneSocialPack({
               ...args,
               site,
-              actorId: auth.userId || auth.email || auth.role
+              actorId: scopedAuth.userId || scopedAuth.email || scopedAuth.role
             })
           })
         }
@@ -990,7 +1072,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
         case 'blog_save_social_pack': {
           const site = resolveToolSite(auth, args)
           if (!args.socialPack || typeof args.socialPack !== 'object' || Array.isArray(args.socialPack)) throw Object.assign(new Error('Falta socialPack.'), { status: 400 })
-          return textResult(await cms.updatePost({ site, slug: args.slug, socialPack: args.socialPack, keepPublished: true, direct: true, membershipUserId: auth.userId || '' }))
+          return textResult(await cms.updatePost({ site, slug: args.slug, socialPack: args.socialPack, keepPublished: true, direct: true, membershipUserId: scopedAuth.userId || '' }))
         }
         case 'blog_list_sites': {
           const all = await cms.listSites()
@@ -998,12 +1080,12 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           return textResult({
             sites: (all.sites || []).filter((s) => allowed.has(s.handle || s.id)),
             handles: [...allowed].sort(),
-            role: auth.role
+            role: scopedAuth.role
           })
         }
         case 'blog_get_onboarding': {
           const { getOnboardingPlaybook } = await import('../lib/onboarding.mjs')
-          const handle = isSiteScopedRole(auth.role) ? auth.site : args.site || DEFAULT_SITE
+          const handle = args.site || (isSiteScopedRole(auth.role) ? auth.site : DEFAULT_SITE)
           if (isSiteScopedRole(auth.role)) assertSiteAccess(auth, handle)
           const config = loadSiteConfig(handle)
           if (isSocialMediaOnlySite(config)) {
@@ -1048,7 +1130,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
         case 'blog_list_posts': {
           const site = resolveToolSite(auth, args)
           const result = await cms.listPosts(site, args.status)
-          return textResult({ ...result, posts: result.posts.filter((p) => canReadPost(p, auth, site)) })
+          return textResult({ ...result, posts: result.posts.filter((p) => canReadPost(p, scopedAuth, site)) })
         }
         case 'blog_get_post': {
           const site = resolveToolSite(auth, args)
@@ -1062,28 +1144,28 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           const site = resolveToolSite(auth, args)
           return textResult(
             await cms.createDraft({
-              ...safePostFields(args, auth, site),
+              ...safePostFields(args, scopedAuth, site),
               site,
-              ownerId: auth.userId || '',
-              membershipUserId: auth.userId || '',
-              contentSource: args.contentSource || (['client', 'client_mcp'].includes(auth.role) ? 'client' : 'agency')
+              ownerId: scopedAuth.userId || '',
+              membershipUserId: scopedAuth.userId || '',
+              contentSource: args.contentSource || (scopedAuth.role === 'client' ? 'client' : 'agency')
             })
           )
         }
         case 'blog_update_post': {
           const site = resolveToolSite(auth, args)
-          return textResult(await cms.updatePost({ ...safePostFields(args, auth, site), site, direct: true, keepPublished: true, membershipUserId: auth.userId || '' }))
+          return textResult(await cms.updatePost({ ...safePostFields(args, scopedAuth, site), site, direct: true, keepPublished: true, membershipUserId: scopedAuth.userId || '' }))
         }
         case 'blog_unpublish': {
           const site = resolveToolSite(auth, args)
-          return textResult(await cms.unpublishPost(site, args.slug, { membershipUserId: auth.userId || '' }))
+          return textResult(await cms.unpublishPost(site, args.slug, { membershipUserId: scopedAuth.userId || '' }))
         }
         case 'blog_delete_post': {
           const site = resolveToolSite(auth, args)
           if (args.confirm !== true) {
             throw Object.assign(new Error('Para eliminar, pasa confirm: true'), { status: 400 })
           }
-          return textResult(await cms.deletePost(site, args.slug, { membershipUserId: auth.userId || '' }))
+          return textResult(await cms.deletePost(site, args.slug, { membershipUserId: scopedAuth.userId || '' }))
         }
         case 'blog_validate_seo': {
           const site = resolveToolSite(auth, args)
@@ -1095,7 +1177,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             publishAt: args.publishAt,
             direct: directWorkflowPublish(args, source),
             ignoreSeo: args.ignoreSeo === true,
-            membershipUserId: auth.userId || ''
+            membershipUserId: scopedAuth.userId || ''
           }))
         }
         case 'blog_request_changes': {
@@ -1103,7 +1185,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           return textResult(
             await cms.requestPostChanges(site, args.slug, {
               rejectReason: args.rejectReason,
-              actor: { role: auth.role }
+              actor: { role: scopedAuth.role }
             })
           )
         }
@@ -1112,22 +1194,22 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           return textResult(await cms.schedulePostForDate(site, args.slug, args.publishAt, {
             direct: directWorkflowPublish(args, source),
             ignoreSeo: args.ignoreSeo === true,
-            membershipUserId: auth.userId || ''
+            membershipUserId: scopedAuth.userId || ''
           }))
         }
         case 'blog_confirm_schedule': {
           assertSuperAdmin(auth)
           const site = resolveToolSite(auth, args)
-          return textResult(await cms.confirmSchedule(site, args.slug, { membershipUserId: auth.userId || '' }))
+          return textResult(await cms.confirmSchedule(site, args.slug, { membershipUserId: scopedAuth.userId || '' }))
         }
         case 'blog_cancel_schedule': {
           const site = resolveToolSite(auth, args)
-          return textResult(await cms.cancelSchedule(site, args.slug, { membershipUserId: auth.userId || '' }))
+          return textResult(await cms.cancelSchedule(site, args.slug, { membershipUserId: scopedAuth.userId || '' }))
         }
         case 'blog_list_calendar': {
           const site = resolveToolSite(auth, args)
           const result = await cms.listCalendarPosts(site, args.from, args.to)
-          return textResult({ ...result, posts: result.posts.filter((p) => canReadPost(p, auth, site)) })
+          return textResult({ ...result, posts: result.posts.filter((p) => canReadPost(p, scopedAuth, site)) })
         }
         case 'blog_get_seo_context': {
           const site = resolveToolSite(auth, args)
@@ -1135,11 +1217,11 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
         }
         case 'blog_get_brand_context': {
           const site = resolveToolSite(auth, args)
-          return brandContextResult(await cms.getBrandContext(site, { auth }))
+          return brandContextResult(await cms.getBrandContext(site, { auth: scopedAuth }))
         }
         case 'blog_update_brand_file': {
           const site = resolveToolSite(auth, args)
-          return textResult(await cms.updateBrandFile(site, args.file, args.content, { auth }))
+          return textResult(await cms.updateBrandFile(site, args.file, args.content, { auth: scopedAuth }))
         }
         case 'blog_upload_media_file': {
           const site = resolveToolSite(auth, args)
@@ -1151,15 +1233,15 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
               { status: 400 }
             )
           }
-          return textResult(await cms.uploadMedia({ ...args, site, membershipUserId: auth.userId || '' }))
+          return textResult(await cms.uploadMedia({ ...args, site, membershipUserId: scopedAuth.userId || '' }))
         }
         case 'blog_open_image_drop': {
           const site = resolveToolSite(auth, args)
-          return textResult(cms.openImageDrop({ ...args, site, membershipUserId: auth.userId || '' }))
+          return textResult(cms.openImageDrop({ ...args, site, membershipUserId: scopedAuth.userId || '' }))
         }
         case 'blog_upload_media': {
           const site = resolveToolSite(auth, args)
-          return textResult(await cms.uploadMedia({ ...args, site, membershipUserId: auth.userId || '' }))
+          return textResult(await cms.uploadMedia({ ...args, site, membershipUserId: scopedAuth.userId || '' }))
         }
         case 'blog_import_remote_image': {
           const site = resolveToolSite(auth, args)
@@ -1169,7 +1251,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
               { status: 400 }
             )
           }
-          return textResult(await cms.uploadMedia({ ...args, site, contentBase64: undefined, membershipUserId: auth.userId || '' }))
+          return textResult(await cms.uploadMedia({ ...args, site, contentBase64: undefined, membershipUserId: scopedAuth.userId || '' }))
         }
         case 'blog_import_brand_zip': {
           assertSuperAdmin(auth)
