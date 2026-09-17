@@ -752,6 +752,24 @@ function sanitizeV2BrandKit(kit, auth) {
   return { ...kit, manifest, assets }
 }
 
+// New v2 brands live in Postgres and may not have a legacy data/site-config
+// file yet. MCP access tokens still use the compatibility resolver, so expose
+// a minimal validated config for those brands and let the first token issue
+// materialize the legacy token record without making users hunt for /admin.
+async function siteConfigForMcp(handle, auth) {
+  const legacy = loadSiteConfig(handle)
+  if (legacy) return legacy
+  if (!isPostgresConfigured()) return null
+  try {
+    const context = await resolveWorkspaceContext({ userId: auth?.userId || undefined, siteHandle: handle })
+    const brand = context.sites.find((site) => site.handle === handle)
+    if (!brand) return null
+    return { handle: brand.handle, name: brand.name, domain: brand.domain || '' }
+  } catch {
+    return null
+  }
+}
+
 async function publicSessionForAuth(auth) {
   const session = publicAuthSession(auth)
   if (!session || !isPostgresConfigured()) return session
@@ -3216,7 +3234,7 @@ const server = createServer(async (req, res) => {
         json(res, err.status || 403, { message: err.message })
         return
       }
-      const siteCfg = loadSiteConfig(handle)
+      const siteCfg = await siteConfigForMcp(handle, auth)
       if (!siteCfg) {
         json(res, 404, { message: 'Site no encontrado' })
         return
@@ -3262,7 +3280,7 @@ const server = createServer(async (req, res) => {
         json(res, err.status || 403, { message: err.message })
         return
       }
-      const siteCfg = loadSiteConfig(handle)
+      const siteCfg = await siteConfigForMcp(handle, auth)
       if (!siteCfg) {
         json(res, 404, { message: 'Site no encontrado' })
         return

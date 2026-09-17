@@ -346,9 +346,13 @@ const baseApi = {
       { method: "POST" },
     ),
   issueSiteToken: (site: string, refreshIcon = false) =>
-    request<{ siteAccessToken: string; message?: string; agentIcon?: Record<string, any> }>(
+    request<{ siteAccessToken: string; message?: string; mcpUrl?: string; mcpChatGptUrl?: string; mcpClaudeUrl?: string; mcpAuthHint?: string; mcpClaudeHint?: string; mcpCursorHint?: string; agentIcon?: Record<string, any> }>(
       `/api/admin/site-config/${encodeURIComponent(site)}/access-token`,
       { method: "POST", body: JSON.stringify({ refreshIcon }) },
+    ),
+  mcpConnection: (site: string) =>
+    request<{ mcpUrl: string; mcpChatGptUrl?: string; mcpClaudeUrl?: string; mcpAuthHint?: string; mcpClaudeHint?: string; agentIcon?: Record<string, any> }>(
+      `/api/admin/site-config/${encodeURIComponent(site)}/agent-icon`,
     ),
   users: (site: string, all = false) =>
     request<{ users: Array<Record<string, any>>; site: string }>(
