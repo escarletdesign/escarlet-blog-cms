@@ -1,0 +1,59 @@
+{
+  "$schema": "../schemas/brand.schema.json",
+  "id": "escarlet",
+  "version": "2.0.0",
+  "identity": {
+    "name": "Escarlet",
+    "editorialTone": "claro, humano, crítico y práctico",
+    "visualTone": "editorial contemporáneo, cálido, táctil y con criterio",
+    "contrast": "medio-alto",
+    "photography": "luz natural o interior cálido; materia real; encuadres honestos; evitar stock genérico",
+    "people": "usar personas solo cuando aporten oficio, decisión o tensión narrativa; evitar rostros posados",
+    "embeddedText": false
+  },
+  "fixed": {
+    "palette": {
+      "paper": "#F4F1EA",
+      "paperWarm": "#E8E0D3",
+      "forest": "#1F4D3A",
+      "forestDeep": "#15352A",
+      "ink": "#1B211D",
+      "muted": "#6C746F",
+      "signal": "#C8674B",
+      "white": "#FFFFFF"
+    },
+    "typography": {
+      "heading": "Inter, Arial, sans-serif",
+      "body": "Inter, Arial, sans-serif",
+      "label": "Inter, Arial, sans-serif",
+      "note": "Sustituir Inter por la fuente licenciada del sitio cuando esté disponible; el layout no depende de la IA."
+    },
+    "spacing": { "unit": 8, "page": 88, "safe": 72, "radius": 20 },
+    "imageRules": [
+      "La portada nunca contiene texto, letras, números, logos ni marcas de agua.",
+      "Evitar escritorio + portátil + taza como composición por defecto.",
+      "Preferir una idea visual única y espacio negativo limpio.",
+      "No usar robots, cerebros con circuitos, collages 3D ni gradientes genéricos.",
+      "Las referencias aprobadas orientan materia, luz y encuadre; no se copian literalmente."
+    ]
+  },
+  "variableAxes": [
+    "archetype",
+    "framing",
+    "personPresence",
+    "background",
+    "visualMetaphor",
+    "abstraction",
+    "supportStyle"
+  ],
+  "decisionRules": {
+    "recentPostsToInspect": 6,
+    "maxConsecutiveArchetype": 1,
+    "forceDifferentWhenTopicSimilarity": 0.62,
+    "referenceCountCover": { "automatic": 2, "exploration": 3 },
+    "referenceCountSocial": 1,
+    "modeAutomatic": "elige una ruta final y guarda la decisión",
+    "modeExploration": "devuelve 3 rutas con arquetipo distinto antes de elegir",
+    "mariaMorales": "reutilizar las reglas de decisión, pero cargar el brand core del sitio solicitado; nunca heredar paleta o referencias de Escarlet"
+  }
+}

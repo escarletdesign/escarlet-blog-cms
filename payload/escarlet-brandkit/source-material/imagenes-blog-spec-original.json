@@ -1,0 +1,269 @@
+{
+  "schema_version": "1.0",
+  "system_role": "Transformar un artículo de blog en una imagen editorial de cabecera alineada con el estilo visual de Escarlet.",
+  "brand": {
+    "name": "Escarlet",
+    "visual_style_lock": {
+      "style_name": "Escarlet editorial gradient",
+      "description": "Estilo editorial contemporáneo, humano, conceptual, limpio, emocional y profesional.",
+      "background": {
+        "type": "abstract_textured_gradient",
+        "texture": "soft layered mountain or terrain texture",
+        "color_flow": [
+          "cyan or turquoise on the left",
+          "muted green in the center",
+          "warm yellow or golden tones on the right"
+        ]
+      },
+      "lighting": {
+        "type": "soft natural light",
+        "mood": "warm, reflective, clean",
+        "preferred_direction": "side light, usually from the right"
+      },
+      "composition_defaults": {
+        "format": "horizontal",
+        "aspect_ratio": "16:9",
+        "negative_space_preference": "leave clean space, usually on the left, for editorial flexibility",
+        "depth_of_field": "soft background blur",
+        "overall_feel": [
+          "editorial",
+          "human",
+          "modern",
+          "non-stock",
+          "brand-aligned"
+        ]
+      },
+      "hard_rules": {
+        "text_inside_image": false,
+        "logos_inside_image": false,
+        "readable_screen_text": false,
+        "readable_paper_text": false,
+        "avoid_stock_photo_look": true,
+        "avoid_generic_corporate_scene": true,
+        "avoid_obvious_icons_or_infographic_symbols": true
+      }
+    }
+  },
+  "input": {
+    "title": "",
+    "excerpt": "",
+    "body": "",
+    "category": "",
+    "tags": [],
+    "author": "",
+    "audience": ""
+  },
+  "content_analysis": {
+    "main_topic": "auto_from_text",
+    "core_message": "auto_from_text",
+    "article_intent": "auto_from_text",
+    "tone": "auto_from_text",
+    "primary_emotion": "auto_from_text",
+    "secondary_emotions": "auto_from_text",
+    "reader_takeaway": "auto_from_text",
+    "transformation": {
+      "before": "auto_from_text",
+      "after": "auto_from_text"
+    },
+    "conflict_or_tension": "auto_from_text",
+    "best_visual_metaphor": "auto_from_text"
+  },
+  "image_strategy": {
+    "goal": "create a single hero image for the blog post",
+    "interpretation_mode": "conceptual_editorial",
+    "literalness": "low_to_medium",
+    "subject_decision_rules": [
+      {
+        "when": "the article is emotional, vulnerable, reflective, about fear, doubt, perfectionism, identity, transition or internal conflict",
+        "use": "anonymous human presence",
+        "subject_treatment": "face not clearly visible, hidden, turned away, blurred or partially obscured",
+        "body_language": "introspective, paused, reflective"
+      },
+      {
+        "when": "the article is strategic, educational, procedural or explanatory",
+        "use": "workspace, tools, objects or scene with subtle human trace",
+        "subject_treatment": "human can be absent or secondary",
+        "body_language": "not required"
+      },
+      {
+        "when": "the article is inspirational, transformational or motivational",
+        "use": "human presence or symbolic scene showing movement from confusion to clarity",
+        "subject_treatment": "more open posture, light transition, forward direction",
+        "body_language": "hopeful, calm, grounded"
+      },
+      {
+        "when": "the article is about brand, communication, visibility, business positioning or creative work",
+        "use": "creative workspace, laptop, notebook, papers, visual references, subtle professional setting",
+        "subject_treatment": "editorial, real, not corporate",
+        "body_language": "thoughtful or active depending on the text"
+      }
+    ],
+    "scene_rules": {
+      "translate_message_into_scene": true,
+      "prefer_symbolic_scene_over_literal_illustration": true,
+      "show_exact_article_topic_literally_only_if_helpful": false,
+      "image_should_suggest_the_idea_not_explain_everything": true
+    }
+  },
+  "visual_translation": {
+    "map_emotion_to_visuals": {
+      "fear": [
+        "hidden face",
+        "closed posture",
+        "looking away",
+        "pause before action"
+      ],
+      "doubt": [
+        "hesitation",
+        "stillness",
+        "half-finished gesture",
+        "observational camera angle"
+      ],
+      "clarity": [
+        "clean composition",
+        "open negative space",
+        "simple arrangement",
+        "more visual order"
+      ],
+      "growth": [
+        "subtle forward movement",
+        "more open posture",
+        "light transition",
+        "sense of direction"
+      ],
+      "overthinking": [
+        "notebook",
+        "papers",
+        "desk materials",
+        "paused writing gesture"
+      ],
+      "confidence": [
+        "grounded posture",
+        "balanced frame",
+        "clear scene hierarchy",
+        "calm light"
+      ]
+    },
+    "map_article_type_to_scene": {
+      "personal_reflection": "human-centered conceptual scene",
+      "business_insight": "workspace editorial scene",
+      "how_to": "organized symbolic setup",
+      "branding_or_marketing": "creative desk or identity-related environment",
+      "mindset": "symbolic human scene with emotional body language",
+      "case_study": "professional scene with contextual clues"
+    }
+  },
+  "subject_framework": {
+    "identity_mode": "generic_or_anonymous",
+    "face_visibility": "optional_but_not_required",
+    "allowed_subject_types": [
+      "anonymous person",
+      "silhouette",
+      "partial body",
+      "hands and workspace",
+      "objects only",
+      "environment only"
+    ],
+    "wardrobe_style": {
+      "default": "minimal, contemporary, professional, neutral",
+      "preferred_colors": [
+        "black",
+        "charcoal",
+        "dark grey",
+        "muted neutrals"
+      ],
+      "avoid": [
+        "bright corporate suits",
+        "overly formal office wear",
+        "visually noisy clothing"
+      ]
+    }
+  },
+  "environment_framework": {
+    "allowed_locations": [
+      "creative workspace",
+      "home office",
+      "studio-like desk setting",
+      "professional interior with soft light",
+      "minimal abstract environment"
+    ],
+    "common_objects": [
+      "laptop",
+      "notebook",
+      "papers",
+      "pen",
+      "mug",
+      "books",
+      "shelf",
+      "plant"
+    ],
+    "object_usage_rule": "only include objects that reinforce the article theme or emotional state",
+    "clutter_rule": "controlled clutter only, never chaotic unless the article specifically demands it"
+  },
+  "composition_framework": {
+    "default_shot": "medium or medium-wide",
+    "camera_angle": "slightly observational, not stiff frontal corporate",
+    "subject_placement_logic": [
+      {
+        "when": "the image needs overlay text or editorial flexibility",
+        "place_subject": "right third",
+        "leave_space": "left side"
+      },
+      {
+        "when": "the emotional center is isolation or introspection",
+        "place_subject": "off-center",
+        "leave_space": "generous negative space around subject"
+      },
+      {
+        "when": "objects are the main storytelling tool",
+        "place_subject": "balanced central or asymmetrical depending on scene"
+      }
+    ]
+  },
+  "style_constraints": {
+    "must_feel_like": [
+      "editorial photography",
+      "premium but human",
+      "thoughtful",
+      "subtle",
+      "brand-consistent"
+    ],
+    "must_not_feel_like": [
+      "stock photography",
+      "cheesy motivational image",
+      "literal clipart concept",
+      "generic office advertising",
+      "template-like social media graphic"
+    ],
+    "avoid": [
+      "direct literal icons",
+      "visible UI text",
+      "floating symbols",
+      "overly polished fake smiles",
+      "crowded composition",
+      "unrelated decorative objects"
+    ]
+  },
+  "output_spec": {
+    "asset_type": "blog_hero_image",
+    "count": 1,
+    "aspect_ratio": "16:9",
+    "quality_target": "high",
+    "use_cases": [
+      "blog header",
+      "social preview",
+      "website content thumbnail"
+    ]
+  },
+  "prompt_builder": {
+    "instructions": [
+      "Read the title, excerpt and body.",
+      "Extract the main topic, core message, emotional core and visual metaphor.",
+      "Choose the most suitable scene type using the subject decision rules.",
+      "Keep the Escarlet visual style locked.",
+      "Generate a single conceptual editorial image.",
+      "Do not include text or logos inside the image."
+    ],
+    "prompt_template": "Create a single horizontal editorial hero image for a blog post. Base the image on the following article: Title: {{title}}. Excerpt: {{excerpt}}. Core message: {{core_message}}. Emotional core: {{primary_emotion}} with {{secondary_emotions}}. Visual metaphor: {{best_visual_metaphor}}. Use a {{chosen_scene_type}} approach. The image should communicate the idea in a conceptual, non-literal way. Keep the subject treatment as {{subject_treatment}} and the body language as {{body_language}} when a person is used. Use Escarlet's visual language: abstract textured gradient background with soft mountain-like texture, flowing from cyan or turquoise on the left to green in the center and warm yellow or gold on the right, with soft natural light and a modern editorial mood. Composition should be horizontal 16:9, clean, with soft depth of field, professional but human, and visually suitable for a blog header. Avoid stock-photo aesthetics, avoid readable text, avoid logos, avoid floating icons, and avoid generic corporate scenes."
+  }
+}

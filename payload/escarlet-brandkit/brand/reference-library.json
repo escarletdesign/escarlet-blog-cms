@@ -1,0 +1,75 @@
+{
+  "site": "escarlet",
+  "version": "2.1.0",
+  "selection": {
+    "approvedOnly": true,
+    "maxCoverReferences": 3,
+    "maxSocialReferences": 1,
+    "preferSameCategory": true,
+    "preferDiversityOfComposition": true
+  },
+  "references": [
+    {
+      "id": "esc-paper-light",
+      "type": "mood",
+      "category": "fondos",
+      "tags": ["papel", "crema", "sombra", "editorial"],
+      "description": "Luz suave sobre papel cálido y sombras imperfectas.",
+      "recommendedUse": ["editorial-abstracta", "objeto-simbolico", "metafora-visual-conceptual"],
+      "prohibitedUse": ["copiar el encuadre literalmente"],
+      "priority": 1,
+      "path": "assets/reference-visual-style-03.png",
+      "approved": true
+    },
+    {
+      "id": "esc-human-craft",
+      "type": "scene",
+      "category": "escenas con persona",
+      "tags": ["manos", "oficio", "madera", "luz natural", "rostro parcial"],
+      "description": "Persona parcial trabajando con materiales reales, sin pose de stock.",
+      "recommendedUse": ["escena-humana-parcial", "proceso-mesa-trabajo"],
+      "prohibitedUse": ["retrato frontal posado", "oficina corporativa genérica"],
+      "priority": 2,
+      "path": "assets/reference-blog-example.png",
+      "approved": true
+    },
+    {
+      "id": "esc-editorial-light-01",
+      "type": "scene-sheet",
+      "category": "cabeceras editoriales",
+      "tags": ["cian", "verde", "oro", "luz lateral", "persona anónima"],
+      "description": "Lámina de referencias aportada por Escarlet para escenas humanas, luz cálida y espacio negativo.",
+      "recommendedUse": ["escena-humana-parcial", "entorno-espacio", "metafora-visual-conceptual"],
+      "prohibitedUse": ["usar la paleta como identidad fija sin confirmación"],
+      "priority": 2,
+      "path": "assets/reference-visual-style-01.png",
+      "approved": true,
+      "palettePreset": "editorial_gradient_preset"
+    },
+    {
+      "id": "esc-editorial-light-02",
+      "type": "scene-sheet",
+      "category": "cabeceras editoriales",
+      "tags": ["cian", "verde", "oro", "esperanza", "movimiento"],
+      "description": "Lámina de referencias aportada por Escarlet para movimiento, claridad y energía positiva.",
+      "recommendedUse": ["entorno-espacio", "escena-humana-parcial"],
+      "prohibitedUse": ["afirmar resultados garantizados mediante la imagen"],
+      "priority": 2,
+      "path": "assets/reference-visual-style-02.png",
+      "approved": true,
+      "palettePreset": "editorial_gradient_preset"
+    },
+    {
+      "id": "esc-digital-layer",
+      "type": "composition",
+      "category": "composición digital",
+      "tags": ["interfaz", "capas", "verde bosque", "reflejo"],
+      "description": "Capas digitales abstractas integradas en una escena física.",
+      "recommendedUse": ["interfaz-producto-digital", "editorial-abstracta"],
+      "prohibitedUse": ["pantallas con texto inventado", "mockup de portátil de stock"],
+      "priority": 2,
+      "path": "",
+      "approved": true
+    }
+  ]
+}
