@@ -48,7 +48,7 @@ async function walk(directory) {
 await walk(root)
 
 if (legacyFindings.length) {
-  console.log('UI consistency: rutas legacy detectadas, pendientes de migración controlada:')
+  console.log('UI consistency: inventario de controles nativos históricos para migración controlada:')
   for (const finding of legacyFindings) console.log(`  ${finding.relativeFile} controles=${finding.rawControls} colores=${finding.literalColors}`)
 }
 
