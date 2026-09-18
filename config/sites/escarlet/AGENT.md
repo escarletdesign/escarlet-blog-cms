@@ -75,7 +75,7 @@ Recomendado (aviso, no bloquea):
 - Composición y color según `visual-style.md` y las referencias exactas devueltas por `brand_prepare_image_generation`.
 - Cómo subir (orden preferido):
   1. Genera o elige la imagen. Un PNG de 2–3 MB vale.
-  2. `blog_upload_media` con `contentBase64` o `blob`. El CMS comprime a JPEG.
+  2. `content_upload_media` con `contentBase64` o `blob`. El CMS comprime a JPEG.
   3. Si el host recorta el base64, usa `uploadId`, `chunkIndex` y `chunkCount`.
   4. Nunca uses `/mnt/data` como `imageUrl`.
   5. Usa la `media.url` absoluta en el `imageUrl` del post o en cada slide.

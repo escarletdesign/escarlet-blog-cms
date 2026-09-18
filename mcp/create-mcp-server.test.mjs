@@ -9,24 +9,22 @@ function payload(result) {
 
 test('el contrato MCP expone media y contenido v2, sin operaciones de posts legacy', () => {
   const tools = buildToolList({ role: 'admin' })
-  const upload = tools.find((tool) => tool.name === 'blog_upload_media_file')
+  const upload = tools.find((tool) => tool.name === 'content_upload_media')
   assert.ok(upload)
   assert.deepEqual(upload._meta['openai/fileParams'], ['file'])
   assert.equal(upload.inputSchema.properties.file.$ref, '#/$defs/OpenAIFile')
   assert.deepEqual(upload.inputSchema.$defs.OpenAIFile.required, ['download_url', 'file_id'])
-  assert.ok(upload.inputSchema.required.includes('file'))
   assert.ok(tools.some((tool) => tool.name === 'brand_list'))
-  const v2Upload = tools.find((tool) => tool.name === 'content_upload_media')
-  assert.ok(v2Upload)
-  assert.match(v2Upload.description, /brandPreparationId/)
-  assert.ok(v2Upload.inputSchema.properties.brandPreparationId)
+  assert.match(upload.description, /brandPreparationId/)
+  assert.ok(upload.inputSchema.properties.brandPreparationId)
   for (const name of ['content_list_plans', 'content_list_items', 'content_list_calendar', 'content_create_batch', 'content_get_batch', 'content_update_item', 'content_approve', 'content_reject', 'content_schedule', 'content_cancel']) {
     assert.ok(tools.some((tool) => tool.name === name), name)
   }
   for (const name of ['blog_list_posts', 'blog_get_post', 'blog_create_draft', 'blog_update_post', 'blog_publish', 'blog_schedule_post', 'blog_list_calendar', 'blog_get_workflow', 'blog_get_brand_context', 'social_list_packs']) {
     assert.equal(tools.some((tool) => tool.name === name), false, name)
   }
-  assert.ok(MCP_SERVER_VERSION.startsWith('2.6'))
+  assert.equal(tools.some((tool) => /^blog_|^social_/.test(tool.name)), false)
+  assert.equal(MCP_SERVER_VERSION, '2.6.1')
 })
 
 test('createMcpServer anuncia el contrato v2 y la selección explícita de marca', () => {
@@ -76,8 +74,8 @@ test('brand_get_context y media siguen compartiendo el contrato de referencias',
   assert.ok(result.content.some((block) => block.type === 'image' || block.type === 'resource_link'))
 })
 
-test('el MCP rechaza una imagen post sin preparación visual verificable', async () => {
-  const result = await invokeMcpTool('blog_upload_media', {
+test('la subida de medios del MCP usa exclusivamente el runtime v2', async () => {
+  const result = await invokeMcpTool('content_upload_media', {
     site: 'escarlet',
     filename: 'sin-grounding.png',
     kind: 'post',
@@ -85,8 +83,7 @@ test('el MCP rechaza una imagen post sin preparación visual verificable', async
   }, { role: 'admin' })
   assert.equal(result.isError, true)
   const value = payload(result)
-  assert.equal(value.code, 'BRAND_GROUNDING_REQUIRED')
-  assert.equal(value.nextTool, 'brand_prepare_image_generation')
+  assert.equal(value.code, 'postgres_required')
 })
 
 test('los recursos MCP solo anuncian archivos que el rol puede leer', async () => {

@@ -991,6 +991,9 @@ export function buildToolList(auth) {
   return tools
     .filter((t) => !CMS_AI_TOOLS.has(t.name))
     .filter((t) => !LEGACY_CONTENT_TOOLS.has(t.name))
+    // v2 has one public contract. Keep compatibility handlers private so a
+    // client cannot select a legacy blog/social tool by ordering or cache.
+    .filter((t) => !/^(blog|social)_/.test(t.name))
     .filter((t) => !(t.adminOnly && auth?.role !== 'admin'))
     .map(({ adminOnly, ...rest }) => rest)
 }
