@@ -1608,7 +1608,10 @@ const server = createServer(async (req, res) => {
       const users = auth.role === 'admin' && url.searchParams.get('all') === '1'
         ? listPasswordUsers()
         : listPasswordUsers({ site })
-      json(res, 200, { users, site })
+      const visibleUsers = ['admin', 'owner'].includes(auth.role)
+        ? users
+        : users.filter((user) => String(user.role || '').toLowerCase() !== 'owner')
+      json(res, 200, { users: visibleUsers, site })
     } catch (error) {
       json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
     }
@@ -2067,7 +2070,12 @@ const server = createServer(async (req, res) => {
             loginTokenHint: String(profile?.loginTokenHint || '')
           }
         })
-        json(res, 200, { members: hydratedMembers, canManage: ['owner', 'admin'].includes(scope.context.workspaceRole || scope.context.role) })
+        const viewerWorkspaceRole = String(scope.context.workspaceRole || scope.context.role || '').toLowerCase()
+        const canViewSuperAdmin = viewerWorkspaceRole === 'owner' || scope.auth?.role === 'admin'
+        const visibleMembers = canViewSuperAdmin
+          ? hydratedMembers
+          : hydratedMembers.filter((member) => String(member.role || '').toLowerCase() !== 'owner')
+        json(res, 200, { members: visibleMembers, canManage: ['owner', 'admin'].includes(scope.context.workspaceRole || scope.context.role) })
         return
       }
       const teamMemberMatch = path.match(/^\/api\/v2\/team\/members\/([^/]+)$/)
