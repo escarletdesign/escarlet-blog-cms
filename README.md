@@ -62,7 +62,7 @@ npm run site:init -- --handle demo --domain https://demo.example \
   --copy-frontend ../mi-landing/scripts
 ```
 
-Por MCP. `blog_get_onboarding` y `blog_create_site`.
+Por MCP, usa `brand_list` para descubrir las marcas y las herramientas `content_*` para el flujo v2.
 
 Deploy producción. [docs/DEPLOY.md](docs/DEPLOY.md).
 
@@ -70,35 +70,20 @@ Deploy producción. [docs/DEPLOY.md](docs/DEPLOY.md).
 
 | Tool | Uso |
 |------|-----|
-| `blog_get_onboarding` | Playbook setup + Coolify + flujo posts |
-| `blog_create_site` | Alta de un site (handle + brand stubs) |
-| `blog_list_sites` | Sitios configurados |
-| `blog_list_posts` | Posts por site y status |
-| `blog_get_post` | Leer post |
-| `blog_get_workflow` | Elegir flujo simple o guiado; ChatGPT genera y MCP persiste |
-| `blog_list_authors` | Autores asignados y autorizados para publicar |
-| `blog_save_social_pack` | Guardar el Social Pack generado por ChatGPT, sin usar IA del CMS |
-| `social_save_pack` | Guardar un Social Pack independiente, sin crear ni actualizar un post |
-| `social_list_packs` / `social_get_pack` | Listar o recuperar Social Packs independientes |
-| `blog_create_draft` | Esqueleto borrador |
-| `blog_update_post` | Actualizar campos |
-| `blog_validate_seo` | Quality gates |
-| `blog_publish` | Publicar o programar desde `/app` (`direct`, `publishAt`) |
-| `blog_schedule_post` | Programar fecha futura desde `/app` (`direct`) |
-| `blog_confirm_schedule` | Confirmar pendiente (super-admin) |
-| `blog_cancel_schedule` | Cancelar programación |
-| `blog_list_calendar` | Posts del calendario |
-| `blog_get_seo_context` | Keywords y reglas |
-| `blog_get_brand_context` | Contexto normalizado completo de la marca por membresía |
-| `blog_update_brand_file` | Actualiza archivos permitidos desde la app con PAT personal |
-| `blog_upload_media` | PNG/JPG en `contentBase64` o `blob` (2–3 MB valen). `kind` `post` o `social`. El CMS comprime a JPEG. Si recorta, `uploadId` a trozos |
-| `blog_import_remote_image` | Solo URL https pública (atajo) |
-| `blog_import_brand_zip` | ZIP de brand kit (cualquier estructura). Preferir `zipUrl` |
-| `content_create_batch` | Crear una campaña de temas y canales; devuelve `batchId`, `itemIds`, `jobId` |
-| `content_get_batch` | Progreso, items y variantes de un batch |
+| `brand_list` | Marcas v2 accesibles para el token; si hay varias, el asistente debe preguntar |
+| `brand_get_context` | Contexto normalizado canónico de la marca por membresía |
+| `brand_prepare_image_generation` | Política determinista y referencias permitidas para generar imágenes |
+| `content_list_plans` | Planes de contenido v2, progreso y contadores de revisión |
+| `content_list_items` | Publicaciones v2, incluidas las generadas y pendientes de revisión |
+| `content_get_batch` | Detalle de un plan, items y variantes |
+| `content_create_batch` | Crear un plan de temas y canales; devuelve `batchId`, `itemIds`, `jobId` |
 | `content_update_item` | Editar tema, variante y media enlazada |
 | `content_approve` / `content_reject` | Revisión individual o masiva |
-| `content_schedule` | Agenda individual o masiva; entrega a outbox/Buffer, Metricool, Planable o Postiz según la conexión de la marca |
+| `content_schedule` / `content_cancel` | Agendar o cancelar publicaciones v2 |
+| `content_list_calendar` | Calendario v2 por rango de fechas |
+| `blog_upload_media` | PNG/JPG en `contentBase64` o `blob` (2–3 MB valen). `kind` `post` o `social`. El CMS comprime a JPEG. Si recorta, `uploadId` a trozos |
+| `blog_import_remote_image` | Solo URL https pública (atajo) |
+| `blog_import_brand_zip` | Importar un brand kit para la app v2 |
 
 Resources. `brand://{handle}/context` devuelve el contexto normalizado completo. Los archivos fuente privados solo se gestionan desde la app por owner/admin; `AGENT.md` y `keywords.md` quedan como adaptadores de compatibilidad.
 
@@ -110,7 +95,7 @@ Hermes (otro servidor) no clona el CMS. En su `mcp.json`:
 {
   "mcpServers": {
     "escarlet-blog": {
-      "url": "https://blog-cms.escarlet.cc/mcp",
+      "url": "https://cms.escarlet.design/mcp",
       "headers": {
         "Authorization": "Bearer TU_PAT_PERSONAL_user_..."
       }
@@ -119,9 +104,9 @@ Hermes (otro servidor) no clona el CMS. En su `mcp.json`:
 }
 ```
 
-ChatGPT (Developer Mode / Connectors). URL `https://blog-cms.escarlet.cc/mcp`, autenticación **OAuth**. Es el mismo conector para todos los roles. Autoriza con tu usuario o usa un PAT personal (`user_...`). El rol y las marcas se resuelven desde las membresías actuales en cada solicitud; `ADMIN_TOKEN` queda reservado al servidor. `/app/admin` genera un PNG del favicon (<10 KB) para el icono del conector.
+ChatGPT (Developer Mode / Connectors). URL `https://cms.escarlet.design/mcp`, autenticación **OAuth**. Es el mismo conector para todos los roles. Autoriza con tu usuario o usa un PAT personal (`user_...`). El rol y las marcas se resuelven desde las membresías actuales en cada solicitud; `ADMIN_TOKEN` queda reservado al servidor. `/app/admin` genera un PNG del favicon (<10 KB) para el icono del conector.
 
-Claude (Customize / Connectors). URL `https://blog-cms.escarlet.cc/mcp`, autenticación **OAuth**. Usa el mismo PAT personal y alcance por membresía que ChatGPT. Puede usar el mismo icono PNG.
+Claude (Customize / Connectors). URL `https://cms.escarlet.design/mcp`, autenticación **OAuth**. Usa el mismo PAT personal y alcance por membresía que ChatGPT. Puede usar el mismo icono PNG.
 
 ## Integración frontend
 
@@ -153,7 +138,7 @@ npm run visual:regenerate -- --site=escarlet --slug=mi-post --dry-run
 
 La política editorial compartida vive en [`lib/human-writing.mjs`](lib/human-writing.mjs)
 y el MCP la entrega en `MCP_INSTRUCTIONS` y en `sharedEditorialPolicy` dentro de
-`blog_get_brand_context`. Así se aplica a todos los sitios junto con su voz y
+`brand_get_context`. Así se aplica a todos los sitios junto con su voz y
 restricciones locales, sin duplicarla en cada `AGENT.md`. El editor `/app`
 también ofrece «Hacer más humano» para borradores existentes.
 

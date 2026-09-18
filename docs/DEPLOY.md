@@ -234,7 +234,7 @@ El MCP corre **dentro del CMS**. Hermes no clona el repo. Solo apunta a la URL.
 {
   "mcpServers": {
     "escarlet-blog": {
-      "url": "https://blog-cms.escarlet.cc/mcp",
+      "url": "https://cms.escarlet.design/mcp",
       "headers": {
         "Authorization": "Bearer TU_PAT_PERSONAL_user_..."
       }
@@ -245,14 +245,14 @@ El MCP corre **dentro del CMS**. Hermes no clona el repo. Solo apunta a la URL.
 
 Local. `http://localhost:3040/mcp` con un PAT personal de usuario. Reserva `ADMIN_TOKEN` para el servidor.
 
-Reinicia el servidor MCP en Cursor. Prueba `blog_list_posts` con site `escarlet`.
+Reinicia el servidor MCP en Cursor. Prueba `brand_list` y después `content_list_plans` con site `escarlet`.
 
 ### ChatGPT (Developer Mode)
 
 ChatGPT solo ofrece OAuth (o sin autenticación). El CMS incluye un OAuth 2.1 mínimo en el mismo host.
 
 1. En ChatGPT. Settings → Connectors → Create
-2. URL. `https://blog-cms.escarlet.cc/mcp`
+2. URL. `https://cms.escarlet.design/mcp`
 3. Autenticación. **OAuth**
 4. Nombre. `escarlet-blog` (o el del cliente)
 5. Al conectar, ChatGPT abre la pantalla del CMS. Usa OAuth o pega tu PAT personal y autoriza una vez.
@@ -265,7 +265,7 @@ Cursor y Hermes siguen con Bearer directo. No hace falta migrarlos a OAuth.
 Claude también puede usar el mismo endpoint OAuth del CMS.
 
 1. En Claude. `Customize → Connectors → Add custom connector`
-2. URL. `https://blog-cms.escarlet.cc/mcp`
+2. URL. `https://cms.escarlet.design/mcp`
 3. Autenticación. **OAuth**
 4. Nombre. `escarlet-blog` (o el del cliente)
 5. Al conectar, Claude abre la pantalla del CMS. Usa OAuth o pega tu PAT personal y autoriza una vez.
@@ -315,7 +315,7 @@ Redeploy de escarlet002.
 
 ### D. Comprueba el flujo
 
-1. Publica un post en el CMS (dashboard `/app` o MCP `blog_publish`)
+1. Aprueba y agenda una publicación desde la app v2 o con `content_approve` y `content_schedule`
 2. El CMS hace `POST` al webhook
 3. Coolify reconstruye escarlet002
 4. En build, `escarlet-blog.mjs` baja el runtime del CMS y descarga posts

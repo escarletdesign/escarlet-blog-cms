@@ -31,15 +31,20 @@ import { canReadPost, assertPostAccess, safePostFields } from '../lib/post-acces
 import { listSiteAuthors } from '../lib/human-auth.mjs'
 import {
   resolveWorkspaceContext,
+  listContentPlans,
+  listContentItems,
+  listScheduledContent,
   createContentBatch,
   getContentBatch,
   updateContentItem,
   approveContentItem,
   rejectContentItem,
   scheduleContentItem,
+  cancelContentItem,
   approveContentBatch,
   rejectContentBatch,
   scheduleContentBatch,
+  cancelContentBatch,
   createBrandKitVersion,
   registerBrandAssets,
   listSiteChannels,
@@ -50,11 +55,32 @@ import {
 import { isPostgresConfigured, runCoreMigrations } from '../lib/pg.mjs'
 
 const DEFAULT_SITE = process.env.DEFAULT_SITE || 'escarlet'
-const BLOG_CONTENT_TOOLS = new Set([
-  'blog_get_workflow',
+const V2_CONTENT_TOOLS = new Set([
+  'content_list_plans',
+  'content_list_items',
+  'content_list_calendar',
+  'content_create_batch',
+  'content_get_batch',
+  'content_update_item',
+  'content_approve',
+  'content_reject',
+  'content_schedule',
+  'content_cancel'
+])
+const V2_READ_ONLY_TOOLS = new Set(['content_list_plans', 'content_list_items', 'content_list_calendar', 'content_get_batch'])
+const LEGACY_CONTENT_TOOLS = new Set([
+  'blog_list_authors',
+  'social_save_pack',
+  'social_list_packs',
+  'social_get_pack',
   'blog_save_social_pack',
+  'blog_list_sites',
+  'blog_get_onboarding',
+  'blog_get_workflow',
+  'blog_create_site',
   'blog_list_posts',
   'blog_get_post',
+  'blog_get_quota',
   'blog_create_draft',
   'blog_update_post',
   'blog_unpublish',
@@ -66,15 +92,10 @@ const BLOG_CONTENT_TOOLS = new Set([
   'blog_confirm_schedule',
   'blog_cancel_schedule',
   'blog_list_calendar',
-  'blog_get_seo_context'
-])
-const BLOG_READ_ONLY_TOOLS = new Set([
-  'blog_get_workflow',
-  'blog_list_posts',
-  'blog_get_post',
-  'blog_validate_seo',
-  'blog_list_calendar',
-  'blog_get_seo_context'
+  'blog_get_seo_context',
+  'blog_get_brand_context',
+  'blog_update_brand_file',
+  'blog_import_brand_zip'
 ])
 const MUTATING_SITE_TOOLS = new Set([
   'social_save_pack',
@@ -91,7 +112,13 @@ const MUTATING_SITE_TOOLS = new Set([
   'blog_upload_media_file',
   'blog_open_image_drop',
   'blog_upload_media',
-  'blog_import_remote_image'
+  'blog_import_remote_image',
+  'content_create_batch',
+  'content_update_item',
+  'content_approve',
+  'content_reject',
+  'content_schedule',
+  'content_cancel'
 ])
 
 export const RESOURCE_MAP = {
@@ -262,6 +289,7 @@ function errorResult(err) {
   const payload = redactWorkflowLinks({
     message: err.message,
     status: err.status || 500,
+    ...(err.code ? { code: err.code } : {}),
     ...(err.extra || {})
   })
   if (payload.validation && !payload.blockingErrors) {
@@ -274,16 +302,57 @@ function errorResult(err) {
   }
 }
 
+function availableToolSites(auth) {
+  const declaredSites = Array.isArray(auth?.sites) ? auth.sites : []
+  const candidates = [...allowedSiteHandles(auth), ...declaredSites]
+  if (!candidates.length && auth?.site) candidates.push(auth.site)
+  return [...new Set(candidates.map((site) => String(site || '').trim()).filter(Boolean))]
+}
+
+function brandSelectionRequired(auth, sites = availableToolSites(auth)) {
+  const handles = [...new Set(sites.map((site) => String(site || '').trim()).filter(Boolean))]
+  const error = new Error(
+    `Tienes acceso a varias marcas (${handles.join(', ')}). Pregunta al usuario con qué marca quiere trabajar y vuelve a llamar indicando site.`
+  )
+  error.status = 400
+  error.code = 'brand_selection_required'
+  error.extra = {
+    code: error.code,
+    sites: handles,
+    askUser: `¿Con qué marca quieres trabajar? Elige una: ${handles.join(', ')}.`
+  }
+  return error
+}
+
 function resolveToolSite(auth, args = {}) {
-  const requested = args.site || (isSiteScopedRole(auth?.role) ? (auth.site || auth.sites?.[0]) : DEFAULT_SITE)
-  assertSiteAccess(auth, requested)
-  return requested
+  const requested = String(args.siteId || args.site || '').trim()
+  if (requested) {
+    assertSiteAccess(auth, requested)
+    return requested
+  }
+
+  const sites = availableToolSites(auth)
+  if (sites.length > 1) throw brandSelectionRequired(auth, sites)
+
+  const fallback = sites[0] || (isSiteScopedRole(auth?.role) ? String(auth?.site || '').trim() : DEFAULT_SITE)
+  assertSiteAccess(auth, fallback)
+  return fallback
 }
 
 async function resolveContentScope(auth, args = {}) {
+  const explicitSite = String(args.siteId || args.site || '').trim()
+  const knownSites = availableToolSites(auth)
+  if (!explicitSite && knownSites.length > 1) throw brandSelectionRequired(auth, knownSites)
+  const requestedSite = explicitSite || (
+    auth?.role !== 'admin' && knownSites.length === 1
+      ? knownSites[0]
+      : String(auth?.site || '').trim()
+  )
   if (!isPostgresConfigured()) throw Object.assign(new Error('Las tools de contenido requieren Postgres.'), { status: 503, code: 'postgres_required' })
+  if (auth?.role === 'admin' && !requestedSite && !args.workspaceId && !auth?.workspaceId && !auth?.userId) {
+    throw Object.assign(new Error('Para consultar varias marcas con un token administrador pasa workspaceId o site.'), { status: 400, code: 'workspace_required' })
+  }
   await runCoreMigrations()
-  const requestedSite = String(args.siteId || args.site || auth?.site || '').trim()
   if (auth?.role !== 'admin' && !auth?.userId && auth?.site && requestedSite && requestedSite !== auth.site) throw Object.assign(new Error('Este token solo gestiona el sitio autorizado.'), { status: 403 })
   const common = { userId: auth?.userId || undefined, workspaceId: args.workspaceId || undefined }
   let context
@@ -293,6 +362,9 @@ async function resolveContentScope(auth, args = {}) {
     if (!requestedSite) throw error
     context = await resolveWorkspaceContext({ ...common, siteHandle: requestedSite })
   }
+  if (!explicitSite && Array.isArray(context.sites) && context.sites.length > 1) {
+    throw brandSelectionRequired(auth, context.sites.map((site) => site.handle))
+  }
   if (auth?.role !== 'admin' && !auth?.userId) throw Object.assign(new Error('Se requiere un token personal de usuario.'), { status: 401 })
   const role = auth?.role === 'admin' ? 'admin' : context.role || workspaceRoleForAuth(auth)
   const site = requestedSite ? context.sites.find((entry) => entry.id === requestedSite || entry.handle === requestedSite) : context.sites[0]
@@ -301,7 +373,7 @@ async function resolveContentScope(auth, args = {}) {
 }
 
 function cmsOrigin() {
-  return String(process.env.CMS_PUBLIC_URL || 'https://blog-cms.escarlet.cc')
+  return String(process.env.CMS_PUBLIC_URL || 'https://cms.escarlet.design')
     .replace(/\/$/, '')
     .replace(/\/app$/, '')
 }
@@ -346,7 +418,7 @@ export function buildToolList(auth) {
     { name: 'blog_save_social_pack', description: 'Guarda textos y slides generados por ChatGPT. Las slides deben llevar texto renderizado por template, templateId y renderedBy. No genera contenido ni llama APIs de IA.', inputSchema: { type: 'object', properties: { site: { type: 'string' }, slug: { type: 'string' }, socialPack: { type: 'object' } }, required: ['site', 'slug', 'socialPack'] }, annotations: { readOnlyHint: false } },
     {
       name: 'blog_list_sites',
-      description: 'Lista sitios visibles con este token.',
+      description: 'Lista marcas visibles con este token. Si hay varias, pregunta al usuario cuál quiere usar antes de llamar a cualquier otra tool.',
       inputSchema: { type: 'object', properties: {} },
       annotations: { readOnlyHint: true }
     },
@@ -785,6 +857,7 @@ export function buildToolList(auth) {
   ]
 
   tools.push(
+    { name: 'brand_list', description: 'Lista las marcas v2 visibles para este token. Si devuelve varias, pregunta al usuario cuál quiere usar y pasa site en las siguientes llamadas.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' } } }, annotations: { readOnlyHint: true } },
     { name: 'brand_get_context', description: 'Devuelve el contexto general canónico de una marca. No reemplaza la preparación de una generación de imagen. Todos los endpoints leen el mismo snapshot versionado.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, siteId: { type: 'string' } } }, annotations: { readOnlyHint: true } },
     {
       name: 'brand_prepare_image_generation',
@@ -804,16 +877,21 @@ export function buildToolList(auth) {
       },
       annotations: { readOnlyHint: true }
     },
-    { name: 'content_create_batch', description: 'Crea una campaña de publicaciones independientes por temas y canales. Devuelve batchId, itemIds y jobId.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, title: { type: 'string' }, topics: { type: 'array', items: { type: 'string' } }, channels: { type: 'array', items: { type: 'string', enum: ['blog', 'instagram', 'linkedin', 'x', 'video', 'substack'] } }, brandKitVersionId: { type: 'string' } }, required: ['topics'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
+    { name: 'content_list_plans', description: 'Lista los planes de contenido v2 de una marca, con progreso, canales y contadores de revisión.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, status: { type: 'string' }, channel: { type: 'string', enum: ['blog', 'instagram', 'linkedin', 'x', 'video', 'substack'] }, query: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 200 } } }, annotations: { readOnlyHint: true } },
+    { name: 'content_list_items', description: 'Lista publicaciones v2, incluyendo las generadas o pendientes de revisión aunque todavía no estén publicadas.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, batchId: { type: 'string' }, status: { type: 'string' }, channel: { type: 'string', enum: ['blog', 'instagram', 'linkedin', 'x', 'video', 'substack'] }, query: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 500 } } }, annotations: { readOnlyHint: true } },
+    { name: 'content_list_calendar', description: 'Lista el calendario v2 con publicaciones programadas, sincronizando, publicadas o con error.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, from: { type: 'string' }, to: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 1000 } } }, annotations: { readOnlyHint: true } },
+    { name: 'content_create_batch', description: 'Crea un plan de contenido v2 por temas y canales. La generación se ejecuta de forma asíncrona.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, title: { type: 'string' }, topics: { type: 'array', items: { type: 'string' } }, channels: { type: 'array', items: { type: 'string', enum: ['blog', 'instagram', 'linkedin', 'x', 'video', 'substack'] } }, brandKitVersionId: { type: 'string' }, metadata: { type: 'object' } }, required: ['topics'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_get_batch', description: 'Obtiene el progreso, items y variantes de un batch.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, batchId: { type: 'string' } }, required: ['batchId'] }, annotations: { readOnlyHint: true } },
     { name: 'content_update_item', description: 'Edita el tema o el cuerpo de una variante antes de aprobar.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, topic: { type: 'string' }, channel: { type: 'string' }, body: { type: 'object' }, mediaAssetIds: { type: 'array', items: { type: 'string' } } }, required: ['itemId'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_approve', description: 'Aprueba un item o todos los items de un batch.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' } }, oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_reject', description: 'Rechaza un item o todos los items de un batch y deja comentario.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' }, comment: { type: 'string' } }, oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } },
-    { name: 'content_schedule', description: 'Programa un item o batch aprobado en zona horaria indicada.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' }, publicationDate: { type: 'string' }, timezone: { type: 'string' } }, required: ['publicationDate'], oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } }
+    { name: 'content_schedule', description: 'Programa un item o batch aprobado en zona horaria indicada.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' }, publicationDate: { type: 'string' }, timezone: { type: 'string' } }, required: ['publicationDate'], oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } },
+    { name: 'content_cancel', description: 'Cancela un item o plan v2 que todavía no se publicó.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' } }, oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } }
   )
 
   return tools
     .filter((t) => !CMS_AI_TOOLS.has(t.name))
+    .filter((t) => !LEGACY_CONTENT_TOOLS.has(t.name))
     .filter((t) => !(t.adminOnly && auth?.role !== 'admin'))
     .map(({ adminOnly, ...rest }) => rest)
 }
@@ -832,7 +910,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
   }))
 
   server.setRequestHandler(ListResourcesRequestSchema, async () => {
-    const sites = allowedSiteHandles(auth)
+    const sites = availableToolSites(auth)
     const allowedFiles = new Set(brandFilesForAuth(auth).filter((file) => !SECRET_BRAND_FILES.includes(file)))
     const resources = []
     for (const site of sites) {
@@ -897,7 +975,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
       if (MUTATING_SITE_TOOLS.has(name) && auth?.role === 'viewer') {
         throw Object.assign(new Error('El rol viewer solo puede consultar contenido.'), { status: 403 })
       }
-      if (MUTATING_SITE_TOOLS.has(name) && !BLOG_CONTENT_TOOLS.has(name) && isPostgresConfigured()) {
+      if (MUTATING_SITE_TOOLS.has(name) && !V2_CONTENT_TOOLS.has(name) && isPostgresConfigured()) {
         const site = resolveToolSite(auth, args)
         const scope = await resolveContentScope(auth, { site })
         scopedAuth = {
@@ -911,16 +989,15 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
         }
         if (scope.role === 'viewer') throw Object.assign(new Error('El rol viewer solo puede consultar contenido.'), { status: 403 })
       }
-      if (BLOG_CONTENT_TOOLS.has(name)) {
-        const site = resolveToolSite(auth, args)
-        if (isSocialMediaOnlySite(loadSiteConfig(site))) {
-          throw Object.assign(new Error('Este sitio está configurado como solo Social Media. Usa las herramientas de Social Pack.'), { status: 404 })
-        }
-        if (!BLOG_READ_ONLY_TOOLS.has(name) && auth?.role === 'viewer') {
+      if (V2_CONTENT_TOOLS.has(name)) {
+        const explicitSite = String(args.siteId || args.site || '').trim()
+        const knownSites = availableToolSites(auth)
+        if (!explicitSite && knownSites.length > 1) throw brandSelectionRequired(auth, knownSites)
+        if (!V2_READ_ONLY_TOOLS.has(name) && auth?.role === 'viewer') {
           throw Object.assign(new Error('El rol viewer solo puede consultar contenido.'), { status: 403 })
         }
         if (isPostgresConfigured()) {
-          const scope = await resolveContentScope(auth, { site })
+          const scope = await resolveContentScope(auth, args)
           scopedAuth = {
             ...auth,
             role: scope.role,
@@ -930,19 +1007,25 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             workspaceRole: scope.workspaceRole,
             brandRole: scope.brandRole
           }
-          if (!BLOG_READ_ONLY_TOOLS.has(name) && scope.role === 'viewer') {
+          if (!V2_READ_ONLY_TOOLS.has(name) && scope.role === 'viewer') {
             throw Object.assign(new Error('El rol viewer solo puede consultar contenido.'), { status: 403 })
           }
-          const blog = (await listSiteChannels({ workspaceId: scope.workspaceId, siteId: scope.siteId })).find((channel) => channel.channel === 'blog')
-          if (blog && !blog.enabled) throw Object.assign(new Error('El canal Blog está desactivado para esta marca.'), { status: 409, code: 'channel_disabled' })
         }
       }
-      if (args.slug && !['blog_create_draft', 'blog_upload_media', 'blog_upload_media_file', 'blog_open_image_drop', 'blog_import_remote_image'].includes(name)) {
-        const site = resolveToolSite(auth, args)
-        const { post } = await cms.getPost(site, args.originalSlug || args.slug)
-        assertPostAccess(post, scopedAuth, { write: !tool.annotations?.readOnlyHint })
-      }
       switch (name) {
+        case 'brand_list': {
+          if (!isPostgresConfigured()) throw Object.assign(new Error('Las marcas v2 requieren Postgres.'), { status: 503, code: 'postgres_required' })
+          if (auth?.role === 'admin' && !args.workspaceId && !auth?.workspaceId && !auth?.userId) throw Object.assign(new Error('Para listar marcas con un token administrador pasa workspaceId.'), { status: 400, code: 'workspace_required' })
+          if (auth?.role !== 'admin' && !auth?.userId) throw Object.assign(new Error('Se requiere un token personal de usuario para consultar marcas v2.'), { status: 401, code: 'user_token_required' })
+          await runCoreMigrations()
+          const context = await resolveWorkspaceContext({ userId: auth?.userId || undefined, workspaceId: args.workspaceId || auth?.workspaceId || undefined })
+          return textResult({
+            workspace: { id: context.workspaceId, name: context.workspaceName },
+            brands: context.sites.map((brand) => ({ id: brand.id, handle: brand.handle, name: brand.name, role: brand.role })),
+            handles: context.sites.map((brand) => brand.handle).sort(),
+            selectionRequired: context.sites.length > 1
+          })
+        }
         case 'brand_prepare_image_generation': {
           const site = resolveToolSite(auth, args)
           return preparedImageResult(prepareImageGeneration(site, args))
@@ -1043,6 +1126,27 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           const result = await createContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: auth.userId || null, role: scope.role, title: args.title, topics: args.topics, channels: args.channels, brandKitVersionId: args.brandKitVersionId, metadata: args.metadata })
           return textResult(result)
         }
+        case 'content_list_plans': {
+          const scope = await resolveContentScope(auth, args)
+          return textResult({
+            site: { id: scope.siteId, handle: scope.siteHandle, name: scope.sites.find((entry) => entry.id === scope.siteId)?.name || scope.siteHandle },
+            plans: await listContentPlans({ workspaceId: scope.workspaceId, siteId: scope.siteId, status: args.status, channel: args.channel, query: args.query, limit: args.limit })
+          })
+        }
+        case 'content_list_items': {
+          const scope = await resolveContentScope(auth, args)
+          return textResult({
+            site: { id: scope.siteId, handle: scope.siteHandle, name: scope.sites.find((entry) => entry.id === scope.siteId)?.name || scope.siteHandle },
+            items: await listContentItems({ workspaceId: scope.workspaceId, siteId: scope.siteId, batchId: args.batchId, status: args.status, channel: args.channel, query: args.query, limit: args.limit })
+          })
+        }
+        case 'content_list_calendar': {
+          const scope = await resolveContentScope(auth, args)
+          return textResult({
+            site: { id: scope.siteId, handle: scope.siteHandle, name: scope.sites.find((entry) => entry.id === scope.siteId)?.name || scope.siteHandle },
+            entries: await listScheduledContent({ workspaceId: scope.workspaceId, siteId: scope.siteId, from: args.from, to: args.to, limit: args.limit })
+          })
+        }
         case 'content_get_batch': {
           const scope = await resolveContentScope(auth, args)
           return textResult(await getContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId, batchId: args.batchId }))
@@ -1068,6 +1172,12 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           return textResult(args.batchId
             ? await scheduleContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId, batchId: args.batchId, userId: auth.userId, role: scope.role, publicationDate: args.publicationDate, timezone: args.timezone })
             : await scheduleContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId: args.itemId, userId: auth.userId, role: scope.role, publicationDate: args.publicationDate, timezone: args.timezone }))
+        }
+        case 'content_cancel': {
+          const scope = await resolveContentScope(auth, args)
+          return textResult(args.batchId
+            ? await cancelContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId, batchId: args.batchId, userId: auth.userId, role: scope.role })
+            : await cancelContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId: args.itemId, userId: auth.userId, role: scope.role }))
         }
         case 'blog_list_authors': {
           const site = resolveToolSite(auth, args)
@@ -1100,7 +1210,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
         }
         case 'blog_list_sites': {
           const all = await cms.listSites()
-          const allowed = new Set(allowedSiteHandles(auth))
+          const allowed = new Set(availableToolSites(auth))
           return textResult({
             sites: (all.sites || []).filter((s) => allowed.has(s.handle || s.id)),
             handles: [...allowed].sort(),
@@ -1109,8 +1219,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
         }
         case 'blog_get_onboarding': {
           const { getOnboardingPlaybook } = await import('../lib/onboarding.mjs')
-          const handle = args.site || (isSiteScopedRole(auth.role) ? auth.site : DEFAULT_SITE)
-          if (isSiteScopedRole(auth.role)) assertSiteAccess(auth, handle)
+          const handle = resolveToolSite(auth, args)
           const config = loadSiteConfig(handle)
           if (isSocialMediaOnlySite(config)) {
             return textResult({

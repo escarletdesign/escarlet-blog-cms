@@ -2028,13 +2028,13 @@ const server = createServer(async (req, res) => {
       if (req.method === 'GET' && path === '/api/v2/content/plans') {
         const scope = await requireV2Context(req, url, res)
         if (!scope) return
-        json(res, 200, { plans: await listContentPlans({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, limit: url.searchParams.get('limit') }) })
+        json(res, 200, { plans: await listContentPlans({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, status: url.searchParams.get('status') || undefined, channel: url.searchParams.get('channel') || undefined, query: url.searchParams.get('query') || undefined, limit: url.searchParams.get('limit') }) })
         return
       }
       if (req.method === 'GET' && path === '/api/v2/content/review') {
         const scope = await requireV2Context(req, url, res)
         if (!scope) return
-        json(res, 200, { items: await listContentItems({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, limit: url.searchParams.get('limit') || 200 }) })
+        json(res, 200, { items: await listContentItems({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, status: url.searchParams.get('status') || undefined, channel: url.searchParams.get('channel') || undefined, query: url.searchParams.get('query') || undefined, limit: url.searchParams.get('limit') || 200 }) })
         return
       }
       if (req.method === 'GET' && path === '/api/v2/calendar') {
@@ -2130,7 +2130,7 @@ const server = createServer(async (req, res) => {
       if (req.method === 'GET' && path === '/api/v2/content/items') {
         const scope = await requireV2Context(req, url, res)
         if (!scope) return
-        json(res, 200, { items: await listContentItems({ workspaceId: scope.workspaceId, batchId: url.searchParams.get('batchId'), siteId: scope.siteId || undefined, limit: url.searchParams.get('limit') }) })
+        json(res, 200, { items: await listContentItems({ workspaceId: scope.workspaceId, batchId: url.searchParams.get('batchId'), siteId: scope.siteId || undefined, status: url.searchParams.get('status') || undefined, channel: url.searchParams.get('channel') || undefined, query: url.searchParams.get('query') || undefined, limit: url.searchParams.get('limit') }) })
         return
       }
       if (req.method === 'PATCH' && itemMatch) {

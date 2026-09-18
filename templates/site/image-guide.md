@@ -18,7 +18,7 @@
 4. Si tienes URL https pública. También vale `imageUrl`. Nunca uses `/mnt/data` como `imageUrl`.
 5. Usa la `media.url` absoluta en el `imageUrl` del post o en cada slide.
 
-Antes de generar cualquier imagen, llama `brand_prepare_image_generation` después de `blog_get_brand_context`. Entrega al generador exactamente sus `resolvedReferences` como `ImageContent`, en el orden de `attachmentIndex`. No escojas ni sustituyas referencias. Si `generationBlocked` es `true`, detén la generación y restaura los activos indicados. Esta regla aplica a portadas, imágenes de artículo, imágenes sociales, slides, fondos y piezas de apoyo.
+Antes de generar cualquier imagen, llama `brand_prepare_image_generation` después de `brand_get_context`. Entrega al generador exactamente sus `resolvedReferences` como `ImageContent`, en el orden de `attachmentIndex`. No escojas ni sustituyas referencias. Si `generationBlocked` es `true`, detén la generación y restaura los activos indicados. Esta regla aplica a portadas, imágenes de artículo, imágenes sociales, slides, fondos y piezas de apoyo.
 
 ## Carrusel Instagram (si el canal está activo)
 
@@ -26,5 +26,5 @@ Antes de generar cualquier imagen, llama `brand_prepare_image_generation` despu�
 2. Filename `{slug}-ig-01.jpg` … `{slug}-ig-07.jpg`.
 3. `blog_upload_media` con `kind` `social` por cada slide.
 4. Guarda en `socialPack.instagramSlides` `{ imageUrl, alt, headline? }` y un `instagramCaption` con el canónico.
-5. Si el canal está activo, genera las slides en ChatGPT y guárdalas con `blog_save_social_pack` después de confirmar el contenido. Si no existe artículo, usa `social_save_pack`. El CMS no genera Social Packs desde MCP.
+5. Si el canal está activo, genera las variantes en ChatGPT y añádelas al item v2 antes de aprobarlo. El CMS no genera contenido desde MCP.
 6. Mantén el headline y el body con un tamaño suficiente para leerse en un móvil. Si el copy no cabe, acórtalo o divídelo entre slides. Nunca lo reduzcas hasta hacerlo ilegible.

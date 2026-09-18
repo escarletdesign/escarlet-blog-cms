@@ -24,7 +24,7 @@ Para dar de alta otro proyecto. [ONBOARDING.md](./ONBOARDING.md)
 npm run site:init -- --handle CLIENTE --domain https://...
 ```
 
-MCP. `blog_get_onboarding` + `blog_create_site`. Plantillas en `templates/`.
+MCP v2. `brand_list` y herramientas `content_*`. Plantillas en `templates/`.
 
 ## Repos
 
@@ -60,7 +60,7 @@ App. http://localhost:3040/app
 
 ## MCP Cursor
 
-El MCP es el endpoint `POST https://blog-cms.escarlet.cc/mcp` del mismo servicio. Hermes solo pone `url` + `Authorization` Bearer. Ver `docs/mcp.json.example`.
+El MCP es el endpoint `POST https://cms.escarlet.design/mcp` del mismo servicio. Hermes solo pone `url` + `Authorization` Bearer. Ver `docs/mcp.json.example`.
 
 ## Deploy pendiente (Carlos)
 

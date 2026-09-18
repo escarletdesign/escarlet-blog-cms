@@ -34,7 +34,7 @@ Esta skill es la copia operativa del brand kit canónico preparado para el handl
 
 ## Contrato obligatorio de imágenes
 
-1. Consulta `blog_get_brand_context` para leer el contexto general y las políticas.
+1. Consulta `brand_get_context` para leer el contexto general y las políticas.
 2. Llama `brand_prepare_image_generation` antes de generar cualquier imagen.
 3. Entrega al generador exactamente sus `resolvedReferences` como `ImageContent`, respetando `attachmentIndex`.
 4. Si `generationBlocked` es `true`, no generes ni sustituyas referencias. Solicita que se restaure el activo indicado.

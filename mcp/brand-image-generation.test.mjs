@@ -18,12 +18,11 @@ test('la skill del brand kit publica el mismo contrato canónico que el MCP', ()
 
 test('los tres endpoints usan el mismo snapshot y la misma identidad canónica', async () => {
   const auth = { role: 'admin' }
-  const [general, blog, prepared] = await Promise.all([
+  const [general, prepared] = await Promise.all([
     invokeMcpTool('brand_get_context', { site: 'escarlet' }, auth),
-    invokeMcpTool('blog_get_brand_context', { site: 'escarlet' }, auth),
     invokeMcpTool('brand_prepare_image_generation', { site: 'escarlet', assetType: 'generic', title: 'imagen de prueba' }, auth)
   ])
-  const values = [payload(general), payload(blog), payload(prepared)]
+  const values = [payload(general), payload(prepared)]
   assert.equal(new Set(values.map((value) => value.brandKitVersionId)).size, 1)
   assert.equal(new Set(values.map((value) => value.brandKitSnapshotHash)).size, 1)
   assert.deepEqual(values[0].canonicalPalette, {

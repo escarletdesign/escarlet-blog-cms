@@ -4,15 +4,15 @@ Este archivo manda sobre el flujo de trabajo. El dashboard puede corregirlo si e
 
 ## Antes de escribir
 
-En este mismo turno llama `blog_get_brand_context` con el `site` pedido. Lee voz, estilo visual, keywords, este archivo, `postFields`, `editRules`, `workflow` y las imágenes de referencia.
+En este mismo turno llama `brand_get_context` con el `site` pedido. Lee voz, estilo visual, keywords, este archivo y las imágenes de referencia.
 
-Si `missingBrand` tiene archivos, para y pide que los suban (dashboard Brand kit o `blog_update_brand_file`).
+Si `missingBrand` tiene archivos, para y pide que los suban desde Brand kit en la app v2.
 
-Lee cada `postFields[].askHuman`. Pregunta al humano lo que aún no sepas antes de redactar.
+Pregunta al humano lo que aún no sepas antes de redactar.
 
 No inventes tono ni paleta.
 
-Aplica siempre la política editorial común `sharedEditorialPolicy` devuelta por `blog_get_brand_context` antes de redactar o revisar. Sus reglas son globales y se combinan con este brand kit.
+Aplica siempre la política editorial común `sharedEditorialPolicy` devuelta por `brand_get_context` antes de redactar o revisar. Sus reglas son globales y se combinan con este brand kit.
 
 ## Autoría
 
@@ -23,32 +23,21 @@ Un post, un enfoque principal. Si mezcla temas, elige autor por el objetivo del 
 
 ## Flujo MCP (crear)
 
-1. Llama `blog_get_workflow` y pregunta si el usuario prefiere `easy` o `guided`.
-2. Genera título, contenido y metadatos en ChatGPT. Para cada imagen llama `brand_prepare_image_generation` y entrega exactamente sus `resolvedReferences` al generador. Si bloquea la generación, restaura las referencias indicadas antes de continuar. Guarda el borrador con `blog_create_draft`, `blog_upload_media` y `blog_update_post`.
-3. En `guided`, comparte únicamente `appPreviewUrl` (`/app/preview/{slug}`) y espera la revisión del usuario. En `easy`, muestra un resumen y pide confirmación.
-4. Aplica correcciones con `blog_update_post` usando el mismo slug.
-5. Tras confirmar, llama `blog_publish` o `blog_schedule_post` con `direct: true` según la decisión del usuario. Usa la revisión dentro de `/app`.
-6. Guarda el Social Pack generado por ChatGPT con `blog_save_social_pack`. El CMS no genera copy ni carruseles desde MCP.
-
-Si el usuario no quiere blog, no crees borrador: genera el pack en ChatGPT y
-guárdalo con `social_save_pack` usando `title`, `brief`, `sourceUrl` opcional y
-`socialPack`. Recupera packs anteriores con `social_list_packs` y
-`social_get_pack`.
+1. Si hay varias marcas, llama `brand_list` y pregunta cuál quiere usar. Nunca elijas una por defecto.
+2. Consulta `brand_get_context` y genera título, contenido, metadatos e imágenes en ChatGPT. Antes de cada imagen llama `brand_prepare_image_generation` y entrega exactamente sus `resolvedReferences`.
+3. Crea el plan con `content_create_batch`, indicando `topics` y `channels`. La generación es asíncrona.
+4. Sigue el estado con `content_list_plans`, `content_list_items` o `content_get_batch`. Aplica correcciones con `content_update_item`.
+5. Tras la revisión humana, usa `content_approve` o `content_reject`. Para una fecha futura usa `content_schedule`.
 
 ## Flujo MCP (editar)
 
-1. `blog_get_brand_context`
-2. `blog_list_posts` y `blog_get_post` con el slug existente
-3. **Nunca** `blog_create_draft` para editar. Eso duplica el post.
-4. `blog_update_post` con el **mismo slug**
-5. Si renombras el slug. pasa `originalSlug` (actual) y `slug` (nuevo)
-6. Si editas un post `published` y quieres mantenerlo en vivo, usa `keepPublished: true`. Si no, confirma cuándo volver a publicar.
-7. Comparte `appPreviewUrl` de `/app` solo cuando el usuario necesite revisar.
+1. `content_list_items` o `content_get_batch` para localizar la publicación v2.
+2. **Nunca** crees otro plan para editar. Usa `content_update_item` con el `itemId` existente.
+3. Revisa el resultado en la app v2 y espera la confirmación del usuario.
 
 ## Despublicar y eliminar
 
-- Despublicar (sale del blog, queda el contenido). `blog_unpublish`
-- Eliminar permanente. `blog_delete_post` con `confirm: true`
+- Cancelar una publicación aún no publicada. `content_cancel`
 
 ## Copy
 
@@ -69,7 +58,7 @@ Recomendado (aviso, no bloquea):
 - metaDescription.es 70-180 caracteres.
 - imageAlt descriptivo.
 - Al menos 1 enlace interno.
-- socialPack con backlink `https://escarlet.design/blog/{slug}` (solo canales activos en `socialPackChannels`).
+- Las variantes de cada canal deben incluir el enlace canónico cuando corresponda.
 - Carrusel Instagram. Caption con canónico. Slides con `imageUrl` absoluta del CMS + alt.
 
 ## Imágenes
@@ -83,11 +72,11 @@ Recomendado (aviso, no bloquea):
   3. Si el host recorta el base64, usa `uploadId`, `chunkIndex` y `chunkCount`.
   4. Nunca uses `/mnt/data` como `imageUrl`.
   5. Usa la `media.url` absoluta en el `imageUrl` del post o en cada slide.
-- Carrusel Instagram (`kind` `social`). 4–7 slides. Formato 1080×1350 (o 1080×1080). Filename `{slug}-ig-01.jpg` … `{slug}-ig-07.jpg`. Sube cada slide al CMS y guarda el array en `socialPack.instagramSlides`.
+- Carrusel Instagram (`kind` `social`). 4–7 slides. Formato 1080×1350 (o 1080×1080). Sube cada slide al CMS y enlázala en la variante Instagram del item.
 
 ## Sistema visual v2 (obligatorio)
 
-- Antes de generar una portada, inspecciona los últimos seis posts con `blog_list_posts` y `blog_get_post`. Lee `visualBrief`, `imageMetadata` e `imageGallery` cuando existan.
+- Antes de generar una portada, inspecciona las publicaciones recientes con `content_list_items` y sus variantes.
 - Consulta el arquetipo y el historial para redactar el brief, pero no uses esa decisión para seleccionar referencias. La ruta de referencias la resuelve `brand_prepare_image_generation` de forma determinista.
 - Construye y guarda un `visualBrief` con `archetype`, `composition`, `references`, `negativeRules` y `decision.recentPostsInspected`.
 - La portada siempre se genera sin texto, letras, números, logos ni UI legible. El prompt debe incluir la intención emocional, el arquetipo, la composición, las referencias aprobadas y lo que no se debe repetir.
@@ -96,10 +85,9 @@ Recomendado (aviso, no bloquea):
 - Renderiza cada slide con un único template (`editorial` o `impact`) usando `content-system/instagram-renderer.mjs`. La fuente, safe areas, saltos y jerarquías salen del template.
 - Guarda en cada slide `templateId`, `backgroundMediaId`, `backgroundStyle` y `renderedBy: content-system/instagram-renderer`.
 - Si una portada o slide existente repite filename/hash, carece de metadata o rompe el template, marca `regenerate` con `analyze-existing-assets.mjs` y regenera solo ese slug.
-- No heredes la paleta o las referencias de Escarlet en otro sitio. Reutiliza las reglas del workflow y carga el brand core del sitio solicitado.
+- No heredes la paleta o las referencias de Escarlet en otro sitio. Carga el brand core de la marca solicitada.
 
 ## Publicación
 
 - El flujo nuevo publica desde el CMS y mantiene la experiencia humana en `/app`.
-- La revisión guiada usa `appPreviewUrl` y la edición `/app/preview/{slug}`.
-- El Social Pack se abre en `/app/social-pack/{slug}` después de publicar.
+- La revisión y la agenda se gestionan en Planes de contenido y Calendario dentro de la app v2.
