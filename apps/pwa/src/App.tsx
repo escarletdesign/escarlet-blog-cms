@@ -4647,6 +4647,7 @@ function Settings() {
   const [personalTokenBusy, setPersonalTokenBusy] = useState(false);
   const [hasPersonalToken, setHasPersonalToken] = useState(Boolean(session.hasLoginToken));
   const [personalTokenHint, setPersonalTokenHint] = useState(session.loginTokenHint || "");
+  const [tokenAction, setTokenAction] = useState<"regenerate" | "revoke" | null>(null);
   const [delegates, setDelegates] = useState<Array<Record<string, any>>>([]);
   const [delegateBusy, setDelegateBusy] = useState("");
   useEffect(() => {
@@ -4718,8 +4719,7 @@ function Settings() {
     await navigator.clipboard?.writeText(personalToken).catch(() => {});
     showToast(t("settings.mcpTokenCopied"));
   };
-  const issuePersonalToken = async () => {
-    if (hasPersonalToken && !window.confirm(t("settings.mcpTokenRegenerateConfirm"))) return;
+  const mintPersonalToken = async () => {
     setPersonalTokenBusy(true);
     try {
       const result = await api.issueOwnUserToken();
@@ -4729,22 +4729,40 @@ function Settings() {
       await navigator.clipboard?.writeText(result.token).catch(() => {});
       showToast(t("settings.mcpTokenReady"));
       await refresh();
+      return true;
     } catch (err) {
       showToast(err instanceof Error ? err.message : t("common.error"), "error");
+      return false;
     } finally {
       setPersonalTokenBusy(false);
     }
   };
-  const revokePersonalToken = async () => {
-    if (!window.confirm(t("settings.mcpTokenRevokeConfirm"))) return;
+  const issuePersonalToken = () => {
+    if (hasPersonalToken) {
+      setTokenAction("regenerate");
+      return;
+    }
+    void mintPersonalToken();
+  };
+  const revokePersonalToken = () => setTokenAction("revoke");
+  const confirmTokenAction = async () => {
+    const action = tokenAction;
+    if (!action) return;
     setPersonalTokenBusy(true);
     try {
-      await api.revokeOwnUserToken();
-      setPersonalToken("");
-      setHasPersonalToken(false);
-      setPersonalTokenHint("");
-      showToast(t("settings.mcpTokenRevoked"));
-      await refresh();
+      let completed = false;
+      if (action === "regenerate") {
+        completed = await mintPersonalToken();
+      } else {
+        await api.revokeOwnUserToken();
+        setPersonalToken("");
+        setHasPersonalToken(false);
+        setPersonalTokenHint("");
+        showToast(t("settings.mcpTokenRevoked"));
+        await refresh();
+        completed = true;
+      }
+      if (completed) setTokenAction(null);
     } catch (err) {
       showToast(err instanceof Error ? err.message : t("common.error"), "error");
     } finally {
@@ -4799,6 +4817,12 @@ function Settings() {
           <p className="eyebrow">{t("settings.mcpTokenEyebrow")}</p>
           <h2>{t("settings.mcpTokenTitle")}</h2>
           <p className="muted">{t("settings.mcpTokenHelp")}</p>
+          {hasPersonalToken && (
+            <div className="personal-token-warning" role="status">
+              <strong>{t("settings.mcpTokenImpactTitle")}</strong>
+              <p>{t("settings.mcpTokenImpact")}</p>
+            </div>
+          )}
           {personalToken ? (
             <div className="site-token-box personal-token-box">
               <div>
@@ -4892,6 +4916,16 @@ function Settings() {
         {loggingOut ? t("settings.loggingOut") : t("settings.logout")}
       </button>
       {error && <p className="error">{error}</p>}
+      {tokenAction && (
+        <ConfirmModal
+          title={t(tokenAction === "regenerate" ? "settings.mcpTokenRegenerateTitle" : "settings.mcpTokenRevokeTitle")}
+          description={t(tokenAction === "regenerate" ? "settings.mcpTokenRegenerateDescription" : "settings.mcpTokenRevokeDescription")}
+          confirmLabel={t(tokenAction === "regenerate" ? "settings.mcpTokenRegenerateAction" : "settings.mcpTokenRevokeAction")}
+          busy={personalTokenBusy}
+          onClose={() => setTokenAction(null)}
+          onConfirm={() => void confirmTokenAction()}
+        />
+      )}
     </main>
   );
 }

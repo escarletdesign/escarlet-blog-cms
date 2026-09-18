@@ -386,6 +386,9 @@
 .personal-token-box > div { min-width: 0; }
 .personal-token-box .tiny { margin: 0; }
 .personal-token-status { margin: 0; }
+.personal-token-warning { display: grid; gap: 5px; padding: 12px 14px; border: 1px solid rgba(255,210,122,.38); border-radius: 12px; background: rgba(255,210,122,.08); }
+.personal-token-warning strong { color: #ffd27a; font-size: .84rem; }
+.personal-token-warning p { margin: 0; color: var(--muted); font-size: .79rem; line-height: 1.5; }
 .text-link { display: inline-flex; align-items: center; width: fit-content; border: 0; padding: 0; color: var(--accent); background: transparent; cursor: pointer; text-align: left; }
 .settings-card input:not([type="checkbox"]):not([type="file"]), .settings-card textarea, .onboarding-slide input:not([type="checkbox"]):not([type="file"]), .onboarding-slide textarea { width: 100%; color: var(--text); background: #17201e; border: 1px solid #3c4a46; border-radius: 10px; outline: 0; padding: 12px; }
 .settings-card input:not([type="checkbox"]):not([type="file"]):focus, .settings-card textarea:focus, .onboarding-slide input:not([type="checkbox"]):not([type="file"]):focus, .onboarding-slide textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(185,245,98,.12); }

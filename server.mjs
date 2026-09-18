@@ -1269,12 +1269,23 @@ const server = createServer(async (req, res) => {
         json(res, 401, { message: 'Token incorrecto' })
         return
       }
+      // Never use the personal PAT itself as the browser cookie. PATs are
+      // deliberately revocable credentials for MCP clients, so regenerating
+      // one must not unexpectedly sign the user out of the app that issued it.
+      const browserSession = createSessionBearer({
+        site: auth.site,
+        sites: auth.sites,
+        role: auth.role,
+        userId: auth.userId,
+        mustSetPassword: auth.mustSetPassword,
+        ttlMs: 8 * 60 * 60 * 1000
+      })
       const session = await publicSessionForAuth(auth)
       res.writeHead(200, {
         'Content-Type': 'application/json; charset=utf-8',
         // A persistent cookie is important for the installed PWA: session
         // cookies can disappear when the standalone app is closed.
-        'Set-Cookie': `escarlet_cms=${encodeURIComponent(body.token)}; Path=/; Max-Age=${AUTH_COOKIE_MAX_AGE_SECONDS}; HttpOnly; SameSite=Lax`
+        'Set-Cookie': `escarlet_cms=${encodeURIComponent(browserSession.token)}; Path=/; Max-Age=${AUTH_COOKIE_MAX_AGE_SECONDS}; HttpOnly; SameSite=Lax`
       })
       res.end(JSON.stringify({ ok: true, ...session }))
     } catch (error) {
@@ -1483,6 +1494,17 @@ const server = createServer(async (req, res) => {
     if (!auth) return
     try {
       if (!auth.userId) throw Object.assign(new Error('Esta sesión no tiene un perfil de usuario'), { status: 403 })
+      // Migrate browsers that logged in before PATs were separated from app
+      // sessions. The cookie is replaced before the PAT is revoked below.
+      const browserSession = createSessionBearer({
+        site: auth.site,
+        sites: auth.sites,
+        role: auth.role,
+        userId: auth.userId,
+        mustSetPassword: auth.mustSetPassword,
+        ttlMs: 8 * 60 * 60 * 1000
+      })
+      res.setHeader('Set-Cookie', `escarlet_cms=${encodeURIComponent(browserSession.token)}; Path=/; Max-Age=${AUTH_COOKIE_MAX_AGE_SECONDS}; HttpOnly; SameSite=Lax`)
       const minted = await mintUserLoginTokenAsync({ id: auth.userId })
       const { token, ...profile } = minted
       json(res, 200, { ok: true, profile, token })
@@ -1497,6 +1519,15 @@ const server = createServer(async (req, res) => {
     if (!auth) return
     try {
       if (!auth.userId) throw Object.assign(new Error('Esta sesión no tiene un perfil de usuario'), { status: 403 })
+      const browserSession = createSessionBearer({
+        site: auth.site,
+        sites: auth.sites,
+        role: auth.role,
+        userId: auth.userId,
+        mustSetPassword: auth.mustSetPassword,
+        ttlMs: 8 * 60 * 60 * 1000
+      })
+      res.setHeader('Set-Cookie', `escarlet_cms=${encodeURIComponent(browserSession.token)}; Path=/; Max-Age=${AUTH_COOKIE_MAX_AGE_SECONDS}; HttpOnly; SameSite=Lax`)
       const profile = await revokeUserLoginTokenAsync({ id: auth.userId })
       json(res, 200, { ok: true, profile })
     } catch (error) {
