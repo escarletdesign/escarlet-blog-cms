@@ -46,7 +46,7 @@ export function Modal({ open, title, onClose, children, closeLabel = "Cerrar" }:
 export function ReviewToolbar({ children }: { children: ReactNode }) { return <div className="ui-review-toolbar">{children}</div>; }
 export function BulkActionBar({ selected, children }: { selected: number; children: ReactNode }) { return selected ? <div className="ui-bulk-bar"><strong>{selected} seleccionadas</strong>{children}</div> : null; }
 export function ConnectionCard({ provider, status, account, actions }: { provider: string; status?: string; account?: string; actions?: ReactNode }) { return <Card className="ui-connection-card"><div className="ui-card-head"><div><span className="ui-eyebrow">Conexión</span><h3>{provider}</h3>{account && <p>{account}</p>}</div><StatusBadge status={status || "draft"} label={status === "connected" ? "Conectada" : status || "Sin conectar"} /></div>{actions && <div className="ui-card-actions">{actions}</div>}</Card>; }
-export function Tabs({ items, value, onChange, className = "", idPrefix, panelIdPrefix = "tabpanel", ariaLabel = "Secciones" }: { items: Array<{ id: string; label: string }>; value: string; onChange: (id: string) => void; className?: string; idPrefix?: string; panelIdPrefix?: string; ariaLabel?: string }) {
+export function Tabs<T extends string>({ items, value, onChange, className = "", idPrefix, panelIdPrefix = "tabpanel", ariaLabel = "Secciones" }: { items: Array<{ id: T; label: string }>; value: T; onChange: (id: T) => void; className?: string; idPrefix?: string; panelIdPrefix?: string; ariaLabel?: string }) {
   const generatedId = useId().replace(/:/g, "");
   const tablistId = idPrefix || `ui-tabs-${generatedId}`;
   const focusTab = (index: number) => {

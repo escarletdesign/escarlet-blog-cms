@@ -199,7 +199,7 @@ const baseApi = {
   context: (site?: string) =>
     request<{
       workspace: { id: string; name?: string };
-      activeBrand?: { id: string; handle?: string; name?: string } | null;
+      activeBrand?: { id: string; handle?: string; name?: string; role?: string } | null;
       brands: Array<{ id: string; handle?: string; name?: string }>;
       role: string;
       capabilities: string[];

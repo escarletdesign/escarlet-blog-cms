@@ -560,9 +560,9 @@ function Login({ onLogin }: { onLogin: () => Promise<void> }) {
         <div className="brand">
           <AppBrand />
         </div>
-        <p className="eyebrow">{t("login.eyebrow")}</p>
+        <p className="ui-eyebrow">{t("login.eyebrow")}</p>
         <h1>{t("login.title")}</h1>
-        <p className="muted">{t("login.description")}</p>
+        <p className="ui-muted">{t("login.description")}</p>
         <form className="login-token-form" onSubmit={submit}>
           <label>
             {t("login.token")}
@@ -577,8 +577,8 @@ function Login({ onLogin }: { onLogin: () => Promise<void> }) {
               />
             </div>
           </label>
-          {tokenError && <p className="error">{tokenError}</p>}
-          <button className="primary" disabled={submitting}>
+          {tokenError && <p className="ui-error">{tokenError}</p>}
+          <button className="ui-button ui-button-primary" disabled={submitting}>
             {submitting ? "…" : t("login.enter")}
           </button>
         </form>
@@ -597,12 +597,12 @@ function Login({ onLogin }: { onLogin: () => Promise<void> }) {
                 autoComplete="email"
               />
             </label>
-            {magicError && <p className="error">{magicError}</p>}
-            <button className="primary" disabled={submitting}>
+            {magicError && <p className="ui-error">{magicError}</p>}
+            <button className="ui-button ui-button-primary" disabled={submitting}>
               {submitting ? "…" : t("login.magic")}
             </button>
           </form>
-          {magicSent && <p className="success">{t("login.sent")}</p>}
+          {magicSent && <p className="ui-success">{t("login.sent")}</p>}
         </details>
         <p className="tiny">{t("login.invited")}</p>
       </section>
@@ -654,13 +654,13 @@ function ProfileAvatarField({
       </button>
       <div className="profile-avatar-copy">
         <strong>{label}</strong>
-        <p className="muted">{help}</p>
+        <p className="ui-muted">{help}</p>
         <div className="profile-avatar-actions">
-          <button type="button" className="secondary" onClick={() => fileRef.current?.click()}>
+          <button type="button" className="ui-button ui-button-secondary" onClick={() => fileRef.current?.click()}>
             {chooseLabel}
           </button>
           {src && (
-            <button type="button" className="text-link danger-link" onClick={onRemove}>
+            <button type="button" className="text-link ui-danger-link" onClick={onRemove}>
               {removeLabel}
             </button>
           )}
@@ -711,14 +711,14 @@ function Onboarding() {
     }
   };
   return (
-    <main className="page onboarding-v2-page">
+    <main className="ui-page onboarding-v2-page">
       <div className="onboarding-v2-brand brand"><AppBrand /></div>
       <PageHeader eyebrow={t("onboarding.eyebrow")} title={t("onboarding.title")} description={t("onboarding.profileHelp")} />
       <div className="onboarding-v2-grid">
         <Card className="onboarding-v2-profile-card">
           <span className="ui-eyebrow">{t("onboarding.profileTitle")}</span>
           <h2>{t("settings.profileTitle")}</h2>
-          <p className="muted">{t("settings.profileHelp")}</p>
+          <p className="ui-muted">{t("settings.profileHelp")}</p>
           <ProfileAvatarField
             src={avatarDataUrl}
             name={displayName || session.email}
@@ -736,7 +736,7 @@ function Onboarding() {
         <Card className="onboarding-v2-space-card">
           <span className="ui-eyebrow">{t("onboarding.workspaceEyebrow")}</span>
           <h2>{t("onboarding.workspaceTitle")}</h2>
-          <p className="muted">{t("onboarding.workspaceHelp")}</p>
+          <p className="ui-muted">{t("onboarding.workspaceHelp")}</p>
           <div className="onboarding-v2-nav-list">
             <div><span aria-hidden="true">▤</span><strong>{t("nav.brands")}</strong><small>{t("onboarding.workspaceBrands")}</small></div>
             <div><span aria-hidden="true">✦</span><strong>{t("nav.plans")}</strong><small>{t("onboarding.workspacePlans")}</small></div>
@@ -813,7 +813,7 @@ function Shell() {
             <AppBrand />
           </NavLink>
           <button
-            className="icon-button close"
+            className="ui-icon-button close"
             onClick={() => setOpen(false)}
             aria-label={t("nav.close")}
           >
@@ -1084,11 +1084,11 @@ function Home() {
   const presentationEnabled = Boolean(brandCapabilities.presentation_generation);
   const creationEnabled = workflowFlags.creationUiEnabled && publishingEnabled;
   return (
-    <main className="page home">
+    <main className="ui-page home">
       <div className="home-intro">
-        <p className="eyebrow">Marca · {site}</p>
+        <p className="ui-eyebrow">Marca · {site}</p>
         <h1>{!creationEnabled ? "Tu contenido listo para revisar" : t(socialOnly ? "home.socialOnlyTitle" : "home.title")}</h1>
-        <p className="muted">{!creationEnabled ? "Los planes creados desde ChatGPT aparecen aquí para aprobarlos y programarlos." : t(socialOnly ? "home.socialOnlyDescription" : "home.description")}</p>
+        <p className="ui-muted">{!creationEnabled ? "Los planes creados desde ChatGPT aparecen aquí para aprobarlos y programarlos." : t(socialOnly ? "home.socialOnlyDescription" : "home.description")}</p>
       </div>
       <div className="choice-grid">
         {!creationEnabled ? <>
@@ -1155,10 +1155,10 @@ function RecentPosts() {
       })
       .catch((e) => setError(e.message));
   }, [site]);
-  if (error) return <p className="empty">{t("common.noPosts")}</p>;
+  if (error) return <p className="ui-empty-compact">{t("common.noPosts")}</p>;
   if (!posts.length)
     return (
-      <p className="empty">
+      <p className="ui-empty-compact">
         {t("posts.empty")}. {t("posts.emptyAction")}.
       </p>
     );
@@ -1498,12 +1498,12 @@ function Chat() {
     <main className="chat-page">
       <div className="chat-top">
         <div>
-          <p className="eyebrow">{t("chat.eyebrow")}</p>
+          <p className="ui-eyebrow">{t("chat.eyebrow")}</p>
           <h1>{conversationTitle || t("chat.title")}</h1>
         </div>
         <div className="chat-top-actions">
-          <button className="ghost" type="button" onClick={newConversation}>{t("chat.newConversation")}</button>
-          <button className="ghost" type="button" onClick={() => {
+          <button className="ui-button ui-button-ghost" type="button" onClick={newConversation}>{t("chat.newConversation")}</button>
+          <button className="ui-button ui-button-ghost" type="button" onClick={() => {
             setLastBrief("");
             setMessages([{ role: "assistant", text: t("chat.reset") }]);
           }}>{t("chat.clear")}</button>
@@ -1522,7 +1522,7 @@ function Chat() {
       </div>
       {lastBrief && (
         <div className="chat-actions">
-          <button className="secondary draft-from-chat" disabled={creating} onClick={createDraft}>
+          <button className="ui-button ui-button-secondary draft-from-chat" disabled={creating} onClick={createDraft}>
             {t("chat.convert")}
           </button>
         </div>
@@ -1536,7 +1536,7 @@ function Chat() {
         />
         <div>
           <small>{t("chat.context")}</small>
-          <button className="primary" disabled={creating || !value.trim()}>
+          <button className="ui-button ui-button-primary" disabled={creating || !value.trim()}>
             {creating ? t("chat.thinking") : t("chat.send")}
           </button>
         </div>
@@ -1805,53 +1805,53 @@ function QuickCreate() {
   };
   const stepLabels = [t("wizard.stepIdea"), t("wizard.stepReview"), t("wizard.stepImage"), t("wizard.stepPublish")];
   return (
-    <main className="page narrow quick-create-page">
+    <main className="ui-page ui-page-narrow quick-create-page">
       <PageTitle eyebrow={t("wizard.eyebrow")} title={t("wizard.title")} description={t("wizard.description")} back />
       <div className="quick-progress" aria-label={stepLabels.join(", ")}>
         {stepLabels.map((label, index) => <span key={label} className={index <= step ? "active" : ""}><b>{index + 1}</b>{label}</span>)}
       </div>
       {step === 0 && (
-        <section className="card quick-step-card">
+        <section className="ui-card quick-step-card">
           <label><b>{t("wizard.ideaLabel")}</b><textarea value={idea} onChange={(event) => setIdea(event.target.value)} rows={7} placeholder={t("wizard.ideaPlaceholder")} /></label>
           <div className="quick-record-row">
-            <button type="button" className={recording ? "danger" : "secondary"} onClick={() => void startRecording("idea")} disabled={transcribing}>{recording ? t("wizard.stop") : t("wizard.record")}</button>
-            {transcribing && <span className="muted">{t("wizard.transcribing")}</span>}
+            <button type="button" className={recording ? "ui-button ui-button-danger" : "ui-button ui-button-secondary"} onClick={() => void startRecording("idea")} disabled={transcribing}>{recording ? t("wizard.stop") : t("wizard.record")}</button>
+            {transcribing && <span className="ui-muted">{t("wizard.transcribing")}</span>}
           </div>
-          <button type="button" className="primary" onClick={() => void generateDraft()} disabled={busy !== "" || transcribing || !idea.trim()}>{busy === "draft" ? t("chat.thinking") : t("wizard.continue")}</button>
+          <button type="button" className="ui-button ui-button-primary" onClick={() => void generateDraft()} disabled={busy !== "" || transcribing || !idea.trim()}>{busy === "draft" ? t("chat.thinking") : t("wizard.continue")}</button>
         </section>
       )}
       {step === 1 && draft && (
-        <section className="card quick-step-card">
+        <section className="ui-card quick-step-card">
           <h2>{t("wizard.reviewTitle")}</h2>
-          <p className="muted">{t("wizard.reviewHelp")}</p>
+          <p className="ui-muted">{t("wizard.reviewHelp")}</p>
           <label><b>{t("wizard.titleLabel")}</b><input value={draft.title} maxLength={MAX_EDITOR_TITLE_CHARS} onChange={(event) => updateDraftField("title", event.target.value)} /></label>
           <label><b>{t("wizard.summaryLabel")}</b><textarea value={draft.excerptEs || ""} rows={3} onChange={(event) => updateDraftField("excerptEs", event.target.value)} /></label>
           <label><b>{t("wizard.bodyLabel")}</b><textarea className="wizard-body-input" value={String(draft.bodyHtml || "").replace(/<[^>]+>/g, " ").replace(/\s{2,}/g, " ").trim()} rows={12} onChange={(event) => updateDraftField("bodyHtml", event.target.value)} /></label>
           <div className="quick-record-row">
-            <button type="button" className={recording ? "danger" : "secondary"} onClick={() => void startRecording("edit")} disabled={busy !== "" || transcribing}>{recording ? t("wizard.stop") : t("wizard.editVoice")}</button>
+            <button type="button" className={recording ? "ui-button ui-button-danger" : "ui-button ui-button-secondary"} onClick={() => void startRecording("edit")} disabled={busy !== "" || transcribing}>{recording ? t("wizard.stop") : t("wizard.editVoice")}</button>
             <input className="quick-edit-input" placeholder={t("wizard.editPlaceholder")} onKeyDown={(event) => { if (event.key === "Enter" && event.currentTarget.value.trim()) { void reviseDraft(event.currentTarget.value.trim()); event.currentTarget.value = ""; } }} />
           </div>
-          <div className="form-actions"><button type="button" className="ghost" onClick={() => nav("/posts")}>{t("common.back")}</button><button type="button" className="primary" disabled={Boolean(busy) || transcribing} onClick={() => void createImage()}>{busy === "image" ? t("chat.thinking") : t("wizard.createImage")}</button></div>
+          <div className="ui-actions"><button type="button" className="ui-button ui-button-ghost" onClick={() => nav("/posts")}>{t("common.back")}</button><button type="button" className="ui-button ui-button-primary" disabled={Boolean(busy) || transcribing} onClick={() => void createImage()}>{busy === "image" ? t("chat.thinking") : t("wizard.createImage")}</button></div>
         </section>
       )}
       {step === 2 && draft && (
-        <section className="card quick-step-card">
+        <section className="ui-card quick-step-card">
           <h2>{t("wizard.imageTitle")}</h2>
-          <p className="muted">{t("wizard.imageHelp")}</p>
+          <p className="ui-muted">{t("wizard.imageHelp")}</p>
           {draft.imageUrl && <img className="quick-cover-image" src={draft.imageUrl} alt={draft.imageAlt || draft.title} />}
-          <div className="form-actions"><button type="button" className="ghost" onClick={() => setStep(1)}>{t("common.back")}</button><button type="button" className="primary" disabled={Boolean(busy)} onClick={() => void publish()}>{busy === "publish" ? t("publish.publishing") : t("wizard.publish")}</button></div>
+          <div className="ui-actions"><button type="button" className="ui-button ui-button-ghost" onClick={() => setStep(1)}>{t("common.back")}</button><button type="button" className="ui-button ui-button-primary" disabled={Boolean(busy)} onClick={() => void publish()}>{busy === "publish" ? t("publish.publishing") : t("wizard.publish")}</button></div>
         </section>
       )}
       {step === 3 && draft && (
-        <section className="card quick-step-card">
+        <section className="ui-card quick-step-card">
           <h2>{t("wizard.publishedTitle")}</h2>
-          <p className="muted">{t("wizard.publishedHelp")}</p>
-          <div className="form-actions"><button type="button" className="secondary" disabled={Boolean(busy)} onClick={() => void generateSocial()}>{busy === "social" ? t("publish.preparing") : t("wizard.generateSocial")}</button>{socialPack && <button type="button" className="ghost" onClick={() => nav(`/social-pack/${encodeURIComponent(draft.slug)}`)}>{t("wizard.openSocial")}</button>}</div>
+          <p className="ui-muted">{t("wizard.publishedHelp")}</p>
+          <div className="ui-actions"><button type="button" className="ui-button ui-button-secondary" disabled={Boolean(busy)} onClick={() => void generateSocial()}>{busy === "social" ? t("publish.preparing") : t("wizard.generateSocial")}</button>{socialPack && <button type="button" className="ui-button ui-button-ghost" onClick={() => nav(`/social-pack/${encodeURIComponent(draft.slug)}`)}>{t("wizard.openSocial")}</button>}</div>
           {socialPack && <div className="quick-social-preview">{Object.entries(socialPack).filter(([, value]) => typeof value === "string").slice(0, 3).map(([key, value]) => <article key={key}><b>{key}</b><p>{String(value)}</p></article>)}</div>}
         </section>
       )}
-      {message && <p className="success">{message}</p>}
-      {error && <p className="error">{error}</p>}
+      {message && <p className="ui-success">{message}</p>}
+      {error && <p className="ui-error">{error}</p>}
     </main>
   );
 }
@@ -1970,26 +1970,26 @@ function LinkModal({
   const [url, setUrl] = useState("");
   return (
     <div
-      className="modal-backdrop"
+      className="ui-modal-backdrop"
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
       <section
-        className="modal-card compact-modal"
+        className="ui-modal ui-modal-compact"
         role="dialog"
         aria-modal="true"
         aria-labelledby="link-modal-title"
       >
-        <div className="modal-head">
+        <div className="ui-modal-head">
           <div>
-            <p className="eyebrow">{t("common.linkUrl")}</p>
+            <p className="ui-eyebrow">{t("common.linkUrl")}</p>
             <h2 id="link-modal-title">{t("editor.linkTitle")}</h2>
-            <p className="muted">{t("editor.linkDescription")}</p>
+            <p className="ui-muted">{t("editor.linkDescription")}</p>
           </div>
           <button
-            className="icon-button"
+            className="ui-icon-button"
             type="button"
             onClick={onClose}
             aria-label={t("editor.close")}
@@ -2010,12 +2010,12 @@ function LinkModal({
             }}
           />
         </label>
-        <div className="form-actions">
-          <button className="ghost" type="button" onClick={onClose}>
+        <div className="ui-actions">
+          <button className="ui-button ui-button-ghost" type="button" onClick={onClose}>
             {t("editor.close")}
           </button>
           <button
-            className="primary"
+            className="ui-button ui-button-primary"
             type="button"
             disabled={!url.trim()}
             onClick={() => onApply(url.trim())}
@@ -2046,26 +2046,26 @@ function ConfirmModal({
   const { t } = useI18n();
   return (
     <div
-      className="modal-backdrop"
+      className="ui-modal-backdrop"
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !busy) onClose();
       }}
     >
       <section
-        className="modal-card compact-modal"
+        className="ui-modal ui-modal-compact"
         role="dialog"
         aria-modal="true"
         aria-labelledby="confirm-modal-title"
       >
-        <div className="modal-head">
+        <div className="ui-modal-head">
           <div>
-            <p className="eyebrow">{t("common.confirm")}</p>
+            <p className="ui-eyebrow">{t("common.confirm")}</p>
             <h2 id="confirm-modal-title">{title}</h2>
-            <p className="muted">{description}</p>
+            <p className="ui-muted">{description}</p>
           </div>
           <button
-            className="icon-button"
+            className="ui-icon-button"
             type="button"
             onClick={onClose}
             aria-label={t("editor.close")}
@@ -2074,11 +2074,11 @@ function ConfirmModal({
             ×
           </button>
         </div>
-        <div className="form-actions">
-          <button className="ghost" type="button" onClick={onClose} disabled={busy}>
+        <div className="ui-actions">
+          <button className="ui-button ui-button-ghost" type="button" onClick={onClose} disabled={busy}>
             {t("editor.close")}
           </button>
-          <button className="danger-button compact-danger" type="button" onClick={onConfirm} disabled={busy}>
+          <button className="ui-button ui-button-danger compact-danger" type="button" onClick={onConfirm} disabled={busy}>
             {busy ? t("admin.saving") : confirmLabel}
           </button>
         </div>
@@ -2107,20 +2107,20 @@ function ReferenceMediaModal({
   const imageSrc = media.url || media.path || media.thumbUrl || media.thumbPath || "";
   return (
     <div
-      className="modal-backdrop"
+      className="ui-modal-backdrop"
       role="presentation"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !busy) onClose();
       }}
     >
-      <section className="modal-card reference-modal" role="dialog" aria-modal="true" aria-labelledby="reference-modal-title">
-        <div className="modal-head">
+      <section className="ui-modal reference-modal" role="dialog" aria-modal="true" aria-labelledby="reference-modal-title">
+        <div className="ui-modal-head">
           <div>
-            <p className="eyebrow">{t("admin.referencesEyebrow")}</p>
+            <p className="ui-eyebrow">{t("admin.referencesEyebrow")}</p>
             <h2 id="reference-modal-title">{t("admin.referenceEditTitle")}</h2>
-            <p className="muted">{t("admin.referenceEditHelp")}</p>
+            <p className="ui-muted">{t("admin.referenceEditHelp")}</p>
           </div>
-          <button className="icon-button" type="button" onClick={onClose} disabled={busy} aria-label={t("editor.close")}>×</button>
+          <button className="ui-icon-button" type="button" onClick={onClose} disabled={busy} aria-label={t("editor.close")}>×</button>
         </div>
         <div className="reference-modal-preview">
           {imageSrc ? <img src={imageSrc} alt={alt || t("admin.referenceImage")} /> : <span>✦</span>}
@@ -2150,10 +2150,10 @@ function ReferenceMediaModal({
             <textarea value={alt} onChange={(event) => setAlt(event.target.value)} rows={3} />
           </label>
         </div>
-        <div className="form-actions">
-          <button className="danger-link" type="button" onClick={onDelete} disabled={busy}>{t("admin.delete")}</button>
-          <button className="ghost" type="button" onClick={onClose} disabled={busy}>{t("editor.close")}</button>
-          <button className="primary" type="button" onClick={() => onSave({ filename: filename.trim(), alt: alt.trim(), usage })} disabled={busy || !filename.trim()}>
+        <div className="ui-actions">
+          <button className="ui-danger-link" type="button" onClick={onDelete} disabled={busy}>{t("admin.delete")}</button>
+          <button className="ui-button ui-button-ghost" type="button" onClick={onClose} disabled={busy}>{t("editor.close")}</button>
+          <button className="ui-button ui-button-primary" type="button" onClick={() => onSave({ filename: filename.trim(), alt: alt.trim(), usage })} disabled={busy || !filename.trim()}>
             {busy ? t("admin.saving") : t("admin.save")}
           </button>
         </div>
@@ -2179,20 +2179,20 @@ function BrandAiModal({
   const [prompt, setPrompt] = useState("");
   return (
     <div
-      className="modal-backdrop"
+      className="ui-modal-backdrop"
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !busy) onClose();
       }}
     >
-      <section className="modal-card compact-modal" role="dialog" aria-modal="true">
-        <div className="modal-head">
+      <section className="ui-modal ui-modal-compact" role="dialog" aria-modal="true">
+        <div className="ui-modal-head">
           <div>
-            <p className="eyebrow">{t("admin.brandAiEyebrow")}</p>
+            <p className="ui-eyebrow">{t("admin.brandAiEyebrow")}</p>
             <h2>{t("admin.brandAiTitle")}</h2>
-            <p className="muted">{file} · {t("admin.brandAiHelp")}</p>
+            <p className="ui-muted">{file} · {t("admin.brandAiHelp")}</p>
           </div>
-          <button className="icon-button" type="button" onClick={onClose} disabled={busy} aria-label={t("editor.close")}>×</button>
+          <button className="ui-icon-button" type="button" onClick={onClose} disabled={busy} aria-label={t("editor.close")}>×</button>
         </div>
         <label className="modal-field">
           {t("admin.brandAiPrompt")}
@@ -2205,9 +2205,9 @@ function BrandAiModal({
           />
         </label>
         <p className="tiny">{t("admin.brandAiCurrent")} {current.slice(0, 180)}{current.length > 180 ? "…" : ""}</p>
-        <div className="form-actions">
-          <button className="ghost" type="button" onClick={onClose} disabled={busy}>{t("editor.close")}</button>
-          <button className="primary" type="button" onClick={() => onGenerate(prompt.trim())} disabled={busy || !prompt.trim()}>
+        <div className="ui-actions">
+          <button className="ui-button ui-button-ghost" type="button" onClick={onClose} disabled={busy}>{t("editor.close")}</button>
+          <button className="ui-button ui-button-primary" type="button" onClick={() => onGenerate(prompt.trim())} disabled={busy || !prompt.trim()}>
             {busy ? t("admin.saving") : t("admin.brandAiAction")}
           </button>
         </div>
@@ -2252,25 +2252,25 @@ function ImageGenerationModal({
   ];
   return (
     <div
-      className="modal-backdrop"
+      className="ui-modal-backdrop"
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !busy) onClose();
       }}
     >
       <section
-        className="modal-card image-modal"
+        className="ui-modal image-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="image-modal-title"
       >
-        <div className="modal-head">
+        <div className="ui-modal-head">
           <div>
-            <p className="eyebrow">{t("editor.image")}</p>
+            <p className="ui-eyebrow">{t("editor.image")}</p>
             <h2 id="image-modal-title">{t("editor.imageQuestion")}</h2>
           </div>
           <button
-            className="icon-button"
+            className="ui-icon-button"
             type="button"
             onClick={onClose}
             disabled={busy}
@@ -2321,12 +2321,12 @@ function ImageGenerationModal({
             ))}
           </div>
         </fieldset>
-        <div className="form-actions">
-          <button className="ghost" type="button" onClick={onClose} disabled={busy}>
+        <div className="ui-actions">
+          <button className="ui-button ui-button-ghost" type="button" onClick={onClose} disabled={busy}>
             {t("editor.close")}
           </button>
           <button
-            className="primary"
+            className="ui-button ui-button-primary"
             type="button"
             disabled={
               busy ||
@@ -2363,23 +2363,23 @@ function AiSuggestionModal({
     meta: t("editor.meta"),
   };
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
-      <section className="modal-card compact-modal" role="dialog" aria-modal="true" aria-labelledby="ai-suggestion-title">
-        <div className="modal-head">
+    <div className="ui-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+      <section className="ui-modal ui-modal-compact" role="dialog" aria-modal="true" aria-labelledby="ai-suggestion-title">
+        <div className="ui-modal-head">
           <div>
-            <p className="eyebrow">{t("editor.aiSuggestionEyebrow")}</p>
+            <p className="ui-eyebrow">{t("editor.aiSuggestionEyebrow")}</p>
             <h2 id="ai-suggestion-title">{t("editor.aiSuggestionTitle")} · {labels[operation]}</h2>
-            <p className="muted">{t("editor.aiSuggestionHelp")}</p>
+            <p className="ui-muted">{t("editor.aiSuggestionHelp")}</p>
           </div>
-          <button className="icon-button" type="button" onClick={onClose} disabled={busy} aria-label={t("editor.close")}>×</button>
+          <button className="ui-icon-button" type="button" onClick={onClose} disabled={busy} aria-label={t("editor.close")}>×</button>
         </div>
         <label className="modal-field">
           {t("editor.aiSuggestionPrompt")}
           <textarea autoFocus rows={5} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={t("editor.aiSuggestionPlaceholder")} />
         </label>
-        <div className="form-actions">
-          <button className="ghost" type="button" onClick={onClose} disabled={busy}>{t("editor.close")}</button>
-          <button className="primary" type="button" onClick={() => onGenerate(prompt.trim())} disabled={busy || (operation !== "humanize" && !prompt.trim())}>{busy ? t("editor.saving") : t("editor.generateContent")}</button>
+        <div className="ui-actions">
+          <button className="ui-button ui-button-ghost" type="button" onClick={onClose} disabled={busy}>{t("editor.close")}</button>
+          <button className="ui-button ui-button-primary" type="button" onClick={() => onGenerate(prompt.trim())} disabled={busy || (operation !== "humanize" && !prompt.trim())}>{busy ? t("editor.saving") : t("editor.generateContent")}</button>
         </div>
       </section>
     </div>
@@ -2758,7 +2758,7 @@ function ManualPost() {
     }
   };
   return (
-    <main className="page form-page">
+    <main className="ui-page form-page">
       <PageTitle
         eyebrow={t("editor.eyebrow")}
         title={t("editor.title")}
@@ -2774,7 +2774,7 @@ function ManualPost() {
           </div>
           <button
             type="button"
-            className="danger-link"
+            className="ui-danger-link"
             onClick={() => {
               localStorage.removeItem(storageKey);
               localStorage.removeItem(serverDraftKey);
@@ -2867,7 +2867,7 @@ function ManualPost() {
           <section className="date-picker-card editor-schedule-card">
             <div className="date-picker-heading">
               <div>
-                <p className="eyebrow">{t("editor.scheduleDate")}</p>
+                <p className="ui-eyebrow">{t("editor.scheduleDate")}</p>
                 <span className="optional">{t("editor.scheduleDateHelp")}</span>
               </div>
               <span>◷</span>
@@ -2920,7 +2920,7 @@ function ManualPost() {
             <div className="media-actions">
               <AiOnly><button
                 type="button"
-                className="secondary"
+                className="ui-button ui-button-secondary"
                 onClick={() => setShowImageModal(true)}
                 disabled={imageBusy}
               >
@@ -2928,7 +2928,7 @@ function ManualPost() {
               </button></AiOnly>
               <button
                 type="button"
-                className="ghost"
+                className="ui-button ui-button-ghost"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={imageBusy}
               >
@@ -2951,7 +2951,7 @@ function ManualPost() {
               />
               <button
                 type="button"
-                className="danger-link"
+                className="ui-danger-link"
                 aria-label={t("editor.removeImage")}
                 onClick={() => {
                   update("imageUrl", "");
@@ -3003,7 +3003,7 @@ function ManualPost() {
                         {imageSrc ? <img src={imageSrc} alt={image.alt || ""} /> : <div className="generated-image-empty">{t("editor.imageUnavailable")}</div>}
                         <div className="generated-image-card-body">
                           <span className="tiny">{image.generatedAt ? readableDate(image.generatedAt) : t("editor.imageUploaded")}</span>
-                          <button type="button" className="ghost" onClick={() => useGalleryImage(image)} disabled={!imageSrc}>
+                          <button type="button" className="ui-button ui-button-ghost" onClick={() => useGalleryImage(image)} disabled={!imageSrc}>
                             {selected ? t("editor.imageSelectedLabel") : t("editor.useImage")}
                           </button>
                         </div>
@@ -3047,21 +3047,21 @@ function ManualPost() {
           />
         </label>
         {seoMessage && (
-          <p className={seoValid ? "success" : "error"}>{seoMessage}</p>
+          <p className={seoValid ? "ui-success" : "ui-error"}>{seoMessage}</p>
         )}
-        {error && <p className="error">{error}</p>}
-        <div className="form-actions">
-          <button type="button" className="ghost" onClick={() => nav(-1)}>
+        {error && <p className="ui-error">{error}</p>}
+        <div className="ui-actions">
+          <button type="button" className="ui-button ui-button-ghost" onClick={() => nav(-1)}>
             {t("editor.cancel")}
           </button>
           <button
             type="button"
-            className="secondary"
+            className="ui-button ui-button-secondary"
             onClick={() => void validateSeo()}
           >
             {t("editor.seoCheck")}
           </button>
-          <button className="primary" disabled={saving || imageBusy}>
+          <button className="ui-button ui-button-primary" disabled={saving || imageBusy}>
             {saving ? t("editor.saving") : t("editor.save")}
           </button>
         </div>
@@ -3100,8 +3100,8 @@ function Preview() {
   }, [slug, site]);
   if (error)
     return (
-      <main className="page">
-        <p className="error">{error}</p>
+      <main className="ui-page">
+        <p className="ui-error">{error}</p>
       </main>
     );
   if (!post) return <Loading />;
@@ -3110,10 +3110,10 @@ function Preview() {
       <div className="preview-head">
         <div>
           <BackButton />
-          <p className="eyebrow">{t("preview.eyebrow")}</p>
+          <p className="ui-eyebrow">{t("preview.eyebrow")}</p>
           <h1>{t("preview.title")}</h1>
         </div>
-        <span className={`status ${uiStatus(post.status)}`}>
+        <span className={`ui-status ${uiStatus(post.status)}`}>
           {t(`status.${uiStatus(post.status)}`, uiStatus(post.status))}
         </span>
       </div>
@@ -3131,14 +3131,14 @@ function Preview() {
         />
       </article>
       {hasSocialPack(post) && (
-        <section className="card preview-social-link">
+        <section className="ui-card preview-social-link">
           <div>
-            <p className="eyebrow">{t("social.eyebrow")}</p>
+            <p className="ui-eyebrow">{t("social.eyebrow")}</p>
             <h2>{t("preview.socialPack")}</h2>
-            <p className="muted">{t("social.description")}</p>
+            <p className="ui-muted">{t("social.description")}</p>
           </div>
           <button
-            className="secondary"
+            className="ui-button ui-button-secondary"
             onClick={() => nav(`/social-pack/${encodeURIComponent(post.slug)}`)}
           >
             {t("preview.socialPack")}
@@ -3147,14 +3147,14 @@ function Preview() {
       )}
       <div className="sticky-actions">
         <button
-          className="ghost"
+          className="ui-button ui-button-ghost"
           onClick={() => nav(`/manual/${encodeURIComponent(post.slug)}`)}
         >
           {t("preview.edit")}
         </button>
         {hasSocialPack(post) && (
           <button
-            className="secondary"
+            className="ui-button ui-button-secondary"
             onClick={() => nav(`/social-pack/${encodeURIComponent(post.slug)}`)}
           >
             {t("preview.socialPack")}
@@ -3162,7 +3162,7 @@ function Preview() {
         )}
         {post.status !== "published" && post.status !== "scheduled" && post.status !== "pending_schedule" && (
           <button
-            className="secondary"
+            className="ui-button ui-button-secondary"
             onClick={() => nav(`/schedule/${encodeURIComponent(post.slug)}`)}
           >
             {t("preview.schedule")}
@@ -3170,7 +3170,7 @@ function Preview() {
         )}
         {(post.status !== "published" && post.status !== "scheduled" && post.status !== "pending_schedule") && (
           <button
-            className="primary"
+            className="ui-button ui-button-primary"
             onClick={() => nav(`/publish/${encodeURIComponent(post.slug)}`)}
           >
             {t("preview.publish")}
@@ -3218,9 +3218,9 @@ function CalendarDatePicker({
   return (
     <div className="calendar-picker" aria-label={t("schedule.datePickerLabel")}>
       <div className="calendar-picker-head">
-        <button type="button" className="icon-button" onClick={() => goMonth(-1)} aria-label={t("schedule.previousMonth")}>‹</button>
+        <button type="button" className="ui-icon-button" onClick={() => goMonth(-1)} aria-label={t("schedule.previousMonth")}>‹</button>
         <strong>{monthLabel}</strong>
-        <button type="button" className="icon-button" onClick={() => goMonth(1)} aria-label={t("schedule.nextMonth")}>›</button>
+        <button type="button" className="ui-icon-button" onClick={() => goMonth(1)} aria-label={t("schedule.nextMonth")}>›</button>
       </div>
       <div className="calendar-weekdays">
         {dayNames.map((name) => <span key={name}>{name.slice(0, 2)}</span>)}
@@ -3297,18 +3297,18 @@ function Schedule() {
     }
   };
   return (
-    <main className="page narrow">
+    <main className="ui-page ui-page-narrow">
       <PageTitle
         eyebrow={t("schedule.eyebrow")}
         title={t("schedule.title")}
         description={t("schedule.description")}
         back
       />
-      <form className="card form-stack" onSubmit={submit}>
+      <form className="ui-card ui-stack ui-stack-md" onSubmit={submit}>
         <div className="date-picker-card">
           <div className="date-picker-heading">
             <div>
-              <p className="eyebrow">{t("schedule.date")}</p>
+              <p className="ui-eyebrow">{t("schedule.date")}</p>
               <strong>
                 {date
                   ? readableDate(`${date}T${time}`, "es")
@@ -3384,14 +3384,14 @@ function Schedule() {
             </button>
           </div>
         )}
-        {error && <p className="error">{error}</p>}
+        {error && <p className="ui-error">{error}</p>}
         <button
-          className="primary"
+          className="ui-button ui-button-primary"
           disabled={saving}
         >
           {saving ? t("schedule.scheduling") : t("schedule.confirm")}
         </button>
-        <button type="button" className="ghost" onClick={() => nav(-1)}>
+        <button type="button" className="ui-button ui-button-ghost" onClick={() => nav(-1)}>
           {t("common.back")}
         </button>
       </form>
@@ -3481,7 +3481,7 @@ function PublishSocial() {
   };
   const hasPack = Boolean(socialPack && Object.keys(socialPack).length > 0);
   return (
-    <main className="page narrow">
+    <main className="ui-page ui-page-narrow">
       <PageTitle
         eyebrow={t("publish.eyebrow")}
         title={t("publish.title")}
@@ -3489,10 +3489,10 @@ function PublishSocial() {
         back
       />
       {post && (
-        <section className="card social-card">
+        <section className="ui-card social-card">
           <h2>{post.title}</h2>
-          <p className="muted">{t("publish.prepare")}</p>
-          <AiOnly><button className="secondary" disabled={busy} onClick={generatePack}>
+          <p className="ui-muted">{t("publish.prepare")}</p>
+          <AiOnly><button className="ui-button ui-button-secondary" disabled={busy} onClick={generatePack}>
             {busy
               ? t("publish.preparing")
               : hasPack
@@ -3517,7 +3517,7 @@ function PublishSocial() {
           </div>
           {hasPack && (
             <button
-              className="secondary"
+              className="ui-button ui-button-secondary"
               onClick={() =>
                 nav(`/social-pack/${encodeURIComponent(post.slug)}`)
               }
@@ -3527,13 +3527,13 @@ function PublishSocial() {
           )}
         </section>
       )}
-      {message && <p className="success">{message}</p>}
-      <div className="form-actions">
-        <button className="ghost" onClick={() => nav(-1)}>
+      {message && <p className="ui-success">{message}</p>}
+      <div className="ui-actions">
+        <button className="ui-button ui-button-ghost" onClick={() => nav(-1)}>
           {t("common.back")}
         </button>
         <button
-          className="primary"
+          className="ui-button ui-button-primary"
           disabled={busy || !post}
           onClick={publish}
         >
@@ -3734,7 +3734,7 @@ function SocialPack() {
   const activeCarouselSlide = carouselSlides[safeSlideIndex];
   const activeCarouselImage = activeCarouselSlide?.imageUrl || activeCarouselSlide?.url || activeCarouselSlide?.image || "";
   return (
-    <main className="page social-pack-page">
+    <main className="ui-page social-pack-page">
       <PageTitle
         eyebrow={t("social.eyebrow")}
         title={t("social.title")}
@@ -3742,10 +3742,10 @@ function SocialPack() {
         back
       />
       {standalone && !post && (
-        <section className="card form-stack social-standalone-composer">
-          <p className="eyebrow">{t("social.standaloneEyebrow")}</p>
+        <section className="ui-card ui-stack ui-stack-md social-standalone-composer">
+          <p className="ui-eyebrow">{t("social.standaloneEyebrow")}</p>
           <h2>{t("social.standaloneTitle")}</h2>
-          <p className="muted">{t("social.standaloneHelp")}</p>
+          <p className="ui-muted">{t("social.standaloneHelp")}</p>
           <label>
             {t("social.standaloneTopic")}
             <input
@@ -3774,8 +3774,8 @@ function SocialPack() {
               placeholder="https://ejemplo.com/landing"
             />
           </label>
-          <div className="form-actions">
-            <AiOnly><button className="primary" onClick={() => void generatePack()} disabled={busy || !standaloneBrief.trim()}>
+          <div className="ui-actions">
+            <AiOnly><button className="ui-button ui-button-primary" onClick={() => void generatePack()} disabled={busy || !standaloneBrief.trim()}>
               {busy ? t("publish.preparing") : t("social.generate")}
             </button></AiOnly>
           </div>
@@ -3784,7 +3784,7 @@ function SocialPack() {
       {post && (
         <div className="social-pack-toolbar">
           {articleUrl ? <div>
-            <p className="eyebrow">{standalone ? t("social.standaloneUrl") : t("social.articleUrl")}</p>
+            <p className="ui-eyebrow">{standalone ? t("social.standaloneUrl") : t("social.articleUrl")}</p>
             <a
               className="article-url"
               href={articleUrl}
@@ -3794,18 +3794,18 @@ function SocialPack() {
               {articleUrl}
             </a>
           </div> : <div>
-            <p className="eyebrow">{t("social.standaloneEyebrow")}</p>
+            <p className="ui-eyebrow">{t("social.standaloneEyebrow")}</p>
             <strong>{post.title}</strong>
           </div>}
-          <div className="form-actions">
-            {articleUrl && <button className="ghost" onClick={() => void copy(articleUrl)}>
+          <div className="ui-actions">
+            {articleUrl && <button className="ui-button ui-button-ghost" onClick={() => void copy(articleUrl)}>
               {t("social.copyUrl")}
             </button>}
-            {standalone && <button className="ghost" onClick={() => { setPost(null); setSocialPack({}); setArticleUrl(""); setStandaloneTitle(""); setStandaloneBrief(""); setStandaloneUrl(""); setMessage(""); }}>
+            {standalone && <button className="ui-button ui-button-ghost" onClick={() => { setPost(null); setSocialPack({}); setArticleUrl(""); setStandaloneTitle(""); setStandaloneBrief(""); setStandaloneUrl(""); setMessage(""); }}>
               {t("social.standaloneNew")}
             </button>}
             <button
-              className="secondary"
+              className="ui-button ui-button-secondary"
               onClick={download}
               disabled={!Object.keys(socialPack).length}
             >
@@ -3817,7 +3817,7 @@ function SocialPack() {
       {post && socialPack && Object.keys(socialPack).length > 0 && (
         <div className="social-pack-generation-actions">
           <AiOnly><button
-            className="primary"
+            className="ui-button ui-button-primary"
             onClick={() => void generatePack()}
             disabled={busy}
           >
@@ -3830,8 +3830,8 @@ function SocialPack() {
       {post && (
         <section className="social-visual-grid">
           {blogImageSrc && (
-            <article className="card social-cover-card">
-              <p className="eyebrow">{t("social.blogImage")}</p>
+            <article className="ui-card social-cover-card">
+              <p className="ui-eyebrow">{t("social.blogImage")}</p>
               <img
                 src={blogImageSrc}
                 alt={post.imageAlt || post.title}
@@ -3842,13 +3842,13 @@ function SocialPack() {
                   );
                 }}
               />
-              <p className="muted">{post.title}</p>
+              <p className="ui-muted">{post.title}</p>
             </article>
           )}
-          <article className="card social-carousel-card">
+          <article className="ui-card social-carousel-card">
                 <div className="social-channel-head">
                   <div>
-                    <p className="eyebrow">{t("social.instagramCarousel")}</p>
+                    <p className="ui-eyebrow">{t("social.instagramCarousel")}</p>
                     <h2>{t("social.carouselTitle")}</h2>
                   </div>
                   <button
@@ -3927,7 +3927,7 @@ function SocialPack() {
                     </div>
                   </div>
                 ) : (
-                  <p className="muted carousel-empty">
+                  <p className="ui-muted carousel-empty">
                     {t("social.carouselEmpty")}
                   </p>
                 )}
@@ -3935,14 +3935,14 @@ function SocialPack() {
         </section>
       )}
       {post && teleprompterScript && (
-        <section className="card teleprompter-launch-card">
+        <section className="ui-card teleprompter-launch-card">
           <div>
-            <p className="eyebrow">{t("social.video")}</p>
+            <p className="ui-eyebrow">{t("social.video")}</p>
             <h2>{t("social.recordTitle")}</h2>
-            <p className="muted">{t("social.recordHelp")}</p>
+            <p className="ui-muted">{t("social.recordHelp")}</p>
           </div>
           <button
-            className="primary"
+            className="ui-button ui-button-primary"
             onClick={() => setShowTeleprompter(true)}
           >
             {t("social.record")}
@@ -3955,7 +3955,7 @@ function SocialPack() {
             (field) =>
               typeof socialPack[field.key] === "string" &&
               socialPack[field.key] && (
-                <article className="card social-channel-card" key={field.key}>
+                <article className="ui-card social-channel-card" key={field.key}>
                   <div className="social-channel-head">
                     <h2>{field.label}</h2>
                     <button
@@ -3971,7 +3971,7 @@ function SocialPack() {
           )}
           {typeof socialPack.videoScript === "string" &&
             socialPack.videoScript && (
-              <article className="card social-channel-card video-script-card">
+              <article className="ui-card social-channel-card video-script-card">
                 <div className="social-channel-head">
                   <h2>{t("social.video")}</h2>
                 </div>
@@ -3980,12 +3980,12 @@ function SocialPack() {
             )}
         </div>
       ) : post ? (
-        <section className="empty-state">
+        <section className="ui-empty">
           <span>✦</span>
           <h2>{t("social.empty")}</h2>
           <p>{t("social.description")}</p>
           <AiOnly><button
-            className="primary"
+            className="ui-button ui-button-primary"
             onClick={() => void generatePack()}
             disabled={busy}
           >
@@ -3993,7 +3993,7 @@ function SocialPack() {
           </button></AiOnly>
         </section>
       ) : null}
-      {message && <p className="success">{message}</p>}
+      {message && <p className="ui-success">{message}</p>}
       {showTeleprompter && (
         <TeleprompterModal
           script={teleprompterScript}
@@ -4116,19 +4116,19 @@ function TeleprompterModal({
     setPlaying(true);
   };
   return (
-    <div className="modal-backdrop" role="presentation">
+    <div className="ui-modal-backdrop" role="presentation">
       <section
-        className="modal-card teleprompter-modal"
+        className="ui-modal teleprompter-modal"
         role="dialog"
         aria-modal="true"
       >
-        <div className="modal-head">
+        <div className="ui-modal-head">
           <div>
-            <p className="eyebrow">{t("social.video")}</p>
+            <p className="ui-eyebrow">{t("social.video")}</p>
             <h2>{t("social.record")}</h2>
           </div>
           <button
-            className="icon-button"
+            className="ui-icon-button"
             onClick={onClose}
             aria-label={t("editor.close")}
           >
@@ -4160,13 +4160,13 @@ function TeleprompterModal({
         </div>
         <div className="teleprompter-controls">
           <button
-            className={recording ? "danger-button" : "primary"}
+            className={recording ? "ui-button ui-button-danger" : "ui-button ui-button-primary"}
             onClick={recording ? stop : start}
           >
             {recording ? t("social.stop") : t("social.record")}
           </button>
           <button
-            className="secondary"
+            className="ui-button ui-button-secondary"
             onClick={() => setPlaying((value) => !value)}
             disabled={countdown > 0}
           >
@@ -4182,7 +4182,7 @@ function TeleprompterModal({
           </button>
           {videoUrl && (
             <a
-              className="secondary"
+              className="ui-button ui-button-secondary"
               href={videoUrl}
               download="escarlet-video.webm"
             >
@@ -4190,7 +4190,7 @@ function TeleprompterModal({
             </a>
           )}
         </div>
-        {error && <p className="error">{error}</p>}
+        {error && <p className="ui-error">{error}</p>}
       </section>
     </div>
   );
@@ -4245,19 +4245,19 @@ function Posts() {
     [posts, query, statusFilter],
   );
   return (
-    <main className="page">
-      <div className="page-header">
+    <main className="ui-page">
+      <div className="ui-page-header">
         <PageTitle
           eyebrow={t("posts.eyebrow")}
           title={t("posts.title")}
           description={t("posts.description")}
         />
-        <button className="primary" onClick={() => nav("/manual")}>
+        <button className="ui-button ui-button-primary" onClick={() => nav("/manual")}>
           {t("posts.new")}
         </button>
       </div>
       {error ? (
-        <p className="error">{error}</p>
+        <p className="ui-error">{error}</p>
       ) : posts.length ? (
         <>
           <div className="post-filters">
@@ -4294,7 +4294,7 @@ function Posts() {
               <span>{t("calendar.onlyScheduled")}</span>
               <button
                 type="button"
-                className="icon-button calendar-view-toggle"
+                className="ui-icon-button calendar-view-toggle"
                 onClick={() => setScheduledView((current) => current === "list" ? "month" : "list")}
                 aria-label={t(scheduledView === "list" ? "calendar.monthView" : "calendar.listView")}
                 title={t(scheduledView === "list" ? "calendar.monthView" : "calendar.listView")}
@@ -4360,7 +4360,7 @@ function PostRow({ post, onDeleted }: { post: Post; onDeleted?: (slug: string) =
           <span className="post-thumb placeholder-thumb">✦</span>
         )}
         <div className="post-row-copy">
-          <span className={`status ${statusKey}`}>{status}</span>
+          <span className={`ui-status ${statusKey}`}>{status}</span>
           <h3>{post.title}</h3>
           <p>
             {post.publishAt
@@ -4472,7 +4472,7 @@ function Calendar({ embedded = false, postsOverride }: { embedded?: boolean; pos
     ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     : ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
   return (
-    <main className={`page ${embedded ? "calendar-embedded" : ""}`}>
+    <main className={`ui-page ${embedded ? "calendar-embedded" : ""}`}>
       {!embedded && <PageTitle
           eyebrow={t("calendar.eyebrow")}
           title={t("calendar.title")}
@@ -4480,13 +4480,13 @@ function Calendar({ embedded = false, postsOverride }: { embedded?: boolean; pos
           back
         />}
       {error && (
-        <section className="calendar-error card">
+        <section className="calendar-error ui-card">
           <span className="calendar-error-icon">□</span>
           <div>
             <h2>{t("calendar.errorTitle")}</h2>
-            <p className="muted">{t("calendar.errorHelp")}</p>
+            <p className="ui-muted">{t("calendar.errorHelp")}</p>
             <button
-              className="secondary"
+              className="ui-button ui-button-secondary"
               onClick={() => {
                 setError("");
                 setRetry((value) => value + 1);
@@ -4501,7 +4501,7 @@ function Calendar({ embedded = false, postsOverride }: { embedded?: boolean; pos
           <p className="tiny">{t("calendar.onlyScheduled")}</p>
           <button
             type="button"
-            className="icon-button calendar-view-toggle"
+            className="ui-icon-button calendar-view-toggle"
             onClick={() => setView((current) => current === "list" ? "month" : "list")}
             aria-label={t(view === "list" ? "calendar.monthView" : "calendar.listView")}
             title={t(view === "list" ? "calendar.monthView" : "calendar.listView")}
@@ -4519,11 +4519,11 @@ function Calendar({ embedded = false, postsOverride }: { embedded?: boolean; pos
           ))}
         </div>
       ) : (
-        <section className="calendar-month card">
+        <section className="calendar-month ui-card">
           <div className="calendar-month-head">
-            <button type="button" className="icon-button" onClick={() => setMonthCursor((date) => new Date(date.getFullYear(), date.getMonth() - 1, 1))} aria-label={t("calendar.previousMonth")}>‹</button>
+            <button type="button" className="ui-icon-button" onClick={() => setMonthCursor((date) => new Date(date.getFullYear(), date.getMonth() - 1, 1))} aria-label={t("calendar.previousMonth")}>‹</button>
             <strong>{monthLabel}</strong>
-            <button type="button" className="icon-button" onClick={() => setMonthCursor((date) => new Date(date.getFullYear(), date.getMonth() + 1, 1))} aria-label={t("calendar.nextMonth")}>›</button>
+            <button type="button" className="ui-icon-button" onClick={() => setMonthCursor((date) => new Date(date.getFullYear(), date.getMonth() + 1, 1))} aria-label={t("calendar.nextMonth")}>›</button>
           </div>
           <div className="calendar-weekdays">{weekDays.map((day) => <span key={day}>{day}</span>)}</div>
           <div className="calendar-month-grid">
@@ -4588,10 +4588,10 @@ function EditorialCalendar() {
   const monthLabel = new Intl.DateTimeFormat(language === "en" ? "en-GB" : "es-ES", { month: "long", year: "numeric" }).format(cursor);
   const weekdays = language === "en" ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] : ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
   const formatDate = (value: string) => new Intl.DateTimeFormat(language === "en" ? "en-GB" : "es-ES", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
-  return <main className="page ui-calendar-page">
+  return <main className="ui-page ui-calendar-page">
     <PageHeader eyebrow="Ejecución editorial" title="Calendario editorial" description="Planes = qué contenido estamos preparando. Calendario = cuándo se publicará y qué está ocurriendo en cada canal. La conexión externa actualiza aquí su estado." actions={<Inline gap="sm"><Button variant={view === "list" ? "secondary" : "ghost"} onClick={() => setView("list")}>Lista</Button><Button variant={view === "month" ? "secondary" : "ghost"} onClick={() => setView("month")}>Mes</Button></Inline>} />
     {error && <Card><Inline gap="md"><p className="ui-field-error">{error}</p><Button size="sm" variant="ghost" onClick={load}>Reintentar</Button></Inline></Card>}
-    {loading ? <div className="ui-calendar-loading"><span className="ui-skeleton" style={{ height: 180 }} /><span className="ui-skeleton" style={{ height: 90 }} /></div> : validEntries.length === 0 && !error ? <UiEmptyState title="Todavía no hay publicaciones programadas" description="Cuando apruebes y agendes una publicación desde Planes de contenido, aparecerá aquí con su zona horaria y conexión." action={<NavLink className="ui-button ui-button-secondary" to="/plans">Abrir planes</NavLink>} /> : view === "list" ? <div className="ui-calendar-list">{validEntries.map((entry) => <Card key={entry.variantId || entry.itemId}><div className="ui-card-head"><div><span className="ui-eyebrow">{entry.timezone || "UTC"}</span><h2>{entry.topic || "Publicación"}</h2><p className="muted">{formatDate(entry.publicationDate)}</p></div><StatusBadge status={entry.status || entry.variantStatus} /></div><div className="ui-channel-list"><ChannelBadge channel={entry.channel || "blog"} />{entry.provider && <Badge tone="neutral">{entry.provider}</Badge>}{entry.updatedAt && <small className="ui-calendar-sync">Actualizado {formatDate(entry.updatedAt)}</small>}{entry.lastError && <Badge tone="danger">Error de sincronización</Badge>}</div>{entry.lastError && <p className="ui-field-error">{entry.lastError}</p>}</Card>)}</div> : <Card className="ui-calendar-month"><div className="ui-calendar-month-head"><Button variant="ghost" size="sm" onClick={() => setCursor((date) => new Date(date.getFullYear(), date.getMonth() - 1, 1))}>‹</Button><strong>{monthLabel}</strong><Button variant="ghost" size="sm" onClick={() => setCursor((date) => new Date(date.getFullYear(), date.getMonth() + 1, 1))}>›</Button></div><div className="ui-calendar-weekdays">{weekdays.map((day) => <span key={day}>{day}</span>)}</div><div className="ui-calendar-grid">{monthDays.map(({ date, inMonth }) => { const rows = validEntries.filter((entry) => dayKey(new Date(entry.publicationDate)) === dayKey(date)); return <div className={`ui-calendar-day ${inMonth ? "" : "outside"} ${rows.length ? "has-items" : ""}`} key={dayKey(date)}><span>{date.getDate()}</span>{rows.slice(0, 3).map((entry) => <div className="ui-calendar-item" key={entry.variantId || entry.itemId}><ChannelBadge channel={entry.channel || "blog"} /><small>{entry.topic || "Publicación"}</small></div>)}{rows.length > 3 && <small>+{rows.length - 3}</small>}</div>; })}</div></Card>}
+    {loading ? <div className="ui-calendar-loading"><span className="ui-skeleton" style={{ height: 180 }} /><span className="ui-skeleton" style={{ height: 90 }} /></div> : validEntries.length === 0 && !error ? <UiEmptyState title="Todavía no hay publicaciones programadas" description="Cuando apruebes y agendes una publicación desde Planes de contenido, aparecerá aquí con su zona horaria y conexión." action={<NavLink className="ui-button ui-button-secondary" to="/plans">Abrir planes</NavLink>} /> : view === "list" ? <div className="ui-calendar-list">{validEntries.map((entry) => <Card key={entry.variantId || entry.itemId}><div className="ui-card-head"><div><span className="ui-eyebrow">{entry.timezone || "UTC"}</span><h2>{entry.topic || "Publicación"}</h2><p className="ui-muted">{formatDate(entry.publicationDate)}</p></div><StatusBadge status={entry.status || entry.variantStatus} /></div><div className="ui-channel-list"><ChannelBadge channel={entry.channel || "blog"} />{entry.provider && <Badge tone="neutral">{entry.provider}</Badge>}{entry.updatedAt && <small className="ui-calendar-sync">Actualizado {formatDate(entry.updatedAt)}</small>}{entry.lastError && <Badge tone="danger">Error de sincronización</Badge>}</div>{entry.lastError && <p className="ui-field-error">{entry.lastError}</p>}</Card>)}</div> : <Card className="ui-calendar-month"><div className="ui-calendar-month-head"><Button variant="ghost" size="sm" onClick={() => setCursor((date) => new Date(date.getFullYear(), date.getMonth() - 1, 1))}>‹</Button><strong>{monthLabel}</strong><Button variant="ghost" size="sm" onClick={() => setCursor((date) => new Date(date.getFullYear(), date.getMonth() + 1, 1))}>›</Button></div><div className="ui-calendar-weekdays">{weekdays.map((day) => <span key={day}>{day}</span>)}</div><div className="ui-calendar-grid">{monthDays.map(({ date, inMonth }) => { const rows = validEntries.filter((entry) => dayKey(new Date(entry.publicationDate)) === dayKey(date)); return <div className={`ui-calendar-day ${inMonth ? "" : "outside"} ${rows.length ? "has-items" : ""}`} key={dayKey(date)}><span>{date.getDate()}</span>{rows.slice(0, 3).map((entry) => <div className="ui-calendar-item" key={entry.variantId || entry.itemId}><ChannelBadge channel={entry.channel || "blog"} /><small>{entry.topic || "Publicación"}</small></div>)}{rows.length > 3 && <small>+{rows.length - 3}</small>}</div>; })}</div></Card>}
   </main>;
 }
 
@@ -4621,12 +4621,12 @@ function AuthorInvite() {
     });
   }, [showToast, t]);
   return (
-    <main className="page narrow">
+    <main className="ui-page ui-page-narrow">
       <PageTitle eyebrow={t("authorInvite.eyebrow")} title={t("authorInvite.title")} description={t("authorInvite.description")} back />
-      <section className={`card invite-result ${status}`}>
+      <section className={`ui-card invite-result ${status}`}>
         <span className="invite-result-icon">{status === "loading" ? "…" : status === "success" ? "✓" : "!"}</span>
         <p>{status === "loading" ? t("common.loading") : message}</p>
-        <button className="primary" type="button" onClick={() => nav("/settings")}>{t("authorInvite.continue")}</button>
+        <button className="ui-button ui-button-primary" type="button" onClick={() => nav("/settings")}>{t("authorInvite.continue")}</button>
       </section>
     </main>
   );
@@ -4790,7 +4790,7 @@ function Settings() {
     }
   };
   return (
-    <main className="page narrow">
+    <main className="ui-page ui-page-narrow">
       <PageTitle
         eyebrow={t("settings.eyebrow")}
         title={t("settings.title")}
@@ -4798,10 +4798,10 @@ function Settings() {
         back
       />
       {session.userId && (
-        <form className="card settings-card profile-settings-card" onSubmit={saveProfile}>
-          <p className="eyebrow">{t("settings.profileEyebrow")}</p>
+        <form className="ui-card ui-settings-card profile-settings-card" onSubmit={saveProfile}>
+          <p className="ui-eyebrow">{t("settings.profileEyebrow")}</p>
           <h2>{t("settings.profileTitle")}</h2>
-          <p className="muted">{t("settings.profileHelp")}</p>
+          <p className="ui-muted">{t("settings.profileHelp")}</p>
           <ProfileAvatarField
             src={avatarDataUrl}
             name={displayName || session.email}
@@ -4815,14 +4815,14 @@ function Settings() {
           />
           <label>{t("settings.displayName")}<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder={t("settings.displayNamePlaceholder")} /></label>
           <label>{t("settings.bio")}<textarea value={bio} onChange={(event) => setBio(event.target.value)} placeholder={t("settings.bioPlaceholder")} rows={4} /></label>
-          <button className="primary" disabled={profileSaving}>{profileSaving ? "…" : t("settings.profileSave")}</button>
+          <button className="ui-button ui-button-primary" disabled={profileSaving}>{profileSaving ? "…" : t("settings.profileSave")}</button>
         </form>
       )}
       {session.userId && (
-        <section className="card settings-card personal-token-card">
-          <p className="eyebrow">{t("settings.mcpTokenEyebrow")}</p>
+        <section className="ui-card ui-settings-card personal-token-card">
+          <p className="ui-eyebrow">{t("settings.mcpTokenEyebrow")}</p>
           <h2>{t("settings.mcpTokenTitle")}</h2>
-          <p className="muted">{t("settings.mcpTokenHelp")}</p>
+          <p className="ui-muted">{t("settings.mcpTokenHelp")}</p>
           {hasPersonalToken && (
             <div className="personal-token-warning" role="status">
               <strong>{t("settings.mcpTokenImpactTitle")}</strong>
@@ -4835,7 +4835,7 @@ function Settings() {
                 <strong>{t("settings.mcpTokenLabel")}</strong>
                 <code>{personalToken}</code>
               </div>
-              <button type="button" className="secondary" onClick={() => void copyPersonalToken()}>{t("settings.mcpTokenCopy")}</button>
+              <button type="button" className="ui-button ui-button-secondary" onClick={() => void copyPersonalToken()}>{t("settings.mcpTokenCopy")}</button>
               <p className="tiny">{t("settings.mcpTokenShownOnce")}</p>
             </div>
           ) : (
@@ -4843,19 +4843,19 @@ function Settings() {
               {hasPersonalToken ? `${t("settings.mcpTokenActive")}${personalTokenHint ? ` ${personalTokenHint}` : ""}` : t("settings.mcpTokenNone")}
             </p>
           )}
-          <div className="form-actions">
-            <button type="button" className="primary" onClick={() => void issuePersonalToken()} disabled={personalTokenBusy}>
+          <div className="ui-actions">
+            <button type="button" className="ui-button ui-button-primary" onClick={() => void issuePersonalToken()} disabled={personalTokenBusy}>
               {personalTokenBusy ? "…" : hasPersonalToken ? t("settings.mcpTokenRegenerate") : t("settings.mcpTokenGenerate")}
             </button>
-            {hasPersonalToken && <button type="button" className="danger-link" onClick={() => void revokePersonalToken()} disabled={personalTokenBusy}>{t("settings.mcpTokenRevoke")}</button>}
+            {hasPersonalToken && <button type="button" className="ui-danger-link" onClick={() => void revokePersonalToken()} disabled={personalTokenBusy}>{t("settings.mcpTokenRevoke")}</button>}
           </div>
         </section>
       )}
       {session.userId && (
-        <section className="card settings-card delegation-card">
-          <p className="eyebrow">{t("settings.delegatesEyebrow")}</p>
+        <section className="ui-card ui-settings-card delegation-card">
+          <p className="ui-eyebrow">{t("settings.delegatesEyebrow")}</p>
           <h2>{t("settings.delegatesTitle")}</h2>
-          <p className="muted">{t("settings.delegatesHelp")}</p>
+          <p className="ui-muted">{t("settings.delegatesHelp")}</p>
           {delegates.length ? (
             <div className="delegation-pills" role="group" aria-label={t("settings.delegatesTitle")}>
               {delegates.map((delegate) => (
@@ -4873,11 +4873,11 @@ function Settings() {
               ))}
             </div>
           ) : (
-            <p className="empty">{t("settings.delegatesEmpty")}</p>
+            <p className="ui-empty-compact">{t("settings.delegatesEmpty")}</p>
           )}
         </section>
       )}
-      <section className="card settings-card">
+      <section className="ui-card ui-settings-card">
         <label>
           {t("settings.language")}
           <ChoicePills
@@ -4900,28 +4900,28 @@ function Settings() {
           />
         </label>
         <p className="tiny">{t("settings.modelHelp")}</p>
-        <button className="secondary" onClick={save}>
+        <button className="ui-button ui-button-secondary" onClick={save}>
           {t("settings.save")}
         </button></AiOnly>
-        {message && <p className="success">{message}</p>}
+        {message && <p className="ui-success">{message}</p>}
       </section>
-      <section className="card settings-card">
-        <p className="eyebrow">{t("settings.workspace")}</p>
+      <section className="ui-card ui-settings-card">
+        <p className="ui-eyebrow">{t("settings.workspace")}</p>
         <h2>{site}</h2>
-        <p className="muted">
+        <p className="ui-muted">
           {t("settings.role")}: {roleLabel(session.role, t)}
         </p>
         {workflowFlags.cmsAiEnabled && <NavLink className="text-link" to="/billing">{t("settings.credits")}</NavLink>}
       </section>
       <button
         type="button"
-        className="danger-button"
+        className="ui-button ui-button-danger ui-danger-button"
         onClick={() => void logout()}
         disabled={loggingOut}
       >
         {loggingOut ? t("settings.loggingOut") : t("settings.logout")}
       </button>
-      {error && <p className="error">{error}</p>}
+      {error && <p className="ui-error">{error}</p>}
       {tokenAction && (
         <ConfirmModal
           title={t(tokenAction === "regenerate" ? "settings.mcpTokenRegenerateTitle" : "settings.mcpTokenRevokeTitle")}
@@ -4978,11 +4978,11 @@ function Billing({ embedded = false }: { embedded?: boolean } = {}) {
     }
   };
   const ai = snapshot?.ai?.tokenCredits;
-  if (!workflowFlags.cmsAiEnabled) return <Root className={embedded ? "ui-admin-section" : "page narrow"}>
+  if (!workflowFlags.cmsAiEnabled) return <Root className={embedded ? "ui-admin-section" : "ui-page ui-page-narrow"}>
     <PageTitle eyebrow={t("billing.eyebrow")} title={t("billing.title")} description={t("billing.cmsAiDisabled")} back={!embedded} />
-    <section className="card settings-card">
+    <section className="ui-card ui-settings-card">
       <h2>{t("billing.cmsAiDisabledTitle")}</h2>
-      <p className="muted">{t("billing.cmsAiDisabledHelp")}</p>
+      <p className="ui-muted">{t("billing.cmsAiDisabledHelp")}</p>
       <NavLink className="text-link" to="/plans">{t("nav.plans", "Ver planes")}</NavLink>
     </section>
   </Root>;
@@ -4994,14 +4994,14 @@ function Billing({ embedded = false }: { embedded?: boolean } = {}) {
     configured?: boolean;
   }>;
   return (
-    <Root className={embedded ? "ui-admin-section" : "page narrow"}>
+    <Root className={embedded ? "ui-admin-section" : "ui-page ui-page-narrow"}>
       <PageTitle
         eyebrow={t("billing.eyebrow")}
         title={t("billing.title")}
         description={t("billing.description")}
         back={!embedded}
       />
-      <section className="card quota-card">
+      <section className="ui-card quota-card">
         <h2>{t("billing.ai")}</h2>
         {snapshot ? (
           <>
@@ -5010,7 +5010,7 @@ function Billing({ embedded = false }: { embedded?: boolean } = {}) {
                 language === "en" ? "en-GB" : "es-ES",
               )}
             </strong>
-            <p className="muted">
+            <p className="ui-muted">
               {t("billing.available")} ·{" "}
               {Number(ai?.monthlyRemaining || 0).toLocaleString(
                 language === "en" ? "en-GB" : "es-ES",
@@ -5025,13 +5025,13 @@ function Billing({ embedded = false }: { embedded?: boolean } = {}) {
             )}
           </>
         ) : (
-          <p className="muted">{t("common.loading")}</p>
+          <p className="ui-muted">{t("common.loading")}</p>
         )}
       </section>
-      <section className="card credit-help-card">
-        <p className="eyebrow">{t("billing.howItWorks")}</p>
+      <section className="ui-card credit-help-card">
+        <p className="ui-eyebrow">{t("billing.howItWorks")}</p>
         <h2>{t("billing.creditTitle")}</h2>
-        <p className="muted">{t("billing.creditHelp")}</p>
+        <p className="ui-muted">{t("billing.creditHelp")}</p>
         <ul>
           <li>{t("billing.creditPointOne")}</li>
           <li>{t("billing.creditPointTwo")}</li>
@@ -5041,8 +5041,8 @@ function Billing({ embedded = false }: { embedded?: boolean } = {}) {
       <section className="pack-grid">
         {packs.length ? (
           packs.map((pack) => (
-            <div className="card" key={pack.id}>
-              <p className="eyebrow">{t("billing.ai")}</p>
+            <div className="ui-card" key={pack.id}>
+              <p className="ui-eyebrow">{t("billing.ai")}</p>
               <h2>{pack.name}</h2>
               <p>
                 {pack.tokenCredits.toLocaleString(
@@ -5051,7 +5051,7 @@ function Billing({ embedded = false }: { embedded?: boolean } = {}) {
                 {t("billing.available")}.
               </p>
               <button
-                className="secondary"
+                className="ui-button ui-button-secondary"
                 disabled={Boolean(busy) || (!pack.configured && !testCreditsEnabled)}
                 onClick={() => checkout({ kind: "credits", packId: pack.id })}
               >
@@ -5066,13 +5066,13 @@ function Billing({ embedded = false }: { embedded?: boolean } = {}) {
             </div>
           ))
         ) : (
-          <div className="card">
+          <div className="ui-card">
             <h2>{t("billing.empty")}</h2>
             <p>{t("billing.emptyHelp")}</p>
           </div>
         )}
       </section>
-      {message && <p className="success">{message}</p>}
+      {message && <p className="ui-success">{message}</p>}
     </Root>
   );
 }
@@ -5097,7 +5097,7 @@ function AdminTabs({ active, onChange }: { active: AdminTabId; onChange: (tab: A
 
 function AdminIndex() {
   const [active, setActive] = useState<AdminTabId>("brands");
-  return <main className="page admin-index-page">
+  return <main className="ui-page admin-index-page">
     <PageHeader eyebrow="Configuración del espacio" title="Administración" description="Gestiona marcas, accesos, conexiones y uso sin salir de esta pantalla." />
     <AdminTabs active={active} onChange={setActive} />
     <div className="ui-admin-panel" id={`admin-panel-${active}`} role="tabpanel" aria-labelledby={`admin-tablist-${active}`}>
@@ -5723,7 +5723,7 @@ function Admin() {
     }
   };
   return (
-    <main className={`page admin-page scope-${adminScope}`}>
+    <main className={`ui-page admin-page scope-${adminScope}`}>
       <PageTitle
         eyebrow={t("admin.eyebrow")}
         title={t("admin.title")}
@@ -5741,7 +5741,7 @@ function Admin() {
             <button type="button" role="tab" aria-selected={adminScope === "site"} className={adminScope === "site" ? "selected" : ""} onClick={() => setAdminScope("site")}>{t("admin.siteScope")}</button>
             <button type="button" role="tab" aria-selected={adminScope === "global"} className={adminScope === "global" ? "selected" : ""} onClick={() => setAdminScope("global")}>{t("admin.workspaceScope")}</button>
           </div>
-          <button className="primary" type="button" onClick={() => setShowCreateSite(true)}>
+          <button className="ui-button ui-button-primary" type="button" onClick={() => setShowCreateSite(true)}>
             ＋ {t("admin.addSite")}
           </button>
         </div>
@@ -5757,7 +5757,7 @@ function Admin() {
         </div>
       </div>
       <div className="admin-grid">
-        <section className="card admin-workspace-card">
+        <section className="ui-card admin-workspace-card">
           <p className="admin-scope-kicker">{t("admin.workspaceScope")}</p>
           <h2>{t("admin.sites")}</h2>
           {sites.length ? (
@@ -5781,15 +5781,15 @@ function Admin() {
               ))}
             </ul>
           ) : (
-            <p className="muted">{t("common.loading")}</p>
+            <p className="ui-muted">{t("common.loading")}</p>
           )}
         </section>
-        <section className="card admin-site-card">
+        <section className="ui-card admin-site-card">
           <p className="admin-scope-kicker">{t("admin.siteScope")}</p>
           <div className="section-title">
             <h2>{t("admin.brand")}</h2>
             {isWorkspaceAdmin(session) && (
-              <label className="secondary upload-reference-button">
+              <label className="ui-button ui-button-secondary upload-reference-button">
                 {brandZipBusy ? t("admin.saving") : t("admin.importBrandZip")}
                 <input
                   ref={brandZipInputRef}
@@ -5802,7 +5802,7 @@ function Admin() {
               </label>
             )}
           </div>
-          <p className="muted">{brand || t("admin.brand")}</p>
+          <p className="ui-muted">{brand || t("admin.brand")}</p>
           {brandFiles.length ? (
             <div className="file-list">
               {brandFiles.slice(0, 8).map((file) => (
@@ -5827,9 +5827,9 @@ function Admin() {
                 rows={8}
                 aria-label={selectedBrandFile}
               />
-              <div className="form-actions">
+              <div className="ui-actions">
                 <AiOnly><button
-                  className="ghost"
+                  className="ui-button ui-button-ghost"
                   type="button"
                   disabled={brandSaving || brandAiBusy}
                   onClick={() => setShowBrandAi(true)}
@@ -5837,7 +5837,7 @@ function Admin() {
                   {t("admin.brandAiAction")}
                 </button></AiOnly>
                 <button
-                  className="secondary"
+                  className="ui-button ui-button-secondary"
                   type="button"
                   disabled={brandSaving}
                   onClick={() => void saveBrand()}
@@ -5851,10 +5851,10 @@ function Admin() {
           <div className="reference-library">
             <div className="section-title">
               <div>
-                <p className="eyebrow">{t("admin.referencesEyebrow")}</p>
+                <p className="ui-eyebrow">{t("admin.referencesEyebrow")}</p>
                 <h3>{t("admin.referencesTitle")}</h3>
               </div>
-              <label className="secondary upload-reference-button">
+              <label className="ui-button ui-button-secondary upload-reference-button">
                 {referenceBusy ? t("admin.saving") : t("admin.referenceAdd")}
                 <input
                   type="file"
@@ -5886,7 +5886,7 @@ function Admin() {
                     <div className="reference-card-actions">
                       <span className="reference-kind-icon" title={t("admin.referenceBadge")} aria-hidden="true">✦</span>
                       <button
-                        className="icon-button reference-delete-button"
+                        className="ui-icon-button reference-delete-button"
                         type="button"
                         disabled={referenceBusy}
                         onClick={() => void deleteReference(media)}
@@ -5900,16 +5900,16 @@ function Admin() {
                 ))}
               </div>
             ) : (
-              <p className="empty">{t("admin.referencesEmpty")}</p>
+              <p className="ui-empty-compact">{t("admin.referencesEmpty")}</p>
             )}
           </div>
         </section>
-        <section className="card admin-workspace-card">
+        <section className="ui-card admin-workspace-card">
           <p className="admin-scope-kicker">{t("admin.workspaceScope")}</p>
           <div className="section-title">
             <h2>{t("admin.users")}</h2>
             <button
-              className="secondary"
+              className="ui-button ui-button-secondary"
               type="button"
               onClick={() => setUserForm({ email: "", role: "client", sites: [site], allowPublishingAs: false })}
             >
@@ -5918,7 +5918,7 @@ function Admin() {
             </button>
           </div>
           {teamUnavailable ? (
-            <p className="muted">{t("admin.usersUnavailable")}</p>
+            <p className="ui-muted">{t("admin.usersUnavailable")}</p>
           ) : users.length ? (
             <ul className="user-list">
               {users.map((user) => (
@@ -5975,11 +5975,11 @@ function Admin() {
               ))}
             </ul>
           ) : (
-            <p className="muted">{t("admin.noUsers")}</p>
+            <p className="ui-muted">{t("admin.noUsers")}</p>
           )}
           <p className="tiny">{t("admin.usersHelp")}</p>
           {userForm && (
-            <form className="user-editor form-stack" onSubmit={(event) => void saveUser(event)}>
+            <form className="user-editor ui-stack ui-stack-md" onSubmit={(event) => void saveUser(event)}>
               <h3>{userForm.id ? t("admin.editUser") : t("admin.addUser")}</h3>
               <label>
                 {t("admin.userEmail")}
@@ -6013,14 +6013,14 @@ function Admin() {
                 <span><b>{t("settings.authorPermission")}</b><small>{t("settings.authorPermissionHelp")}</small></span>
                 <input type="checkbox" checked={Boolean(userForm.allowPublishingAs)} onChange={(event) => setUserForm({ ...userForm, allowPublishingAs: event.target.checked })} />
               </label>
-              <div className="form-actions">
-                <button className="ghost" type="button" onClick={() => setUserForm(null)}>{t("editor.close")}</button>
-                <button className="primary" disabled={userBusy || !userForm.sites.length}>{userBusy ? t("admin.saving") : t("admin.save")}</button>
+              <div className="ui-actions">
+                <button className="ui-button ui-button-ghost" type="button" onClick={() => setUserForm(null)}>{t("editor.close")}</button>
+                <button className="ui-button ui-button-primary" disabled={userBusy || !userForm.sites.length}>{userBusy ? t("admin.saving") : t("admin.save")}</button>
               </div>
             </form>
           )}
         </section>
-        <section className="card admin-site-card">
+        <section className="ui-card admin-site-card">
           <p className="admin-scope-kicker">{t("admin.siteScope")}</p>
           <h2>{t("admin.connection")}</h2>
           <p className="connection-state">
@@ -6032,12 +6032,12 @@ function Admin() {
               ? t("admin.connected")
               : t("admin.connectionPending")}
           </p>
-          <p className="muted">
+          <p className="ui-muted">
             {onboarding?.site?.domain || t("admin.connectionHelp")}
           </p>
           <p className="tiny">{t("admin.connectionSimple")}</p>
           {siteConfig && (
-            <form className="site-connection-form form-stack" onSubmit={(event) => void saveSite(event)}>
+            <form className="site-connection-form ui-stack ui-stack-md" onSubmit={(event) => void saveSite(event)}>
               <label>
                 {t("admin.siteName")}
                 <input value={siteForm.name} onChange={(event) => setSiteForm({ ...siteForm, name: event.target.value })} />
@@ -6099,9 +6099,9 @@ function Admin() {
                   </label>
                 ))}
               </fieldset>
-              <div className="form-actions">
-                <button className="ghost" type="button" disabled={siteSaving} onClick={() => void testSite()}>{t("admin.testRebuild")}</button>
-                <button className="primary" disabled={siteSaving}>{siteSaving ? t("admin.saving") : t("admin.save")}</button>
+              <div className="ui-actions">
+                <button className="ui-button ui-button-ghost" type="button" disabled={siteSaving} onClick={() => void testSite()}>{t("admin.testRebuild")}</button>
+                <button className="ui-button ui-button-primary" disabled={siteSaving}>{siteSaving ? t("admin.saving") : t("admin.save")}</button>
               </div>
             </form>
           )}
@@ -6109,10 +6109,10 @@ function Admin() {
       </div>
       {session.role === "admin" ? (
         <section className="admin-ai">
-          <section className={`card cms-ai-status-card ${cmsAiEnabled ? "" : "is-disabled"}`}>
-            <p className="eyebrow">{t("admin.cmsAiFlagEyebrow")}</p>
+          <section className={`ui-card cms-ai-status-card ${cmsAiEnabled ? "" : "is-disabled"}`}>
+            <p className="ui-eyebrow">{t("admin.cmsAiFlagEyebrow")}</p>
             <h2>{cmsAiEnabled ? t("admin.cmsAiFlagTitle") : t("admin.cmsAiDisabledTitle")}</h2>
-            <p className="muted">{cmsAiEnabled ? t("admin.cmsAiFlagHelp") : t("admin.cmsAiDisabledHelp")}</p>
+            <p className="ui-muted">{cmsAiEnabled ? t("admin.cmsAiFlagHelp") : t("admin.cmsAiDisabledHelp")}</p>
             <label className="switch-row">
               <span>
                 <b>{t("admin.cmsAiFlagToggle")}</b>
@@ -6124,12 +6124,12 @@ function Admin() {
           {cmsAiEnabled ? <>
           <div className="section-title">
             <div>
-              <p className="eyebrow">{t("admin.workspaceScope")}</p>
+              <p className="ui-eyebrow">{t("admin.workspaceScope")}</p>
               <p className="admin-scope-kicker">{t("admin.aiBilling")}</p>
               <h2>{t("admin.connectors")}</h2>
             </div>
             <button
-              className="ghost"
+              className="ui-button ui-button-ghost"
               onClick={() => void loadAiBilling()}
               disabled={Boolean(busy)}
             >
@@ -6137,11 +6137,11 @@ function Admin() {
             </button>
           </div>
           <p className="tiny refresh-help">{t("admin.refreshHelp")}</p>
-          <p className="muted">{t("admin.secretHelp")}</p>
+          <p className="ui-muted">{t("admin.secretHelp")}</p>
           <div className="admin-ai-grid">
             {providers.map((provider) => (
               <form
-                className="card form-stack"
+                className="ui-card ui-stack ui-stack-md"
                 key={provider.provider}
                 onSubmit={(event) => {
                   event.preventDefault();
@@ -6149,7 +6149,7 @@ function Admin() {
                 }}
               >
                 <div>
-                  <p className="eyebrow">{provider.provider}</p>
+                  <p className="ui-eyebrow">{provider.provider}</p>
                   <h3>{provider.name}</h3>
                 </div>
                 <label>
@@ -6192,10 +6192,10 @@ function Admin() {
                     placeholder={provider.apiKeyHint || t("admin.apiKeyPlaceholder")}
                   />
                 </label>
-                <div className="form-actions">
+                <div className="ui-actions">
                   <button
                     type="button"
-                    className="ghost"
+                    className="ui-button ui-button-ghost"
                     disabled={busy === `test:${provider.provider}`}
                     onClick={() => void testProvider(provider.provider)}
                   >
@@ -6204,7 +6204,7 @@ function Admin() {
                       : t("admin.test")}
                   </button>
                   <button
-                    className="primary"
+                    className="ui-button ui-button-primary"
                     disabled={busy === `provider:${provider.provider}`}
                   >
                     {busy === `provider:${provider.provider}`
@@ -6217,34 +6217,34 @@ function Admin() {
           </div>
           <div className="section-title admin-pack-title">
             <div>
-              <p className="eyebrow">{t("admin.stripe")}</p>
+              <p className="ui-eyebrow">{t("admin.stripe")}</p>
               <h2>{t("admin.creditPacks")}</h2>
             </div>
           </div>
-          <p className="muted pack-help">{t("admin.packHelp")}</p>
+          <p className="ui-muted pack-help">{t("admin.packHelp")}</p>
           <div className="admin-ai-grid">
             {packs.map((pack) => (
-              <article className="card" key={pack.id}>
-                <p className="eyebrow">
+              <article className="ui-card" key={pack.id}>
+                <p className="ui-eyebrow">
                   {pack.configured
                     ? t("admin.checkoutActive")
                     : t("admin.noPrice")}
                 </p>
                 <h3>{pack.name}</h3>
-                <p className="muted">
+                <p className="ui-muted">
                   {pack.tokenCredits.toLocaleString("es-ES")}{" "}
                   {t("admin.credits")} · {pack.id}
                 </p>
-                <div className="form-actions pack-actions">
+                <div className="ui-actions pack-actions">
                   <button
                     type="button"
-                    className="ghost"
+                    className="ui-button ui-button-ghost"
                     onClick={() => setEditingPack(pack)}
                   >
                     {t("admin.editPack")}
                   </button>
                   <button
-                    className="danger-link"
+                    className="ui-danger-link"
                     disabled={busy === `delete:${pack.id}`}
                     onClick={() => void removePack(pack.id)}
                   >
@@ -6254,14 +6254,14 @@ function Admin() {
               </article>
             ))}
             <form
-              className="card form-stack"
+              className="ui-card ui-stack ui-stack-md"
               key={editingPack?.id || "new-pack"}
               onSubmit={(event) => {
                 event.preventDefault();
                 void savePack(event.currentTarget);
               }}
             >
-              <p className="eyebrow">
+              <p className="ui-eyebrow">
                 {editingPack ? t("admin.editPack") : t("admin.newEdit")}
               </p>
               <label>
@@ -6302,17 +6302,17 @@ function Admin() {
                   placeholder="price_…"
                 />
               </label>
-              <button className="primary" disabled={busy === "pack"}>
+              <button className="ui-button ui-button-primary" disabled={busy === "pack"}>
                 {busy === "pack" ? t("admin.saving") : t("admin.savePack")}
               </button>
             </form>
           </div>
           </> : null}
           {cmsAiEnabled && <>
-          <section className="card temporary-flag-card">
-            <p className="eyebrow">{t("admin.temporaryFlags")}</p>
+          <section className="ui-card temporary-flag-card">
+            <p className="ui-eyebrow">{t("admin.temporaryFlags")}</p>
             <h2>{t("admin.billingTestTitle")}</h2>
-            <p className="muted">{t("admin.billingTestHelp")}</p>
+            <p className="ui-muted">{t("admin.billingTestHelp")}</p>
             <div className="temporary-flag-warning" role="note">
               <strong>{t("admin.billingTestWarningTitle")}</strong>
               <span>{t("admin.billingTestWarning")}</span>
@@ -6328,16 +6328,16 @@ function Admin() {
                 onChange={(event) => setBillingTestMode(event.target.checked)}
               />
             </label>
-            <div className="form-actions">
-              <button className="primary" type="button" disabled={billingTestSaving} onClick={() => void saveBillingTestMode()}>
+            <div className="ui-actions">
+              <button className="ui-button ui-button-primary" type="button" disabled={billingTestSaving} onClick={() => void saveBillingTestMode()}>
                 {billingTestSaving ? t("admin.saving") : t("admin.saveFeatureFlag")}
               </button>
             </div>
           </section>
-          <section className="card temporary-flag-card workflow-flags-card">
-            <p className="eyebrow">{t("admin.workflowFlagsEyebrow")}</p>
+          <section className="ui-card temporary-flag-card workflow-flags-card">
+            <p className="ui-eyebrow">{t("admin.workflowFlagsEyebrow")}</p>
             <h2>{t("admin.workflowFlagsTitle")}</h2>
-            <p className="muted">{t("admin.workflowFlagsHelp")}</p>
+            <p className="ui-muted">{t("admin.workflowFlagsHelp")}</p>
             <label className="switch-row">
               <span>
                 <b>{t("admin.assistantFlag")}</b>
@@ -6366,8 +6366,8 @@ function Admin() {
               </span>
               <input type="checkbox" checked={manualCreationEnabled} onChange={(event) => setManualCreationEnabled(event.target.checked)} />
             </label>
-            <div className="form-actions">
-              <button className="primary" type="button" disabled={workflowSaving} onClick={() => void saveWorkflowFlags()}>
+            <div className="ui-actions">
+              <button className="ui-button ui-button-primary" type="button" disabled={workflowSaving} onClick={() => void saveWorkflowFlags()}>
                 {workflowSaving ? t("admin.saving") : t("admin.saveWorkflowFlags")}
               </button>
             </div>
@@ -6375,9 +6375,9 @@ function Admin() {
           </>}
         </section>
       ) : (
-        <section className="card">
+        <section className="ui-card">
           <h2>{t("admin.restrictedTitle")}</h2>
-          <p className="muted">{t("admin.restrictedHelp")}</p>
+          <p className="ui-muted">{t("admin.restrictedHelp")}</p>
         </section>
       )}
       {pendingDeletePack && (
@@ -6424,26 +6424,26 @@ function Admin() {
       )}
       {showCreateSite && (
         <div
-          className="modal-backdrop"
+          className="ui-modal-backdrop"
           role="presentation"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget && !newSiteSaving) setShowCreateSite(false);
           }}
         >
           <section
-            className="modal-card compact-modal site-create-modal"
+            className="ui-modal ui-modal-compact site-create-modal"
             role="dialog"
             aria-modal="true"
             aria-labelledby="create-site-modal-title"
           >
-            <div className="modal-head">
+            <div className="ui-modal-head">
               <div>
-                <p className="eyebrow">{t("admin.workspaceScope")}</p>
+                <p className="ui-eyebrow">{t("admin.workspaceScope")}</p>
                 <h2 id="create-site-modal-title">{t("admin.addSite")}</h2>
-                <p className="muted">{t("admin.addSiteHelp")}</p>
+                <p className="ui-muted">{t("admin.addSiteHelp")}</p>
               </div>
               <button
-                className="icon-button"
+                className="ui-icon-button"
                 type="button"
                 onClick={() => setShowCreateSite(false)}
                 disabled={newSiteSaving}
@@ -6452,7 +6452,7 @@ function Admin() {
                 ×
               </button>
             </div>
-            <form className="form-stack" onSubmit={(event) => void createSite(event)}>
+            <form className="ui-stack ui-stack-md" onSubmit={(event) => void createSite(event)}>
               <label className="modal-field">
                 {t("admin.siteHandle")}
                 <input
@@ -6526,11 +6526,11 @@ function Admin() {
                   onChange={(event) => setNewSiteForm({ ...newSiteForm, requiresHumanApproval: event.target.checked })}
                 />
               </label>
-              <div className="form-actions">
-                <button className="ghost" type="button" onClick={() => setShowCreateSite(false)} disabled={newSiteSaving}>
+              <div className="ui-actions">
+                <button className="ui-button ui-button-ghost" type="button" onClick={() => setShowCreateSite(false)} disabled={newSiteSaving}>
                   {t("editor.close")}
                 </button>
-                <button className="primary" type="submit" disabled={newSiteSaving}>
+                <button className="ui-button ui-button-primary" type="submit" disabled={newSiteSaving}>
                   {newSiteSaving ? t("admin.saving") : t("admin.createSite")}
                 </button>
               </div>
@@ -6555,9 +6555,9 @@ function PageTitle({
   return (
     <div className="title-block">
       {back && <BackButton />}
-      <p className="eyebrow">{eyebrow}</p>
+      <p className="ui-eyebrow">{eyebrow}</p>
       <h1>{title}</h1>
-      <p className="muted">{description}</p>
+      <p className="ui-muted">{description}</p>
     </div>
   );
 }
@@ -6577,11 +6577,11 @@ function EmptyState({
 }) {
   const { t } = useI18n();
   return (
-    <section className="empty-state">
+    <section className="ui-empty">
       <span>✦</span>
       <h2>{title}</h2>
       <p>{t("home.description")}</p>
-      <button className="primary" onClick={onClick}>
+      <button className="ui-button ui-button-primary" onClick={onClick}>
         {action}
       </button>
     </section>
@@ -6590,7 +6590,7 @@ function EmptyState({
 function Loading() {
   const { t } = useI18n();
   return (
-    <main className="page">
+    <main className="ui-page">
       <div className="loading">{t("common.loading")}</div>
     </main>
   );
@@ -6602,7 +6602,7 @@ function BrandsView({ embedded = false }: { embedded?: boolean } = {}) {
   const brands = productContext?.brands || [];
   const activeBrandId = productContext?.activeBrand?.id || "";
   const canCreate = isWorkspaceAdmin(session);
-  return <Root className={embedded ? "ui-admin-section" : "page"}><PageHeader eyebrow={productContext?.workspace.name || "Espacio"} title="Marcas" description="Cada marca reúne identidad, capacidades, canales y conexiones." actions={canCreate ? <NavLink className="ui-button ui-button-primary" to="/brands/new">Añadir marca</NavLink> : undefined} /><div className="ui-brand-grid">{brands.map((brand) => { const active = brand.id === activeBrandId || (!activeBrandId && brand.handle === site); return <NavLink key={brand.id} to={`/brands/${encodeURIComponent(brand.id)}`} className={`ui-card ui-brand-card ${active ? "ui-brand-active" : ""}`}><div className="ui-card-head"><div><span className="ui-eyebrow">Marca</span><h2>{brand.name || brand.handle}</h2><p className="ui-brand-handle">{brand.handle}</p></div>{active && <Badge tone="success">Activa</Badge>}</div><div className="ui-channel-list">{(brand.channels || []).filter((channel) => channel.enabled).map((channel) => <ChannelBadge key={channel.channel} channel={channel.channel} />)}</div><div className="ui-capability-list">{brand.capabilities?.presentation_generation && <Badge tone="info">Presentaciones</Badge>}{brand.capabilities?.content_publishing && <Badge tone="success">Publicaciones</Badge>}{!brand.capabilities?.content_publishing && !brand.capabilities?.presentation_generation && <Badge tone="neutral">Sin capacidades activas</Badge>}</div><p className="muted">Ver configuración, brand kit y conexiones →</p></NavLink>; })}</div>{!brands.length && <UiEmptyState title="Configura tu primera marca" description="Un administrador debe crear una marca para comenzar." action={canCreate ? <NavLink className="ui-button ui-button-primary" to="/brands/new">Añadir marca</NavLink> : undefined} />}</Root>;
+  return <Root className={embedded ? "ui-admin-section" : "ui-page"}><PageHeader eyebrow={productContext?.workspace.name || "Espacio"} title="Marcas" description="Cada marca reúne identidad, capacidades, canales y conexiones." actions={canCreate ? <NavLink className="ui-button ui-button-primary" to="/brands/new">Añadir marca</NavLink> : undefined} /><div className="ui-brand-grid">{brands.map((brand) => { const active = brand.id === activeBrandId || (!activeBrandId && brand.handle === site); return <NavLink key={brand.id} to={`/brands/${encodeURIComponent(brand.id)}`} className={`ui-card ui-brand-card ${active ? "ui-brand-active" : ""}`}><div className="ui-card-head"><div><span className="ui-eyebrow">Marca</span><h2>{brand.name || brand.handle}</h2><p className="ui-brand-handle">{brand.handle}</p></div>{active && <Badge tone="success">Activa</Badge>}</div><div className="ui-channel-list">{(brand.channels || []).filter((channel) => channel.enabled).map((channel) => <ChannelBadge key={channel.channel} channel={channel.channel} />)}</div><div className="ui-capability-list">{brand.capabilities?.presentation_generation && <Badge tone="info">Presentaciones</Badge>}{brand.capabilities?.content_publishing && <Badge tone="success">Publicaciones</Badge>}{!brand.capabilities?.content_publishing && !brand.capabilities?.presentation_generation && <Badge tone="neutral">Sin capacidades activas</Badge>}</div><p className="ui-muted">Ver configuración, brand kit y conexiones →</p></NavLink>; })}</div>{!brands.length && <UiEmptyState title="Configura tu primera marca" description="Un administrador debe crear una marca para comenzar." action={canCreate ? <NavLink className="ui-button ui-button-primary" to="/brands/new">Añadir marca</NavLink> : undefined} />}</Root>;
 }
 
 function NewBrandView() {
@@ -6611,14 +6611,14 @@ function NewBrandView() {
   const [form, setForm] = useState({ handle: "", name: "", domain: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  if (!isWorkspaceAdmin(session)) return <main className="page narrow"><UiEmptyState title="No tienes permisos para crear marcas" description="Solicita acceso a un administrador del espacio." action={<Button onClick={() => nav("/brands")}>Volver a marcas</Button>} /></main>;
+  if (!isWorkspaceAdmin(session)) return <main className="ui-page ui-page-narrow"><UiEmptyState title="No tienes permisos para crear marcas" description="Solicita acceso a un administrador del espacio." action={<Button onClick={() => nav("/brands")}>Volver a marcas</Button>} /></main>;
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true); setError("");
     try { const result = await api.createBrand(form); await refresh(); nav(`/brands/${encodeURIComponent(result.brand.id)}`); }
     catch (err: any) { setError(err?.message || "No se pudo crear la marca."); }
     finally { setBusy(false); }
   };
-  return <main className="page narrow"><PageHeader eyebrow="Espacio" title="Nueva marca" description="Las marcas nuevas empiezan sin canales activos. Activa y conecta solo lo que necesites." back={<NavLink to="/brands">← Volver a marcas</NavLink>} /><Card><form className="ui-stack ui-stack-md" onSubmit={(event) => void submit(event)}>{error && <p className="ui-field-error" role="alert">{error}</p>}<Field label="Nombre de la marca" required><TextField value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required autoFocus placeholder="Ej. Escarlet" /></Field><Field label="Identificador" hint="Se usa en URLs y debe ser único." required><TextField value={form.handle} onChange={(event) => setForm({ ...form, handle: event.target.value })} required placeholder="escarlet" /></Field><Field label="Dominio web (opcional)"><TextField type="url" value={form.domain} onChange={(event) => setForm({ ...form, domain: event.target.value })} placeholder="https://marca.com" /></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => nav("/brands")}>Cancelar</Button><Button type="submit" loading={busy}>Crear marca</Button></Inline></form></Card></main>;
+  return <main className="ui-page ui-page-narrow"><PageHeader eyebrow="Espacio" title="Nueva marca" description="Las marcas nuevas empiezan sin canales activos. Activa y conecta solo lo que necesites." back={<NavLink to="/brands">← Volver a marcas</NavLink>} /><Card><form className="ui-stack ui-stack-md" onSubmit={(event) => void submit(event)}>{error && <p className="ui-field-error" role="alert">{error}</p>}<Field label="Nombre de la marca" required><TextField value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required autoFocus placeholder="Ej. Escarlet" /></Field><Field label="Identificador" hint="Se usa en URLs y debe ser único." required><TextField value={form.handle} onChange={(event) => setForm({ ...form, handle: event.target.value })} required placeholder="escarlet" /></Field><Field label="Dominio web (opcional)"><TextField type="url" value={form.domain} onChange={(event) => setForm({ ...form, domain: event.target.value })} placeholder="https://marca.com" /></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => nav("/brands")}>Cancelar</Button><Button type="submit" loading={busy}>Crear marca</Button></Inline></form></Card></main>;
 }
 
 function TeamView({ embedded = false }: { embedded?: boolean } = {}) {
@@ -6720,7 +6720,7 @@ function TeamView({ embedded = false }: { embedded?: boolean } = {}) {
       setUserBusy(false);
     }
   };
-  return <main className="page"><PageHeader eyebrow="Espacio" title="Equipo y acceso" description="Roles y permisos de las personas que pueden revisar este contenido." actions={<Inline gap="sm">{canAdminUsers && <Button variant="ghost" onClick={() => nav("/admin")}>{t("admin.users")}</Button>}{canManage && <Button onClick={() => nav("/team/invite")}>Invitar miembro</Button>}</Inline>} />{error && <Card><p className="ui-field-error">{error}</p></Card>}{members.length ? <div className="ui-member-list">{members.map((member) => { const memberName = member.displayName || member.name || member.email || (member.userId === "system" ? "Escarlet" : member.userId) || "Miembro"; const id = userId(member); const canAct = canAdminUsers && Boolean(id) && id !== "system" && Boolean(member.email); return <Card key={member.id || member.userId || member.email}><div className="ui-card-head"><div className="ui-team-member"><UserAvatar src={member.avatarUrl} name={memberName} size="sm" /><div><h3>{memberName}</h3><p className="muted">{member.email || (member.brands || []).map((brand: any) => brand.name || brand.handle).join(", ")}</p></div></div><Badge tone="info">{roleLabel(member.role, t)}</Badge></div>{canAct && <div className="ui-card-actions ui-team-actions"><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => openUserEditor(member)} aria-label={t("admin.editUser")} title={t("admin.editUser")}><AdminActionIcon kind="edit" /></button><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => void issueOrRevokeUserToken(member)} aria-label={member.hasLoginToken ? t("admin.revokeToken") : t("admin.issueToken")} title={member.hasLoginToken ? t("admin.revokeToken") : t("admin.issueToken")}><AdminActionIcon kind="key" /></button><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => void sendUserMagicLink(member)} aria-label={t("admin.magicLink")} title={t("admin.magicLink")}><AdminActionIcon kind="mail" /></button></div>}</Card>; })}</div> : !error && <UiEmptyState title="Todavía no hay miembros" description={canManage ? "Invita a la primera persona para empezar a trabajar en equipo." : "Un administrador debe invitar a los miembros de este espacio."} action={canManage ? <Button onClick={() => nav("/team/invite")}>Invitar miembro</Button> : undefined} />}{message && <p className="success ui-team-message">{message}</p>}<Modal open={inviteOpen} title="Invitar miembro" onClose={() => setInviteOpen(false)}><form className="ui-stack ui-stack-md" onSubmit={(event) => void invite(event)}><Field label="Correo electrónico" required><TextField type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required autoFocus /></Field><Field label="Rol"><Select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}><option value="viewer">{roleLabel("viewer", t)}</option><option value="author">{roleLabel("author", t)}</option><option value="editor">{roleLabel("editor", t)}</option><option value="admin">{roleLabel("admin", t)}</option></Select></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setInviteOpen(false)}>Cancelar</Button><Button type="submit" loading={busy}>Enviar invitación</Button></Inline></form></Modal><Modal open={Boolean(userForm)} title={t("admin.editUser")} onClose={() => setUserForm(null)}>{userForm && <form className="ui-stack ui-stack-md" onSubmit={(event) => void saveUser(event)}><Field label={t("admin.userEmail")} required><TextField type="email" required value={userForm.email} onChange={(event) => setUserForm({ ...userForm, email: event.target.value })} /></Field><Field label={t("admin.userRole")} required><Select value={userForm.role} onChange={(event) => setUserForm({ ...userForm, role: event.target.value })}>{["owner", "admin", "editor", "author", "viewer"].map((role) => <option key={role} value={role}>{roleLabel(role, t)}</option>)}</Select></Field><fieldset className="ui-site-checks"><legend>{t("admin.userSites")}</legend>{availableSiteHandles.map((handle) => { const selected = userForm.sites.includes(handle); const brandRole = userForm.brandRoles[handle] || userForm.role; return <div key={handle} className="ui-team-brand-row"><label className="ui-checkbox"><input type="checkbox" checked={selected} onChange={(event) => setUserForm({ ...userForm, sites: event.target.checked ? uniqueSiteHandles([...userForm.sites, handle]) : userForm.sites.filter((item) => item !== handle) })} /><span>{handle}</span></label>{selected && <Select aria-label={`Rol en ${handle}`} value={brandRole} onChange={(event) => setUserForm({ ...userForm, brandRoles: { ...userForm.brandRoles, [handle]: event.target.value } })}><option value="owner">{roleLabel("owner", t)}</option><option value="admin">{roleLabel("admin", t)}</option><option value="editor">{roleLabel("editor", t)}</option><option value="author">{roleLabel("author", t)}</option><option value="viewer">{roleLabel("viewer", t)}</option></Select>}</div> })}</fieldset><label className="ui-toggle-row"><span><b>{t("settings.authorPermission")}</b><small>{t("settings.authorPermissionHelp")}</small></span><input type="checkbox" checked={userForm.allowPublishingAs} onChange={(event) => setUserForm({ ...userForm, allowPublishingAs: event.target.checked })} /></label><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setUserForm(null)}>{t("editor.close")}</Button><Button type="submit" disabled={!userForm.sites.length} loading={userBusy}>{t("admin.save")}</Button></Inline></form>}</Modal></main>;
+  return <main className="ui-page"><PageHeader eyebrow="Espacio" title="Equipo y acceso" description="Roles y permisos de las personas que pueden revisar este contenido." actions={<Inline gap="sm">{canAdminUsers && <Button variant="ghost" onClick={() => nav("/admin")}>{t("admin.users")}</Button>}{canManage && <Button onClick={() => nav("/team/invite")}>Invitar miembro</Button>}</Inline>} />{error && <Card><p className="ui-field-error">{error}</p></Card>}{members.length ? <div className="ui-member-list">{members.map((member) => { const memberName = member.displayName || member.name || member.email || (member.userId === "system" ? "Escarlet" : member.userId) || "Miembro"; const id = userId(member); const canAct = canAdminUsers && Boolean(id) && id !== "system" && Boolean(member.email); return <Card key={member.id || member.userId || member.email}><div className="ui-card-head"><div className="ui-team-member"><UserAvatar src={member.avatarUrl} name={memberName} size="sm" /><div><h3>{memberName}</h3><p className="ui-muted">{member.email || (member.brands || []).map((brand: any) => brand.name || brand.handle).join(", ")}</p></div></div><Badge tone="info">{roleLabel(member.role, t)}</Badge></div>{canAct && <div className="ui-card-actions ui-team-actions"><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => openUserEditor(member)} aria-label={t("admin.editUser")} title={t("admin.editUser")}><AdminActionIcon kind="edit" /></button><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => void issueOrRevokeUserToken(member)} aria-label={member.hasLoginToken ? t("admin.revokeToken") : t("admin.issueToken")} title={member.hasLoginToken ? t("admin.revokeToken") : t("admin.issueToken")}><AdminActionIcon kind="key" /></button><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => void sendUserMagicLink(member)} aria-label={t("admin.magicLink")} title={t("admin.magicLink")}><AdminActionIcon kind="mail" /></button></div>}</Card>; })}</div> : !error && <UiEmptyState title="Todavía no hay miembros" description={canManage ? "Invita a la primera persona para empezar a trabajar en equipo." : "Un administrador debe invitar a los miembros de este espacio."} action={canManage ? <Button onClick={() => nav("/team/invite")}>Invitar miembro</Button> : undefined} />}{message && <p className="ui-success ui-team-message">{message}</p>}<Modal open={inviteOpen} title="Invitar miembro" onClose={() => setInviteOpen(false)}><form className="ui-stack ui-stack-md" onSubmit={(event) => void invite(event)}><Field label="Correo electrónico" required><TextField type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required autoFocus /></Field><Field label="Rol"><Select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}><option value="viewer">{roleLabel("viewer", t)}</option><option value="author">{roleLabel("author", t)}</option><option value="editor">{roleLabel("editor", t)}</option><option value="admin">{roleLabel("admin", t)}</option></Select></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setInviteOpen(false)}>Cancelar</Button><Button type="submit" loading={busy}>Enviar invitación</Button></Inline></form></Modal><Modal open={Boolean(userForm)} title={t("admin.editUser")} onClose={() => setUserForm(null)}>{userForm && <form className="ui-stack ui-stack-md" onSubmit={(event) => void saveUser(event)}><Field label={t("admin.userEmail")} required><TextField type="email" required value={userForm.email} onChange={(event) => setUserForm({ ...userForm, email: event.target.value })} /></Field><Field label={t("admin.userRole")} required><Select value={userForm.role} onChange={(event) => setUserForm({ ...userForm, role: event.target.value })}>{["owner", "admin", "editor", "author", "viewer"].map((role) => <option key={role} value={role}>{roleLabel(role, t)}</option>)}</Select></Field><fieldset className="ui-site-checks"><legend>{t("admin.userSites")}</legend>{availableSiteHandles.map((handle) => { const selected = userForm.sites.includes(handle); const brandRole = userForm.brandRoles[handle] || userForm.role; return <div key={handle} className="ui-team-brand-row"><label className="ui-checkbox"><input type="checkbox" checked={selected} onChange={(event) => setUserForm({ ...userForm, sites: event.target.checked ? uniqueSiteHandles([...userForm.sites, handle]) : userForm.sites.filter((item) => item !== handle) })} /><span>{handle}</span></label>{selected && <Select aria-label={`Rol en ${handle}`} value={brandRole} onChange={(event) => setUserForm({ ...userForm, brandRoles: { ...userForm.brandRoles, [handle]: event.target.value } })}><option value="owner">{roleLabel("owner", t)}</option><option value="admin">{roleLabel("admin", t)}</option><option value="editor">{roleLabel("editor", t)}</option><option value="author">{roleLabel("author", t)}</option><option value="viewer">{roleLabel("viewer", t)}</option></Select>}</div> })}</fieldset><label className="ui-toggle-row"><span><b>{t("settings.authorPermission")}</b><small>{t("settings.authorPermissionHelp")}</small></span><input type="checkbox" checked={userForm.allowPublishingAs} onChange={(event) => setUserForm({ ...userForm, allowPublishingAs: event.target.checked })} /></label><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setUserForm(null)}>{t("editor.close")}</Button><Button type="submit" disabled={!userForm.sites.length} loading={userBusy}>{t("admin.save")}</Button></Inline></form>}</Modal></main>;
 }
 
 function TeamInviteView() {
@@ -6739,9 +6739,9 @@ function TeamInviteView() {
       setBrandRoles(Object.fromEntries(brands.map((brand) => [brand.id, role])));
     }
   }, [brands, brandIds.length, role]);
-  if (!isWorkspaceAdmin(session)) return <main className="page narrow"><UiEmptyState title="No tienes permisos para invitar" description="Solicita acceso a un administrador del espacio." action={<Button onClick={() => nav("/team")}>Volver al equipo</Button>} /></main>;
+  if (!isWorkspaceAdmin(session)) return <main className="ui-page ui-page-narrow"><UiEmptyState title="No tienes permisos para invitar" description="Solicita acceso a un administrador del espacio." action={<Button onClick={() => nav("/team")}>Volver al equipo</Button>} /></main>;
   const submit = async (event: FormEvent) => { event.preventDefault(); if (!brandIds.length) { setMessage("Selecciona al menos una marca."); return; } setBusy(true); setMessage(""); try { const result = await api.inviteTeamMember({ email, role, brandIds, brandRoles }); setMessage(result.invite?.link ? `Invitación creada: ${result.invite.link}` : "Invitación enviada."); setEmail(""); } catch (err: any) { setMessage(err?.message || "No se pudo invitar al miembro."); } finally { setBusy(false); } };
-  return <main className="page narrow"><PageHeader eyebrow="Equipo y acceso" title="Invitar miembro" description="Asigna una o varias marcas y un rol independiente para cada una." back={<NavLink to="/team">← Volver al equipo</NavLink>} /><Card><form className="ui-stack ui-stack-md" onSubmit={(event) => void submit(event)}><Field label="Correo electrónico" required><TextField type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoFocus /></Field><Field label="Rol predeterminado"><Select value={role} onChange={(event) => { setRole(event.target.value); setBrandRoles((current) => Object.fromEntries(Object.entries(current).map(([id]) => [id, event.target.value]))); }}><option value="viewer">Visor</option><option value="author">Autor</option><option value="editor">Editor</option><option value="admin">Administrador</option></Select></Field><fieldset className="ui-site-checks"><legend>Marcas y rol</legend>{brands.map((brand) => { const selected = brandIds.includes(brand.id); return <div key={brand.id} className="ui-team-brand-row"><label className="ui-checkbox"><input type="checkbox" checked={selected} onChange={(event) => setBrandIds((current) => event.target.checked ? [...current, brand.id] : current.filter((id) => id !== brand.id))} /><span>{brand.name || brand.handle || brand.id}</span></label>{selected && <Select aria-label={`Rol en ${brand.name || brand.handle || brand.id}`} value={brandRoles[brand.id] || role} onChange={(event) => setBrandRoles((current) => ({ ...current, [brand.id]: event.target.value }))}><option value="owner">Owner</option><option value="admin">Administrador</option><option value="editor">Editor</option><option value="author">Autor</option><option value="viewer">Visor</option></Select>}</div> })}</fieldset><Inline gap="md"><Button type="button" variant="ghost" onClick={() => nav("/team")}>Cancelar</Button><Button type="submit" loading={busy}>Enviar invitación</Button></Inline>{message && <p className={message.startsWith("No se") ? "ui-field-error" : "success"}>{message}</p>}</form></Card></main>;
+  return <main className="ui-page ui-page-narrow"><PageHeader eyebrow="Equipo y acceso" title="Invitar miembro" description="Asigna una o varias marcas y un rol independiente para cada una." back={<NavLink to="/team">← Volver al equipo</NavLink>} /><Card><form className="ui-stack ui-stack-md" onSubmit={(event) => void submit(event)}><Field label="Correo electrónico" required><TextField type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoFocus /></Field><Field label="Rol predeterminado"><Select value={role} onChange={(event) => { setRole(event.target.value); setBrandRoles((current) => Object.fromEntries(Object.entries(current).map(([id]) => [id, event.target.value]))); }}><option value="viewer">Visor</option><option value="author">Autor</option><option value="editor">Editor</option><option value="admin">Administrador</option></Select></Field><fieldset className="ui-site-checks"><legend>Marcas y rol</legend>{brands.map((brand) => { const selected = brandIds.includes(brand.id); return <div key={brand.id} className="ui-team-brand-row"><label className="ui-checkbox"><input type="checkbox" checked={selected} onChange={(event) => setBrandIds((current) => event.target.checked ? [...current, brand.id] : current.filter((id) => id !== brand.id))} /><span>{brand.name || brand.handle || brand.id}</span></label>{selected && <Select aria-label={`Rol en ${brand.name || brand.handle || brand.id}`} value={brandRoles[brand.id] || role} onChange={(event) => setBrandRoles((current) => ({ ...current, [brand.id]: event.target.value }))}><option value="owner">Owner</option><option value="admin">Administrador</option><option value="editor">Editor</option><option value="author">Autor</option><option value="viewer">Visor</option></Select>}</div> })}</fieldset><Inline gap="md"><Button type="button" variant="ghost" onClick={() => nav("/team")}>Cancelar</Button><Button type="submit" loading={busy}>Enviar invitación</Button></Inline>{message && <p className={message.startsWith("No se") ? "ui-field-error" : "ui-success"}>{message}</p>}</form></Card></main>;
 }
 
 function BrandDetailView() {
@@ -6750,9 +6750,9 @@ function BrandDetailView() {
   const [brand, setBrand] = useState<BrandSummary | null>(null);
   const [error, setError] = useState("");
   useEffect(() => { api.brandV2(brandId).then((result) => setBrand(result.brand)).catch((err) => setError(err?.message || "No se pudo cargar la marca.")); }, [brandId]);
-  if (error) return <main className="page"><Card><p className="ui-field-error">{error}</p></Card></main>;
-  if (!brand) return <main className="page"><Card><p className="muted">Cargando marca…</p></Card></main>;
-  return <main className="page"><PageHeader eyebrow="Marca" title={brand.name || brand.handle || "Marca"} description={brand.domain || "Configura identidad, capacidades, canales y conexiones."} back={<NavLink to="/brands">← Volver a marcas</NavLink>} actions={<Button variant="ghost" onClick={() => nav("/brands")}>Todas las marcas</Button>} /><div className="ui-brand-detail-grid"><Card><span className="ui-eyebrow">Capacidades</span><h2>Usos de la marca</h2><div className="ui-capability-list">{brand.capabilities && Object.entries(brand.capabilities).filter(([, enabled]) => enabled).map(([key]) => <Badge key={key} tone="info">{key.replace(/_/g, " ")}</Badge>)}</div><div className="ui-card-actions"><Button variant="secondary" onClick={() => nav(`/brands/${brand.id}/identity`)}>Identidad y brand kit</Button></div></Card><Card><span className="ui-eyebrow">Canales</span><h2>Canales activos</h2><div className="ui-channel-list">{(brand.channels || []).filter((channel) => channel.enabled).map((channel) => <ChannelBadge key={channel.channel} channel={channel.channel} />)}</div><div className="ui-card-actions"><Button variant="secondary" onClick={() => nav(`/brands/${brand.id}/channels`)}>Gestionar canales</Button></div></Card><Card><span className="ui-eyebrow">Proveedores</span><h2>Conexiones</h2><p className="muted">{brand.connections?.length || 0} conexiones configuradas.</p><div className="ui-card-actions"><Button variant="secondary" onClick={() => nav(`/brands/${brand.id}/connections`)}>Ver conexiones</Button></div></Card></div></main>;
+  if (error) return <main className="ui-page"><Card><p className="ui-field-error">{error}</p></Card></main>;
+  if (!brand) return <main className="ui-page"><Card><p className="ui-muted">Cargando marca…</p></Card></main>;
+  return <main className="ui-page"><PageHeader eyebrow="Marca" title={brand.name || brand.handle || "Marca"} description={brand.domain || "Configura identidad, capacidades, canales y conexiones."} back={<NavLink to="/brands">← Volver a marcas</NavLink>} actions={<Button variant="ghost" onClick={() => nav("/brands")}>Todas las marcas</Button>} /><div className="ui-brand-detail-grid"><Card><span className="ui-eyebrow">Capacidades</span><h2>Usos de la marca</h2><div className="ui-capability-list">{brand.capabilities && Object.entries(brand.capabilities).filter(([, enabled]) => enabled).map(([key]) => <Badge key={key} tone="info">{key.replace(/_/g, " ")}</Badge>)}</div><div className="ui-card-actions"><Button variant="secondary" onClick={() => nav(`/brands/${brand.id}/identity`)}>Identidad y brand kit</Button></div></Card><Card><span className="ui-eyebrow">Canales</span><h2>Canales activos</h2><div className="ui-channel-list">{(brand.channels || []).filter((channel) => channel.enabled).map((channel) => <ChannelBadge key={channel.channel} channel={channel.channel} />)}</div><div className="ui-card-actions"><Button variant="secondary" onClick={() => nav(`/brands/${brand.id}/channels`)}>Gestionar canales</Button></div></Card><Card><span className="ui-eyebrow">Proveedores</span><h2>Conexiones</h2><p className="ui-muted">{brand.connections?.length || 0} conexiones configuradas.</p><div className="ui-card-actions"><Button variant="secondary" onClick={() => nav(`/brands/${brand.id}/connections`)}>Ver conexiones</Button></div></Card></div></main>;
 }
 
 function BrandIdentityView() {
@@ -6903,27 +6903,27 @@ function BrandIdentityView() {
   const visibleBrandFiles = [...new Set([...brandFiles, ...Object.keys(kit?.manifest || {})])];
   const referenceUsageLabels: Record<string, string> = { logo: "Logo", reference: "Referencia visual", style_board: "Tablero visual", typography: "Tipografía", palette: "Paleta de color", campaign: "Referencia de campaña" };
   return (
-    <main className="page">
+    <main className="ui-page">
       <PageHeader eyebrow="Marca · Identidad" title={brand?.name || "Identidad y brand kit"} description="Edita la identidad y las referencias del brand kit que usarán las herramientas autorizadas." back={<NavLink to={`/brands/${encodeURIComponent(brandId)}`}>← Volver a la marca</NavLink>} />
       {error ? <Card><p className="ui-field-error">{error}</p></Card> : <div className="ui-identity-grid">
         <Card className="ui-identity-brand-card">
-          <div className="ui-card-head ui-identity-brand-head"><div><span className="ui-eyebrow">Brand kit activo</span><h2>{kit?.version ? `Versión ${kit.version}` : "Sin versión publicada"}</h2><p className="muted">Edita los archivos de referencia sin salir de la vista v2.</p></div>{canImportBrandKit && <><Button type="button" variant="secondary" onClick={() => brandZipInputRef.current?.click()} loading={brandZipBusy}>{t("admin.importBrandZip")}</Button><input ref={brandZipInputRef} type="file" accept=".zip,application/zip,application/x-zip-compressed" hidden disabled={brandZipBusy} onChange={(event) => void importBrandKit(event.target.files?.[0])} /></>}</div>
+          <div className="ui-card-head ui-identity-brand-head"><div><span className="ui-eyebrow">Brand kit activo</span><h2>{kit?.version ? `Versión ${kit.version}` : "Sin versión publicada"}</h2><p className="ui-muted">Edita los archivos de referencia sin salir de la vista v2.</p></div>{canImportBrandKit && <><Button type="button" variant="secondary" onClick={() => brandZipInputRef.current?.click()} loading={brandZipBusy}>{t("admin.importBrandZip")}</Button><input ref={brandZipInputRef} type="file" accept=".zip,application/zip,application/x-zip-compressed" hidden disabled={brandZipBusy} onChange={(event) => void importBrandKit(event.target.files?.[0])} /></>}</div>
           <div className="ui-brandkit-workspace">
             <aside className="ui-brand-file-nav" aria-label="Archivos del brand kit">
               <span className="ui-field-label">Archivos de referencia</span>
-              {visibleBrandFiles.length ? visibleBrandFiles.map((file) => canEdit ? <button key={file} type="button" className={`ui-brand-file-button ${selectedBrandFile === file ? "active" : ""}`} onClick={() => setSelectedBrandFile(file)}>{file}</button> : <Badge key={file} tone="neutral">{file}</Badge>) : <p className="muted">Todavía no hay archivos.</p>}
+              {visibleBrandFiles.length ? visibleBrandFiles.map((file) => canEdit ? <button key={file} type="button" className={`ui-brand-file-button ${selectedBrandFile === file ? "active" : ""}`} onClick={() => setSelectedBrandFile(file)}>{file}</button> : <Badge key={file} tone="neutral">{file}</Badge>) : <p className="ui-muted">Todavía no hay archivos.</p>}
             </aside>
             <div className="ui-brand-editor">
-              {canEdit && selectedBrandFile ? <><label className="ui-field"><span className="ui-field-label">Editando {selectedBrandFile}</span><textarea className="ui-input ui-textarea" rows={15} value={brandContent} onChange={(event) => setBrandContent(event.target.value)} /></label><div className="ui-card-actions"><Button type="button" onClick={() => void saveBrandFile()} loading={brandSaving}>{t("admin.saveBrand")}</Button></div></> : <p className="muted">Selecciona un archivo para editarlo.</p>}
+              {canEdit && selectedBrandFile ? <><label className="ui-field"><span className="ui-field-label">Editando {selectedBrandFile}</span><textarea className="ui-input ui-textarea" rows={15} value={brandContent} onChange={(event) => setBrandContent(event.target.value)} /></label><div className="ui-card-actions"><Button type="button" onClick={() => void saveBrandFile()} loading={brandSaving}>{t("admin.saveBrand")}</Button></div></> : <p className="ui-muted">Selecciona un archivo para editarlo.</p>}
             </div>
           </div>
           <div className="reference-library ui-brand-reference-library">
             <div className="ui-reference-toolbar"><div><span className="ui-eyebrow">Referencias visuales</span><h3>Biblioteca de imágenes</h3><p className="ui-field-hint">Abre una imagen para verla en alta calidad y clasificar su uso.</p></div><Inline gap="sm"><Field label="Columnas"><Select value={referenceColumns} onChange={(event) => setReferenceColumns(event.target.value)}><option value="2">2</option><option value="3">3</option><option value="4">4</option></Select></Field>{canEdit && <label className="ui-button ui-button-secondary ui-button-sm ui-file-upload-button">{referenceBusy ? "Cargando…" : "Añadir imágenes"}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden disabled={referenceBusy} onChange={(event) => { Array.from(event.target.files || []).forEach((file) => void uploadReference(file)); event.currentTarget.value = ""; }} /></label>}</Inline></div>
             {referenceMedia.length ? <div className={`reference-grid ui-reference-grid ui-reference-grid-${referenceColumns}`}>{referenceMedia.map((media) => { const canEditMedia = Boolean(media.id && media.metadata?.source !== "brand-kit"); const usage = String(media.metadata?.usage || "reference"); return <article className="reference-card" key={media.id || media.path || media.url}><button className="reference-image-button" type="button" onClick={() => canEditMedia && setSelectedReference(media)} disabled={!canEditMedia} aria-label={`Ver ${media.filename || "referencia visual"}`}><img src={media.thumbUrl || media.url || media.path} alt={media.alt || media.filename || "Referencia visual"} loading="lazy" /><span className="reference-edit-icon" aria-hidden="true">⌕</span></button><div className="reference-card-actions"><div className="reference-meta"><strong title={media.filename}>{media.filename || "Referencia"}</strong><Badge tone="neutral">{referenceUsageLabels[usage] || usage}</Badge></div>{canEditMedia && <Badge tone="info">Editar</Badge>}</div></article>; })}</div> : <UiEmptyState title="Aún no hay referencias visuales" description="Importa un ZIP o añade imágenes para construir la biblioteca de la marca." />}
           </div>
-          <p className="muted">Las referencias privadas solo se muestran según el rol y la capacidad de acceso.</p>
+          <p className="ui-muted">Las referencias privadas solo se muestran según el rol y la capacidad de acceso.</p>
         </Card>
-        <Card><span className="ui-eyebrow">Datos de la marca</span><h2>Identidad pública</h2>{canEdit ? <form className="ui-stack ui-stack-md" onSubmit={(event) => void save(event)}><Field label="Nombre" required><TextField value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></Field><Field label="Dominio web opcional"><TextField type="url" value={form.domain} onChange={(event) => setForm({ ...form, domain: event.target.value })} placeholder="https://marca.com" /></Field><Button type="submit" loading={busy}>Guardar identidad</Button></form> : <p className="muted">{brand?.domain || "Sin dominio configurado"}</p>}</Card>
+        <Card><span className="ui-eyebrow">Datos de la marca</span><h2>Identidad pública</h2>{canEdit ? <form className="ui-stack ui-stack-md" onSubmit={(event) => void save(event)}><Field label="Nombre" required><TextField value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></Field><Field label="Dominio web opcional"><TextField type="url" value={form.domain} onChange={(event) => setForm({ ...form, domain: event.target.value })} placeholder="https://marca.com" /></Field><Button type="submit" loading={busy}>Guardar identidad</Button></form> : <p className="ui-muted">{brand?.domain || "Sin dominio configurado"}</p>}</Card>
       </div>}
       {selectedReference && <ReferenceMediaModal media={selectedReference} busy={referenceBusy} onClose={() => setSelectedReference(null)} onSave={(details) => void saveReference(selectedReference, details)} onDelete={() => void deleteReference(selectedReference)} />}
     </main>
@@ -6942,7 +6942,7 @@ function BrandChannelsView() {
   const canManage = isWorkspaceAdmin(session);
   useEffect(() => { Promise.all([api.brandV2(brandId), api.brandChannels(brandId), api.brandConnections(brandId), api.brandCapabilities(brandId)]).then(([brandResult, channelResult, connectionResult, capResult]) => { setBrand(brandResult.brand); setChannels(channelResult.channels || []); setCaps(capResult.capabilities || {}); const connection = (connectionResult.connections || []).find((item) => item.channel === "blog" && item.provider === "web"); setWeb({ domain: String(connection?.config?.domain || brandResult.brand.domain || ""), rebuildWebhookUrl: String(connection?.config?.rebuildWebhookUrl || ""), token: "" }); }).catch(() => undefined); }, [brandId]);
   const save = async () => { setBusy(true); try { const channelMap = Object.fromEntries(channels.map((channel) => [channel.channel, channel.enabled])); await api.updateBrandChannels(brandId, channelMap); await api.updateBrandCapabilities(brandId, { ...caps, content_publishing: Object.values(channelMap).some(Boolean), blog_publishing: Boolean(channelMap.blog) }); if (channelMap.blog && (web.domain || web.rebuildWebhookUrl || web.token)) { await api.updateBrandV2(brandId, { domain: web.domain || undefined }); await api.saveBrandConnection(brandId, { provider: "web", channel: "blog", token: web.token || undefined, config: { domain: web.domain, rebuildWebhookUrl: web.rebuildWebhookUrl } }); } showToast("Canales y capacidades guardados."); } catch (err: any) { showToast(err?.message || "No se pudo guardar la configuración.", "error"); } finally { setBusy(false); } };
-  return <main className="page"><PageHeader eyebrow="Marca · Canales" title={brand?.name || "Canales activos"} description="Activa solo los canales que esta marca utiliza. Cada uno puede tener su propia conexión primaria." back={<NavLink to={`/brands/${encodeURIComponent(brandId)}`}>← Volver a la marca</NavLink>} actions={canManage ? <Button onClick={() => void save()} loading={busy}>Guardar cambios</Button> : undefined} /><div className="ui-channel-settings-grid"><Card><span className="ui-eyebrow">Canales</span><h2>Publicación multicanal</h2><Stack gap="sm">{channels.map((channel) => <label className="ui-toggle-row" key={channel.channel}><span><b>{channel.channel === "x" ? "X" : channel.channel.charAt(0).toUpperCase() + channel.channel.slice(1)}</b><small>{channel.enabled ? "Activo" : "Inactivo"}</small></span><input type="checkbox" disabled={!canManage} checked={Boolean(channel.enabled)} onChange={(event) => setChannels((current) => current.map((item) => item.channel === channel.channel ? { ...item, enabled: event.target.checked } : item))} /></label>)}</Stack></Card><Card><span className="ui-eyebrow">Usos de marca</span><h2>Capacidades</h2><Stack gap="sm"><label className="ui-toggle-row"><span><b>Presentaciones</b><small>Permite usar el brand kit desde ChatGPT/MCP.</small></span><input type="checkbox" disabled={!canManage} checked={Boolean(caps.presentation_generation)} onChange={(event) => setCaps((current) => ({ ...current, presentation_generation: event.target.checked }))} /></label><label className="ui-toggle-row"><span><b>Publicaciones</b><small>Se activa automáticamente al encender un canal.</small></span><input type="checkbox" checked={Boolean(caps.content_publishing)} readOnly /></label></Stack></Card>{channels.some((channel) => channel.channel === "blog" && channel.enabled) && <Card className="ui-blog-connection-card"><span className="ui-eyebrow">Conexión del canal Blog</span><h2>Web y webhook</h2><p className="muted">Estos datos solo aparecen porque el canal Blog está activo.</p><Stack gap="md"><Field label="Dominio público"><TextField type="url" value={web.domain} onChange={(event) => setWeb({ ...web, domain: event.target.value })} placeholder="https://marca.com" /></Field><Field label="Webhook de rebuild"><TextField value={web.rebuildWebhookUrl} onChange={(event) => setWeb({ ...web, rebuildWebhookUrl: event.target.value })} placeholder="https://…" /></Field><Field label="Token de la conexión" hint="Se cifra y no vuelve a mostrarse."><TextField type="password" value={web.token} onChange={(event) => setWeb({ ...web, token: event.target.value })} placeholder="Pega un token nuevo para reemplazarlo" /></Field></Stack></Card>}</div></main>;
+  return <main className="ui-page"><PageHeader eyebrow="Marca · Canales" title={brand?.name || "Canales activos"} description="Activa solo los canales que esta marca utiliza. Cada uno puede tener su propia conexión primaria." back={<NavLink to={`/brands/${encodeURIComponent(brandId)}`}>← Volver a la marca</NavLink>} actions={canManage ? <Button onClick={() => void save()} loading={busy}>Guardar cambios</Button> : undefined} /><div className="ui-channel-settings-grid"><Card><span className="ui-eyebrow">Canales</span><h2>Publicación multicanal</h2><Stack gap="sm">{channels.map((channel) => <label className="ui-toggle-row" key={channel.channel}><span><b>{channel.channel === "x" ? "X" : channel.channel.charAt(0).toUpperCase() + channel.channel.slice(1)}</b><small>{channel.enabled ? "Activo" : "Inactivo"}</small></span><input type="checkbox" disabled={!canManage} checked={Boolean(channel.enabled)} onChange={(event) => setChannels((current) => current.map((item) => item.channel === channel.channel ? { ...item, enabled: event.target.checked } : item))} /></label>)}</Stack></Card><Card><span className="ui-eyebrow">Usos de marca</span><h2>Capacidades</h2><Stack gap="sm"><label className="ui-toggle-row"><span><b>Presentaciones</b><small>Permite usar el brand kit desde ChatGPT/MCP.</small></span><input type="checkbox" disabled={!canManage} checked={Boolean(caps.presentation_generation)} onChange={(event) => setCaps((current) => ({ ...current, presentation_generation: event.target.checked }))} /></label><label className="ui-toggle-row"><span><b>Publicaciones</b><small>Se activa automáticamente al encender un canal.</small></span><input type="checkbox" checked={Boolean(caps.content_publishing)} readOnly /></label></Stack></Card>{channels.some((channel) => channel.channel === "blog" && channel.enabled) && <Card className="ui-blog-connection-card"><span className="ui-eyebrow">Conexión del canal Blog</span><h2>Web y webhook</h2><p className="ui-muted">Estos datos solo aparecen porque el canal Blog está activo.</p><Stack gap="md"><Field label="Dominio público"><TextField type="url" value={web.domain} onChange={(event) => setWeb({ ...web, domain: event.target.value })} placeholder="https://marca.com" /></Field><Field label="Webhook de rebuild"><TextField value={web.rebuildWebhookUrl} onChange={(event) => setWeb({ ...web, rebuildWebhookUrl: event.target.value })} placeholder="https://…" /></Field><Field label="Token de la conexión" hint="Se cifra y no vuelve a mostrarse."><TextField type="password" value={web.token} onChange={(event) => setWeb({ ...web, token: event.target.value })} placeholder="Pega un token nuevo para reemplazarlo" /></Field></Stack></Card>}</div></main>;
 }
 
 function BrandConnectionsView() {
@@ -6972,7 +6972,7 @@ function LegacyConnectionsView({ brandId }: { brandId?: string }) {
   const canManage = isWorkspaceAdmin(session);
   const brandOptions = productContext?.brands || [];
   /*
-  return <main className="page"><PageHeader eyebrow="Proveedores por canal" title="Conexiones" description="Postiz, Metricool, Planable, web y futuros proveedores se gestionan desde un único catálogo." actions={!brandId && brandOptions.length > 1 ? <Select aria-label="Filtrar por marca" value={selectedBrandId} onChange={(event) => setSelectedBrandId(event.target.value)}>{brandOptions.map((brand) => <option key={brand.id} value={brand.id}>{brand.name || brand.handle}</option>)}</Select> : undefined} />{error && <Card><p className="ui-field-error">{error}</p></Card>}{connections.length ? <div className="ui-connection-grid">{connections.map((connection) => <ConnectionCard key={connection.id} provider={`${connection.provider || "Proveedor"} · ${connection.channel || "canal"}`} status={connection.status || (connection.enabled ? "connected" : "disabled")} account={connection.externalAccountId || connection.userId ? `Cuenta ${connection.externalAccountId || connection.userId}` : undefined} actions={<Inline gap="sm"><Button variant="ghost" size="sm" onClick={async () => { try { await api.testConnection(connection.id, selectedBrandId); setMessage("Prueba correcta."); } catch (err: any) { setMessage(err?.message || "La prueba falló."); } }}>Probar</Button>{canManage && <Button variant="ghost" size="sm" onClick={async () => { try { await api.disconnectConnection(connection.id, selectedBrandId); setConnections((current) => current.filter((item) => item.id !== connection.id)); } catch (err: any) { setMessage(err?.message || "No se pudo desconectar."); } }}>Desconectar</Button>}</Inline>} />)}</div> : !error && <UiEmptyState title="Aún no hay conexiones" description="Activa un canal y conecta el proveedor que lo ejecutará." />}{canManage && <Card className="ui-connection-form"><div className="ui-card-head"><div><span className="ui-eyebrow">Administrador</span><h2>Añadir conexión</h2></div></div><form className="ui-stack ui-stack-md" onSubmit={(event) => void connect(event)}><Field label="Proveedor"><Select value={form.provider} onChange={(event) => { setForm((current) => { const provider = event.target.value; return { ...current, provider, channel: provider === "postiz" || current.channel !== "blog" ? current.channel : "instagram" }; }); setPostizIntegrations([]); }}><option value="postiz">Postiz (self-hosted)</option><option value="metricool">Metricool</option><option value="planable">Planable.io</option><option value="web">Web / WordPress</option></Select></Field><Field label="Canal"><Select value={form.channel} onChange={(event) => setForm({ ...form, channel: event.target.value })}>{availableChannels.filter((channel) => channel.enabled && (channel.channel !== "blog" || form.provider === "postiz")).map((channel) => <option key={channel.channel} value={channel.channel}>{channel.channel}</option>)}</Select></Field><Field label={form.provider === "planable" || form.provider === "postiz" ? (form.provider === "postiz" ? "API key / OAuth token" : "API token") : "Token"} hint={form.provider === "planable" ? "Planable → Ajustes de cuenta → Integraciones → Public API. Se cifra en el servidor y nunca se vuelve a mostrar." : form.provider === "postiz" ? "Postiz → Settings → Developers → Public API. Para OAuth usa el token pos_…; se cifra en el servidor." : "Se cifra en el servidor y nunca se vuelve a mostrar."} required><TextField type="password" value={form.userToken} onChange={(event) => setForm({ ...form, userToken: event.target.value })} required /></Field>{form.provider === "postiz" && <><Field label="URL de Postiz" hint="Deja vacío para Postiz Cloud. En self-hosted usa la URL pública, por ejemplo https://sociales.marca.com/api."><TextField type="url" value={form.apiBaseUrl} onChange={(event) => setForm({ ...form, apiBaseUrl: event.target.value })} placeholder="https://postiz.tudominio.com/api" /></Field><Inline gap="md"><Field label="Integration ID" hint="Es el id de la cuenta conectada que devuelve GET /integrations." required><TextField value={form.integrationId} onChange={(event) => setForm({ ...form, integrationId: event.target.value })} required /></Field><Button type="button" variant="ghost" size="sm" onClick={() => void loadPostizAccounts()} loading={loadingPostizIntegrations}>Cargar cuentas</Button><Field label="Tipo de proveedor" hint="Opcional; se deduce del canal (video → youtube)."><TextField value={form.providerType} onChange={(event) => setForm({ ...form, providerType: event.target.value })} placeholder="instagram, linkedin, x…" /></Field></Inline>{postizIntegrations.length > 0 && <Field label="Cuenta conectada"><Select value={form.integrationId} onChange={(event) => { const integration = postizIntegrations.find((item) => String(item.id) === event.target.value); setForm({ ...form, integrationId: event.target.value, providerType: String(integration?.identifier || form.providerType || "") }); }}>{postizIntegrations.map((integration) => <option key={integration.id} value={integration.id}>{integration.name || integration.profile || integration.identifier || integration.id} · {integration.identifier || "canal"}</option>)}</Select></Field>}</>}{form.provider === "metricool" && <Inline gap="md"><Field label="userId" required><TextField value={form.userId} onChange={(event) => setForm({ ...form, userId: event.target.value })} required /></Field><Field label="blogId" required><TextField value={form.blogId} onChange={(event) => setForm({ ...form, blogId: event.target.value })} required /></Field></Inline>}{form.provider === "planable" && <Inline gap="md"><Field label="Workspace ID" hint="Lo encuentras en la URL o en la API de Planable." required><TextField value={form.workspaceId} onChange={(event) => setForm({ ...form, workspaceId: event.target.value })} required /></Field><Field label="Page ID" hint="La cuenta social de Planable que recibirá esta variante." required><TextField value={form.pageId} onChange={(event) => setForm({ ...form, pageId: event.target.value })} required /></Field></Inline>}<Field label="Zona horaria"><TextField value={form.timezone} onChange={(event) => setForm({ ...form, timezone: event.target.value })} /></Field><Button type="submit" loading={busy}>Guardar conexión</Button>{message && <p className={message.includes("falló") || message.includes("No se") ? "ui-field-error" : "success"}>{message}</p>}</form></Card>}</main>;
+  return <main className="ui-page"><PageHeader eyebrow="Proveedores por canal" title="Conexiones" description="Postiz, Metricool, Planable, web y futuros proveedores se gestionan desde un único catálogo." actions={!brandId && brandOptions.length > 1 ? <Select aria-label="Filtrar por marca" value={selectedBrandId} onChange={(event) => setSelectedBrandId(event.target.value)}>{brandOptions.map((brand) => <option key={brand.id} value={brand.id}>{brand.name || brand.handle}</option>)}</Select> : undefined} />{error && <Card><p className="ui-field-error">{error}</p></Card>}{connections.length ? <div className="ui-connection-grid">{connections.map((connection) => <ConnectionCard key={connection.id} provider={`${connection.provider || "Proveedor"} · ${connection.channel || "canal"}`} status={connection.status || (connection.enabled ? "connected" : "disabled")} account={connection.externalAccountId || connection.userId ? `Cuenta ${connection.externalAccountId || connection.userId}` : undefined} actions={<Inline gap="sm"><Button variant="ghost" size="sm" onClick={async () => { try { await api.testConnection(connection.id, selectedBrandId); setMessage("Prueba correcta."); } catch (err: any) { setMessage(err?.message || "La prueba falló."); } }}>Probar</Button>{canManage && <Button variant="ghost" size="sm" onClick={async () => { try { await api.disconnectConnection(connection.id, selectedBrandId); setConnections((current) => current.filter((item) => item.id !== connection.id)); } catch (err: any) { setMessage(err?.message || "No se pudo desconectar."); } }}>Desconectar</Button>}</Inline>} />)}</div> : !error && <UiEmptyState title="Aún no hay conexiones" description="Activa un canal y conecta el proveedor que lo ejecutará." />}{canManage && <Card className="ui-connection-form"><div className="ui-card-head"><div><span className="ui-eyebrow">Administrador</span><h2>Añadir conexión</h2></div></div><form className="ui-stack ui-stack-md" onSubmit={(event) => void connect(event)}><Field label="Proveedor"><Select value={form.provider} onChange={(event) => { setForm((current) => { const provider = event.target.value; return { ...current, provider, channel: provider === "postiz" || current.channel !== "blog" ? current.channel : "instagram" }; }); setPostizIntegrations([]); }}><option value="postiz">Postiz (self-hosted)</option><option value="metricool">Metricool</option><option value="planable">Planable.io</option><option value="web">Web / WordPress</option></Select></Field><Field label="Canal"><Select value={form.channel} onChange={(event) => setForm({ ...form, channel: event.target.value })}>{availableChannels.filter((channel) => channel.enabled && (channel.channel !== "blog" || form.provider === "postiz")).map((channel) => <option key={channel.channel} value={channel.channel}>{channel.channel}</option>)}</Select></Field><Field label={form.provider === "planable" || form.provider === "postiz" ? (form.provider === "postiz" ? "API key / OAuth token" : "API token") : "Token"} hint={form.provider === "planable" ? "Planable → Ajustes de cuenta → Integraciones → Public API. Se cifra en el servidor y nunca se vuelve a mostrar." : form.provider === "postiz" ? "Postiz → Settings → Developers → Public API. Para OAuth usa el token pos_…; se cifra en el servidor." : "Se cifra en el servidor y nunca se vuelve a mostrar."} required><TextField type="password" value={form.userToken} onChange={(event) => setForm({ ...form, userToken: event.target.value })} required /></Field>{form.provider === "postiz" && <><Field label="URL de Postiz" hint="Deja vacío para Postiz Cloud. En self-hosted usa la URL pública, por ejemplo https://sociales.marca.com/api."><TextField type="url" value={form.apiBaseUrl} onChange={(event) => setForm({ ...form, apiBaseUrl: event.target.value })} placeholder="https://postiz.tudominio.com/api" /></Field><Inline gap="md"><Field label="Integration ID" hint="Es el id de la cuenta conectada que devuelve GET /integrations." required><TextField value={form.integrationId} onChange={(event) => setForm({ ...form, integrationId: event.target.value })} required /></Field><Button type="button" variant="ghost" size="sm" onClick={() => void loadPostizAccounts()} loading={loadingPostizIntegrations}>Cargar cuentas</Button><Field label="Tipo de proveedor" hint="Opcional; se deduce del canal (video → youtube)."><TextField value={form.providerType} onChange={(event) => setForm({ ...form, providerType: event.target.value })} placeholder="instagram, linkedin, x…" /></Field></Inline>{postizIntegrations.length > 0 && <Field label="Cuenta conectada"><Select value={form.integrationId} onChange={(event) => { const integration = postizIntegrations.find((item) => String(item.id) === event.target.value); setForm({ ...form, integrationId: event.target.value, providerType: String(integration?.identifier || form.providerType || "") }); }}>{postizIntegrations.map((integration) => <option key={integration.id} value={integration.id}>{integration.name || integration.profile || integration.identifier || integration.id} · {integration.identifier || "canal"}</option>)}</Select></Field>}</>}{form.provider === "metricool" && <Inline gap="md"><Field label="userId" required><TextField value={form.userId} onChange={(event) => setForm({ ...form, userId: event.target.value })} required /></Field><Field label="blogId" required><TextField value={form.blogId} onChange={(event) => setForm({ ...form, blogId: event.target.value })} required /></Field></Inline>}{form.provider === "planable" && <Inline gap="md"><Field label="Workspace ID" hint="Lo encuentras en la URL o en la API de Planable." required><TextField value={form.workspaceId} onChange={(event) => setForm({ ...form, workspaceId: event.target.value })} required /></Field><Field label="Page ID" hint="La cuenta social de Planable que recibirá esta variante." required><TextField value={form.pageId} onChange={(event) => setForm({ ...form, pageId: event.target.value })} required /></Field></Inline>}<Field label="Zona horaria"><TextField value={form.timezone} onChange={(event) => setForm({ ...form, timezone: event.target.value })} /></Field><Button type="submit" loading={busy}>Guardar conexión</Button>{message && <p className={message.includes("falló") || message.includes("No se") ? "ui-field-error" : "ui-success"}>{message}</p>}</form></Card>}</main>;
   */
 }
 
@@ -7076,10 +7076,10 @@ function ConnectionsView({ brandId, backTo, embedded = false }: { brandId?: stri
     setMessage("URL del MCP copiada.");
   };
   const tokenLabel = form.provider === "postiz" ? "API key / OAuth token" : form.provider === "planable" ? "API token" : form.provider === "buffer" ? "API key de Buffer" : "Token";
-  return <Root className={embedded ? "ui-admin-section" : "page"}>
+  return <Root className={embedded ? "ui-admin-section" : "ui-page"}>
     <PageHeader eyebrow={brandId ? `Marca · ${brandOptions.find((brand) => brand.id === selectedBrandId)?.name || brandOptions.find((brand) => brand.id === selectedBrandId)?.handle || "Conexiones"}` : "Proveedores por canal"} title="Conexiones" description="Buffer, Postiz, Metricool, Planable, web y futuros proveedores se gestionan desde un único catálogo." back={backTo ? <NavLink to={backTo}>← Volver a la marca</NavLink> : undefined} actions={!brandId && brandOptions.length > 1 ? <Select aria-label="Filtrar por marca" value={selectedBrandId} onChange={(event) => setSelectedBrandId(event.target.value)}>{brandOptions.map((brand) => <option key={brand.id} value={brand.id}>{brand.name || brand.handle}</option>)}</Select> : undefined} />
     {error && <Card><p className="ui-field-error">{error}</p></Card>}
-    <Card className="ui-mcp-card"><div className="ui-card-head"><div><span className="ui-eyebrow">Conexión externa</span><h2>Conectar esta marca con ChatGPT</h2><p className="muted">Añade la URL del MCP y completa OAuth con tu cuenta. El acceso se resuelve por tus membresías actuales de marca.</p></div></div>{mcpInfo?.mcpUrl && <div className="ui-mcp-value"><div><span className="ui-field-label">URL del MCP</span><code>{mcpInfo.mcpUrl}</code></div><Button type="button" variant="ghost" size="sm" onClick={() => void copyMcpUrl()}>Copiar</Button></div>}<p className="ui-field-hint">No existen tokens de marca. Para Cursor, Claude u otros clientes usa tu PAT personal desde Ajustes o el flujo OAuth.</p></Card>
+    <Card className="ui-mcp-card"><div className="ui-card-head"><div><span className="ui-eyebrow">Conexión externa</span><h2>Conectar esta marca con ChatGPT</h2><p className="ui-muted">Añade la URL del MCP y completa OAuth con tu cuenta. El acceso se resuelve por tus membresías actuales de marca.</p></div></div>{mcpInfo?.mcpUrl && <div className="ui-mcp-value"><div><span className="ui-field-label">URL del MCP</span><code>{mcpInfo.mcpUrl}</code></div><Button type="button" variant="ghost" size="sm" onClick={() => void copyMcpUrl()}>Copiar</Button></div>}<p className="ui-field-hint">No existen tokens de marca. Para Cursor, Claude u otros clientes usa tu PAT personal desde Ajustes o el flujo OAuth.</p></Card>
     {connections.length ? <div className="ui-connection-grid">{connections.map((connection) => <ConnectionCard key={connection.id} provider={`${connection.provider || "Proveedor"} · ${connection.channel || "canal"}`} status={connection.status || (connection.enabled ? "connected" : "disabled")} account={connection.externalAccountId || connection.userId ? `Cuenta ${connection.externalAccountId || connection.userId}` : undefined} actions={<Inline gap="sm"><Button variant="ghost" size="sm" onClick={async () => { try { await api.testConnection(connection.id, selectedBrandId); setMessage("Prueba correcta."); } catch (err: any) { setMessage(err?.message || "La prueba falló."); } }}>Probar</Button>{canManage && <Button variant="ghost" size="sm" onClick={async () => { try { await api.disconnectConnection(connection.id, selectedBrandId); setConnections((current) => current.filter((item) => item.id !== connection.id)); } catch (err: any) { setMessage(err?.message || "No se pudo desconectar."); } }}>Desconectar</Button>}</Inline>} />)}</div> : !error && <UiEmptyState title="Aún no hay conexiones" description="Activa un canal y conecta el proveedor que lo ejecutará." />}
     {canManage && <Card className="ui-connection-form"><div className="ui-card-head"><div><span className="ui-eyebrow">Administrador</span><h2>Añadir conexión</h2></div></div><form className="ui-stack ui-stack-md" onSubmit={(event) => void connect(event)}>
       <Field label="Proveedor"><Select value={form.provider} onChange={(event) => { const provider = event.target.value; setForm((current) => ({ ...current, provider, channel: provider === "web" ? "blog" : current.channel === "blog" ? "instagram" : current.channel })); setPostizIntegrations([]); setBufferOrganizations([]); setBufferChannels([]); }}><option value="buffer">Buffer (API)</option><option value="postiz">Postiz (self-hosted)</option><option value="metricool">Metricool</option><option value="planable">Planable.io</option><option value="web">Web / WordPress</option></Select></Field>
@@ -7089,7 +7089,7 @@ function ConnectionsView({ brandId, backTo, embedded = false }: { brandId?: stri
       {form.provider === "postiz" && <><Field label="URL de Postiz"><TextField type="url" value={form.apiBaseUrl} onChange={(event) => setForm({ ...form, apiBaseUrl: event.target.value })} placeholder="https://postiz.tudominio.com/api" /></Field><Inline gap="md"><Field label="Integration ID" required><TextField value={form.integrationId} onChange={(event) => setForm({ ...form, integrationId: event.target.value })} required /></Field><Button type="button" variant="ghost" size="sm" onClick={() => void loadPostizAccounts()} loading={loadingPostizIntegrations}>Cargar cuentas</Button><Field label="Tipo de proveedor"><TextField value={form.providerType} onChange={(event) => setForm({ ...form, providerType: event.target.value })} placeholder="instagram, linkedin, x…" /></Field></Inline>{postizIntegrations.length > 0 && <Field label="Cuenta conectada"><Select value={form.integrationId} onChange={(event) => { const integration = postizIntegrations.find((item) => String(item.id) === event.target.value); setForm({ ...form, integrationId: event.target.value, providerType: String(integration?.identifier || form.providerType || "") }); }}>{postizIntegrations.map((integration) => <option key={integration.id} value={integration.id}>{integration.name || integration.profile || integration.identifier || integration.id} · {integration.identifier || "canal"}</option>)}</Select></Field>}</>}
       {form.provider === "metricool" && <Inline gap="md"><Field label="userId" required><TextField value={form.userId} onChange={(event) => setForm({ ...form, userId: event.target.value })} required /></Field><Field label="blogId" required><TextField value={form.blogId} onChange={(event) => setForm({ ...form, blogId: event.target.value })} required /></Field></Inline>}
       {form.provider === "planable" && <Inline gap="md"><Field label="Workspace ID" required><TextField value={form.workspaceId} onChange={(event) => setForm({ ...form, workspaceId: event.target.value })} required /></Field><Field label="Page ID" required><TextField value={form.pageId} onChange={(event) => setForm({ ...form, pageId: event.target.value })} required /></Field></Inline>}
-      <Field label="Zona horaria"><TextField value={form.timezone} onChange={(event) => setForm({ ...form, timezone: event.target.value })} /></Field><Button type="submit" loading={busy}>Guardar conexión</Button>{message && <p className={message.includes("falló") || message.includes("No se") ? "ui-field-error" : "success"}>{message}</p>}
+      <Field label="Zona horaria"><TextField value={form.timezone} onChange={(event) => setForm({ ...form, timezone: event.target.value })} /></Field><Button type="submit" loading={busy}>Guardar conexión</Button>{message && <p className={message.includes("falló") || message.includes("No se") ? "ui-field-error" : "ui-success"}>{message}</p>}
     </form></Card>}
   </Root>;
 }

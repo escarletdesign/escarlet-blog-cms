@@ -7,7 +7,7 @@ Estas reglas aplican a cualquier cambio de interfaz dentro de `apps/pwa`.
 - Los componentes compartidos viven en `apps/pwa/src/ui/index.tsx`.
 - Los tokens de producto viven en `apps/pwa/src/ui/tokens.css` y usan el prefijo `--ui-`.
 - La guía completa está en `docs/UI-DESIGN-SYSTEM.md`.
-- `apps/pwa/src/App.tsx` y `apps/pwa/src/ContentBatches.tsx` son rutas legacy. No copies sus clases antiguas a pantallas nuevas.
+- `apps/pwa/src/App.tsx` y `apps/pwa/src/ContentBatches.tsx` contienen flujos históricos. Sus clases genéricas ya están migradas a `ui-*`; no copies markup propio ni estilos no tokenizados a pantallas nuevas.
 
 ## Reglas de implementación
 

@@ -40,6 +40,7 @@ Los nuevos estilos usan exclusivamente variables `--ui-*`.
 - Forma: `--ui-radius-sm`, `--ui-radius-md`, `--ui-radius-lg`, `--ui-radius-pill`.
 - Ritmo: `--ui-space-1` a `--ui-space-8`.
 - Elevación y tipografía: `--ui-shadow`, `--ui-font-sans`.
+- Controles: `--ui-select-chevron-offset` y `--ui-select-chevron-space` mantienen el chevron de todos los desplegables alineado y con espacio táctil suficiente.
 
 Los alias antiguos (`--bg`, `--text`, `--accent` y similares) existen solo para mantener rutas legacy durante la migración. No deben usarse en código nuevo.
 
@@ -73,7 +74,7 @@ Los alias antiguos (`--bg`, `--text`, `--accent` y similares) existen solo para 
 
 ## Migración legacy
 
-Las rutas antiguas siguen funcionando y están permitidas temporalmente en `App.tsx` y `ContentBatches.tsx`. La migración se hace por pantalla:
+Las clases genéricas legacy ya no tienen consumidores en la PWA: las pantallas usan `ui-*` y los controles compartidos. Los alias de tokens se conservan únicamente para estilos de compatibilidad que todavía viven en `styles.css`; no deben aparecer en código nuevo. La migración de una pantalla que aún tenga markup propio se hace así:
 
 1. Sustituir acciones y formularios por primitivas de `src/ui`.
 2. Sustituir colores y medidas por tokens `--ui-*`.
@@ -81,4 +82,4 @@ Las rutas antiguas siguen funcionando y están permitidas temporalmente en `App.
 4. Añadir el estado vacío, de error y de carga que falte.
 5. Verificar teclado, foco y móvil.
 
-El guard `npm run ui:check` bloquea controles directos, colores literales y clases legacy en archivos nuevos. Las dos rutas legacy aparecen como inventario pendiente, no como excepciones silenciosas.
+El guard `npm run ui:check` bloquea controles directos, colores literales y clases legacy en archivos nuevos. `App.tsx` conserva un inventario de controles HTML históricos para poder migrarlos de forma segura sin romper flujos existentes.

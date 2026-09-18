@@ -39,6 +39,13 @@ se quedan siempre en el servidor. `ADMIN_TOKEN` es obligatorio (no hay token por
 
 Para operar únicamente con ChatGPT mediante MCP y edición manual, define `CMS_AI_ENABLED=0`. Ese kill switch devuelve `403 CMS_AI_DISABLED` en todas las rutas REST de IA, bloquea conectores, transcripción, imágenes y créditos, y oculta los flujos AI de la PWA; el endpoint `/mcp`, la membresía MCP y el editor manual siguen disponibles. Puede reactivarse con `CMS_AI_ENABLED=1` o con el flag global de Administración cuando no exista un valor de entorno.
 
+### Sistema de diseño de la PWA
+
+La UI compartida está en `apps/pwa/src/ui/`, con tokens en `apps/pwa/src/ui/tokens.css`.
+Consulta el [contrato de UI](docs/UI-DESIGN-SYSTEM.md) y las reglas para agentes en
+[`AGENTS.md`](AGENTS.md) antes de crear una pantalla nueva. El guard se ejecuta con
+`npm run ui:check` y el build de la PWA con `npm run build`.
+
 ## Nuevo sitio / onboarding
 
 Guía completa. [docs/ONBOARDING.md](docs/ONBOARDING.md)
