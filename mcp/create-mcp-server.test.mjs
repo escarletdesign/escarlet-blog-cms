@@ -16,6 +16,10 @@ test('el contrato MCP expone media y contenido v2, sin operaciones de posts lega
   assert.deepEqual(upload.inputSchema.$defs.OpenAIFile.required, ['download_url', 'file_id'])
   assert.ok(upload.inputSchema.required.includes('file'))
   assert.ok(tools.some((tool) => tool.name === 'brand_list'))
+  const v2Upload = tools.find((tool) => tool.name === 'content_upload_media')
+  assert.ok(v2Upload)
+  assert.match(v2Upload.description, /brandPreparationId/)
+  assert.ok(v2Upload.inputSchema.properties.brandPreparationId)
   for (const name of ['content_list_plans', 'content_list_items', 'content_list_calendar', 'content_create_batch', 'content_get_batch', 'content_update_item', 'content_approve', 'content_reject', 'content_schedule', 'content_cancel']) {
     assert.ok(tools.some((tool) => tool.name === name), name)
   }
@@ -32,6 +36,7 @@ test('createMcpServer anuncia el contrato v2 y la selección explícita de marca
   assert.match(MCP_INSTRUCTIONS, /brand_list/)
   assert.match(MCP_INSTRUCTIONS, /pregunta al usuario/i)
   assert.match(MCP_INSTRUCTIONS, /content_list_items/)
+  assert.match(MCP_INSTRUCTIONS, /content_upload_media/)
 })
 
 test('el MCP no elige una marca por defecto cuando el acceso incluye varias', async () => {
@@ -68,6 +73,19 @@ test('brand_get_context y media siguen compartiendo el contrato de referencias',
   assert.match(JSON.stringify(value.brandKit?.agentRules), /content_list_items/)
   assert.doesNotMatch(JSON.stringify(value), /blog_list_posts|blog_get_brand_context/)
   assert.ok(result.content.some((block) => block.type === 'image' || block.type === 'resource_link'))
+})
+
+test('el MCP rechaza una imagen post sin preparación visual verificable', async () => {
+  const result = await invokeMcpTool('blog_upload_media', {
+    site: 'escarlet',
+    filename: 'sin-grounding.png',
+    kind: 'post',
+    contentBase64: 'not-an-image'
+  }, { role: 'admin' })
+  assert.equal(result.isError, true)
+  const value = payload(result)
+  assert.equal(value.code, 'BRAND_GROUNDING_REQUIRED')
+  assert.equal(value.nextTool, 'brand_prepare_image_generation')
 })
 
 test('los recursos MCP solo anuncian archivos que el rol puede leer', async () => {

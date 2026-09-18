@@ -35,11 +35,11 @@ Lee `data/db.json` por defecto y puede recibir `--db=/ruta/a/db.json`.
 node content-system/scripts/regenerate-post-assets.mjs --site=escarlet --slug=mi-post --dry-run
 ```
 
-Sin `--dry-run` usa el MCP local para actualizar metadata. La subida de imágenes sigue el contrato `blog_upload_media` A→B→C.
+Sin `--dry-run` usa el MCP local para actualizar metadata. La subida de imágenes v2 usa `content_upload_media` y, para post o social, la credencial de `brand_prepare_image_generation`.
 
 ## Agregar referencias
 
-1. Sube la imagen con `blog_upload_media` y `kind: reference`.
+1. Sube la imagen con `content_upload_media` y `kind: reference`.
 2. Añade su entrada a `escarlet-reference-library.json` con `approved: true`.
 3. En producción sincroniza `visual-style.md` e `image-spec.json` con `blog_update_brand_file`.
 

@@ -29,6 +29,7 @@ import {
 } from './lib/site-config.mjs'
 import {
   getBrandContext,
+  prepareImageGeneration,
   getSeoContext,
   readBrandFile,
   writeBrandFile,
@@ -2136,7 +2137,7 @@ const server = createServer(async (req, res) => {
       if (req.method === 'PATCH' && itemMatch) {
         const scope = await requireV2Context(req, url, res, body)
         if (!scope) return
-        const result = await updateContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId: decodeURIComponent(itemMatch[1]), userId: scope.auth.userId, role: scope.context.role, topic: body.topic, body: body.body, channel: body.channel, mediaAssetIds: body.mediaAssetIds })
+        const result = await updateContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId: decodeURIComponent(itemMatch[1]), userId: scope.auth.userId, role: scope.context.role, topic: body.topic, body: body.body, channel: body.channel, visualBrief: body.visualBrief, brandPreparationId: body.brandPreparationId, mediaAssetIds: body.mediaAssetIds })
         json(res, 200, result)
         return
       }
@@ -2534,6 +2535,19 @@ const server = createServer(async (req, res) => {
       const imageRole = String(body.imageRole || '').trim().slice(0, 80)
       const allowText = imageRole === 'instagram-carousel' && Boolean(body.allowText)
       const backgroundStyle = String(body.backgroundStyle || '').trim().slice(0, 120)
+      const prepared = prepareImageGeneration(site, {
+        assetType: imageRole.includes('instagram') ? 'instagram_background' : 'blog_cover',
+        title: body.title || body.alt || 'Escarlet visual',
+        summary: prompt,
+        topic: imageRole || backgroundStyle
+      })
+      if (prepared.generationBlocked) {
+        throw Object.assign(new Error(`Generación bloqueada. Faltan referencias obligatorias: ${prepared.missingReferences.join(', ')}`), {
+          status: 409,
+          code: 'BRAND_REFERENCE_MISSING',
+          extra: { generationBlocked: true, missingReferences: prepared.missingReferences }
+        })
+      }
       // Keep brand files private from the client while applying the complete
       // visual system to generated imagery. The provider receives this context
       // only server-side, never in the PWA response.
@@ -2567,7 +2581,7 @@ const server = createServer(async (req, res) => {
       // GPT Image 2 is the current stable image model. Keep an environment
       // override for controlled rollouts or a future dated snapshot.
       const imageModel = String(process.env.OPENAI_IMAGE_MODEL || 'gpt-image-2')
-      const referenceFiles = (imageBrand.referenceImages || [])
+      const referenceFiles = (prepared.resolvedReferences || [])
         .slice(0, 6)
         .map((item) => {
           const filename = String(item?.filename || item?.path || item?.url || '').replace(/\\/g, '/').split('/').pop()
@@ -2639,6 +2653,10 @@ const server = createServer(async (req, res) => {
           contentBase64: `data:image/png;base64,${contentBase64}`,
           alt,
           kind: 'post',
+          requireBrandGrounding: true,
+          brandPreparationId: prepared.brandPreparation?.preparationId,
+          brandAssetType: prepared.brandPreparation?.assetType,
+          brandRoute: prepared.brandPreparation?.route,
           membershipUserId: auth.userId || ''
         })
         mediaOptions.push({

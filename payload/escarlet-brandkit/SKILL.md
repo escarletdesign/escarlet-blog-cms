@@ -37,8 +37,9 @@ Esta skill es la copia operativa del brand kit canónico preparado para el handl
 1. Consulta `brand_get_context` para leer el contexto general y las políticas.
 2. Llama `brand_prepare_image_generation` antes de generar cualquier imagen.
 3. Entrega al generador exactamente sus `resolvedReferences` como `ImageContent`, respetando `attachmentIndex`.
-4. Si `generationBlocked` es `true`, no generes ni sustituyas referencias. Solicita que se restaure el activo indicado.
-5. Para Instagram genera solo el fondo. El texto lo monta `content-system/instagram-renderer.mjs`.
+4. Conserva `brandPreparation.preparationId`. Para post o social sube con `content_upload_media` y pasa ese valor. El CMS rechaza imágenes sin grounding o con snapshot vencido.
+5. Si `generationBlocked` es `true`, no generes ni sustituyas referencias. Solicita que se restaure el activo indicado.
+6. Para Instagram genera solo el fondo. El texto lo monta `content-system/instagram-renderer.mjs`.
 
 ## Al entregar
 

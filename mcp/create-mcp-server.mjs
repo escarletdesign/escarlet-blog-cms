@@ -15,7 +15,7 @@ import {
 } from '../lib/media-upload-contract.mjs'
 import { openaiFileDefs, connectorFileMeta } from '../lib/openai-file.mjs'
 import { assertSiteAccess, assertSuperAdmin, allowedSiteHandles, isSiteScopedRole, workspaceRoleForAuth } from '../lib/auth.mjs'
-import { brandFilesForAuth, SECRET_BRAND_FILES, prepareImageGeneration } from '../lib/brand-kit.mjs'
+import { brandFilesForAuth, SECRET_BRAND_FILES, prepareImageGeneration, validateImagePreparation } from '../lib/brand-kit.mjs'
 import { assertChatToolAllowed, assertSafeToolArguments } from '../lib/ai-security.mjs'
 import { loadSiteConfig, isSocialMediaOnlySite } from '../lib/site-config.mjs'
 import { mediaDir, readDb } from '../lib/db.mjs'
@@ -47,6 +47,7 @@ import {
   cancelContentBatch,
   createBrandKitVersion,
   registerBrandAssets,
+  registerContentMedia,
   listSiteChannels,
   listBrandCapabilities,
   listBrandConnections,
@@ -61,6 +62,7 @@ const V2_CONTENT_TOOLS = new Set([
   'content_list_calendar',
   'content_create_batch',
   'content_get_batch',
+  'content_upload_media',
   'content_update_item',
   'content_approve',
   'content_reject',
@@ -125,6 +127,7 @@ const MUTATING_SITE_TOOLS = new Set([
   'blog_upload_media',
   'blog_import_remote_image',
   'content_create_batch',
+  'content_upload_media',
   'content_update_item',
   'content_approve',
   'content_reject',
@@ -257,7 +260,18 @@ async function brandContextResult(payload) {
 }
 
 async function preparedImageResult(payload) {
-  const content = [{ type: 'text', text: JSON.stringify(redactWorkflowLinks(payload), null, 2) }]
+  const prepared = redactWorkflowLinks(payload)
+  const content = [{ type: 'text', text: JSON.stringify({
+    ...prepared,
+    brandGroundingContract: {
+      requiredForUpload: true,
+      preparationIdField: 'brandPreparation.preparationId',
+      exactReferenceOrder: Array.isArray(payload?.resolvedReferences)
+        ? payload.resolvedReferences.map((reference) => reference.filename)
+        : [],
+      instruction: 'Usa exactamente los ImageContent adjuntos y conserva brandPreparation.preparationId al subir la imagen. El CMS rechaza imágenes post/social sin esta preparación o con un snapshot vencido.'
+    }
+  }, null, 2) }]
   const refs = Array.isArray(payload?.resolvedReferences) ? payload.resolvedReferences : []
   for (const reference of refs.sort((a, b) => Number(a.attachmentIndex || 0) - Number(b.attachmentIndex || 0))) {
     const disk = referenceDiskPath(reference)
@@ -270,6 +284,29 @@ async function preparedImageResult(payload) {
     }
   }
   return { content }
+}
+
+function assertMcpImageGrounding(site, args = {}) {
+  const kind = String(args.kind || 'post').toLowerCase()
+  if (!['post', 'social'].includes(kind)) return
+  const validation = validateImagePreparation(site, args.brandPreparationId, {
+    assetType: args.brandAssetType || args.assetType,
+    route: args.brandRoute
+  })
+  if (validation.ok) return
+  throw Object.assign(new Error(
+    validation.code === 'BRAND_GROUNDING_STALE'
+      ? 'La preparación visual está vencida. Vuelve a llamar brand_prepare_image_generation y regenera la imagen.'
+      : 'Falta brandPreparationId. Antes de generar o subir una imagen de post/social llama brand_prepare_image_generation y usa exactamente sus referencias.'
+  ), {
+    status: 409,
+    code: validation.code || 'BRAND_GROUNDING_REQUIRED',
+    extra: {
+      brandKitVersionId: validation.brandKitVersionId,
+      brandKitSnapshotHash: validation.brandKitSnapshotHash,
+      nextTool: 'brand_prepare_image_generation'
+    }
+  })
 }
 
 function normalizedBrandFields(brandKit = {}) {
@@ -729,7 +766,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_upload_media_file',
       description:
-        'Plan A. Adjunta el PNG en file si esta tool es invocable. Si no aparece en el set de tools, usa blog_upload_media (plan B/C). ChatGPT rellena download_url. El CMS descarga. No hagas curl ni PUT. kind: post, social o reference.',
+        'Plan A de compatibilidad. Para kind post o social es obligatorio pasar brandPreparationId de brand_prepare_image_generation y usar exactamente sus referencias. Si no aparece en el set de tools, usa content_upload_media en el contrato v2.',
       inputSchema: {
         type: 'object',
         $defs: openaiFileDefs(),
@@ -744,6 +781,9 @@ export function buildToolList(auth) {
             description: 'post = portada. social = carrusel Instagram. reference = moodboard.'
           },
           alt: { type: 'string' },
+          brandPreparationId: { type: 'string', description: 'brandPreparation.preparationId devuelto por brand_prepare_image_generation. Obligatorio para post y social.' },
+          brandAssetType: { type: 'string', enum: ['blog_cover', 'instagram_background', 'social_image', 'presentation', 'generic'] },
+          brandRoute: { type: 'string', description: 'Ruta devuelta por brand_prepare_image_generation.' },
           file: { $ref: '#/$defs/OpenAIFile' }
         },
         required: ['site', 'filename', 'file']
@@ -758,7 +798,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_open_image_drop',
       description:
-        'Solo si el host puede hacer HTTP PUT. El sandbox de ChatGPT no resuelve DNS. ChatGPT debe usar blog_upload_media_file. kind: post, social o reference.',
+        'Compatibilidad. Solo si el host puede hacer HTTP PUT. Para kind post o social exige brandPreparationId vigente. El sandbox de ChatGPT no resuelve DNS.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -771,7 +811,10 @@ export function buildToolList(auth) {
             type: 'string',
             description: 'post = portada. social = carrusel Instagram. reference = moodboard.'
           },
-          alt: { type: 'string' }
+          alt: { type: 'string' },
+          brandPreparationId: { type: 'string' },
+          brandAssetType: { type: 'string' },
+          brandRoute: { type: 'string' }
         },
         required: ['site', 'filename']
       },
@@ -780,7 +823,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_upload_media',
       description:
-        'Plan B/C. Úsala al momento si blog_upload_media_file no es invocable o falla. Pasa contentBase64 o blob. Si el host recorta o rechaza, uploadId + chunkIndex + chunkCount. No pares a preguntar. PROHIBIDO curl, PUT y /mnt/data. kind: post, social o reference.',
+        'Plan B/C de compatibilidad. Para kind post o social es obligatorio pasar brandPreparationId vigente de brand_prepare_image_generation. Pasa contentBase64 o blob. Si el host recorta o rechaza, uploadId + chunkIndex + chunkCount.',
       inputSchema: {
         type: 'object',
         additionalProperties: true,
@@ -799,6 +842,9 @@ export function buildToolList(auth) {
             description: 'PNG o JPG en base64. Camino normal. 2-3 MB valen.'
           },
           alt: { type: 'string' },
+          brandPreparationId: { type: 'string', description: 'brandPreparation.preparationId devuelto por brand_prepare_image_generation. Obligatorio para post y social.' },
+          brandAssetType: { type: 'string' },
+          brandRoute: { type: 'string' },
           imageUrl: {
             type: 'string',
             description: 'Solo si ya tienes un https público real. No uses /mnt/data.'
@@ -822,7 +868,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_import_remote_image',
       description:
-        'SOLO si ya tienes una URL https pública real. Si la foto está en el chat, usa blog_upload_media_file. Esta tool no sirve para PNG del sandbox.',
+        'Compatibilidad para una URL https pública real. Para kind post o social exige brandPreparationId vigente. Para archivos del chat usa content_upload_media.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -833,6 +879,9 @@ export function buildToolList(auth) {
             description: 'URL http(s) pública. Prohibido /mnt/data, sandbox:, file://.'
           },
           alt: { type: 'string' },
+          brandPreparationId: { type: 'string' },
+          brandAssetType: { type: 'string' },
+          brandRoute: { type: 'string' },
           kind: {
             type: 'string',
             enum: ['post', 'social', 'reference'],
@@ -888,12 +937,46 @@ export function buildToolList(auth) {
       },
       annotations: { readOnlyHint: true }
     },
+    {
+      name: 'content_upload_media',
+      description: 'Sube una imagen al almacenamiento canónico v2 y devuelve un mediaAssetId utilizable por content_update_item. Para post o social exige brandPreparationId vigente de brand_prepare_image_generation, con las referencias exactas adjuntas.',
+      inputSchema: {
+        type: 'object',
+        $defs: openaiFileDefs(),
+        additionalProperties: true,
+        properties: {
+          workspaceId: { type: 'string' },
+          site: { type: 'string' },
+          filename: { type: 'string' },
+          kind: { type: 'string', enum: ['post', 'social', 'reference'] },
+          alt: { type: 'string' },
+          file: { $ref: '#/$defs/OpenAIFile' },
+          contentBase64: { type: 'string' },
+          blob: { type: 'string' },
+          imageUrl: { type: 'string' },
+          filePath: { type: 'string' },
+          uploadId: { type: 'string' },
+          chunkIndex: { type: 'string' },
+          chunkCount: { type: 'string' },
+          brandPreparationId: { type: 'string', description: 'brandPreparation.preparationId devuelto por brand_prepare_image_generation. Obligatorio para post y social.' },
+          brandAssetType: { type: 'string' },
+          brandRoute: { type: 'string' }
+        },
+        required: ['site', 'filename', 'kind']
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false },
+      _meta: {
+        ...connectorFileMeta(),
+        'openai/toolInvocation/invoking': 'Subiendo imagen v2',
+        'openai/toolInvocation/invoked': 'Imagen v2 guardada'
+      }
+    },
     { name: 'content_list_plans', description: 'Lista los planes de contenido v2 de una marca, con progreso, canales y contadores de revisión.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, status: { type: 'string' }, channel: { type: 'string', enum: ['blog', 'instagram', 'linkedin', 'x', 'video', 'substack'] }, query: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 200 } } }, annotations: { readOnlyHint: true } },
     { name: 'content_list_items', description: 'Lista publicaciones v2, incluyendo las generadas o pendientes de revisión aunque todavía no estén publicadas.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, batchId: { type: 'string' }, status: { type: 'string' }, channel: { type: 'string', enum: ['blog', 'instagram', 'linkedin', 'x', 'video', 'substack'] }, query: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 500 } } }, annotations: { readOnlyHint: true } },
     { name: 'content_list_calendar', description: 'Lista el calendario v2 con publicaciones programadas, sincronizando, publicadas o con error.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, from: { type: 'string' }, to: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 1000 } } }, annotations: { readOnlyHint: true } },
     { name: 'content_create_batch', description: 'Crea un plan de contenido v2 por temas y canales. La generación se ejecuta de forma asíncrona.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, title: { type: 'string' }, topics: { type: 'array', items: { type: 'string' } }, channels: { type: 'array', items: { type: 'string', enum: ['blog', 'instagram', 'linkedin', 'x', 'video', 'substack'] } }, brandKitVersionId: { type: 'string' }, metadata: { type: 'object' } }, required: ['topics'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_get_batch', description: 'Obtiene el progreso, items y variantes de un batch.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, batchId: { type: 'string' } }, required: ['batchId'] }, annotations: { readOnlyHint: true } },
-    { name: 'content_update_item', description: 'Edita el tema o el cuerpo de una variante antes de aprobar.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, topic: { type: 'string' }, channel: { type: 'string' }, body: { type: 'object' }, mediaAssetIds: { type: 'array', items: { type: 'string' } } }, required: ['itemId'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
+    { name: 'content_update_item', description: 'Edita el tema, cuerpo, metadata visual y medios canónicos de una variante v2 antes de aprobar. Si adjunta una imagen, conserva visualBrief.brandPreparationId.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, topic: { type: 'string' }, channel: { type: 'string' }, body: { type: 'object' }, visualBrief: { type: 'object' }, brandPreparationId: { type: 'string' }, mediaAssetIds: { type: 'array', items: { type: 'string' } } }, required: ['itemId'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_approve', description: 'Aprueba un item o todos los items de un batch.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' } }, oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_reject', description: 'Rechaza un item o todos los items de un batch y deja comentario.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' }, comment: { type: 'string' } }, oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_schedule', description: 'Programa un item o batch aprobado en zona horaria indicada.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' }, publicationDate: { type: 'string' }, timezone: { type: 'string' } }, required: ['publicationDate'], oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } },
@@ -1057,6 +1140,29 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           const site = resolveToolSite(auth, args)
           return preparedImageResult(prepareImageGeneration(site, args))
         }
+        case 'content_upload_media': {
+          const scope = await resolveContentScope(auth, args)
+          const site = scope.siteHandle
+          const kind = String(args.kind || 'post').toLowerCase()
+          assertMcpImageGrounding(site, args)
+          const uploaded = await cms.uploadMedia({
+            ...args,
+            site,
+            kind,
+            requireBrandGrounding: ['post', 'social'].includes(kind),
+            membershipUserId: scopedAuth.userId || ''
+          })
+          if (uploaded?.awaitingChunks) return textResult(uploaded)
+          const asset = await registerContentMedia({
+            workspaceId: scope.workspaceId,
+            siteId: scope.siteId,
+            userId: auth.userId,
+            role: scope.role,
+            media: uploaded.media,
+            brandGrounding: uploaded.media?.brandGrounding || null
+          })
+          return textResult({ ...uploaded, mediaAsset: asset, mediaAssetId: asset.id })
+        }
         case 'brand_get_context': {
           // Legacy JSON deployments do not have the v2 workspace tables yet.
           // Keep this read-only tool useful there while retaining the same
@@ -1180,7 +1286,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
         }
         case 'content_update_item': {
           const scope = await resolveContentScope(auth, args)
-          return textResult(await updateContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId: args.itemId, userId: auth.userId, role: scope.role, topic: args.topic, body: args.body, channel: args.channel, mediaAssetIds: args.mediaAssetIds }))
+          return textResult(await updateContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId: args.itemId, userId: auth.userId, role: scope.role, topic: args.topic, body: args.body, channel: args.channel, visualBrief: args.visualBrief, brandPreparationId: args.brandPreparationId, mediaAssetIds: args.mediaAssetIds }))
         }
         case 'content_approve': {
           const scope = await resolveContentScope(auth, args)
@@ -1393,15 +1499,18 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
               { status: 400 }
             )
           }
-          return textResult(await cms.uploadMedia({ ...args, site, membershipUserId: scopedAuth.userId || '' }))
+          assertMcpImageGrounding(site, args)
+          return textResult(await cms.uploadMedia({ ...args, site, requireBrandGrounding: ['post', 'social'].includes(String(args.kind || 'post').toLowerCase()), membershipUserId: scopedAuth.userId || '' }))
         }
         case 'blog_open_image_drop': {
           const site = resolveToolSite(auth, args)
-          return textResult(cms.openImageDrop({ ...args, site, membershipUserId: scopedAuth.userId || '' }))
+          assertMcpImageGrounding(site, args)
+          return textResult(cms.openImageDrop({ ...args, site, requireBrandGrounding: ['post', 'social'].includes(String(args.kind || 'post').toLowerCase()), membershipUserId: scopedAuth.userId || '' }))
         }
         case 'blog_upload_media': {
           const site = resolveToolSite(auth, args)
-          return textResult(await cms.uploadMedia({ ...args, site, membershipUserId: scopedAuth.userId || '' }))
+          assertMcpImageGrounding(site, args)
+          return textResult(await cms.uploadMedia({ ...args, site, requireBrandGrounding: ['post', 'social'].includes(String(args.kind || 'post').toLowerCase()), membershipUserId: scopedAuth.userId || '' }))
         }
         case 'blog_import_remote_image': {
           const site = resolveToolSite(auth, args)
@@ -1411,7 +1520,8 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
               { status: 400 }
             )
           }
-          return textResult(await cms.uploadMedia({ ...args, site, contentBase64: undefined, membershipUserId: scopedAuth.userId || '' }))
+          assertMcpImageGrounding(site, args)
+          return textResult(await cms.uploadMedia({ ...args, site, requireBrandGrounding: ['post', 'social'].includes(String(args.kind || 'post').toLowerCase()), contentBase64: undefined, membershipUserId: scopedAuth.userId || '' }))
         }
         case 'blog_import_brand_zip': {
           assertSuperAdmin(auth)

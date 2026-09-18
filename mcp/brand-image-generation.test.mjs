@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, rmSync } from 'node:fs'
 import { invokeMcpTool } from './create-mcp-server.mjs'
-import { assertBrandFileAccess, getBrandContext, writeBrandFile } from '../lib/brand-kit.mjs'
+import { assertBrandFileAccess, getBrandContext, validateImagePreparation, writeBrandFile } from '../lib/brand-kit.mjs'
 
 function payload(result) {
   return JSON.parse(result.content.find((block) => block.type === 'text')?.text || '{}')
@@ -45,6 +45,10 @@ test('la petición genérica resuelve la ruta positiva y adjunta referencias en 
   const images = result.content.filter((block) => block.type === 'image')
   assert.equal(images.length, value.resolvedReferences.length)
   assert.deepEqual(value.resolvedReferences.map((reference) => reference.attachmentIndex), [1, 2, 3])
+  assert.match(value.brandPreparation.preparationId, /^[a-f0-9]{64}$/)
+  assert.deepEqual(value.brandPreparation.exactReferenceFilenames, value.resolvedReferences.map((reference) => reference.filename))
+  assert.equal(validateImagePreparation('escarlet', value.brandPreparation.preparationId, { assetType: 'generic', route: value.route }).ok, true)
+  assert.equal(validateImagePreparation('escarlet', `${value.brandPreparation.preparationId.slice(0, -1)}0`, { assetType: 'generic', route: value.route }).ok, false)
 })
 
 test('las rutas de escenas son cerradas y no heredan referencias de otro sitio', async () => {
