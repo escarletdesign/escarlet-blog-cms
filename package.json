@@ -17,6 +17,7 @@
     "docker:down": "docker compose down",
     "dev:server": "node server.mjs",
     "build": "vite build --config apps/pwa/vite.config.ts",
+    "ui:check": "node scripts/check-ui-consistency.mjs",
     "seo:build": "node scripts/build-seo-artifacts.mjs",
     "visual:cover": "node content-system/scripts/generate-cover-options.mjs",
     "visual:render": "node content-system/scripts/render-instagram-carousel.mjs",
