@@ -24,7 +24,7 @@ Un post, un enfoque principal. Si mezcla temas, elige autor por el objetivo del 
 ## Flujo MCP (crear)
 
 1. Llama `blog_get_workflow` y pregunta si el usuario prefiere `easy` o `guided`.
-2. Genera título, contenido, metadatos e imágenes en ChatGPT usando este brand kit y sus referencias. Guarda el borrador con `blog_create_draft`, `blog_upload_media` y `blog_update_post`.
+2. Genera título, contenido y metadatos en ChatGPT. Para cada imagen llama `brand_prepare_image_generation` y entrega exactamente sus `resolvedReferences` al generador. Si bloquea la generación, restaura las referencias indicadas antes de continuar. Guarda el borrador con `blog_create_draft`, `blog_upload_media` y `blog_update_post`.
 3. En `guided`, comparte únicamente `appPreviewUrl` (`/app/preview/{slug}`) y espera la revisión del usuario. En `easy`, muestra un resumen y pide confirmación.
 4. Aplica correcciones con `blog_update_post` usando el mismo slug.
 5. Tras confirmar, llama `blog_publish` o `blog_schedule_post` con `direct: true` según la decisión del usuario. Usa la revisión dentro de `/app`.
@@ -76,7 +76,7 @@ Recomendado (aviso, no bloquea):
 
 - Portada en kebab-case. Subida al CMS, no al git del frontend.
 - Alt describe lo que se ve. Palabra clave si encaja.
-- Composición y color según `visual-style.md` y las fotos de referencia.
+- Composición y color según `visual-style.md` y las referencias exactas devueltas por `brand_prepare_image_generation`.
 - Cómo subir (orden preferido):
   1. Genera o elige la imagen. Un PNG de 2–3 MB vale.
   2. `blog_upload_media` con `contentBase64` o `blob`. El CMS comprime a JPEG.
@@ -88,10 +88,10 @@ Recomendado (aviso, no bloquea):
 ## Sistema visual v2 (obligatorio)
 
 - Antes de generar una portada, inspecciona los últimos seis posts con `blog_list_posts` y `blog_get_post`. Lee `visualBrief`, `imageMetadata` e `imageGallery` cuando existan.
-- Elige un arquetipo de `content-system/brand/escarlet-image-archetypes.json`. No repitas el arquetipo del post anterior. Si el tema es parecido a uno reciente, fuerza también un encuadre y una presencia de persona distintos.
+- Consulta el arquetipo y el historial para redactar el brief, pero no uses esa decisión para seleccionar referencias. La ruta de referencias la resuelve `brand_prepare_image_generation` de forma determinista.
 - Construye y guarda un `visualBrief` con `archetype`, `composition`, `references`, `negativeRules` y `decision.recentPostsInspected`.
 - La portada siempre se genera sin texto, letras, números, logos ni UI legible. El prompt debe incluir la intención emocional, el arquetipo, la composición, las referencias aprobadas y lo que no se debe repetir.
-- Para modo `automatic`, entrega una ruta final. Para modo `exploration`, genera tres rutas con arquetipos diferentes y marca la recomendada.
+- Para el modo operativo entrega una única ruta final. No existe exploración automática ni fallback silencioso.
 - En Instagram, la IA solo genera fondos. Nunca le pidas que dibuje `headline` o `body`.
 - Renderiza cada slide con un único template (`editorial` o `impact`) usando `content-system/instagram-renderer.mjs`. La fuente, safe areas, saltos y jerarquías salen del template.
 - Guarda en cada slide `templateId`, `backgroundMediaId`, `backgroundStyle` y `renderedBy: content-system/instagram-renderer`.

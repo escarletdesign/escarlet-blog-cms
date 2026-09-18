@@ -71,7 +71,7 @@ test('brand_get_context no degrada al editor y entrega referencias inspeccionabl
   assert.equal(payload.brandAccessLevel, 'sanitized')
   assert.equal(payload.brandCapabilityEffective, true)
   assert.deepEqual(payload.brandKit.brandCapabilities, {})
-  assert.ok(payload.visualContext.palette.includes('#1F4D3A'))
+  assert.ok(payload.visualContext.palette.includes('#12B8D6'))
   assert.equal(payload.visualContext.typography.heading, 'Inter, Arial, sans-serif')
   assert.ok(payload.referenceDelivery.inspectable)
   assert.ok(result.content.some((block) => block.type === 'image' || block.type === 'resource_link'))

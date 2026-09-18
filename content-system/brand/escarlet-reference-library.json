@@ -1,61 +1,17 @@
 {
   "site": "escarlet",
-  "version": "1.0.0",
-  "selection": {
-    "approvedOnly": true,
-    "maxCoverReferences": 3,
-    "maxSocialReferences": 1,
-    "preferSameCategory": true,
-    "preferDiversityOfComposition": true
+  "version": "2.2.0",
+  "selectionPolicy": {
+    "mode": "deterministic",
+    "assistantMayChoose": false,
+    "assistantMaySubstitute": false,
+    "priority": ["abstract_or_background", "introspective_or_tense", "human_or_work", "positive_or_inspirational"]
   },
   "references": [
-    {
-      "id": "esc-paper-light",
-      "type": "mood",
-      "category": "fondos",
-      "tags": ["papel", "crema", "sombra", "editorial"],
-      "description": "Luz suave sobre papel cálido y sombras imperfectas.",
-      "recommendedUse": ["editorial-abstracta", "objeto-simbolico", "metafora-visual-conceptual"],
-      "prohibitedUse": ["copiar el encuadre literalmente"],
-      "priority": 1,
-      "path": "",
-      "approved": true
-    },
-    {
-      "id": "esc-human-craft",
-      "type": "scene",
-      "category": "escenas con persona",
-      "tags": ["manos", "oficio", "madera", "luz natural"],
-      "description": "Persona parcial trabajando con materiales reales, sin pose de stock.",
-      "recommendedUse": ["escena-humana-parcial", "proceso-mesa-trabajo"],
-      "prohibitedUse": ["retrato frontal posado", "oficina corporativa genérica"],
-      "priority": 2,
-      "path": "",
-      "approved": true
-    },
-    {
-      "id": "esc-digital-layer",
-      "type": "composition",
-      "category": "composición digital",
-      "tags": ["interfaz", "capas", "verde bosque", "reflejo"],
-      "description": "Capas digitales abstractas integradas en una escena física.",
-      "recommendedUse": ["interfaz-producto-digital", "editorial-abstracta"],
-      "prohibitedUse": ["pantallas con texto inventado", "mockup de portátil de stock"],
-      "priority": 2,
-      "path": "",
-      "approved": true
-    },
-    {
-      "id": "esc-existing-firma-email-silvia",
-      "type": "brand-asset",
-      "category": "referencias pendientes",
-      "tags": ["firma", "brand asset"],
-      "description": "Asset existente detectado en el CMS. Requiere revisión humana antes de usarse como referencia visual.",
-      "recommendedUse": [],
-      "prohibitedUse": ["portada de blog", "fondo de carrusel", "referencia de estilo fotográfico"],
-      "priority": 0,
-      "path": "/media/escarlet/reference/firma-email-silvia.jpg",
-      "approved": false
-    }
+    { "id": "esc-style-board", "role": "visual-authority", "filename": "05-tablero-visual.png", "mediaId": "media-1789658372305-0", "approved": true, "required": true },
+    { "id": "esc-background", "role": "background-authority", "filename": "fondo-escarlet.jpg", "mediaId": "media-1789662894828", "approved": true, "required": true },
+    { "id": "esc-scene-work", "role": "scene-reference", "filename": "reference-blog-example.png", "mediaId": "media-1789658372371-1", "approved": true, "required": false },
+    { "id": "esc-scene-tense", "role": "scene-reference", "filename": "reference-visual-style-01.png", "mediaId": "media-1789658372405-2", "approved": true, "required": false },
+    { "id": "esc-scene-positive", "role": "scene-reference", "filename": "reference-visual-style-02.png", "mediaId": "media-1789658372446-3", "approved": true, "required": false }
   ]
 }

@@ -18,7 +18,7 @@
 4. Si tienes URL https pública. También vale `imageUrl`. Nunca uses `/mnt/data` como `imageUrl`.
 5. Usa la `media.url` absoluta en el `imageUrl` del post o en cada slide.
 
-Antes de generar cualquier imagen, consulta `referenceImages` en `blog_get_brand_context` y entrega las referencias pertinentes al generador. Esta regla aplica a portadas, imágenes de artículo, imágenes sociales, slides, fondos y piezas de apoyo.
+Antes de generar cualquier imagen, llama `brand_prepare_image_generation` después de `blog_get_brand_context`. Entrega al generador exactamente sus `resolvedReferences` como `ImageContent`, en el orden de `attachmentIndex`. No escojas ni sustituyas referencias. Si `generationBlocked` es `true`, detén la generación y restaura los activos indicados. Esta regla aplica a portadas, imágenes de artículo, imágenes sociales, slides, fondos y piezas de apoyo.
 
 ## Carrusel Instagram (si el canal está activo)
 

@@ -2,7 +2,7 @@
 
 ## Estado
 
-Versión preparada para el CMS. La identidad verbal procede del documento estratégico aportado por Escarlet y de la guía activa del repositorio. La paleta visual cian–verde–oro queda como referencia editorial pendiente de confirmación, no como reemplazo del sistema v2.
+Versión preparada para el CMS 2.2.0. La identidad verbal procede del documento estratégico aportado por Escarlet y de la guía activa del repositorio. La paleta cian, verde suave, crema, oro, carbón, gris y blanco es la identidad visual canónica.
 
 ## Negocio
 
@@ -70,10 +70,9 @@ Medir claridad de la propuesta, solicitudes de contacto, calidad de oportunidade
 ## Pendientes
 
 - Confirmar audiencia de primera prioridad para cada campaña.
-- Documentar casos o testimonios aprobados antes de usarlos como prueba.
-- Confirmar el papel definitivo del degradado cian–verde–oro.
+- Mantener actualizados los casos y testimonios aprobados antes de usarlos como prueba.
 
 ## Historial de decisiones
 
-- 2026-09-17. Se conserva el sistema visual v2 del CMS como identidad operativa.
-- 2026-09-17. Se incorpora el material adjunto como fuente estratégica y referencia editorial.
+- 2026-09-17. Se conserva el sistema visual del CMS como identidad operativa.
+- 2026-09-18. Se fija la versión 2.2.0 y la selección determinista de referencias del MCP.

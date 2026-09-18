@@ -15,7 +15,7 @@ import {
 } from '../lib/media-upload-contract.mjs'
 import { openaiFileDefs, connectorFileMeta } from '../lib/openai-file.mjs'
 import { assertSiteAccess, assertSuperAdmin, allowedSiteHandles, isSiteScopedRole, workspaceRoleForAuth } from '../lib/auth.mjs'
-import { brandFilesForAuth, SECRET_BRAND_FILES } from '../lib/brand-kit.mjs'
+import { brandFilesForAuth, SECRET_BRAND_FILES, prepareImageGeneration } from '../lib/brand-kit.mjs'
 import { assertChatToolAllowed, assertSafeToolArguments } from '../lib/ai-security.mjs'
 import { loadSiteConfig, isSocialMediaOnlySite } from '../lib/site-config.mjs'
 import { mediaDir, readDb } from '../lib/db.mjs'
@@ -218,6 +218,22 @@ async function brandContextResult(payload) {
   }
 }
 
+async function preparedImageResult(payload) {
+  const content = [{ type: 'text', text: JSON.stringify(redactWorkflowLinks(payload), null, 2) }]
+  const refs = Array.isArray(payload?.resolvedReferences) ? payload.resolvedReferences : []
+  for (const reference of refs.sort((a, b) => Number(a.attachmentIndex || 0) - Number(b.attachmentIndex || 0))) {
+    const disk = referenceDiskPath(reference)
+    const mimeType = imageMimeType(reference?.filename)
+    if (!disk || !mimeType) continue
+    try {
+      content.push({ type: 'image', data: readFileSync(disk).toString('base64'), mimeType })
+    } catch {
+      // The text contract remains authoritative and reports the missing asset.
+    }
+  }
+  return { content }
+}
+
 function normalizedBrandFields(brandKit = {}) {
   const keys = [
     'brandContextContract',
@@ -232,7 +248,12 @@ function normalizedBrandFields(brandKit = {}) {
     'referenceLibrary',
     'socialTemplates',
     'visualContext',
-    'referenceImages'
+    'referenceImages',
+    'schemaVersion',
+    'brandKitSnapshotHash',
+    'canonicalPalette',
+    'backgroundDirective',
+    'referenceSelectionPolicy'
   ]
   return Object.fromEntries(keys.filter((key) => brandKit[key] !== undefined).map((key) => [key, brandKit[key]]))
 }
@@ -599,7 +620,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_get_brand_context',
       description:
-        'Obligatorio al crear o editar. Devuelve la política editorial compartida, el contexto normalizado completo de la marca y mediaUpload A→B→C. Los archivos fuente privados no se solicitan. Si file no es invocable usa contentBase64.',
+        'Devuelve el contexto general canónico y versionado, pero no reemplaza brand_prepare_image_generation. Para cualquier imagen llama primero a brand_prepare_image_generation y entrega exactamente sus ImageContent al generador. Está prohibido escoger o sustituir referencias; si generationBlocked es true, detén la generación.',
       inputSchema: {
         type: 'object',
         properties: { site: { type: 'string' } },
@@ -764,7 +785,25 @@ export function buildToolList(auth) {
   ]
 
   tools.push(
-    { name: 'brand_get_context', description: 'Devuelve el contexto canónico de una marca para usos externos como presentaciones, diseño o publicaciones. Incluye capacidades, canales, conexiones sin credenciales y el brand kit permitido por el token.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, siteId: { type: 'string' } } }, annotations: { readOnlyHint: true } },
+    { name: 'brand_get_context', description: 'Devuelve el contexto general canónico de una marca. No reemplaza la preparación de una generación de imagen. Todos los endpoints leen el mismo snapshot versionado.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, siteId: { type: 'string' } } }, annotations: { readOnlyHint: true } },
+    {
+      name: 'brand_prepare_image_generation',
+      description: 'Obligatoria antes de generar cualquier imagen. Clasifica el brief con una política determinista, resuelve exactamente las referencias permitidas y las devuelve como ImageContent en el mismo orden. El cliente debe entregar exactamente resolvedReferences al generador, no puede escoger ni sustituir referencias. Si generationBlocked es true, debe detenerse.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          site: { type: 'string' },
+          assetType: { type: 'string', enum: ['blog_cover', 'instagram_background', 'social_image', 'presentation', 'generic'] },
+          title: { type: 'string' },
+          summary: { type: 'string' },
+          topic: { type: 'string' },
+          tone: { type: 'string' },
+          channel: { type: 'string' }
+        },
+        required: ['site']
+      },
+      annotations: { readOnlyHint: true }
+    },
     { name: 'content_create_batch', description: 'Crea una campaña de publicaciones independientes por temas y canales. Devuelve batchId, itemIds y jobId.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, title: { type: 'string' }, topics: { type: 'array', items: { type: 'string' } }, channels: { type: 'array', items: { type: 'string', enum: ['blog', 'instagram', 'linkedin', 'x', 'video', 'substack'] } }, brandKitVersionId: { type: 'string' } }, required: ['topics'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_get_batch', description: 'Obtiene el progreso, items y variantes de un batch.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, batchId: { type: 'string' } }, required: ['batchId'] }, annotations: { readOnlyHint: true } },
     { name: 'content_update_item', description: 'Edita el tema o el cuerpo de una variante antes de aprobar.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, topic: { type: 'string' }, channel: { type: 'string' }, body: { type: 'object' }, mediaAssetIds: { type: 'array', items: { type: 'string' } } }, required: ['itemId'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
@@ -904,6 +943,10 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
         assertPostAccess(post, scopedAuth, { write: !tool.annotations?.readOnlyHint })
       }
       switch (name) {
+        case 'brand_prepare_image_generation': {
+          const site = resolveToolSite(auth, args)
+          return preparedImageResult(prepareImageGeneration(site, args))
+        }
         case 'brand_get_context': {
           // Legacy JSON deployments do not have the v2 workspace tables yet.
           // Keep this read-only tool useful there while retaining the same
@@ -957,17 +1000,6 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           const visibleAssets = Array.isArray(activeBrandKit?.assets)
             ? activeBrandKit.assets.filter((asset) => asset.visibility === 'public' || (canReadVisualBrandAssets && (scopedAuth?.role === 'admin' || (asset.visibility === 'role_limited' && ['owner', 'admin', 'editor', 'author', 'client', 'viewer'].includes(scopedAuth?.role)))))
             : []
-          const canonicalReferences = visibleAssets.map((asset) => ({
-            id: asset.id,
-            filename: asset.name,
-            kind: 'reference',
-            alt: asset.metadata?.alt || asset.name,
-            mediaId: asset.id,
-            ...(String(asset.storageKey || '').startsWith('media/') ? { path: `/${asset.storageKey}` } : {}),
-            ...(asset.publicUrl ? { url: asset.publicUrl } : {}),
-            ...(asset.sha256 ? { sha256: asset.sha256 } : {}),
-            ...(activeBrandKit?.version ? { version: activeBrandKit.version } : {})
-          }))
           brandKit.assets = visibleAssets.map((asset) => ({
             id: asset.id,
             filename: asset.name,
@@ -981,14 +1013,6 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
               ? { alt: String(asset.metadata.alt || '') }
               : {}
           }))
-          const seenReferenceIds = new Set((brandKit.referenceImages || []).flatMap((item) => [item.id, item.mediaId, item.filename].filter(Boolean)))
-          brandKit.referenceImages = [...(brandKit.referenceImages || []), ...canonicalReferences.filter((item) => {
-            const identities = [item.id, item.mediaId, item.filename].filter(Boolean)
-            return !identities.some((identity) => seenReferenceIds.has(identity))
-          })]
-          if (brandKit.visualContext && typeof brandKit.visualContext === 'object') {
-            brandKit.visualContext = { ...brandKit.visualContext, referenceImages: brandKit.referenceImages }
-          }
           const declaredCapabilities = Array.isArray(auth?.capabilities) ? auth.capabilities.filter((capability) => capability !== 'brand_kit_access') : []
           const effectiveBrandAccess = brandKit.brandCapabilityEffective === true
           brandKit.brandCapabilities = { ...brandCapabilities }

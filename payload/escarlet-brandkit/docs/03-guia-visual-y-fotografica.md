@@ -10,17 +10,16 @@ Diseño editorial contemporáneo, cálido y táctil. Una idea visual por pieza, 
 
 | Color | Hex | Uso |
 | --- | --- | --- |
-| Papel | `#F4F1EA` | Fondo principal y superficies |
-| Papel cálido | `#E8E0D3` | Variación de fondo |
-| Verde bosque | `#1F4D3A` | Color de marca, bloques y acentos |
-| Verde profundo | `#15352A` | Contraste alto y fondos oscuros |
-| Tinta | `#1B211D` | Texto y elementos estructurales |
-| Gris apagado | `#6C746F` | Texto auxiliar |
-| Coral señal | `#C8674B` | Un único acento por pieza |
+| Turquesa / cian | `#12B8D6` | Flujo cromático y acentos |
+| Verde suave | `#62B38A` | Centro del flujo y escenas humanas |
+| Crema claro | `#F3E7D0` | Superficies y espacio negativo |
+| Amarillo oro | `#E8B73A` | Luz cálida y cierre cromático |
+| Gris neutro | `#6D6D6D` | Texto auxiliar |
+| Carbón | `#1E1E1E` | Contraste y profundidad |
 
 ### Referencia editorial aportada
 
-El material adjunto usa `#18B7D6`, `#78A97C`, `#E7B73A`, `#1F1F1F`, `#EFE8D7` y `#6D6D6D`, con flujo cian a verde y oro. Se puede usar como tratamiento de cabecera de blog cuando el brief pida una pieza más conceptual y luminosa. No mezclarlo con coral en la misma pieza salvo decisión explícita.
+El fondo canónico usa `#12B8D6`, `#62B38A`, `#E8B73A`, `#F3E7D0`, `#1E1E1E` y `#6D6D6D`, con flujo cian a verde y oro. Conserva siempre las formas orgánicas estratificadas tipo montañas de `fondo-escarlet.jpg`.
 
 ## Tipografías y jerarquía
 
@@ -72,7 +71,7 @@ Portadas en 3:2. Reservar al menos un 25 % del encuadre sin detalle crítico. Co
 
 - Blog. 3:2, sin texto ni logo en la imagen, 2–3 referencias aprobadas.
 - Instagram. Fondo generado sin texto y texto renderizado en 1080×1350.
-- Presentaciones. Usar el sistema v2 y el logo oficial colocado.
+- Presentaciones. Usar el sistema 2.2.0 y el logo oficial colocado.
 - Web. Priorizar contraste, espacio negativo y alt descriptivo.
 
 ## Qué evitar
@@ -81,7 +80,7 @@ Stock corporativo, oficinas de cristal vacías, sonrisas impostadas, robots, cer
 
 ## Control de aprobación
 
-- Paleta y contraste coherentes con el preset elegido.
+- Paleta y contraste coherentes con la ruta determinista resuelta.
 - Una sola idea visual y sujeto claro.
 - Sin texto, números, logos ni marcas de agua en imágenes generadas.
 - Anatomía, manos, perspectiva y producto revisados.

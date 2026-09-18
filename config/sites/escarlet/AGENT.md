@@ -10,7 +10,7 @@ Si `missingBrand` tiene archivos, para y pide que los suban (dashboard Brand kit
 
 Lee cada `postFields[].askHuman`. Pregunta al humano lo que aún no sepas antes de redactar.
 
-No inventes tono ni paleta.
+No inventes tono ni paleta. La paleta canónica es `#12B8D6`, `#62B38A`, `#F3E7D0`, `#E8B73A`, `#1E1E1E`, `#6D6D6D` y `#FFFFFF` cuando sea necesario.
 
 Aplica siempre la política editorial común `sharedEditorialPolicy` devuelta por `blog_get_brand_context` antes de redactar o revisar. Sus reglas son globales y se combinan con este brand kit.
 
@@ -24,7 +24,7 @@ Un post, un enfoque principal. Si mezcla temas, elige autor por el objetivo del 
 ## Flujo MCP (crear)
 
 1. Llama `blog_get_workflow` y pregunta si el usuario prefiere `easy` o `guided`.
-2. Genera título, contenido, metadatos e imágenes en ChatGPT usando este brand kit y sus referencias. Guarda el borrador con `blog_create_draft`, `blog_upload_media` y `blog_update_post`.
+2. Genera título, contenido y metadatos en ChatGPT. Antes de cualquier imagen llama `brand_prepare_image_generation` y entrega al generador exactamente sus `ImageContent`, en orden. Si `generationBlocked` es true, detén la generación. Guarda el borrador con `blog_create_draft`, `blog_upload_media` y `blog_update_post`.
 3. En `guided`, comparte únicamente `appPreviewUrl` (`/app/preview/{slug}`) y espera la revisión del usuario. En `easy`, muestra un resumen y pide confirmación.
 4. Aplica correcciones con `blog_update_post` usando el mismo slug.
 5. Tras confirmar, llama `blog_publish` o `blog_schedule_post` con `direct: true` según la decisión del usuario. Usa la revisión dentro de `/app`.
@@ -74,9 +74,16 @@ Recomendado (aviso, no bloquea):
 
 ## Imágenes
 
+- `05-tablero-visual.png` y `fondo-escarlet.jpg` son referencias obligatorias en toda generación. El cliente no puede escoger, sustituir ni reinterpretar referencias.
+- Ruta `human_or_work`: tablero, fondo y `reference-blog-example.png`.
+- Ruta `introspective_or_tense`: tablero, fondo y `reference-visual-style-01.png`.
+- Ruta `positive_or_inspirational`: tablero, fondo y `reference-visual-style-02.png`.
+- Ruta `abstract_or_background`: tablero y fondo. Una petición genérica usa `positive_or_inspirational`.
+- El fondo conserva formas orgánicas estratificadas tipo montañas con turquesa a la izquierda, verde suave en el centro y oro a la derecha.
+
 - Portada en kebab-case. Subida al CMS, no al git del frontend.
 - Alt describe lo que se ve. Palabra clave si encaja.
-- Composición y color según `visual-style.md` y las fotos de referencia.
+- Composición y color según `visual-style.md` y las referencias exactas devueltas por `brand_prepare_image_generation`.
 - Cómo subir (orden preferido):
   1. Genera o elige la imagen. Un PNG de 2–3 MB vale.
   2. `blog_upload_media` con `contentBase64` o `blob`. El CMS comprime a JPEG.
@@ -91,7 +98,7 @@ Recomendado (aviso, no bloquea):
 - Elige un arquetipo de `content-system/brand/escarlet-image-archetypes.json`. No repitas el arquetipo del post anterior. Si el tema es parecido a uno reciente, fuerza también un encuadre y una presencia de persona distintos.
 - Construye y guarda un `visualBrief` con `archetype`, `composition`, `references`, `negativeRules` y `decision.recentPostsInspected`.
 - La portada siempre se genera sin texto, letras, números, logos ni UI legible. El prompt debe incluir la intención emocional, el arquetipo, la composición, las referencias aprobadas y lo que no se debe repetir.
-- Para modo `automatic`, entrega una ruta final. Para modo `exploration`, genera tres rutas con arquetipos diferentes y marca la recomendada.
+- La selección es determinista. Para modo `automatic` se usa una única ruta cerrada. No existe fallback silencioso ni modo de exploración para generar.
 - En Instagram, la IA solo genera fondos. Nunca le pidas que dibuje `headline` o `body`.
 - Renderiza cada slide con un único template (`editorial` o `impact`) usando `content-system/instagram-renderer.mjs`. La fuente, safe areas, saltos y jerarquías salen del template.
 - Guarda en cada slide `templateId`, `backgroundMediaId`, `backgroundStyle` y `renderedBy: content-system/instagram-renderer`.

@@ -37,7 +37,7 @@ Convención del sitio alineada con el curso de SEO. Aplica a portadas, fotos de 
 3. Actualiza `src` y `alt` en el mismo cambio.
 4. Si sustituyes un archivo, deja el viejo un tiempo para no romper caché.
 
-Antes de generar cualquier imagen, consulta `referenceImages` en `blog_get_brand_context` y entrega las referencias pertinentes al generador. Esta regla aplica a portadas, imágenes de artículo, imágenes sociales, slides, fondos y piezas de apoyo.
+Antes de generar cualquier imagen, llama `brand_prepare_image_generation` después de `blog_get_brand_context`. Entrega al generador exactamente sus `resolvedReferences` como `ImageContent`, en el orden de `attachmentIndex`. No escojas ni sustituyas referencias. Si `generationBlocked` es `true`, detén la generación y restaura los activos indicados. Esta regla aplica a portadas, imágenes de artículo, imágenes sociales, slides, fondos y piezas de apoyo.
 
 ## Carrusel Instagram (blog)
 
