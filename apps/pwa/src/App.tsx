@@ -24,7 +24,7 @@ import type { AiConversation, SocialPackJobResult } from "./api";
 import { getInitialLanguage, Language, translate } from "./i18n";
 import type { Author, BrandSummary, MediaItem, Post, Session } from "./types";
 import { ContentBatches as ContentPlans } from "./ContentBatches";
-import { Badge, Button, Card, ChannelBadge, ConnectionCard, EmptyState as UiEmptyState, Field, Inline, Modal, PageHeader, Select, Stack, StatusBadge, TextField } from "./ui";
+import { Badge, Button, Card, ChannelBadge, ConnectionCard, EmptyState as UiEmptyState, Field, Inline, Modal, PageHeader, Select, Stack, StatusBadge, Tabs, TextField } from "./ui";
 
 type Draft = Partial<Post> & { title: string; slug?: string };
 type WorkflowFlags = { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean; creationUiEnabled: boolean; manualCreationEnabled: boolean };
@@ -5092,15 +5092,7 @@ function AdminTabs({ active, onChange }: { active: AdminTabId; onChange: (tab: A
     { id: "connections", label: "Conexiones" },
     ...(workflowFlags.cmsAiEnabled ? [{ id: "billing" as const, label: "Plan y uso" }] : []),
   ];
-  return (
-    <div className="ui-admin-tabs" role="tablist" aria-label="Áreas de administración">
-      {tabs.map((tab) => (
-        <button key={tab.id} type="button" role="tab" id={`admin-tab-${tab.id}`} aria-controls={`admin-panel-${tab.id}`} aria-selected={active === tab.id} className={`ui-admin-tab ${active === tab.id ? "active" : ""}`} onClick={() => onChange(tab.id)}>
-          {tab.label}
-        </button>
-      ))}
-    </div>
-  );
+  return <Tabs items={tabs} value={active} onChange={onChange} className="ui-admin-tabs" idPrefix="admin-tablist" panelIdPrefix="admin-panel" />;
 }
 
 function AdminIndex() {
@@ -5108,7 +5100,7 @@ function AdminIndex() {
   return <main className="page admin-index-page">
     <PageHeader eyebrow="Configuración del espacio" title="Administración" description="Gestiona marcas, accesos, conexiones y uso sin salir de esta pantalla." />
     <AdminTabs active={active} onChange={setActive} />
-    <div className="ui-admin-panel" id={`admin-panel-${active}`} role="tabpanel" aria-labelledby={`admin-tab-${active}`}>
+    <div className="ui-admin-panel" id={`admin-panel-${active}`} role="tabpanel" aria-labelledby={`admin-tablist-${active}`}>
       {active === "brands" && <BrandsView embedded />}
       {active === "team" && <TeamView embedded />}
       {active === "connections" && <ConnectionsView embedded />}

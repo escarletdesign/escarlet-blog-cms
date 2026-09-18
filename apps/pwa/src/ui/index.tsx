@@ -46,16 +46,17 @@ export function Modal({ open, title, onClose, children, closeLabel = "Cerrar" }:
 export function ReviewToolbar({ children }: { children: ReactNode }) { return <div className="ui-review-toolbar">{children}</div>; }
 export function BulkActionBar({ selected, children }: { selected: number; children: ReactNode }) { return selected ? <div className="ui-bulk-bar"><strong>{selected} seleccionadas</strong>{children}</div> : null; }
 export function ConnectionCard({ provider, status, account, actions }: { provider: string; status?: string; account?: string; actions?: ReactNode }) { return <Card className="ui-connection-card"><div className="ui-card-head"><div><span className="ui-eyebrow">Conexión</span><h3>{provider}</h3>{account && <p>{account}</p>}</div><StatusBadge status={status || "draft"} label={status === "connected" ? "Conectada" : status || "Sin conectar"} /></div>{actions && <div className="ui-card-actions">{actions}</div>}</Card>; }
-export function Tabs({ items, value, onChange }: { items: Array<{ id: string; label: string }>; value: string; onChange: (id: string) => void }) {
-  const tablistId = `ui-tabs-${useId().replace(/:/g, "")}`;
+export function Tabs({ items, value, onChange, className = "", idPrefix, panelIdPrefix = "tabpanel" }: { items: Array<{ id: string; label: string }>; value: string; onChange: (id: string) => void; className?: string; idPrefix?: string; panelIdPrefix?: string }) {
+  const generatedId = useId().replace(/:/g, "");
+  const tablistId = idPrefix || `ui-tabs-${generatedId}`;
   const focusTab = (index: number) => {
     const item = items[(index + items.length) % items.length];
     if (!item) return;
     onChange(item.id);
     document.getElementById(`${tablistId}-${encodeURIComponent(item.id)}`)?.focus();
   };
-  return <div className="ui-tabs" id={tablistId} role="tablist" aria-label="Secciones">
-    {items.map((item, index) => <button key={item.id} id={`${tablistId}-${encodeURIComponent(item.id)}`} type="button" role="tab" aria-selected={value === item.id} aria-controls={`tabpanel-${encodeURIComponent(item.id)}`} tabIndex={value === item.id ? 0 : -1} className={value === item.id ? "active" : ""} onClick={() => onChange(item.id)} onKeyDown={(event) => { if (event.key === "ArrowRight" || event.key === "ArrowDown") { event.preventDefault(); focusTab(index + 1); } if (event.key === "ArrowLeft" || event.key === "ArrowUp") { event.preventDefault(); focusTab(index - 1); } if (event.key === "Home") { event.preventDefault(); focusTab(0); } if (event.key === "End") { event.preventDefault(); focusTab(items.length - 1); } }}>{item.label}</button>)}
+  return <div className={`ui-tabs ${className}`.trim()} id={tablistId} role="tablist" aria-label="Secciones">
+    {items.map((item, index) => <button key={item.id} id={`${tablistId}-${encodeURIComponent(item.id)}`} type="button" role="tab" aria-selected={value === item.id} aria-controls={`${panelIdPrefix}-${encodeURIComponent(item.id)}`} tabIndex={value === item.id ? 0 : -1} className={value === item.id ? "active" : ""} onClick={() => onChange(item.id)} onKeyDown={(event) => { if (event.key === "ArrowRight" || event.key === "ArrowDown") { event.preventDefault(); focusTab(index + 1); } if (event.key === "ArrowLeft" || event.key === "ArrowUp") { event.preventDefault(); focusTab(index - 1); } if (event.key === "Home") { event.preventDefault(); focusTab(0); } if (event.key === "End") { event.preventDefault(); focusTab(items.length - 1); } }}>{item.label}</button>)}
   </div>;
 }
 export function Drawer({ open, title, onClose, children, closeLabel = "Cerrar" }: { open: boolean; title: string; onClose: () => void; children: ReactNode; closeLabel?: string }) {
