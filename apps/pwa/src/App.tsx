@@ -5092,7 +5092,7 @@ function AdminTabs({ active, onChange }: { active: AdminTabId; onChange: (tab: A
     { id: "connections", label: "Conexiones" },
     ...(workflowFlags.cmsAiEnabled ? [{ id: "billing" as const, label: "Plan y uso" }] : []),
   ];
-  return <Tabs items={tabs} value={active} onChange={onChange} className="ui-admin-tabs" idPrefix="admin-tablist" panelIdPrefix="admin-panel" />;
+  return <Tabs items={tabs} value={active} onChange={onChange} ariaLabel="Áreas de administración" className="ui-admin-tabs" idPrefix="admin-tablist" panelIdPrefix="admin-panel" />;
 }
 
 function AdminIndex() {

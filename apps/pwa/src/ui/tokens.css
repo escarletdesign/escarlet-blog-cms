@@ -20,6 +20,17 @@
   --ui-danger-legacy: #ff9691;
   --ui-warning: #ffd27a;
   --ui-info: #9fd8ff;
+  --ui-surface-action: #2a3634;
+  --ui-surface-progress: #2a3533;
+  --ui-surface-bulk: #26352d;
+  --ui-surface-tabs: #202a28;
+  --ui-surface-code: #111817;
+  --ui-surface-control: rgba(6, 10, 10, .55);
+  --ui-overlay: rgba(0, 0, 0, .7);
+  --ui-overlay-strong: rgba(0, 0, 0, .72);
+  --ui-control-hover: rgba(255, 255, 255, .08);
+  --ui-danger-surface: #8d3939;
+  --ui-shadow-card: 0 8px 22px rgba(0, 0, 0, .08);
 
   --ui-radius-sm: 8px;
   --ui-radius-md: 14px;

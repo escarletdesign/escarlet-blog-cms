@@ -49,7 +49,7 @@ Los alias antiguos (`--bg`, `--text`, `--accent` y similares) existen solo para 
 - Las acciones con solo icono usan `IconButton` y siempre tienen un `label` accesible.
 - Los formularios usan `Field` para etiqueta, ayuda y error. El error debe tener `role="alert"` cuando sea dinámico.
 - Los diálogos usan `Modal` o `Drawer`, tienen título accesible y se cierran con Escape.
-- Las pestañas usan `Tabs`. El panel asociado debe exponer `role="tabpanel"`, `id` y `aria-labelledby` coherentes.
+- Las pestañas usan `Tabs`. Pasa un `ariaLabel` descriptivo cuando haya más de un grupo de pestañas. El panel asociado debe exponer `role="tabpanel"`, `id` y `aria-labelledby` coherentes.
 - Los estados de una pantalla son explícitos: carga, vacío, error, éxito y acción siguiente.
 - Los estados de contenido usan `StatusBadge`. No se crean colores propios para cada estado.
 
