@@ -24,7 +24,7 @@ test('el contrato MCP expone media y contenido v2, sin operaciones de posts lega
     assert.equal(tools.some((tool) => tool.name === name), false, name)
   }
   assert.equal(tools.some((tool) => /^blog_|^social_/.test(tool.name)), false)
-  assert.equal(MCP_SERVER_VERSION, '2.6.1')
+  assert.equal(MCP_SERVER_VERSION, '2.6.2')
 })
 
 test('createMcpServer anuncia el contrato v2 y la selección explícita de marca', () => {
