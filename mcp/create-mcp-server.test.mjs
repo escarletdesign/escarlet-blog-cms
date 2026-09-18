@@ -38,7 +38,10 @@ test('el MCP no elige una marca por defecto cuando el acceso incluye varias', as
   const auth = { role: 'client', site: 'escarlet', sites: ['escarlet', 'segunda-marca'] }
   const old = await invokeMcpTool('blog_list_posts', {}, auth)
   assert.equal(old.isError, true)
-  assert.match(old.content?.[0]?.text || '', /Herramienta no disponible/i)
+  const oldValue = payload(old)
+  assert.equal(oldValue.code, 'legacy_tool_disabled')
+  assert.equal(oldValue.replacement, 'content_list_items')
+  assert.match(oldValue.message, /No es un problema de permisos/i)
 
   for (const name of ['content_list_plans', 'content_list_items', 'content_create_batch']) {
     const result = await invokeMcpTool(name, name === 'content_create_batch' ? { topics: ['tema'] } : {}, auth)

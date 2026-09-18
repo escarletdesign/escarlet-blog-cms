@@ -97,6 +97,17 @@ const LEGACY_CONTENT_TOOLS = new Set([
   'blog_update_brand_file',
   'blog_import_brand_zip'
 ])
+const LEGACY_CONTENT_REPLACEMENTS = Object.freeze({
+  blog_list_posts: 'content_list_items',
+  blog_get_post: 'content_get_batch',
+  blog_create_draft: 'content_create_batch',
+  blog_update_post: 'content_update_item',
+  blog_publish: 'content_approve',
+  blog_request_changes: 'content_reject',
+  blog_schedule_post: 'content_schedule',
+  blog_cancel_schedule: 'content_cancel',
+  blog_list_calendar: 'content_list_calendar'
+})
 const MUTATING_SITE_TOOLS = new Set([
   'social_save_pack',
   'blog_save_social_pack',
@@ -964,6 +975,22 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
       if (CMS_AI_TOOLS.has(name)) {
         assertCmsAiAllowed(auth)
         throw Object.assign(new Error('Usa el servicio interno de generación de /app, no una herramienta MCP.'), { status: 403 })
+      }
+      if (LEGACY_CONTENT_TOOLS.has(name)) {
+        const replacement = LEGACY_CONTENT_REPLACEMENTS[name] || 'content_list_items'
+        throw Object.assign(
+          new Error(`La tool ${name} fue retirada del contrato v2. Usa ${replacement}. No es un problema de permisos.`),
+          {
+            status: 410,
+            code: 'legacy_tool_disabled',
+            extra: {
+              code: 'legacy_tool_disabled',
+              tool: name,
+              replacement,
+              reconnect: 'Actualiza o reconecta el servidor MCP para cargar las tools v2.'
+            }
+          }
+        )
       }
       // Every transport shares the same argument boundary. The optional
       // mutation restriction is enabled only for app/chat bridges; the
