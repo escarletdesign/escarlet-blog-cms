@@ -707,6 +707,34 @@
 .ui-alert-card { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 18px; } .ui-alert-card p { margin: 0; } .ui-plans-page .ui-field select { min-width: 0; } .ui-plans-page .ui-card-actions { border-top: 1px solid var(--ui-border); padding-top: 14px; }
 @media (max-width: 900px) { .ui-plans-layout { grid-template-columns: 1fr; } .ui-plan-list { position: static; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); } }
 @media (max-width: 560px) { .ui-plan-list { grid-template-columns: 1fr; } .ui-alert-card { align-items: flex-start; flex-direction: column; } }
+.page.ui-plans-page, .page.ui-calendar-page, .page.admin-index-page { width: min(100%, 1540px); max-width: 1540px; }
+.ui-plans-layout { grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); gap: 28px; }
+.ui-plan-list { gap: 14px; }
+.ui-plan-detail > .ui-card { min-height: 100%; }
+.ui-review-item { padding: 22px; }
+.ui-review-item-title > div { min-width: 0; }
+.ui-review-item-title h3 { font-size: clamp(1rem, 1.55vw, 1.35rem); line-height: 1.18; }
+.ui-plan-overview { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 22px; margin: 20px 0 18px; padding: 14px 16px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); background: rgba(21,28,28,.75); }
+.ui-plan-overview > div { display: grid; gap: 3px; min-width: 110px; }
+.ui-plan-overview strong { font-size: 1.2rem; }
+.ui-plan-overview span { color: var(--ui-muted); font-size: .75rem; }
+.ui-plan-overview .ui-button { margin-left: auto; }
+.ui-plan-item { background: rgba(15,22,21,.72); }
+.ui-plan-item .ui-card-head { align-items: center; }
+.ui-review-page .ui-plan-list { top: 34px; }
+@media (min-width: 1250px) {
+  .page.ui-plans-page { padding-inline: 62px; }
+  .ui-plans-layout { grid-template-columns: minmax(300px, 360px) minmax(0, 1fr); }
+}
+@media (max-width: 900px) {
+  .ui-plans-layout { grid-template-columns: 1fr; }
+  .ui-plan-list { position: static; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .ui-plan-overview .ui-button { margin-left: 0; }
+}
+@media (max-width: 560px) { .ui-plan-list { grid-template-columns: 1fr; } }
+select, .ui-plans-page .ui-select, .ui-page .ui-input.ui-select, .site-switcher select, .settings-card select, .date-picker-fields select, .teleprompter-controls select { appearance: none; padding-right: 38px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14' fill='none'%3E%3Cpath d='m3.25 5.25 3.75 3.75 3.75-3.75' stroke='%23a7b6af' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; background-size: 14px; }
+.back-link { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; margin: 0 0 14px; padding: 7px 11px; border: 1px solid var(--ui-border-strong); border-radius: 9px; color: var(--ui-text); background: transparent; font-size: .8rem; font-weight: 750; }
+.back-link:hover, .back-link:focus-visible { color: var(--ui-accent); border-color: var(--ui-accent); outline: none; background: rgba(185,251,84,.08); }
 .ui-brand-grid, .ui-connection-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px; } .ui-brand-active { border-color: rgba(185,251,84,.55); } .ui-brand-grid .muted { margin: 16px 0 0; } .ui-connection-grid .ui-card p { margin: 8px 0 0; color: var(--ui-muted); }
 @media (max-width: 620px) { .ui-brand-grid, .ui-connection-grid { grid-template-columns: 1fr; } }
 .ui-tabs { display: flex; gap: 4px; padding: 4px; background: #202a28; border-radius: 10px; } .ui-tabs button { flex: 1; min-height: 36px; border: 0; border-radius: 7px; color: var(--ui-muted); background: transparent; font: inherit; cursor: pointer; } .ui-tabs button.active { color: #0b110d; background: var(--ui-accent); font-weight: 800; }
@@ -731,6 +759,10 @@
    primitives are intentionally small so future feature screens can compose
    them without reintroducing one-off/native controls. */
 .ui-admin-index-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; margin-bottom: 20px; }
+.ui-admin-tabs { display: flex; gap: 6px; align-items: center; overflow-x: auto; margin: 24px 0; padding: 5px; background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: 12px; }
+.ui-admin-tab { flex: 0 0 auto; min-height: 36px; display: inline-flex; align-items: center; justify-content: center; padding: 0 14px; border-radius: 8px; color: var(--ui-muted); text-decoration: none; font-size: .88rem; font-weight: 700; white-space: nowrap; }
+.ui-admin-tab:hover, .ui-admin-tab:focus-visible { color: var(--ui-text); background: var(--ui-surface-raised); outline: none; }
+.ui-admin-tab.active { color: #0b110d; background: var(--ui-accent); }
 .ui-admin-index-card { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 14px; color: var(--ui-text); text-decoration: none; background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); padding: 20px; transition: border-color .2s, transform .2s, background .2s; }
 .ui-admin-index-card:hover, .ui-admin-index-card:focus-visible { border-color: var(--ui-accent); background: var(--ui-surface-raised); transform: translateY(-1px); outline: none; }
 .ui-admin-index-card .nav-icon { width: 24px; height: 24px; color: var(--ui-accent); }
@@ -760,6 +792,7 @@
 .ui-blog-connection-card { grid-column: 1 / -1; } .ui-connection-card p { margin: 6px 0 0; color: var(--ui-muted); }
 .ui-calendar-loading { display: grid; gap: 14px; } .ui-calendar-loading .ui-skeleton { width: 100%; }
 .ui-calendar-list { display: grid; gap: 12px; } .ui-calendar-list .ui-card { padding: 18px 20px; }
+.ui-calendar-sync { align-self: center; color: var(--ui-muted); font-size: .72rem; }
 .ui-calendar-month { padding: 16px; } .ui-calendar-month-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; } .ui-calendar-month-head strong { text-transform: capitalize; }
 .ui-calendar-weekdays, .ui-calendar-grid { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); gap: 6px; } .ui-calendar-weekdays { margin-bottom: 6px; color: var(--ui-muted); font-size: .72rem; font-weight: 800; text-align: center; text-transform: uppercase; }
 .ui-calendar-day { min-height: 112px; padding: 8px; overflow: hidden; border: 1px solid var(--ui-border); border-radius: 8px; background: rgba(8,14,13,.45); } .ui-calendar-day > span:first-child { display: block; color: var(--ui-text); font-size: .78rem; font-weight: 800; } .ui-calendar-day.outside { opacity: .4; } .ui-calendar-day.has-items { border-color: rgba(185,251,84,.4); }

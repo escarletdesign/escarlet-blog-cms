@@ -789,14 +789,17 @@ function Shell() {
     setSite(selected?.value || next);
   };
   const publishingEnabled = brandCapabilities.content_publishing !== false;
+  const adminUser = isWorkspaceAdmin(session);
   const links = [
     { to: "/", label: t("nav.home", "Resumen"), icon: "home" },
     { to: "/review", label: t("nav.review", "Revisión"), icon: "review" },
-    { to: "/plans", label: t("nav.plans", "Planes"), icon: "plans" },
+    { to: "/plans", label: t("nav.plans", "Planes de contenido"), icon: "plans" },
     { to: "/calendar", label: t("nav.calendar", "Calendario"), icon: "calendar" },
-    { to: "/brands", label: t("nav.brands", "Marcas"), icon: "brands" },
-    { to: "/team", label: t("nav.team", "Equipo y acceso"), icon: "team" },
-    ...(workflowFlags.cmsAiEnabled ? [{ to: "/billing", label: t("nav.planUsage", "Plan y uso"), icon: "billing" }] : []),
+    ...(!adminUser ? [
+      { to: "/brands", label: t("nav.brands", "Marcas"), icon: "brands" },
+      { to: "/team", label: t("nav.team", "Equipo y acceso"), icon: "team" },
+      ...(workflowFlags.cmsAiEnabled ? [{ to: "/billing", label: t("nav.planUsage", "Plan y uso"), icon: "billing" }] : []),
+    ] : []),
     ...(workflowFlags.creationUiEnabled && workflowFlags.assistantEnabled && publishingEnabled ? [{ to: "/chat", label: t("nav.assistant"), icon: "assistant" }] : []),
   ];
   return (
@@ -4583,9 +4586,9 @@ function EditorialCalendar() {
   const weekdays = language === "en" ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] : ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
   const formatDate = (value: string) => new Intl.DateTimeFormat(language === "en" ? "en-GB" : "es-ES", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
   return <main className="page ui-calendar-page">
-    <PageHeader eyebrow="Ejecución editorial" title="Calendario editorial" description="Planes = qué contenido estamos preparando. Calendario = cuándo se publicará y qué está ocurriendo en cada canal." actions={<Inline gap="sm"><Button variant={view === "list" ? "secondary" : "ghost"} onClick={() => setView("list")}>Lista</Button><Button variant={view === "month" ? "secondary" : "ghost"} onClick={() => setView("month")}>Mes</Button></Inline>} />
+    <PageHeader eyebrow="Ejecución editorial" title="Calendario editorial" description="Planes = qué contenido estamos preparando. Calendario = cuándo se publicará y qué está ocurriendo en cada canal. La conexión externa actualiza aquí su estado." actions={<Inline gap="sm"><Button variant={view === "list" ? "secondary" : "ghost"} onClick={() => setView("list")}>Lista</Button><Button variant={view === "month" ? "secondary" : "ghost"} onClick={() => setView("month")}>Mes</Button></Inline>} />
     {error && <Card><Inline gap="md"><p className="ui-field-error">{error}</p><Button size="sm" variant="ghost" onClick={load}>Reintentar</Button></Inline></Card>}
-    {loading ? <div className="ui-calendar-loading"><span className="ui-skeleton" style={{ height: 180 }} /><span className="ui-skeleton" style={{ height: 90 }} /></div> : validEntries.length === 0 && !error ? <UiEmptyState title="Todavía no hay publicaciones programadas" description="Cuando apruebes una publicación desde Revisión, aparecerá aquí con su zona horaria y conexión." action={<NavLink className="ui-button ui-button-secondary" to="/review">Ir a revisión</NavLink>} /> : view === "list" ? <div className="ui-calendar-list">{validEntries.map((entry) => <Card key={entry.variantId || entry.itemId}><div className="ui-card-head"><div><span className="ui-eyebrow">{entry.timezone || "UTC"}</span><h2>{entry.topic || "Publicación"}</h2><p className="muted">{formatDate(entry.publicationDate)}</p></div><StatusBadge status={entry.status || entry.variantStatus} /></div><div className="ui-channel-list"><ChannelBadge channel={entry.channel || "blog"} />{entry.provider && <Badge tone="neutral">{entry.provider}</Badge>}{entry.lastError && <Badge tone="danger">Error de sincronización</Badge>}</div>{entry.lastError && <p className="ui-field-error">{entry.lastError}</p>}</Card>)}</div> : <Card className="ui-calendar-month"><div className="ui-calendar-month-head"><Button variant="ghost" size="sm" onClick={() => setCursor((date) => new Date(date.getFullYear(), date.getMonth() - 1, 1))}>‹</Button><strong>{monthLabel}</strong><Button variant="ghost" size="sm" onClick={() => setCursor((date) => new Date(date.getFullYear(), date.getMonth() + 1, 1))}>›</Button></div><div className="ui-calendar-weekdays">{weekdays.map((day) => <span key={day}>{day}</span>)}</div><div className="ui-calendar-grid">{monthDays.map(({ date, inMonth }) => { const rows = validEntries.filter((entry) => dayKey(new Date(entry.publicationDate)) === dayKey(date)); return <div className={`ui-calendar-day ${inMonth ? "" : "outside"} ${rows.length ? "has-items" : ""}`} key={dayKey(date)}><span>{date.getDate()}</span>{rows.slice(0, 3).map((entry) => <div className="ui-calendar-item" key={entry.variantId || entry.itemId}><ChannelBadge channel={entry.channel || "blog"} /><small>{entry.topic || "Publicación"}</small></div>)}{rows.length > 3 && <small>+{rows.length - 3}</small>}</div>; })}</div></Card>}
+    {loading ? <div className="ui-calendar-loading"><span className="ui-skeleton" style={{ height: 180 }} /><span className="ui-skeleton" style={{ height: 90 }} /></div> : validEntries.length === 0 && !error ? <UiEmptyState title="Todavía no hay publicaciones programadas" description="Cuando apruebes una publicación desde Revisión, aparecerá aquí con su zona horaria y conexión." action={<NavLink className="ui-button ui-button-secondary" to="/review">Ir a revisión</NavLink>} /> : view === "list" ? <div className="ui-calendar-list">{validEntries.map((entry) => <Card key={entry.variantId || entry.itemId}><div className="ui-card-head"><div><span className="ui-eyebrow">{entry.timezone || "UTC"}</span><h2>{entry.topic || "Publicación"}</h2><p className="muted">{formatDate(entry.publicationDate)}</p></div><StatusBadge status={entry.status || entry.variantStatus} /></div><div className="ui-channel-list"><ChannelBadge channel={entry.channel || "blog"} />{entry.provider && <Badge tone="neutral">{entry.provider}</Badge>}{entry.updatedAt && <small className="ui-calendar-sync">Actualizado {formatDate(entry.updatedAt)}</small>}{entry.lastError && <Badge tone="danger">Error de sincronización</Badge>}</div>{entry.lastError && <p className="ui-field-error">{entry.lastError}</p>}</Card>)}</div> : <Card className="ui-calendar-month"><div className="ui-calendar-month-head"><Button variant="ghost" size="sm" onClick={() => setCursor((date) => new Date(date.getFullYear(), date.getMonth() - 1, 1))}>‹</Button><strong>{monthLabel}</strong><Button variant="ghost" size="sm" onClick={() => setCursor((date) => new Date(date.getFullYear(), date.getMonth() + 1, 1))}>›</Button></div><div className="ui-calendar-weekdays">{weekdays.map((day) => <span key={day}>{day}</span>)}</div><div className="ui-calendar-grid">{monthDays.map(({ date, inMonth }) => { const rows = validEntries.filter((entry) => dayKey(new Date(entry.publicationDate)) === dayKey(date)); return <div className={`ui-calendar-day ${inMonth ? "" : "outside"} ${rows.length ? "has-items" : ""}`} key={dayKey(date)}><span>{date.getDate()}</span>{rows.slice(0, 3).map((entry) => <div className="ui-calendar-item" key={entry.variantId || entry.itemId}><ChannelBadge channel={entry.channel || "blog"} /><small>{entry.topic || "Publicación"}</small></div>)}{rows.length > 3 && <small>+{rows.length - 3}</small>}</div>; })}</div></Card>}
   </main>;
 }
 
@@ -4931,7 +4934,7 @@ function Settings() {
 }
 
 function Billing() {
-  const { site, workflowFlags } = useApp();
+  const { site, session, workflowFlags } = useApp();
   const { t, language } = useI18n();
   const { showToast } = useToast();
   const [snapshot, setSnapshot] = useState<Record<string, any> | null>(null);
@@ -4973,6 +4976,7 @@ function Billing() {
   const ai = snapshot?.ai?.tokenCredits;
   if (!workflowFlags.cmsAiEnabled) return <main className="page narrow">
     <PageTitle eyebrow={t("billing.eyebrow")} title={t("billing.title")} description={t("billing.cmsAiDisabled")} back />
+    {isWorkspaceAdmin(session) && <AdminTabs active="billing" />}
     <section className="card settings-card">
       <h2>{t("billing.cmsAiDisabledTitle")}</h2>
       <p className="muted">{t("billing.cmsAiDisabledHelp")}</p>
@@ -4994,6 +4998,7 @@ function Billing() {
         description={t("billing.description")}
         back
       />
+      {isWorkspaceAdmin(session) && <AdminTabs active="billing" />}
       <section className="card quota-card">
         <h2>{t("billing.ai")}</h2>
         {snapshot ? (
@@ -5075,6 +5080,28 @@ function AdminGate() {
   return isWorkspaceAdmin(session) ? <AdminIndex /> : <Navigate to="/" replace />;
 }
 
+type AdminTabId = "overview" | "brands" | "team" | "connections" | "billing";
+
+function AdminTabs({ active }: { active: AdminTabId }) {
+  const { workflowFlags } = useApp();
+  const tabs: Array<{ id: AdminTabId; to: string; label: string }> = [
+    { id: "overview", to: "/admin", label: "Resumen" },
+    { id: "brands", to: "/brands", label: "Marcas" },
+    { id: "team", to: "/team", label: "Equipo y acceso" },
+    { id: "connections", to: "/connections", label: "Conexiones" },
+    ...(workflowFlags.cmsAiEnabled ? [{ id: "billing" as const, to: "/billing", label: "Plan y uso" }] : []),
+  ];
+  return (
+    <nav className="ui-admin-tabs" aria-label="Áreas de administración">
+      {tabs.map((tab) => (
+        <NavLink key={tab.id} to={tab.to} className={`ui-admin-tab ${active === tab.id ? "active" : ""}`} aria-current={active === tab.id ? "page" : undefined}>
+          {tab.label}
+        </NavLink>
+      ))}
+    </nav>
+  );
+}
+
 function AdminIndex() {
   const { site, productContext, workflowFlags } = useApp();
   const { t } = useI18n();
@@ -5084,7 +5111,7 @@ function AdminIndex() {
     { to: "/connections", title: "Conexiones", description: "Metricool, web y proveedores por canal.", icon: "connections" },
     ...(workflowFlags.cmsAiEnabled ? [{ to: "/billing", title: "Plan y uso", description: "Membresía, límites y consumo del espacio.", icon: "billing" }] : []),
   ];
-  return <main className="page admin-index-page"><PageHeader eyebrow="Administración" title="Administración" description="Gestiona tu espacio y sus marcas desde vistas separadas." /><div className="ui-admin-index-grid">{cards.map((card) => <NavLink key={card.to} to={card.to} className="ui-admin-index-card"><NavIcon kind={card.icon} /><div><h2>{card.title}</h2><p>{card.description}</p></div><span aria-hidden="true">→</span></NavLink>)}</div><Card><span className="ui-eyebrow">Compatibilidad</span><h2>{t("admin.title", "Administración")}</h2><p className="muted">Las rutas técnicas antiguas continúan disponibles para integraciones existentes, pero el flujo principal usa marcas, canales y conexiones.</p></Card></main>;
+  return <main className="page admin-index-page"><PageHeader eyebrow="Administración" title="Administración" description="Centraliza las marcas, el equipo, las conexiones y el plan del espacio desde una sola navegación." /><AdminTabs active="overview" /><div className="ui-admin-index-grid">{cards.map((card) => <NavLink key={card.to} to={card.to} className="ui-admin-index-card"><NavIcon kind={card.icon} /><div><h2>{card.title}</h2><p>{card.description}</p></div><span aria-hidden="true">→</span></NavLink>)}</div><Card><span className="ui-eyebrow">Configuración del espacio</span><h2>{t("admin.title", "Administración")}</h2><p className="muted">Usa las pestañas para entrar a cada área administrativa. Las vistas operativas, como revisión y calendario, permanecen fuera de este espacio.</p></Card></main>;
 }
 function Admin() {
   const { site, session, setSite, refresh } = useApp();
@@ -6579,7 +6606,7 @@ function BrandsView() {
   const brands = productContext?.brands || [];
   const activeBrandId = productContext?.activeBrand?.id || "";
   const canCreate = isWorkspaceAdmin(session);
-  return <main className="page"><PageHeader eyebrow={productContext?.workspace.name || "Espacio"} title="Marcas" description="Cada marca reúne identidad, capacidades, canales y conexiones." actions={canCreate ? <NavLink className="ui-button ui-button-primary" to="/brands/new">Añadir marca</NavLink> : undefined} /><div className="ui-brand-grid">{brands.map((brand) => { const active = brand.id === activeBrandId || (!activeBrandId && brand.handle === site); return <NavLink key={brand.id} to={`/brands/${encodeURIComponent(brand.id)}`} className={`ui-card ui-brand-card ${active ? "ui-brand-active" : ""}`}><div className="ui-card-head"><div><span className="ui-eyebrow">Marca</span><h2>{brand.name || brand.handle}</h2><p className="ui-brand-handle">{brand.handle}</p></div>{active && <Badge tone="success">Activa</Badge>}</div><div className="ui-channel-list">{(brand.channels || []).filter((channel) => channel.enabled).map((channel) => <ChannelBadge key={channel.channel} channel={channel.channel} />)}</div><div className="ui-capability-list">{brand.capabilities?.presentation_generation && <Badge tone="info">Presentaciones</Badge>}{brand.capabilities?.content_publishing && <Badge tone="success">Publicaciones</Badge>}{!brand.capabilities?.content_publishing && !brand.capabilities?.presentation_generation && <Badge tone="neutral">Sin capacidades activas</Badge>}</div><p className="muted">Ver configuración, brand kit y conexiones →</p></NavLink>; })}</div>{!brands.length && <UiEmptyState title="Configura tu primera marca" description="Un administrador debe crear una marca para comenzar." action={canCreate ? <NavLink className="ui-button ui-button-primary" to="/brands/new">Añadir marca</NavLink> : undefined} />}</main>;
+  return <main className="page"><PageHeader eyebrow={productContext?.workspace.name || "Espacio"} title="Marcas" description="Cada marca reúne identidad, capacidades, canales y conexiones." actions={canCreate ? <NavLink className="ui-button ui-button-primary" to="/brands/new">Añadir marca</NavLink> : undefined} />{canCreate && <AdminTabs active="brands" />}<div className="ui-brand-grid">{brands.map((brand) => { const active = brand.id === activeBrandId || (!activeBrandId && brand.handle === site); return <NavLink key={brand.id} to={`/brands/${encodeURIComponent(brand.id)}`} className={`ui-card ui-brand-card ${active ? "ui-brand-active" : ""}`}><div className="ui-card-head"><div><span className="ui-eyebrow">Marca</span><h2>{brand.name || brand.handle}</h2><p className="ui-brand-handle">{brand.handle}</p></div>{active && <Badge tone="success">Activa</Badge>}</div><div className="ui-channel-list">{(brand.channels || []).filter((channel) => channel.enabled).map((channel) => <ChannelBadge key={channel.channel} channel={channel.channel} />)}</div><div className="ui-capability-list">{brand.capabilities?.presentation_generation && <Badge tone="info">Presentaciones</Badge>}{brand.capabilities?.content_publishing && <Badge tone="success">Publicaciones</Badge>}{!brand.capabilities?.content_publishing && !brand.capabilities?.presentation_generation && <Badge tone="neutral">Sin capacidades activas</Badge>}</div><p className="muted">Ver configuración, brand kit y conexiones →</p></NavLink>; })}</div>{!brands.length && <UiEmptyState title="Configura tu primera marca" description="Un administrador debe crear una marca para comenzar." action={canCreate ? <NavLink className="ui-button ui-button-primary" to="/brands/new">Añadir marca</NavLink> : undefined} />}</main>;
 }
 
 function NewBrandView() {
@@ -7053,6 +7080,7 @@ function ConnectionsView({ brandId, backTo }: { brandId?: string; backTo?: strin
   };
   const tokenLabel = form.provider === "postiz" ? "API key / OAuth token" : form.provider === "planable" ? "API token" : form.provider === "buffer" ? "API key de Buffer" : "Token";
   return <main className="page">
+    {canManage && <AdminTabs active="connections" />}
     <PageHeader eyebrow={brandId ? `Marca · ${brandOptions.find((brand) => brand.id === selectedBrandId)?.name || brandOptions.find((brand) => brand.id === selectedBrandId)?.handle || "Conexiones"}` : "Proveedores por canal"} title="Conexiones" description="Buffer, Postiz, Metricool, Planable, web y futuros proveedores se gestionan desde un único catálogo." back={backTo ? <NavLink to={backTo}>← Volver a la marca</NavLink> : undefined} actions={!brandId && brandOptions.length > 1 ? <Select aria-label="Filtrar por marca" value={selectedBrandId} onChange={(event) => setSelectedBrandId(event.target.value)}>{brandOptions.map((brand) => <option key={brand.id} value={brand.id}>{brand.name || brand.handle}</option>)}</Select> : undefined} />
     {error && <Card><p className="ui-field-error">{error}</p></Card>}
     <Card className="ui-mcp-card"><div className="ui-card-head"><div><span className="ui-eyebrow">Conexión externa</span><h2>Conectar esta marca con ChatGPT</h2><p className="muted">Añade la URL del MCP y completa OAuth con tu cuenta. El acceso se resuelve por tus membresías actuales de marca.</p></div></div>{mcpInfo?.mcpUrl && <div className="ui-mcp-value"><div><span className="ui-field-label">URL del MCP</span><code>{mcpInfo.mcpUrl}</code></div><Button type="button" variant="ghost" size="sm" onClick={() => void copyMcpUrl()}>Copiar</Button></div>}<p className="ui-field-hint">No existen tokens de marca. Para Cursor, Claude u otros clientes usa tu PAT personal desde Ajustes o el flujo OAuth.</p></Card>
