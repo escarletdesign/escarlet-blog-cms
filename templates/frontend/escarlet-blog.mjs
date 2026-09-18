@@ -7,7 +7,7 @@
  *   node scripts/escarlet-blog.mjs sync
  *
  * Env.
- *   BLOG_CMS_URL             https://blog-cms.escarlet.cc
+ *   BLOG_CMS_URL             https://cms.escarlet.design
  *   BLOG_CMS_SITE            handle
  *   BLOG_SITE_URL            https://dominio.com
  *   BLOG_RUNTIME_CHANNEL     v1
@@ -20,7 +20,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const landingRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 const runtimeDir = join(landingRoot, '.escarlet-blog-runtime')
-const DEFAULT_CMS = 'https://blog-cms.escarlet.cc'
+const DEFAULT_CMS = 'https://cms.escarlet.design'
 
 function loadLocalEnv() {
   for (const name of ['.env.local', '.env']) {

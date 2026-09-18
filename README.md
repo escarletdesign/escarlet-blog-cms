@@ -81,9 +81,9 @@ Deploy producción. [docs/DEPLOY.md](docs/DEPLOY.md).
 | `content_approve` / `content_reject` | Revisión individual o masiva |
 | `content_schedule` / `content_cancel` | Agendar o cancelar publicaciones v2 |
 | `content_list_calendar` | Calendario v2 por rango de fechas |
-| `blog_upload_media` | PNG/JPG en `contentBase64` o `blob` (2–3 MB valen). `kind` `post` o `social`. El CMS comprime a JPEG. Si recorta, `uploadId` a trozos |
+| `content_upload_media` | Almacenamiento canónico v2 para PNG/JPG en `contentBase64` o `blob` (2–3 MB valen). `kind` `post`, `social` o `reference`. Si recorta, `uploadId` a trozos |
 | `blog_import_remote_image` | Solo URL https pública (atajo) |
-| `blog_import_brand_zip` | Importar un brand kit para la app v2 |
+| `brand kit` en la app v2 | Importar y versionar el brand kit desde Administración, sin una tool legacy |
 
 Resources. `brand://{handle}/context` devuelve el contexto normalizado completo. Los archivos fuente privados solo se gestionan desde la app por owner/admin; `AGENT.md` y `keywords.md` quedan como adaptadores de compatibilidad.
 

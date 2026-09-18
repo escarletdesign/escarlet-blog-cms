@@ -258,6 +258,7 @@ import { testMetricoolConnection, scheduleMetricoolPost, syncMetricoolPost } fro
 import { testPlanableConnection } from './lib/planable.mjs'
 import { listPostizIntegrations, testPostizConnection, postizProviderForChannel } from './lib/postiz.mjs'
 import { listBufferOrganizations, listBufferChannels, testBufferConnection } from './lib/buffer.mjs'
+import { CANONICAL_CMS_URL, DEPRECATED_CMS_HOSTS, canonicalCmsPublicUrl } from './lib/cms-url.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = __dirname
@@ -288,7 +289,7 @@ if (isPostgresConfigured()) coreMigrationPromise.then(() => syncLegacyUsersToPos
 const PORT = Number(process.env.PORT || 3040)
 const ADMIN_TOKEN = String(process.env.ADMIN_TOKEN || '').trim()
 const DEFAULT_SITE = process.env.DEFAULT_SITE || 'escarlet'
-const CMS_PUBLIC_URL = (process.env.CMS_PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/$/, '')
+const CMS_PUBLIC_URL = canonicalCmsPublicUrl(process.env.CMS_PUBLIC_URL || `http://localhost:${PORT}`)
 // Token logins are the durable login method used by the PWA. Keep the
 // browser cookie across app/browser restarts; /api/logout explicitly clears it.
 const AUTH_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365
@@ -311,6 +312,23 @@ function html(res, status, body, extraHeaders = {}) {
     ...extraHeaders
   })
   res.end(body)
+}
+
+function requestHostname(req) {
+  const forwarded = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim()
+  const host = forwarded || String(req.headers.host || '').trim()
+  return host.replace(/^\[|\]$/g, '').split(':')[0].toLowerCase()
+}
+
+function rejectDeprecatedMcpHost(req, res) {
+  if (!DEPRECATED_CMS_HOSTS.includes(requestHostname(req))) return false
+  json(res, 410, {
+    code: 'deprecated_mcp_host',
+    message: 'Este endpoint MCP fue retirado. Reconecta usando el MCP v2 canónico.',
+    canonicalUrl: `${CANONICAL_CMS_URL}/mcp`,
+    reconnect: true
+  })
+  return true
 }
 
 function requireAuth(req, url, res) {
@@ -926,6 +944,7 @@ const server = createServer(async (req, res) => {
     path === '/.well-known/oauth-protected-resource' ||
     path === '/.well-known/oauth-protected-resource/mcp'
   ) {
+    if (rejectDeprecatedMcpHost(req, res)) return
     json(res, 200, protectedResourceMetadata())
     return
   }
@@ -934,6 +953,7 @@ const server = createServer(async (req, res) => {
     path === '/.well-known/oauth-authorization-server' ||
     path === '/.well-known/openid-configuration'
   ) {
+    if (rejectDeprecatedMcpHost(req, res)) return
     json(res, 200, authorizationServerMetadata())
     return
   }
@@ -984,6 +1004,7 @@ const server = createServer(async (req, res) => {
   }
 
   if (path === '/mcp') {
+    if (rejectDeprecatedMcpHost(req, res)) return
     let auth
     try {
       auth = await resolveRequestAuthAsync(req, url)
@@ -2231,6 +2252,11 @@ const server = createServer(async (req, res) => {
       ok: persistence.writable,
       version: MCP_SERVER_VERSION,
       mcp: '/mcp',
+      mcpContract: 'v2',
+      deploymentTrack: 'v2',
+      canonicalMcpUrl: `${CANONICAL_CMS_URL}/mcp`,
+      deprecatedMcpHosts: [...DEPRECATED_CMS_HOSTS],
+      mcpUploadV2: 'content_upload_media',
       mcpUpload: MEDIA_UPLOAD_TOOL,
       postgres: { configured: isPostgresConfigured(), migrationsStarted: isPostgresConfigured() },
       persistence

@@ -101,7 +101,7 @@ En cada **build** de escarlet002 (Coolify o local):
 
 1. `npm run build` / `blog:sync` ejecuta `scripts/escarlet-blog.mjs`
 2. Ese hook baja el runtime desde  
-   `https://blog-cms.escarlet.cc/runtime/v1/manifest.json`
+   `https://cms.escarlet.design/runtime/v1/manifest.json`
 3. Ejecuta `sync-blog-cms.mjs`, que pide  
    `GET /api/sites/escarlet/posts`
 4. Escribe `src/data/blog.generated.js` (mezcla CMS + fallback local)
@@ -110,7 +110,7 @@ En cada **build** de escarlet002 (Coolify o local):
 **Env en la app Coolify de escarlet002:**
 
 ```
-BLOG_CMS_URL=https://blog-cms.escarlet.cc
+BLOG_CMS_URL=https://cms.escarlet.design
 BLOG_CMS_SITE=escarlet
 ```
 
@@ -122,7 +122,7 @@ Local:
 
 ```bash
 cd escarlet002
-BLOG_CMS_URL=https://blog-cms.escarlet.cc BLOG_CMS_SITE=escarlet npm run blog:sync
+BLOG_CMS_URL=https://cms.escarlet.design BLOG_CMS_SITE=escarlet npm run blog:sync
 ```
 
 ### 2) Rebuild automático al publicar (CMS → Coolify)
@@ -167,7 +167,7 @@ Publicar en CMS ──webhook──► Coolify rebuild escarlet002
 
 | Paso | Resultado |
 |------|-----------|
-| CMS health `blog-cms.escarlet.cc` | OK (persistencia, posts en volumen) |
+| CMS health `cms.escarlet.design` | OK (persistencia, Postgres y app v2) |
 | `GET /api/sites/escarlet/posts` | OK (`blogEnabled: true`, posts publicados) |
 | Sync local `npm run blog:sync` | OK → `blog.generated.js` (CMS + fallback) |
 | Runtime servido | **v1.2.0** (solo sync; Social Pack en CMS) |

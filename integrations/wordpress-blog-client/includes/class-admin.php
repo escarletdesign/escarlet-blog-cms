@@ -309,7 +309,7 @@ final class Escarlet_Blog_Client_Admin {
 						<th scope="row"><label for="cms_url"><?php esc_html_e( 'URL del CMS', 'escarlet-blog-client' ); ?></label></th>
 						<td>
 							<input name="cms_url" id="cms_url" type="url" class="regular-text" value="<?php echo esc_attr( $cms ); ?>" required />
-							<p class="description"><?php esc_html_e( 'Ejemplo. https://blog-cms.escarlet.cc', 'escarlet-blog-client' ); ?></p>
+							<p class="description"><?php esc_html_e( 'Ejemplo. https://cms.escarlet.design', 'escarlet-blog-client' ); ?></p>
 						</td>
 					</tr>
 					<tr>

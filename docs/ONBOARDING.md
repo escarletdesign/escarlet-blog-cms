@@ -1,7 +1,7 @@
 # Onboarding — añadir blog a un proyecto
 
 Guía personal para crear un site nuevo o enchufar el blog a una landing ya existente.
-Un solo CMS (`blog-cms.escarlet.cc`). Cada web es un **handle** con su brand kit y su webhook.
+Un solo CMS v2 (`cms.escarlet.design`). Cada web es un **handle** con su brand kit y su webhook.
 
 ## Idea en 30 segundos
 
@@ -36,7 +36,7 @@ Las invitaciones asignan una o varias marcas y un rol independiente por marca. R
 
 ## A. Site nuevo en el CMS (5 min)
 
-Desde la app. `https://blog-cms.escarlet.cc/app/admin` → **Sitio** → **Nuevo sitio**.
+Desde la app. `https://cms.escarlet.design/app/admin` → **Sitio** → **Nuevo sitio**.
 Asistente en 3 pasos (datos, Coolify, crear) con ayuda de dónde sacar webhook y token.
 
 También por CLI o MCP.
@@ -95,7 +95,7 @@ Luego completa el brand kit en `/app/admin` → Brand kit.
 ### Env en Coolify (app del frontend)
 
 ```
-BLOG_CMS_URL=https://blog-cms.escarlet.cc
+BLOG_CMS_URL=https://cms.escarlet.design
 BLOG_CMS_SITE=mares24
 BLOG_SITE_URL=https://mares24.com
 ```

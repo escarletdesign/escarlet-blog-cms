@@ -33,7 +33,7 @@ final class Escarlet_Blog_Client_Settings {
 			array(
 				'type'              => 'string',
 				'sanitize_callback' => array( __CLASS__, 'sanitize_url' ),
-				'default'           => 'https://blog-cms.escarlet.cc',
+				'default'           => 'https://cms.escarlet.design',
 			)
 		);
 		register_setting(
@@ -75,8 +75,8 @@ final class Escarlet_Blog_Client_Settings {
 	}
 
 	public static function cms_url(): string {
-		$url = (string) get_option( self::OPTION_CMS_URL, 'https://blog-cms.escarlet.cc' );
-		return untrailingslashit( $url ?: 'https://blog-cms.escarlet.cc' );
+		$url = (string) get_option( self::OPTION_CMS_URL, 'https://cms.escarlet.design' );
+		return untrailingslashit( $url ?: 'https://cms.escarlet.design' );
 	}
 
 	public static function site_handle(): string {

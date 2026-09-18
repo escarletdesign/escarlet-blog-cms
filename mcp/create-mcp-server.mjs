@@ -16,6 +16,7 @@ import {
 import { openaiFileDefs, connectorFileMeta } from '../lib/openai-file.mjs'
 import { assertSiteAccess, assertSuperAdmin, allowedSiteHandles, isSiteScopedRole, workspaceRoleForAuth } from '../lib/auth.mjs'
 import { brandFilesForAuth, SECRET_BRAND_FILES, prepareImageGeneration, validateImagePreparation } from '../lib/brand-kit.mjs'
+import { CANONICAL_CMS_URL, canonicalCmsPublicUrl } from '../lib/cms-url.mjs'
 import { assertChatToolAllowed, assertSafeToolArguments } from '../lib/ai-security.mjs'
 import { loadSiteConfig, isSocialMediaOnlySite } from '../lib/site-config.mjs'
 import { mediaDir, readDb } from '../lib/db.mjs'
@@ -421,8 +422,7 @@ async function resolveContentScope(auth, args = {}) {
 }
 
 function cmsOrigin() {
-  return String(process.env.CMS_PUBLIC_URL || 'https://cms.escarlet.design')
-    .replace(/\/$/, '')
+  return canonicalCmsPublicUrl(process.env.CMS_PUBLIC_URL || CANONICAL_CMS_URL)
     .replace(/\/app$/, '')
 }
 

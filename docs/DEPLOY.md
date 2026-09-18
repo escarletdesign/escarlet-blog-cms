@@ -44,7 +44,7 @@ En producción crea dos recursos dentro del mismo proyecto/red de Coolify:
 - Tipo. **Dockerfile** (raíz del repo)
 - Puerto expuesto. `3040`
 - Health check. `GET /api/health`
-- Rama. `master`
+- Rama. `v2`
 - No configures un proceso/servicio adicional `node worker.mjs`: el entrypoint ya lo
   inicia en el mismo contenedor cuando `WORKER_ENABLED=1`.
 
@@ -63,8 +63,8 @@ En Coolify → tu app CMS → **Storages / Persistent Storage** → Add:
 Comprueba tres veces:
 
 1. Destination Path es exactamente `/app/data` (no `/data`, no `/app/data/db.json`).
-2. El storage está **activo** en la app de `blog-cms.escarlet.cc`.
-3. Tras el deploy, abre `https://blog-cms.escarlet.cc/api/health` y mira `persistence`.
+2. El storage está **activo** en la app de `cms.escarlet.design`.
+3. Tras el deploy, abre `https://cms.escarlet.design/api/health` y mira `persistence`.
 
 Ejemplo sano:
 
@@ -100,7 +100,7 @@ Configúralas como secretos/variables de Coolify, nunca en el repositorio:
 ```
 NODE_ENV=production
 PORT=3040
-CMS_PUBLIC_URL=https://blog-cms.escarlet.cc
+CMS_PUBLIC_URL=https://cms.escarlet.design
 ADMIN_TOKEN=<secreto-aleatorio-largo>
 DEFAULT_SITE=escarlet
 DATABASE_URL=postgres://usuario:password@postgres:5432/escarlet_blog
@@ -121,7 +121,7 @@ Con `PRODUCT_RESTRUCTURE_V1=1`:
 
 1. Crea Payment Links en Stripe (setup, membership, hosting opcional).
 2. En cada link, metadata: `site=<handle>`, `kind=setup|membership|hosting`, `planId=standard` (membership/setup).
-3. Webhook Stripe → `POST https://blog-cms…/api/stripe/webhook` (evento `checkout.session.completed`).
+3. Webhook Stripe → `POST https://cms.escarlet.design/api/stripe/webhook` (evento `checkout.session.completed`).
 4. Env: `STRIPE_WEBHOOK_SECRET`, `DATABASE_URL` y `CMS_SECRET_KEY` (32 bytes o más). Postgres es obligatorio para `/api/v2`, membresías workspace y jobs; el ledger Stripe conserva compatibilidad JSON solo durante la importación.
 5. Agency: `GET /api/admin/payment-links` muestra el contrato de metadata.
 
@@ -161,11 +161,11 @@ idempotentes.
 Conecta cada workspace/sitio desde un cliente con rol `owner` o `admin`:
 
 ```bash
-curl -X POST https://blog-cms.escarlet.cc/api/v2/integrations/metricool/connect \
+curl -X POST https://cms.escarlet.design/api/v2/integrations/metricool/connect \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"site":"escarlet","userToken":"<metricool-token>","userId":"<metricool-user-id>","blogId":"<metricool-blog-id>","timezone":"Europe/Madrid","capabilities":["instagram","linkedin","x","blog"]}'
-curl -X POST https://blog-cms.escarlet.cc/api/v2/integrations/metricool/test \
+curl -X POST https://cms.escarlet.design/api/v2/integrations/metricool/test \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H 'Content-Type: application/json' -d '{"site":"escarlet"}'
 ```
@@ -205,11 +205,11 @@ La API key se cifra en Postgres y nunca se devuelve al navegador. El worker publ
 
 Webhook por site. Configúralo en dashboard → **Sitio** (recomendado). Opcional fallback env `REBUILD_WEBHOOK_URL`.
 
-`CMS_PUBLIC_URL` en producción tiene que ser `https://blog-cms.escarlet.cc`. Si queda vacío o en `localhost`, el MCP igual devolverá links absolutos con fallback a `https://blog-cms.escarlet.cc` (preview y media) para que Hermes pueda pegar un enlace clicable.
+`CMS_PUBLIC_URL` en producción tiene que ser `https://cms.escarlet.design`. Si queda vacío o en `localhost`, el MCP igual devolverá links absolutos con fallback a `https://cms.escarlet.design` (preview y media) para que Hermes pueda pegar un enlace clicable.
 
 ### Dominio
 
-`blog-cms.escarlet.cc` — uso interno del equipo. No enlazar desde escarlet.design.
+El host `blog-cms.escarlet.cc` está retirado y no debe configurarse en clientes MCP, frontends ni variables de producción.
 
 ---
 
@@ -218,7 +218,7 @@ Webhook por site. Configúralo en dashboard → **Sitio** (recomendado). Opciona
 Variables **nuevas** en la app de escarlet.design:
 
 ```
-BLOG_CMS_URL=https://blog-cms.escarlet.cc
+BLOG_CMS_URL=https://cms.escarlet.design
 BLOG_CMS_SITE=escarlet
 ```
 
@@ -256,7 +256,7 @@ ChatGPT solo ofrece OAuth (o sin autenticación). El CMS incluye un OAuth 2.1 m�
 3. Autenticación. **OAuth**
 4. Nombre. `escarlet-blog` (o el del cliente)
 5. Al conectar, ChatGPT abre la pantalla del CMS. Usa OAuth o pega tu PAT personal y autoriza una vez.
-6. Icono. Descarga el PNG del favicon (<10 KB) que muestra el panel al generar el token. Ruta pública típica. `https://blog-cms.escarlet.cc/media/{handle}/agent-icon.png`
+6. Icono. Descarga el PNG del favicon (<10 KB) que muestra el panel al generar el token. Ruta pública típica. `https://cms.escarlet.design/media/{handle}/agent-icon.png`
 
 Cursor y Hermes siguen con Bearer directo. No hace falta migrarlos a OAuth.
 
@@ -291,7 +291,7 @@ Objetivo. Cuando publicas en el CMS, escarlet.design se reconstruye solo con los
 
 ### B. Pégala en el CMS (dashboard)
 
-1. Abre `https://blog-cms.escarlet.cc/app` (o local)
+1. Abre `https://cms.escarlet.design/app` (o local)
 2. Tab **Sitio**
 3. Campo **Deploy webhook** → pega la URL
 4. Campo **Token API Coolify** → pega el token con permiso Deploy
@@ -307,7 +307,7 @@ Fallback opcional por env en la app CMS. `REBUILD_WEBHOOK_URL` y `COOLIFY_API_TO
 En la app escarlet002:
 
 ```
-BLOG_CMS_URL=https://blog-cms.escarlet.cc
+BLOG_CMS_URL=https://cms.escarlet.design
 BLOG_CMS_SITE=escarlet
 ```
 
