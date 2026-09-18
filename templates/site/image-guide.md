@@ -20,6 +20,8 @@
 
 Antes de generar cualquier imagen, llama `brand_prepare_image_generation` después de `brand_get_context`. Entrega al generador exactamente sus `resolvedReferences` como `ImageContent`, en el orden de `attachmentIndex`. No escojas ni sustituyas referencias. Si `generationBlocked` es `true`, detén la generación y restaura los activos indicados. Esta regla aplica a portadas, imágenes de artículo, imágenes sociales, slides, fondos y piezas de apoyo.
 
+Una petición singular de imagen produce una sola imagen final y una sola subida. No generes variantes, galerías ni slides si el usuario no pidió explícitamente varias piezas.
+
 ## Carrusel Instagram (si el canal está activo)
 
 1. Genera 4–7 slides 1080×1350 (o 1080×1080) alineados con visual-style.

@@ -46,6 +46,8 @@ Env `BLOG_ENABLED=false` en local fuerza apagado. El interruptor del CMS manda e
 
 ## Imágenes
 
+Una petición singular significa una sola generación y una sola subida. Las variantes o carruseles solo se crean si el usuario los pide explícitamente.
+
 1. Preferido. `content_upload_media` con `contentBase64` o `blob` (PNG de 2–3 MB valen). El CMS comprime a JPEG y devuelve `media.url`.
 2. Si el host recorta el argumento. `uploadId` + `chunkIndex` + `chunkCount`.
 3. URL https pública en `imageUrl`. Nunca pases `/mnt/data` como `imageUrl`.

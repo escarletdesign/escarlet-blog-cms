@@ -267,6 +267,11 @@ async function preparedImageResult(payload) {
     brandGroundingContract: {
       requiredForUpload: true,
       preparationIdField: 'brandPreparation.preparationId',
+      generationCardinality: payload?.generationCardinality || {
+        defaultImageCount: 1,
+        maxImageCount: 1,
+        unit: 'final_image'
+      },
       exactReferenceOrder: Array.isArray(payload?.resolvedReferences)
         ? payload.resolvedReferences.map((reference) => reference.filename)
         : [],
@@ -921,7 +926,7 @@ export function buildToolList(auth) {
     { name: 'brand_get_context', description: 'Devuelve el contexto general canónico de una marca. No reemplaza la preparación de una generación de imagen. Todos los endpoints leen el mismo snapshot versionado.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, siteId: { type: 'string' } } }, annotations: { readOnlyHint: true } },
     {
       name: 'brand_prepare_image_generation',
-      description: 'Obligatoria antes de generar cualquier imagen. Clasifica el brief con una política determinista, resuelve exactamente las referencias permitidas y las devuelve como ImageContent en el mismo orden. El cliente debe entregar exactamente resolvedReferences al generador, no puede escoger ni sustituir referencias. Si generationBlocked es true, debe detenerse.',
+      description: 'Obligatoria antes de generar cualquier imagen. Clasifica el brief con una política determinista, resuelve exactamente las referencias permitidas y las devuelve como ImageContent en el mismo orden. Una llamada prepara una imagen final, no una galería. El cliente debe entregar exactamente resolvedReferences al generador, no puede escoger ni sustituir referencias. Si generationBlocked es true, debe detenerse.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -939,7 +944,7 @@ export function buildToolList(auth) {
     },
     {
       name: 'content_upload_media',
-      description: 'Sube una imagen al almacenamiento canónico v2 y devuelve un mediaAssetId utilizable por content_update_item. Para post o social exige brandPreparationId vigente de brand_prepare_image_generation, con las referencias exactas adjuntas.',
+      description: 'Sube una única imagen al almacenamiento canónico v2 y devuelve un mediaAssetId utilizable por content_update_item. Para post o social exige brandPreparationId vigente de brand_prepare_image_generation, con las referencias exactas adjuntas. Si el usuario pidió una imagen singular, no repitas esta tool ni generes variantes.',
       inputSchema: {
         type: 'object',
         $defs: openaiFileDefs(),
@@ -995,7 +1000,7 @@ export function buildToolList(auth) {
  */
 export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = false, source = 'mcp' } = {}) {
   const server = new Server(
-    { name: 'escarlet-blog-cms', version: MCP_SERVER_VERSION, title: 'Escarlet Blog CMS' },
+    { name: 'escarlet-cms-v2', version: MCP_SERVER_VERSION, title: 'Escarlet CMS v2' },
     { capabilities: { tools: {}, resources: {} }, instructions: MCP_INSTRUCTIONS }
   )
 

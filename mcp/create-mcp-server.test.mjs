@@ -26,7 +26,7 @@ test('el contrato MCP expone media y contenido v2, sin operaciones de posts lega
   for (const name of ['blog_list_posts', 'blog_get_post', 'blog_create_draft', 'blog_update_post', 'blog_publish', 'blog_schedule_post', 'blog_list_calendar', 'blog_get_workflow', 'blog_get_brand_context', 'social_list_packs']) {
     assert.equal(tools.some((tool) => tool.name === name), false, name)
   }
-  assert.ok(MCP_SERVER_VERSION.startsWith('2.5'))
+  assert.ok(MCP_SERVER_VERSION.startsWith('2.6'))
 })
 
 test('createMcpServer anuncia el contrato v2 y la selección explícita de marca', () => {
@@ -37,6 +37,7 @@ test('createMcpServer anuncia el contrato v2 y la selección explícita de marca
   assert.match(MCP_INSTRUCTIONS, /pregunta al usuario/i)
   assert.match(MCP_INSTRUCTIONS, /content_list_items/)
   assert.match(MCP_INSTRUCTIONS, /content_upload_media/)
+  assert.match(MCP_INSTRUCTIONS, /exactamente una imagen/i)
 })
 
 test('el MCP no elige una marca por defecto cuando el acceso incluye varias', async () => {

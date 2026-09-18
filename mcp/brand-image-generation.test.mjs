@@ -39,6 +39,8 @@ test('la petición genérica resuelve la ruta positiva y adjunta referencias en 
   const value = payload(result)
   assert.equal(value.route, 'positive_or_inspirational')
   assert.equal(value.generationBlocked, false)
+  assert.equal(value.generationCardinality.defaultImageCount, 1)
+  assert.equal(value.generationCardinality.maxImageCount, 1)
   assert.deepEqual(value.resolvedReferences.map((reference) => reference.filename), [
     '05-tablero-visual.png', 'fondo-escarlet.jpg', 'reference-visual-style-02.png'
   ])

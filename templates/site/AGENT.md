@@ -15,6 +15,7 @@ Si `missingBrand` tiene archivos, para y pide que los completen.
 
 1. Si hay varias marcas, llama `brand_list` y pregunta cuál quiere usar. Nunca elijas una por defecto.
 2. Genera el título, contenido, metadatos e imágenes en ChatGPT siguiendo el brand kit y sus referencias.
+   Si el usuario pide una imagen en singular, genera exactamente una imagen y sube un solo archivo. No generes variantes ni galerías salvo que indique una cantidad.
 3. Crea el plan con `content_create_batch` y sigue su estado con `content_list_plans`, `content_list_items` o `content_get_batch`.
 4. Corrige con `content_update_item`. Tras la revisión humana usa `content_approve` o `content_reject`.
 5. Para una fecha futura usa `content_schedule`. Para detener una publicación no publicada usa `content_cancel`.

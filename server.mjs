@@ -2251,6 +2251,7 @@ const server = createServer(async (req, res) => {
     json(res, persistence.writable ? 200 : 503, {
       ok: persistence.writable,
       version: MCP_SERVER_VERSION,
+      mcpServerName: 'escarlet-cms-v2',
       mcp: '/mcp',
       mcpContract: 'v2',
       deploymentTrack: 'v2',
