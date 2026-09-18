@@ -70,7 +70,7 @@ test('brand_get_context y media siguen compartiendo el contrato de referencias',
   assert.equal(value.brandAccessLevel, 'sanitized')
   assert.ok(value.referenceDelivery.inspectable)
   assert.match(JSON.stringify(value.brandKit?.agentRules), /content_list_items/)
-  assert.doesNotMatch(JSON.stringify(value), /blog_list_posts|blog_get_brand_context/)
+  assert.doesNotMatch(JSON.stringify(value), /blog_list_posts|blog_get_brand_context|blog_upload_media|blog_open_image_drop/)
   assert.ok(result.content.some((block) => block.type === 'image' || block.type === 'resource_link'))
 })
 

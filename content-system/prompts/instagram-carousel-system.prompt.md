@@ -4,7 +4,7 @@ La IA genera únicamente fondos o elementos visuales sin texto. El texto exacto 
 
 Reglas:
 
-- Antes de generar cualquier fondo o elemento visual, consulta `blog_get_brand_context`, llama `brand_prepare_image_generation` y entrega exactamente sus `resolvedReferences` como `ImageContent`. No escojas ni sustituyas referencias. Si `generationBlocked` es `true`, detén la generación.
+- Antes de generar cualquier fondo o elemento visual, consulta `brand_get_context`, llama `brand_prepare_image_generation` y entrega exactamente sus `resolvedReferences` como `ImageContent`. No escojas ni sustituyas referencias. Si `generationBlocked` es `true`, detén la generación.
 - usa un único `templateId` para todo el carrusel;
 - renderiza 4–7 slides en 1080×1350;
 - respeta safe areas, maxChars, maxLines y la fuente declarada por el template;
