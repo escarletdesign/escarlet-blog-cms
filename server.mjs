@@ -172,7 +172,7 @@ import {
   assertSafeAiPrompt,
   isChatToolAllowedName
 } from './lib/ai-security.mjs'
-import { MCP_SERVER_VERSION, MEDIA_UPLOAD_TOOL } from './lib/media-upload-contract.mjs'
+import { MCP_SERVER_VERSION } from './lib/media-upload-contract.mjs'
 import {
   RUNTIME_CHANNEL,
   getRuntimeManifest,
@@ -2256,8 +2256,7 @@ const server = createServer(async (req, res) => {
       deploymentTrack: 'v2',
       canonicalMcpUrl: `${CANONICAL_CMS_URL}/mcp`,
       deprecatedMcpHosts: [...DEPRECATED_CMS_HOSTS],
-      mcpUploadV2: 'content_upload_media',
-      mcpUpload: MEDIA_UPLOAD_TOOL,
+      mcpUpload: 'content_upload_media',
       postgres: { configured: isPostgresConfigured(), migrationsStarted: isPostgresConfigured() },
       persistence
     })
