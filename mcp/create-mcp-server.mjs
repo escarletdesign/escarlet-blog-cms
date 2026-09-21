@@ -119,6 +119,31 @@ const LEGACY_CONTENT_REPLACEMENTS = Object.freeze({
   blog_cancel_schedule: 'content_cancel',
   blog_list_calendar: 'content_list_calendar'
 })
+const LEGACY_UPLOAD_TOOLS = new Set([
+  'blog_upload_media_file',
+  'blog_open_image_drop',
+  'blog_upload_media',
+  'blog_import_remote_image'
+])
+const FINAL_IMAGE_RECEIPT_CONDITION = {
+  oneOf: [
+    {
+      properties: { kind: { const: 'reference' } },
+      required: ['kind']
+    },
+    {
+      properties: {
+        kind: { enum: ['post', 'social'] },
+        generationReceiptId: {
+          type: 'string',
+          minLength: 1,
+          description: 'Receipt emitido por brand_complete_image_generation. Obligatorio para post y social.'
+        }
+      },
+      required: ['kind', 'generationReceiptId']
+    }
+  ]
+}
 const MUTATING_SITE_TOOLS = new Set([
   'brand_complete_image_generation',
   'brand_register_generation',
@@ -839,7 +864,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_upload_media_file',
       description:
-        'Plan A de compatibilidad. Para kind post o social exige generationReceiptId emitido por brand_complete_image_generation. brandPreparationId por sí solo no autoriza la subida. Si no aparece en el set de tools, usa content_upload_media en el contrato v2.',
+        'Plan A de compatibilidad. Para kind post o social exige generationReceiptId emitido por brand_complete_image_generation. brandPreparationId por sí solo no autoriza la subida.',
       inputSchema: {
         type: 'object',
         $defs: openaiFileDefs(),
@@ -851,6 +876,7 @@ export function buildToolList(auth) {
           },
           kind: {
             type: 'string',
+            enum: ['post', 'social', 'reference'],
             description: 'post = portada. social = carrusel Instagram. reference = moodboard.'
           },
           alt: { type: 'string' },
@@ -860,7 +886,8 @@ export function buildToolList(auth) {
           brandRoute: { type: 'string', description: 'Ruta devuelta por brand_prepare_image_generation.' },
           file: { $ref: '#/$defs/OpenAIFile' }
         },
-        required: ['site', 'filename', 'file']
+        required: ['site', 'filename', 'kind', 'file'],
+        ...FINAL_IMAGE_RECEIPT_CONDITION
       },
       annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false },
       _meta: {
@@ -883,15 +910,17 @@ export function buildToolList(auth) {
           },
           kind: {
             type: 'string',
+            enum: ['post', 'social', 'reference'],
             description: 'post = portada. social = carrusel Instagram. reference = moodboard.'
           },
           alt: { type: 'string' },
           brandPreparationId: { type: 'string' },
-          generationReceiptId: { type: 'string' },
+          generationReceiptId: { type: 'string', description: 'Receipt emitido por brand_complete_image_generation. Obligatorio para post y social.' },
           brandAssetType: { type: 'string' },
           brandRoute: { type: 'string' }
         },
-        required: ['site', 'filename']
+        required: ['site', 'filename', 'kind'],
+        ...FINAL_IMAGE_RECEIPT_CONDITION
       },
       annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false }
     },
@@ -910,6 +939,7 @@ export function buildToolList(auth) {
           },
           kind: {
             type: 'string',
+            enum: ['post', 'social', 'reference'],
             description: 'post = portada. social = carrusel Instagram. reference = moodboard.'
           },
           contentBase64: {
@@ -937,7 +967,8 @@ export function buildToolList(auth) {
           chunkIndex: { type: 'string', description: 'Número de trozo desde 0, en texto' },
           chunkCount: { type: 'string', description: 'Total de trozos, en texto' }
         },
-        required: ['site', 'filename']
+        required: ['site', 'filename', 'kind'],
+        ...FINAL_IMAGE_RECEIPT_CONDITION
       },
       annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false }
     },
@@ -956,7 +987,7 @@ export function buildToolList(auth) {
           },
           alt: { type: 'string' },
           brandPreparationId: { type: 'string' },
-          generationReceiptId: { type: 'string' },
+          generationReceiptId: { type: 'string', description: 'Receipt emitido por brand_complete_image_generation. Obligatorio para post y social.' },
           brandAssetType: { type: 'string' },
           brandRoute: { type: 'string' },
           kind: {
@@ -965,7 +996,8 @@ export function buildToolList(auth) {
             description: 'post, social o reference'
           }
         },
-        required: ['site', 'filename', 'imageUrl']
+        required: ['site', 'filename', 'kind', 'imageUrl'],
+        ...FINAL_IMAGE_RECEIPT_CONDITION
       },
       annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false }
     },
@@ -1085,7 +1117,8 @@ export function buildToolList(auth) {
           brandRoute: { type: 'string' },
           itemId: { type: 'string' }
         },
-        required: ['site', 'filename', 'kind']
+        required: ['site', 'filename', 'kind'],
+        ...FINAL_IMAGE_RECEIPT_CONDITION
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
       _meta: {
@@ -1109,9 +1142,9 @@ export function buildToolList(auth) {
   return tools
     .filter((t) => !CMS_AI_TOOLS.has(t.name))
     .filter((t) => !LEGACY_CONTENT_TOOLS.has(t.name))
-    // v2 has one public contract. Keep compatibility handlers private so a
-    // client cannot select a legacy blog/social tool by ordering or cache.
-    .filter((t) => !/^(blog|social)_/.test(t.name))
+    // v2 has one public contract. Keep legacy content handlers private while
+    // exposing the media upload compatibility tools with the same receipt gate.
+    .filter((t) => !/^(blog|social)_/.test(t.name) || LEGACY_UPLOAD_TOOLS.has(t.name))
     .filter((t) => !(t.adminOnly && auth?.role !== 'admin'))
     .map(({ adminOnly, ...rest }) => rest)
 }
@@ -1300,10 +1333,10 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           })
         }
         case 'content_upload_media': {
-          const scope = await resolveContentScope(auth, args)
-          const site = scope.siteHandle
+          const site = resolveToolSite(auth, args)
           const kind = String(args.kind || 'post').toLowerCase()
           await assertMcpImageGrounding(site, args)
+          const scope = await resolveContentScope(auth, { ...args, site })
           const uploaded = await cms.uploadMedia({
             ...args,
             site,
