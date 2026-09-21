@@ -77,20 +77,24 @@ async function processExternalPublicationEvent(event) {
   const pool = await getPgPool()
   if (!pool) throw new Error('Postgres no está configurado.')
   const itemId = event.payload?.itemId || event.aggregate_id
-  const variants = await pool.query(`SELECT cv.id,cv.channel,cv.body,ci.site_id, s.publication_date,s.timezone,s.provider_post_id,
+  const variantsResult = await pool.query(`SELECT cv.id,cv.channel,cv.body,ci.site_id, s.publication_date,s.timezone,s.provider_post_id,
       cc.provider AS connection_provider,cc.credentials_ciphertext AS connection_credentials_ciphertext,cc.external_account_id AS connection_external_account_id,cc.config AS connection_config,
       mi.user_token_ciphertext,mi.metricool_user_id,mi.blog_id,mi.timezone AS integration_timezone
     FROM content_variants cv JOIN content_items ci ON ci.id=cv.item_id LEFT JOIN schedules s ON s.variant_id=cv.id
     LEFT JOIN LATERAL (SELECT provider,credentials_ciphertext,external_account_id,config FROM channel_connections WHERE workspace_id=cv.workspace_id AND site_id=ci.site_id AND channel=cv.channel AND status='connected' ORDER BY is_primary DESC,updated_at DESC LIMIT 1) cc ON TRUE
     LEFT JOIN LATERAL (SELECT user_token_ciphertext,metricool_user_id,blog_id,timezone FROM metricool_integrations WHERE workspace_id=cv.workspace_id AND (site_id=ci.site_id OR site_id IS NULL) AND enabled=TRUE ORDER BY CASE WHEN site_id=ci.site_id THEN 0 ELSE 1 END LIMIT 1) mi ON TRUE
     WHERE ci.id=$1 AND ci.workspace_id=$2 AND cv.status<>'canceled'`, [itemId, event.workspace_id])
-  if (event.type === 'content.item.approved' && variants.rows.every((variant) => !variant.publication_date)) return
-  for (const variant of variants.rows) {
+  const requestedChannels = new Set(Array.isArray(event.payload?.channels) ? event.payload.channels.map((channel) => String(channel).toLowerCase()) : [])
+  const variants = requestedChannels.size
+    ? variantsResult.rows.filter((variant) => requestedChannels.has(String(variant.channel).toLowerCase()))
+    : variantsResult.rows
+  if (event.type === 'content.item.approved' && variants.every((variant) => !variant.publication_date)) return
+  for (const variant of variants) {
     // Blog remains a first-class channel. Keep the legacy CMS/webhook path for
     // existing web connections, but allow Postiz's WordPress integration to
     // execute it like any other provider when explicitly configured.
     const configuredProvider = String(variant.connection_provider || '').toLowerCase()
-    if (variant.channel === 'blog' && configuredProvider !== 'postiz') {
+    if (variant.channel === 'blog' && !['postiz', 'buffer'].includes(configuredProvider)) {
       const publicationDate = variant.publication_date ? new Date(variant.publication_date) : null
       if (publicationDate && publicationDate.getTime() > Date.now()) {
         await enqueueJob({ workspaceId: event.workspace_id, type: 'content.publish_blog', payload: { variantId: variant.id }, idempotencyKey: `blog-publish:${variant.id}:${publicationDate.toISOString()}`, availableAt: publicationDate })
@@ -106,7 +110,8 @@ async function processExternalPublicationEvent(event) {
     const token = decryptSecret(variant.connection_credentials_ciphertext || variant.user_token_ciphertext)
     if (!token) throw new Error(`${provider} no está configurado para la marca.`)
     const body = variant.body && typeof variant.body === 'object' ? variant.body : {}
-    const text = body.text || body.caption || body.body || body.bodyHtml || body.title || body.topic || ''
+    const socialPack = body.socialPack && typeof body.socialPack === 'object' ? body.socialPack : {}
+    const text = body.text || body.caption || socialPack.instagramCaption || socialPack.caption || body.body || body.bodyHtml || body.title || body.topic || ''
     const mediaRows = await pool.query('SELECT ma.public_url AS "url",ma.metadata FROM content_variant_media cvm JOIN media_assets ma ON ma.id=cvm.media_asset_id WHERE cvm.variant_id=$1 ORDER BY cvm.sort_order', [variant.id])
     await recordUsage({ workspaceId: event.workspace_id, siteId: variant.site_id, kind: 'publications', quantity: 1, idempotencyKey: `publication:${event.id}:${variant.id}`, metadata: { itemId, channel: variant.channel, provider } })
     let response

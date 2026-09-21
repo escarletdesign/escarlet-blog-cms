@@ -45,6 +45,7 @@ export interface ContentVariant {
   channel: ContentChannel;
   status: ContentStatus;
   body: Record<string, any>;
+  media?: MediaItem[];
 }
 export interface ContentItem {
   id: string;
