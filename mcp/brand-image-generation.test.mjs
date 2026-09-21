@@ -1,9 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, rmSync } from 'node:fs'
+import { copyFileSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { invokeMcpTool } from './create-mcp-server.mjs'
-import { assertBrandFileAccess, getBrandContext, validateImagePreparation, writeBrandFile } from '../lib/brand-kit.mjs'
+import { assertBrandFileAccess, getBrandContext, loadCanonicalBrandKit, validateImagePreparation, writeBrandFile } from '../lib/brand-kit.mjs'
 
 function payload(result) {
   return JSON.parse(result.content.find((block) => block.type === 'text')?.text || '{}')
@@ -75,6 +75,58 @@ test('las rutas de escenas son cerradas y no heredan referencias de otro sitio',
   assert.equal(work.route, 'human_or_work')
   assert.equal(tense.route, 'introspective_or_tense')
   for (const value of [work, tense]) assert.ok(value.resolvedReferences.every((reference) => reference.mediaId?.startsWith('media-1789')))
+})
+
+test('la preparación visual es aislada y no modifica el brandkit ni depende del historial del chat', async () => {
+  const before = loadCanonicalBrandKit('escarlet', { forceReload: true })
+  const result = await invokeMcpTool('brand_prepare_image_generation', {
+    site: 'escarlet',
+    assetType: 'generic',
+    title: 'prueba limpia',
+    topic: 'brief aislado sin contexto conversacional'
+  }, { role: 'admin' })
+  const value = payload(result)
+  const after = loadCanonicalBrandKit('escarlet', { forceReload: true })
+  assert.equal(value.readyForGeneration, true)
+  assert.equal(value.conversationId, undefined)
+  assert.equal(value.brandIsolation.conversationIndependent, true)
+  assert.equal(value.brandIsolation.writesBrandKit, false)
+  assert.equal(after.brandKitSnapshotHash, before.brandKitSnapshotHash)
+  assert.equal(after.brandKitVersionId, before.brandKitVersionId)
+  assert.deepEqual(after.references.map((reference) => reference.filename), before.references.map((reference) => reference.filename))
+})
+
+test('la política de referencias se deriva por marca y no depende de Escarlet', async () => {
+  const site = `grounding-${Date.now()}`
+  const sourceRoot = new URL('../data/media/escarlet/reference/', import.meta.url)
+  try {
+    writeBrandFile(site, 'AGENT.md', '# Agente\nUsa brand_prepare_image_generation.\n')
+    writeBrandFile(site, 'keywords.md', '# Keywords\n')
+    writeBrandFile(site, 'brand-core.json', JSON.stringify({ id: site, version: '1.0.0', fixed: { palette: { ink: '#101010', accent: '#AA5500' } } }))
+    writeBrandFile(site, 'reference-library.json', JSON.stringify({
+      site,
+      version: '1.0.0',
+      references: [
+        { id: 'authority', role: 'visual-authority', filename: '05-tablero-visual.png', required: true },
+        { id: 'background', role: 'background-authority', filename: 'fondo-escarlet.jpg', required: true },
+        { id: 'scene', role: 'scene-reference', filename: 'reference-visual-style-02.png', required: false }
+      ]
+    }))
+    const targetDir = new URL(`../data/media/${site}/reference/`, import.meta.url)
+    mkdirSync(targetDir, { recursive: true })
+    for (const filename of ['05-tablero-visual.png', 'fondo-escarlet.jpg', 'reference-visual-style-02.png']) {
+      copyFileSync(new URL(filename, sourceRoot), new URL(filename, targetDir))
+    }
+    const result = await invokeMcpTool('brand_prepare_image_generation', { site, assetType: 'generic', title: 'prueba de marca independiente' }, { role: 'admin' })
+    const value = payload(result)
+    assert.equal(value.readyForGeneration, true)
+    assert.deepEqual(value.resolvedReferences.map((reference) => reference.filename), ['05-tablero-visual.png', 'fondo-escarlet.jpg', 'reference-visual-style-02.png'])
+    assert.match(value.generationPrompt, /mandatory visual grounding/i)
+    assert.doesNotMatch(value.generationPrompt, /Escarlet palette/i)
+  } finally {
+    rmSync(new URL(`../data/brand/${site}`, import.meta.url), { recursive: true, force: true })
+    rmSync(new URL(`../data/media/${site}`, import.meta.url), { recursive: true, force: true })
+  }
 })
 
 test('la escritura canónica está autorizada, es atómica y expira el snapshot', () => {

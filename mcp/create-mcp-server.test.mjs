@@ -10,7 +10,9 @@ function payload(result) {
 test('el contrato MCP expone media y contenido v2, sin operaciones de posts legacy', () => {
   const tools = buildToolList({ role: 'admin' })
   const upload = tools.find((tool) => tool.name === 'content_upload_media')
+  const update = tools.find((tool) => tool.name === 'content_update_item')
   assert.ok(upload)
+  assert.ok(update)
   assert.deepEqual(upload._meta['openai/fileParams'], ['file'])
   assert.equal(upload.inputSchema.properties.file.$ref, '#/$defs/OpenAIFile')
   assert.deepEqual(upload.inputSchema.$defs.OpenAIFile.required, ['download_url', 'file_id'])
@@ -19,6 +21,7 @@ test('el contrato MCP expone media y contenido v2, sin operaciones de posts lega
   assert.ok(tools.some((tool) => tool.name === 'brand_prepare_image_generation'))
   assert.match(upload.description, /brandPreparationId/)
   assert.ok(upload.inputSchema.properties.brandPreparationId)
+  assert.match(update.description, /brandPreparationId/)
   for (const name of ['content_list_plans', 'content_list_items', 'content_list_calendar', 'content_create_batch', 'content_get_batch', 'content_update_item', 'content_approve', 'content_reject', 'content_schedule', 'content_cancel']) {
     assert.ok(tools.some((tool) => tool.name === name), name)
   }
@@ -38,6 +41,7 @@ test('createMcpServer anuncia el contrato v2 y la selección explícita de marca
   assert.match(MCP_INSTRUCTIONS, /content_list_items/)
   assert.match(MCP_INSTRUCTIONS, /content_upload_media/)
   assert.match(MCP_INSTRUCTIONS, /exactamente una imagen/i)
+  assert.match(MCP_INSTRUCTIONS, /barrera obligatoria/i)
 })
 
 test('el MCP no elige una marca por defecto cuando el acceso incluye varias', async () => {
