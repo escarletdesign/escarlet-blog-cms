@@ -5,7 +5,8 @@ import { Badge, Button, Card, ChannelBadge, EmptyState, IconButton, Inline, Stac
 
 const packChannels: ContentChannel[] = ["blog", "instagram", "instagram_story", "linkedin", "x", "substack", "video"];
 const label = (channel: string) => channel === "x" ? "X" : channel === "video" ? "Vídeo" : channel === "instagram_story" ? "Instagram Story" : channel.charAt(0).toUpperCase() + channel.slice(1);
-const itemTitle = (item: ContentItem) => String(item.metadata?.contentTitle || item.topic || "Publicación").trim();
+const shortTitle = (value: string) => { const raw = value.replace(/\s+/g, " ").trim(); const first = raw.split(/\b(?:enfoque|contexto|objetivo|idea central|brief)\s*:/i)[0].split(/[.!?]\s+/)[0].replace(/[.!?]+$/, "").trim(); return first.length <= 90 ? first || "Publicación" : `${first.slice(0, 87).replace(/\s+\S*$/, "").trim()}...`; };
+const itemTitle = (item: ContentItem) => String(item.metadata?.contentTitle || shortTitle(item.topic || "Publicación")).trim();
 
 function bodyFor(variant?: ContentVariant) {
   const body = variant?.body || {};
@@ -46,7 +47,7 @@ function slidesFor(variant?: ContentVariant) {
 
 function titleFor(variant?: ContentVariant, fallback = "") {
   const { body } = bodyFor(variant);
-  return String(body.title || body.headline || fallback);
+  return String((body.title && body.title !== body.topic ? body.title : "") || body.headline || fallback);
 }
 
 export function ContentPackPreview({ item, busy, onClose, onPublish }: { item: ContentItem; busy: boolean; onClose: () => void; onPublish: (channel: ContentChannel) => void }) {

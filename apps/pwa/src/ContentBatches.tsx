@@ -7,7 +7,8 @@ import { Badge, Button, BulkActionBar, Card, ChannelBadge, Checkbox, ContentPlan
 
 const ALL_CHANNELS: ContentChannel[] = ["blog", "instagram", "instagram_story", "linkedin", "x", "video", "substack"];
 const channelLabel = (channel: string) => channel === "x" ? "X" : channel === "instagram_story" ? "Instagram Story" : channel.charAt(0).toUpperCase() + channel.slice(1);
-const itemTitle = (item: ContentItem) => String(item.metadata?.contentTitle || item.topic || "Publicación").trim();
+const shortTitle = (value: string) => { const raw = value.replace(/\s+/g, " ").trim(); const first = raw.split(/\b(?:enfoque|contexto|objetivo|idea central|brief)\s*:/i)[0].split(/[.!?]\s+/)[0].replace(/[.!?]+$/, "").trim(); return first.length <= 90 ? first || "Publicación" : `${first.slice(0, 87).replace(/\s+\S*$/, "").trim()}...`; };
+const itemTitle = (item: ContentItem) => String(item.metadata?.contentTitle || shortTitle(item.topic || "Publicación")).trim();
 type Props = { site: string; creationEnabled?: boolean; activeChannels?: Array<{ channel: string; enabled: boolean }> };
 type Dialog = { type: "edit" | "reject" | "schedule"; item: ContentItem } | { type: "preview"; item: ContentItem } | null;
 
