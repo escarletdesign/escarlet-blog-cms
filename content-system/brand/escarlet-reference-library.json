@@ -1,6 +1,6 @@
 {
   "site": "escarlet",
-  "version": "2.3.0",
+  "version": "2.2.0",
   "selectionPolicy": {
     "mode": "deterministic",
     "assistantMayChoose": false,
@@ -8,9 +8,10 @@
     "priority": ["abstract_or_background", "introspective_or_tense", "human_or_work", "positive_or_inspirational"]
   },
   "references": [
-    { "id": "esc-material-authority", "role": "material-authority", "filename": "reference-abstract-editorial.jpg", "mediaId": "media-escarlet-v23-abstract", "approved": true, "required": true },
-    { "id": "esc-scene-work", "role": "scene-reference", "filename": "reference-human-work.jpg", "mediaId": "media-escarlet-v23-human-work", "approved": true, "required": true },
-    { "id": "esc-scene-tense", "role": "scene-reference", "filename": "reference-introspective.jpg", "mediaId": "media-escarlet-v23-introspective", "approved": true, "required": true },
-    { "id": "esc-scene-positive", "role": "scene-reference", "filename": "reference-positive.jpg", "mediaId": "media-escarlet-v23-positive", "approved": true, "required": true }
+    { "id": "esc-style-board", "role": "visual-authority", "filename": "05-tablero-visual.png", "mediaId": "media-1789658372305-0", "approved": true, "required": true },
+    { "id": "esc-background", "role": "background-authority", "filename": "fondo-escarlet.jpg", "mediaId": "media-1789662894828", "approved": true, "required": true },
+    { "id": "esc-scene-work", "role": "scene-reference", "filename": "reference-blog-example.png", "mediaId": "media-1789658372371-1", "approved": true, "required": false },
+    { "id": "esc-scene-tense", "role": "scene-reference", "filename": "reference-visual-style-01.png", "mediaId": "media-1789658372405-2", "approved": true, "required": false },
+    { "id": "esc-scene-positive", "role": "scene-reference", "filename": "reference-visual-style-02.png", "mediaId": "media-1789658372446-3", "approved": true, "required": false }
   ]
 }

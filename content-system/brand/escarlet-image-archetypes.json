@@ -10,7 +10,7 @@
       "signals": ["papel", "sombras", "formas geométricas imperfectas", "detalle macro"],
       "literalness": 0.25,
       "abstraction": 0.8,
-      "promptExamples": ["composición editorial de papel plegado y sombra verde bosque, una tensión visual limpia, sin texto"],
+      "promptExamples": ["composición editorial de papel plegado y sombra carbón, una tensión visual limpia, sin texto"],
       "repetitionRisk": "medio",
       "topics": ["branding", "IA", "diseño", "estrategia", "UX"]
     },
@@ -49,7 +49,7 @@
       "signals": ["arquitectura cercana", "umbral", "mesa vacía con huella de uso", "profundidad"],
       "literalness": 0.5,
       "abstraction": 0.5,
-      "promptExamples": ["estudio de diseño pequeño al amanecer, una pared verde bosque y una mesa con pruebas de papel, sin texto"],
+      "promptExamples": ["estudio de diseño pequeño al amanecer, una pared carbón y una mesa con pruebas de papel, sin texto"],
       "repetitionRisk": "medio",
       "topics": ["branding", "diseño", "estrategia"]
     },
@@ -88,7 +88,7 @@
       "signals": ["recorte de interfaz abstracta", "reflejo", "capas translúcidas", "cursor como gesto"],
       "literalness": 0.6,
       "abstraction": 0.6,
-      "promptExamples": ["capas de interfaz abstracta proyectadas sobre papel rugoso, sin palabras legibles, verde bosque y crema"],
+      "promptExamples": ["capas de interfaz abstracta proyectadas sobre papel rugoso, sin palabras legibles, carbón y crema"],
       "repetitionRisk": "medio",
       "topics": ["IA", "UX", "diseño", "producto"]
     }

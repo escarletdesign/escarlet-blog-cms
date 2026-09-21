@@ -16,9 +16,8 @@ Esta skill es la copia operativa del brand kit canónico preparado para el handl
 
 ## Precedencia visual
 
-- La identidad fija es la paleta de `brand/brand-core.json`: papel `#F4F1EA`, papel cálido `#E8E0D3`, verde bosque `#1F4D3A`, verde profundo `#15352A`, tinta `#1B211D`, gris `#6C746F`, terracota `#C8674B` y blanco `#FFFFFF`.
-- `reference-abstract-editorial.jpg` es la autoridad de paleta, materia y luz. La ruta añade `reference-human-work.jpg`, `reference-introspective.jpg` o `reference-positive.jpg` cuando corresponde.
-- No uses cian, turquesa, amarillo brillante, degradados oro ni montañas abstractas.
+- La identidad fija es la paleta de `brand/brand-core.json`: cian `#12B8D6`, verde suave `#62B38A`, crema `#F3E7D0`, oro `#E8B73A`, carbón `#1E1E1E`, gris `#6D6D6D` y blanco `#FFFFFF`.
+- `fondo-escarlet.jpg` y `05-tablero-visual.png` son referencias obligatorias para cualquier generación. El fondo conserva el flujo cian a la izquierda, verde suave en el centro y oro a la derecha.
 - Las imágenes incluidas muestran personas anónimas. No son referencias de identidad facial y no se copian literalmente.
 - La selección es determinista. No es válido escoger, sustituir, reordenar ni reinterpretar referencias.
 - Nunca redibujes el logo. Usa los SVG oficiales de `assets/`.
@@ -38,11 +37,11 @@ Esta skill es la copia operativa del brand kit canónico preparado para el handl
 1. Consulta `brand_get_context` para leer el contexto general y las políticas.
 2. Llama `brand_prepare_image_generation` antes de generar cualquier imagen.
 3. Entrega al generador exactamente sus `resolvedReferences` como `ImageContent`, respetando `attachmentIndex`.
-4. Los múltiples `ImageContent` son referencias, no salidas. Genera exactamente una imagen final cuando la petición sea singular.
-5. Conserva `brandPreparation.preparationId`. Para post o social sube con `content_upload_media` y pasa ese valor. El CMS rechaza imágenes sin grounding o con snapshot vencido.
-6. Si `generationBlocked` es `true`, no generes ni sustituyas referencias. Solicita que se restaure el activo indicado.
-7. Para Instagram genera solo el fondo. El texto lo monta `content-system/instagram-renderer.mjs`.
+4. Conserva `brandPreparation.preparationId`. Para post o social sube con `content_upload_media` y pasa ese valor. El CMS rechaza imágenes sin grounding o con snapshot vencido.
+5. Si `generationBlocked` es `true`, no generes ni sustituyas referencias. Solicita que se restaure el activo indicado.
+6. Para Instagram genera solo el fondo. El texto lo monta `content-system/instagram-renderer.mjs`.
+7. Una petición singular genera exactamente una imagen final, sin variantes ni galerías.
 
 ## Al entregar
 
-Comprueba contraste, safe areas, nombres SEO, JSON válido y consistencia con la versión `2.3.0`. Si el brand kit del CMS cambia, compara el `brandKitSnapshotHash` antes de sincronizar esta copia local y no reemplaces archivos a ciegas.
+Comprueba contraste, safe areas, nombres SEO, JSON válido y consistencia con la versión `2.2.0`. Si el brand kit del CMS cambia, compara el `brandKitSnapshotHash` antes de sincronizar esta copia local y no reemplaces archivos a ciegas.

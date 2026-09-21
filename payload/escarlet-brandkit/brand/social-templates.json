@@ -50,17 +50,17 @@
           "paper",
           "light-or-grayscale"
         ],
-        "overlay": "rgba(244,241,234,.82)"
+        "overlay": "rgba(243,231,208,.82)"
       },
       "accent": {
-        "color": "#1F4D3A",
+        "color": "#12B8D6",
         "shape": "rule"
       }
     },
     {
       "id": "impact",
       "name": "Impacto visual",
-      "description": "Bloque de color bosque, imagen recortada y titular corto con alto contraste.",
+      "description": "Bloque de carbón, imagen recortada y titular corto con alto contraste.",
       "canvas": {
         "width": 1080,
         "height": 1350
@@ -106,10 +106,10 @@
           "brand-color",
           "light-or-grayscale"
         ],
-        "overlay": "rgba(21,53,42,.76)"
+        "overlay": "rgba(30,30,30,.76)"
       },
       "accent": {
-        "color": "#C8674B",
+        "color": "#E8B73A",
         "shape": "pill"
       }
     }
