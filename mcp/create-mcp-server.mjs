@@ -409,7 +409,11 @@ async function assertMcpImageGrounding(site, args = {}, options = {}) {
     assetType: args.brandAssetType || args.assetType,
     route: args.brandRoute,
     itemId: options.itemId || args.itemId,
-    kind
+    kind,
+    textRendered: args.textRendered,
+    templateId: args.templateId,
+    renderedBy: args.renderedBy,
+    textContent: args.textContent
   })
 }
 
