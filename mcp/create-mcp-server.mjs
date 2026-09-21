@@ -60,6 +60,7 @@ import {
 import { isPostgresConfigured, runCoreMigrations } from '../lib/pg.mjs'
 import {
   assertGenerationReceipt,
+  assertSocialTextMetadata,
   issueGenerationReceipt,
   persistImagePreparation
 } from '../lib/generation-provenance.mjs'
@@ -133,7 +134,7 @@ const FINAL_IMAGE_RECEIPT_CONDITION = {
     },
     {
       properties: {
-        kind: { enum: ['post', 'social'] },
+        kind: { const: 'post' },
         generationReceiptId: {
           type: 'string',
           minLength: 1,
@@ -141,6 +142,28 @@ const FINAL_IMAGE_RECEIPT_CONDITION = {
         }
       },
       required: ['kind', 'generationReceiptId']
+    },
+    {
+      properties: {
+        kind: { const: 'social' },
+        generationReceiptId: {
+          type: 'string',
+          minLength: 1,
+          description: 'Receipt emitido por brand_complete_image_generation. Obligatorio para social.'
+        },
+        textRendered: { const: true, description: 'Debe ser true: la imagen final ya lleva texto renderizado.' },
+        templateId: { type: 'string', enum: ['editorial', 'impact'] },
+        renderedBy: { const: 'content-system/instagram-renderer' },
+        textContent: {
+          type: 'object',
+          required: ['headline', 'body'],
+          properties: {
+            headline: { type: 'string', minLength: 1, maxLength: 90 },
+            body: { type: 'string', minLength: 1, maxLength: 240 }
+          }
+        }
+      },
+      required: ['kind', 'generationReceiptId', 'textRendered', 'templateId', 'renderedBy', 'textContent']
     }
   ]
 }
@@ -345,6 +368,9 @@ async function preparedImageResult(payload) {
       requiredForUpload: true,
       preparationIdField: 'brandPreparation.preparationId',
       receiptIdField: 'generationReceiptId',
+      finalAssetRequiresText: Boolean(payload?.brandPreparation?.finalAssetRequiresText),
+      finalTextRenderer: payload?.brandPreparation?.finalTextRenderer || null,
+      allowedSocialAspectRatios: ['4:5', '3:4'],
       generationCardinality: payload?.generationCardinality || {
         defaultImageCount: 1,
         maxImageCount: 1,
@@ -375,6 +401,7 @@ async function assertMcpImageGrounding(site, args = {}, options = {}) {
       extra: { nextTool: 'brand_complete_image_generation' }
     })
   }
+  if (kind === 'social') assertSocialTextMetadata(args)
   return assertGenerationReceipt({
     site,
     receiptId: args.generationReceiptId,
@@ -868,7 +895,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_upload_media_file',
       description:
-        'Plan A de compatibilidad. Para kind post exige receipt de blog_cover y para social receipt de social_image o instagram_background. El backend valida también las dimensiones reales. brandPreparationId por sí solo no autoriza la subida.',
+        'Plan A de compatibilidad. Para kind post exige receipt de blog_cover. Para kind social exige receipt, texto final renderizado por content-system/instagram-renderer y formato 4:5 o 3:4. brandPreparationId por sí solo no autoriza la subida.',
       inputSchema: {
         type: 'object',
         $defs: openaiFileDefs(),
@@ -888,6 +915,10 @@ export function buildToolList(auth) {
           generationReceiptId: { type: 'string', description: 'generationReceiptId emitido por brand_complete_image_generation. Obligatorio para post y social.' },
           brandAssetType: { type: 'string', enum: ['blog_cover', 'instagram_background', 'social_image', 'presentation', 'generic'] },
           brandRoute: { type: 'string', description: 'Ruta devuelta por brand_prepare_image_generation.' },
+          textRendered: { type: 'boolean', description: 'Obligatorio para social. Debe ser true.' },
+          templateId: { type: 'string', enum: ['editorial', 'impact'] },
+          renderedBy: { type: 'string', const: 'content-system/instagram-renderer' },
+          textContent: { type: 'object', required: ['headline', 'body'], properties: { headline: { type: 'string', minLength: 1, maxLength: 90 }, body: { type: 'string', minLength: 1, maxLength: 240 } } },
           file: { $ref: '#/$defs/OpenAIFile' }
         },
         required: ['site', 'filename', 'kind', 'file'],
@@ -903,7 +934,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_open_image_drop',
       description:
-        'Compatibilidad. Solo si el host puede hacer HTTP PUT. Para kind post o social exige receipt con assetType y dimensiones correctos. El sandbox de ChatGPT no resuelve DNS.',
+        'Compatibilidad. Solo si el host puede hacer HTTP PUT. Para kind post exige receipt. Para kind social exige receipt, texto final renderizado por content-system/instagram-renderer y formato 4:5 o 3:4. El sandbox de ChatGPT no resuelve DNS.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -921,7 +952,11 @@ export function buildToolList(auth) {
           brandPreparationId: { type: 'string' },
           generationReceiptId: { type: 'string', description: 'Receipt emitido por brand_complete_image_generation. Obligatorio para post y social.' },
           brandAssetType: { type: 'string' },
-          brandRoute: { type: 'string' }
+          brandRoute: { type: 'string' },
+          textRendered: { type: 'boolean' },
+          templateId: { type: 'string', enum: ['editorial', 'impact'] },
+          renderedBy: { type: 'string', const: 'content-system/instagram-renderer' },
+          textContent: { type: 'object', required: ['headline', 'body'], properties: { headline: { type: 'string', minLength: 1, maxLength: 90 }, body: { type: 'string', minLength: 1, maxLength: 240 } } }
         },
         required: ['site', 'filename', 'kind'],
         ...FINAL_IMAGE_RECEIPT_CONDITION
@@ -931,7 +966,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_upload_media',
       description:
-        'Plan B/C de compatibilidad. Para kind post o social exige receipt con assetType y dimensiones correctos. Pasa contentBase64 o blob. Si el host recorta o rechaza, uploadId + chunkIndex + chunkCount.',
+        'Plan B/C de compatibilidad. Para kind post exige receipt. Para kind social exige receipt, texto final renderizado por content-system/instagram-renderer y formato 4:5 o 3:4. Pasa contentBase64 o blob. Si el host recorta o rechaza, uploadId + chunkIndex + chunkCount.',
       inputSchema: {
         type: 'object',
         additionalProperties: true,
@@ -955,6 +990,10 @@ export function buildToolList(auth) {
           generationReceiptId: { type: 'string', description: 'generationReceiptId emitido por brand_complete_image_generation. Obligatorio para post y social.' },
           brandAssetType: { type: 'string' },
           brandRoute: { type: 'string' },
+          textRendered: { type: 'boolean' },
+          templateId: { type: 'string', enum: ['editorial', 'impact'] },
+          renderedBy: { type: 'string', const: 'content-system/instagram-renderer' },
+          textContent: { type: 'object', required: ['headline', 'body'], properties: { headline: { type: 'string', minLength: 1, maxLength: 90 }, body: { type: 'string', minLength: 1, maxLength: 240 } } },
           imageUrl: {
             type: 'string',
             description: 'Solo si ya tienes un https público real. No uses /mnt/data.'
@@ -979,7 +1018,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_import_remote_image',
       description:
-        'Compatibilidad para una URL https pública real. Para kind post o social exige receipt con assetType y dimensiones correctos. Para archivos del chat usa content_upload_media.',
+        'Compatibilidad para una URL https pública real. Para kind post exige receipt. Para kind social exige receipt, texto final renderizado por content-system/instagram-renderer y formato 4:5 o 3:4. Para archivos del chat usa content_upload_media.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -994,6 +1033,10 @@ export function buildToolList(auth) {
           generationReceiptId: { type: 'string', description: 'Receipt emitido por brand_complete_image_generation. Obligatorio para post y social.' },
           brandAssetType: { type: 'string' },
           brandRoute: { type: 'string' },
+          textRendered: { type: 'boolean' },
+          templateId: { type: 'string', enum: ['editorial', 'impact'] },
+          renderedBy: { type: 'string', const: 'content-system/instagram-renderer' },
+          textContent: { type: 'object', required: ['headline', 'body'], properties: { headline: { type: 'string', minLength: 1, maxLength: 90 }, body: { type: 'string', minLength: 1, maxLength: 240 } } },
           kind: {
             type: 'string',
             enum: ['post', 'social', 'reference'],
@@ -1031,10 +1074,10 @@ export function buildToolList(auth) {
 
   tools.push(
     { name: 'brand_list', description: 'Lista las marcas v2 visibles para este token. Si devuelve varias, pregunta al usuario cuál quiere usar y pasa site en las siguientes llamadas.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' } } }, annotations: { readOnlyHint: true } },
-    { name: 'brand_get_context', description: 'Devuelve el contexto general canónico y el catálogo de referencias de una marca, sin adjuntar binarios. Para recibir las imágenes exactas llama brand_prepare_image_generation. Todos los endpoints leen el mismo snapshot versionado.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, siteId: { type: 'string' } } }, annotations: { readOnlyHint: true } },
+    { name: 'brand_get_context', description: 'Devuelve el contexto general canónico y el catálogo de referencias de una marca, sin adjuntar binarios. También incluye la política global: las imágenes social finales llevan texto renderizado y usan formato 4:5 o 3:4. Para recibir las imágenes exactas llama brand_prepare_image_generation. Todos los endpoints leen el mismo snapshot versionado.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, siteId: { type: 'string' } } }, annotations: { readOnlyHint: true } },
     {
       name: 'brand_prepare_image_generation',
-      description: 'Obligatoria antes de toda generación visual. Devuelve una preparación versionada, las dimensiones de salida y las referencias binarias exactas como ImageContent. Esta tool no autoriza por sí sola el upload final: certifica el resultado con brand_complete_image_generation usando exactamente esas referencias y sube solo con generationReceiptId. Si generationBlocked es true, aborta.',
+      description: 'Obligatoria antes de toda generación visual. Devuelve una preparación versionada, la política global de asset final, las dimensiones de salida y las referencias binarias exactas como ImageContent. Para social la imagen final debe llevar texto renderizado por content-system/instagram-renderer en formato 4:5 o 3:4. Esta tool no autoriza por sí sola el upload final: certifica el resultado final con brand_complete_image_generation usando exactamente esas referencias y sube solo con generationReceiptId. Si generationBlocked es true, aborta.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1054,7 +1097,7 @@ export function buildToolList(auth) {
     },
     {
       name: 'brand_complete_image_generation',
-      description: 'Emite exclusivamente desde backend un generationReceipt verificable. Rechaza preparaciones bloqueadas, vencidas o de otra marca, y exige la lista exacta y ordenada de referencias con sus hashes, además del hash SHA-256 del archivo resultante. El upload posterior valida también el assetType y las dimensiones reales del archivo. No acepta referencias escogidas por el agente.',
+      description: 'Emite exclusivamente desde backend un generationReceipt verificable del archivo final. Rechaza preparaciones bloqueadas, vencidas o de otra marca, y exige la lista exacta y ordenada de referencias con sus hashes, además del hash SHA-256 del archivo resultante. Para social exige texto renderizado por content-system/instagram-renderer y formato 4:5 o 3:4. El upload posterior valida también el assetType y las dimensiones reales del archivo. No acepta referencias escogidas por el agente.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1067,7 +1110,11 @@ export function buildToolList(auth) {
           route: { type: 'string' },
           itemId: { type: 'string' },
           batchId: { type: 'string' },
-          channel: { type: 'string' }
+          channel: { type: 'string' },
+          textRendered: { type: 'boolean' },
+          templateId: { type: 'string', enum: ['editorial', 'impact'] },
+          renderedBy: { type: 'string', const: 'content-system/instagram-renderer' },
+          textContent: { type: 'object', required: ['headline', 'body'], properties: { headline: { type: 'string', minLength: 1, maxLength: 90 }, body: { type: 'string', minLength: 1, maxLength: 240 } } }
         },
         required: ['site', 'preparationId', 'usedReferences', 'generatedResultId', 'generatedFileHash']
       },
@@ -1088,7 +1135,11 @@ export function buildToolList(auth) {
           route: { type: 'string' },
           itemId: { type: 'string' },
           batchId: { type: 'string' },
-          channel: { type: 'string' }
+          channel: { type: 'string' },
+          textRendered: { type: 'boolean' },
+          templateId: { type: 'string', enum: ['editorial', 'impact'] },
+          renderedBy: { type: 'string', const: 'content-system/instagram-renderer' },
+          textContent: { type: 'object', required: ['headline', 'body'], properties: { headline: { type: 'string', minLength: 1, maxLength: 90 }, body: { type: 'string', minLength: 1, maxLength: 240 } } }
         },
         required: ['site', 'preparationId', 'usedReferences', 'generatedResultId', 'generatedFileHash']
       },
@@ -1096,7 +1147,7 @@ export function buildToolList(auth) {
     },
     {
       name: 'content_upload_media',
-      description: 'Sube una única imagen al almacenamiento canónico v2 y devuelve un mediaAssetId utilizable por content_update_item. Para kind post exige un receipt de blog_cover y para kind social un receipt de social_image o instagram_background, además de las dimensiones reales correctas. Un brandPreparationId por sí solo no demuestra que las referencias hayan sido utilizadas. El backend comprueba sitio, preparación, brandkit, referencias, expiración, consumo, assetType y hash del archivo.',
+      description: 'Sube una única imagen al almacenamiento canónico v2 y devuelve un mediaAssetId utilizable por content_update_item. Para kind post exige un receipt de blog_cover. Para kind social exige un receipt de social_image o instagram_background, texto final renderizado con templateId y renderedBy, y dimensiones 4:5 o 3:4. Un brandPreparationId por sí solo no demuestra que las referencias hayan sido utilizadas. El backend comprueba sitio, preparación, brandkit, referencias, expiración, consumo, assetType, texto declarado y hash del archivo.',
       inputSchema: {
         type: 'object',
         $defs: openaiFileDefs(),
@@ -1119,6 +1170,10 @@ export function buildToolList(auth) {
           generationReceiptId: { type: 'string', description: 'Receipt emitido por brand_complete_image_generation. Obligatorio para post y social.' },
           brandAssetType: { type: 'string' },
           brandRoute: { type: 'string' },
+          textRendered: { type: 'boolean', description: 'Obligatorio para kind social. La imagen final debe incluir el texto de la slide.' },
+          templateId: { type: 'string', enum: ['editorial', 'impact'] },
+          renderedBy: { type: 'string', const: 'content-system/instagram-renderer' },
+          textContent: { type: 'object', required: ['headline', 'body'], properties: { headline: { type: 'string', minLength: 1, maxLength: 90 }, body: { type: 'string', minLength: 1, maxLength: 240 } } },
           itemId: { type: 'string' }
         },
         required: ['site', 'filename', 'kind'],
@@ -1136,7 +1191,7 @@ export function buildToolList(auth) {
     { name: 'content_list_calendar', description: 'Lista el calendario v2 con publicaciones programadas, sincronizando, publicadas o con error.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, from: { type: 'string' }, to: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 1000 } } }, annotations: { readOnlyHint: true } },
     { name: 'content_create_batch', description: 'Crea un plan de contenido v2 por temas y canales. La generación se ejecuta de forma asíncrona.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, title: { type: 'string' }, topics: { type: 'array', items: { type: 'string' } }, channels: { type: 'array', items: { type: 'string', enum: ['blog', 'instagram', 'linkedin', 'x', 'video', 'substack'] } }, brandKitVersionId: { type: 'string' }, metadata: { type: 'object' } }, required: ['topics'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_get_batch', description: 'Obtiene el progreso, items y variantes de un batch.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, batchId: { type: 'string' } }, required: ['batchId'] }, annotations: { readOnlyHint: true } },
-    { name: 'content_update_item', description: 'Edita el tema, cuerpo, metadata visual y medios canónicos de una variante v2 antes de aprobar. Cualquier mediaAssetId o URL de imagen exige generationReceiptId o generationReceiptIds ordenados y provenance v2 válida para este item. brandPreparationId por sí solo no autoriza la asociación.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, topic: { type: 'string' }, channel: { type: 'string' }, body: { type: 'object' }, visualBrief: { type: 'object' }, brandPreparationId: { type: 'string' }, generationReceiptId: { type: 'string' }, generationReceiptIds: { type: 'array', items: { type: 'string', minLength: 1 } }, mediaAssetIds: { type: 'array', items: { type: 'string' } } }, required: ['itemId'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
+    { name: 'content_update_item', description: 'Edita el tema, cuerpo, metadata visual y medios canónicos de una variante v2 antes de aprobar. Cualquier mediaAssetId o URL de imagen exige generationReceiptId o generationReceiptIds ordenados y provenance v2 válida para este item. Las variantes Instagram solo aceptan slides con headline y body, templateId, renderedBy y formato 4:5 o 3:4. brandPreparationId por sí solo no autoriza la asociación.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, topic: { type: 'string' }, channel: { type: 'string' }, body: { type: 'object' }, visualBrief: { type: 'object' }, brandPreparationId: { type: 'string' }, generationReceiptId: { type: 'string' }, generationReceiptIds: { type: 'array', items: { type: 'string', minLength: 1 } }, mediaAssetIds: { type: 'array', items: { type: 'string' } } }, required: ['itemId'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_approve', description: 'Aprueba un item o todos los items de un batch.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' } }, oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_reject', description: 'Rechaza un item o todos los items de un batch y deja comentario.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' }, comment: { type: 'string' } }, oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_schedule', description: 'Programa un item o batch aprobado en zona horaria indicada.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' }, publicationDate: { type: 'string' }, timezone: { type: 'string' } }, required: ['publicationDate'], oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } },
@@ -1327,7 +1382,11 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             batchId: args.batchId,
             channel: args.channel,
             assetType: args.assetType,
-            route: args.route
+            route: args.route,
+            textRendered: args.textRendered,
+            templateId: args.templateId,
+            renderedBy: args.renderedBy,
+            textContent: args.textContent
           })
           return textResult({
             ok: true,

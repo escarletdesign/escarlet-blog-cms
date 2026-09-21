@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://escarlet.design/schemas/instagram-slide.schema.json",
   "type": "object",
-  "required": ["id", "headline", "body", "templateId", "imageUrl", "alt"],
+  "required": ["id", "headline", "body", "templateId", "imageUrl", "alt", "renderedBy", "textRendered"],
   "properties": {
     "id": { "type": "string" },
     "headline": { "type": "string", "maxLength": 90 },
@@ -13,6 +13,8 @@
     "backgroundStyle": { "type": "string" },
     "backgroundMediaId": { "type": "string" },
     "backgroundSource": { "enum": ["ai", "cms", ""] },
-    "renderedBy": { "const": "content-system/instagram-renderer" }
+    "renderedBy": { "const": "content-system/instagram-renderer" },
+    "textRendered": { "const": true },
+    "aspectRatio": { "enum": ["4:5", "3:4"] }
   }
 }
