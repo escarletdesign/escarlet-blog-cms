@@ -1155,7 +1155,7 @@ export function buildToolList(auth) {
 export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = false, source = 'mcp' } = {}) {
   const server = new Server(
     { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION, title: 'Escarlet CMS v2' },
-    { capabilities: { tools: {}, resources: {} }, instructions: MCP_INSTRUCTIONS }
+    { capabilities: { tools: { listChanged: true }, resources: {} }, instructions: MCP_INSTRUCTIONS }
   )
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({

@@ -3,6 +3,7 @@ import { createMcpServer } from './create-mcp-server.mjs'
 
 export function sendMcpCors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
   res.setHeader(
     'Access-Control-Allow-Headers',
     'Authorization, Content-Type, Mcp-Session-Id, MCP-Protocol-Version, Last-Event-Id'
