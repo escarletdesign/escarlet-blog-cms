@@ -9,6 +9,7 @@ import { readDb, writeDb } from '../lib/db.mjs'
 import { prepareImageGeneration } from '../lib/brand-kit.mjs'
 import {
   assertGenerationReceipt,
+  generationReceiptFromPostgresRow,
   issueGenerationReceipt,
   persistImagePreparation
 } from '../lib/generation-provenance.mjs'
@@ -33,6 +34,20 @@ function clearPreparation(preparationId) {
   }
   writeDb(db)
 }
+
+test('el receipt reconstruido desde Postgres conserva la versión y el uso único', () => {
+  const receipt = generationReceiptFromPostgresRow({
+    id: 'pg-receipt',
+    preparation_id: 'pg-preparation',
+    site: 'escarlet',
+    status: 'issued',
+    issued_at: '2026-09-21T15:00:00.000Z',
+    expected_asset_count: 1
+  })
+  assert.equal(receipt.provenanceVersion, '2')
+  assert.equal(receipt.timestamp, '2026-09-21T15:00:00.000Z')
+  assert.equal(receipt.singleUse, true)
+})
 
 async function readyReceipt(assetType = 'presentation') {
   const prepared = prepareImageGeneration('escarlet', { assetType, title: `provenance-${Date.now()}` })
