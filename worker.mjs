@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { getPgPool, runCoreMigrations, closePgPool } from './lib/pg.mjs'
-import { claimJobs, finishJob, claimOutbox, finishOutbox, recordUsage, enqueueJob } from './lib/workspace-domain.mjs'
+import { claimJobs, finishJob, claimOutbox, finishOutbox, recordUsage, enqueueJob, contentTitleFromBrief } from './lib/workspace-domain.mjs'
 import { decryptSecret } from './lib/secret-crypto.mjs'
 import { scheduleMetricoolPost, syncMetricoolPost } from './lib/metricool.mjs'
 import { schedulePlanablePost, syncPlanablePost, planableStatus } from './lib/planable.mjs'
@@ -66,14 +66,15 @@ async function processGenerationJob(job) {
     await client.query('BEGIN')
     const batch = await client.query('SELECT * FROM content_batches WHERE id=$1 FOR UPDATE', [batchId])
     if (!batch.rowCount) throw new Error('Batch no encontrado.')
-    const items = await client.query('SELECT id,topic FROM content_items WHERE batch_id=$1 ORDER BY created_at', [batchId])
+    const items = await client.query('SELECT id,topic,metadata FROM content_items WHERE batch_id=$1 ORDER BY created_at', [batchId])
     for (const item of items.rows) {
+      const contentTitle = contentTitleFromBrief(item.metadata?.contentTitle || item.topic)
       await client.query(`UPDATE content_items SET status='generated',error=NULL,updated_at=NOW() WHERE id=$1 AND status IN ('draft','failed')`, [item.id])
       await client.query(`UPDATE content_variants SET status='generated',body=CASE
         WHEN body='{}'::jsonb OR body->>'topic' IS NOT NULL THEN
-          CASE WHEN channel='blog' THEN jsonb_build_object('topic',$2::text,'title',$2::text,'body','Borrador generado. Revisar y editar antes de aprobar.')
-          ELSE jsonb_build_object('topic',$2::text,'text','Borrador generado para ' || channel || '. Revisar y editar antes de aprobar.') END
-        ELSE body END,updated_at=NOW() WHERE item_id=$1 AND status IN ('draft','failed')`, [item.id, item.topic])
+          CASE WHEN channel='blog' THEN jsonb_build_object('topic',$2::text,'title',$3::text,'body','Borrador generado. Revisar y editar antes de aprobar.')
+          ELSE jsonb_build_object('topic',$2::text,'title',$3::text,'text','Borrador generado para ' || channel || '. Revisar y editar antes de aprobar.') END
+        ELSE body END,updated_at=NOW() WHERE item_id=$1 AND status IN ('draft','failed')`, [item.id, item.topic, contentTitle])
     }
     const counts = await client.query(`SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE status='generated')::int AS generated, COUNT(*) FILTER (WHERE status='failed')::int AS failed FROM content_items WHERE batch_id=$1`, [batchId])
     await client.query(`UPDATE content_batches SET status=CASE WHEN status='canceled' THEN 'canceled' ELSE 'generated' END,total_items=$1,generated_items=$2,failed_items=$3,updated_at=NOW() WHERE id=$4`, [counts.rows[0].total, counts.rows[0].generated, counts.rows[0].failed, batchId])

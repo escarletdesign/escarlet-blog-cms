@@ -2075,7 +2075,7 @@ const server = createServer(async (req, res) => {
         }
         const siteId = scope.siteId || scope.context.siteIds[0]
         if (!siteId) throw Object.assign(new Error('siteId es obligatorio.'), { status: 400 })
-        const result = await createContentBatch({ workspaceId: scope.workspaceId, siteId, userId: scope.auth.userId || null, role: scope.context.role, title: body.title, topics: v2Topics(body), channels: body.channels, brandKitVersionId: body.brandKitVersionId, metadata: body.metadata })
+        const result = await createContentBatch({ workspaceId: scope.workspaceId, siteId, userId: scope.auth.userId || null, role: scope.context.role, title: body.title, topics: v2Topics(body), items: body.items, batchId: body.batchId, createNewPlan: body.createNewPlan, channels: body.channels, brandKitVersionId: body.brandKitVersionId, metadata: body.metadata })
         json(res, 202, result)
         return
       }
