@@ -24,7 +24,7 @@ Un post, un enfoque principal. Si mezcla temas, elige autor por el objetivo del 
 ## Flujo MCP (crear)
 
 1. Si hay varias marcas, llama `brand_list` y pregunta cuál quiere usar. Nunca elijas una por defecto.
-2. Consulta `brand_get_context` y genera título, contenido, metadatos e imágenes en ChatGPT. Antes de cada imagen llama `brand_prepare_image_generation`, entrega exactamente sus `ImageContent` y conserva `brandPreparation.preparationId`.
+2. Consulta `brand_get_context` y genera título, contenido, metadatos e imágenes en ChatGPT. Antes de cada imagen llama `brand_prepare_image_generation`, entrega exactamente sus `ImageContent`, certifica el resultado con `brand_complete_image_generation` y conserva `generationReceiptId`.
 3. Crea el plan con `content_create_batch`, indicando `topics` y `channels`. La generación es asíncrona.
 4. Sigue el estado con `content_list_plans`, `content_list_items` o `content_get_batch`. Aplica correcciones con `content_update_item`.
 5. Tras la revisión humana, usa `content_approve` o `content_reject`. Para una fecha futura usa `content_schedule`.
@@ -68,10 +68,10 @@ Recomendado (aviso, no bloquea):
 - Composición y color según `visual-style.md` y las referencias exactas devueltas por `brand_prepare_image_generation`.
 - Cómo subir en v2:
   1. Genera la imagen usando exactamente las referencias adjuntas por `brand_prepare_image_generation`.
-  2. `content_upload_media` con `kind: post` o `social`, `contentBase64` o `blob` y `brandPreparationId`. El CMS comprueba el snapshot y guarda un `mediaAssetId` canónico.
+  2. `content_upload_media` con `kind: post` o `social`, `contentBase64` o `blob` y `generationReceiptId`. El CMS comprueba el snapshot, las referencias y el hash, y guarda un `mediaAssetId` canónico.
   3. Si el host recorta el base64, usa `uploadId`, `chunkIndex` y `chunkCount` con la misma credencial.
   4. Nunca uses `/mnt/data` como `imageUrl`.
-  5. Pasa `mediaAssetId` a `content_update_item` junto con `visualBrief` y `brandPreparationId`.
+  5. Pasa `mediaAssetId` a `content_update_item` junto con `visualBrief` y `generationReceiptId`.
 - Carrusel Instagram (`kind` `social`). 4–7 slides. Formato 1080×1350 (o 1080×1080). Sube cada slide al CMS y enlázala en la variante Instagram del item.
 
 ## Sistema visual v2 (obligatorio)

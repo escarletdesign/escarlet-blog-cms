@@ -24,7 +24,7 @@ Un post, un enfoque principal. Si mezcla temas, elige autor por el objetivo del 
 ## Flujo MCP (crear)
 
 1. Si hay varias marcas, llama `brand_list` y pregunta cuál quiere usar. Nunca elijas una por defecto.
-2. Consulta `brand_get_context` y genera título, contenido, metadatos e imágenes en ChatGPT. Antes de cada imagen llama `brand_prepare_image_generation` y entrega exactamente sus `ImageContent`.
+2. Consulta `brand_get_context` y genera título, contenido, metadatos e imágenes en ChatGPT. Antes de cada imagen llama `brand_prepare_image_generation`, entrega exactamente sus `ImageContent` y certifica el resultado con `brand_complete_image_generation` antes de subirlo.
 3. Crea el plan con `content_create_batch`, indicando `topics` y `channels`. La generación es asíncrona.
 4. Sigue el estado con `content_list_plans`, `content_list_items` o `content_get_batch`. Aplica correcciones con `content_update_item`.
 5. Tras la revisión humana, usa `content_approve` o `content_reject`. Para una fecha futura usa `content_schedule`.

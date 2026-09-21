@@ -265,7 +265,7 @@ const baseApi = {
       "/api/v2/content/batches",
       { method: "POST", headers: { "X-Escarlet-Client": "pwa" }, body: JSON.stringify(input) },
     ),
-  updateContentItem: (itemId: string, input: { site?: string; topic?: string; channel?: string; body?: Record<string, any>; visualBrief?: Record<string, any>; brandPreparationId?: string; mediaAssetIds?: string[] }) =>
+  updateContentItem: (itemId: string, input: { site?: string; topic?: string; channel?: string; body?: Record<string, any>; visualBrief?: Record<string, any>; brandPreparationId?: string; generationReceiptId?: string; mediaAssetIds?: string[] }) =>
     request<ContentItem>(
       `/api/v2/content/items/${encodeURIComponent(itemId)}`,
       { method: "PATCH", body: JSON.stringify(input) },

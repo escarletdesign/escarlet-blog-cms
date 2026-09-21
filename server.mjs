@@ -1,5 +1,5 @@
 import { createServer } from 'node:http'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, createHash } from 'node:crypto'
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { dirname, join, extname, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -173,6 +173,7 @@ import {
   isChatToolAllowedName
 } from './lib/ai-security.mjs'
 import { MCP_SERVER_VERSION } from './lib/media-upload-contract.mjs'
+import { issueGenerationReceipt, persistImagePreparation } from './lib/generation-provenance.mjs'
 import {
   RUNTIME_CHANNEL,
   getRuntimeManifest,
@@ -2158,7 +2159,7 @@ const server = createServer(async (req, res) => {
       if (req.method === 'PATCH' && itemMatch) {
         const scope = await requireV2Context(req, url, res, body)
         if (!scope) return
-        const result = await updateContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId: decodeURIComponent(itemMatch[1]), userId: scope.auth.userId, role: scope.context.role, topic: body.topic, body: body.body, channel: body.channel, visualBrief: body.visualBrief, brandPreparationId: body.brandPreparationId, mediaAssetIds: body.mediaAssetIds })
+        const result = await updateContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId: decodeURIComponent(itemMatch[1]), userId: scope.auth.userId, role: scope.context.role, topic: body.topic, body: body.body, channel: body.channel, visualBrief: body.visualBrief, brandPreparationId: body.brandPreparationId, generationReceiptId: body.generationReceiptId, mediaAssetIds: body.mediaAssetIds })
         json(res, 200, result)
         return
       }
@@ -2574,6 +2575,7 @@ const server = createServer(async (req, res) => {
           extra: { generationBlocked: true, missingReferences: prepared.missingReferences }
         })
       }
+      await persistImagePreparation(prepared, { itemId: body.itemId, batchId: body.batchId, channel: body.channel })
       // Keep brand files private from the client while applying the complete
       // visual system to generated imagery. The provider receives this context
       // only server-side, never in the PWA response.
@@ -2625,6 +2627,12 @@ const server = createServer(async (req, res) => {
         .trim()
         .slice(0, 140) || `Imagen de portada para ${site}`
       const mediaOptions = []
+      const usedReferences = (prepared.resolvedReferences || []).map((reference) => ({
+        id: reference.id,
+        filename: reference.filename,
+        attachmentIndex: reference.attachmentIndex,
+        sha256: createHash('sha256').update(readFileSync(join(mediaDir, site, 'reference', reference.filename))).digest('hex')
+      }))
       for (let optionIndex = 0; optionIndex < optionCount; optionIndex += 1) {
         assertCmsAiAllowed(auth)
         assertMembershipActive(site, { userId: auth.userId })
@@ -2673,6 +2681,18 @@ const server = createServer(async (req, res) => {
           contentBase64 = Buffer.from(await imageResponse.arrayBuffer()).toString('base64')
         }
         if (!contentBase64) throw Object.assign(new Error('OpenAI no devolvió una imagen.'), { status: 502 })
+        const receipt = await issueGenerationReceipt({
+          site,
+          preparationId: prepared.brandPreparation?.preparationId,
+          usedReferences,
+          generatedResultId: String(payload?.id || `ai:${Date.now()}:${optionIndex + 1}`),
+          generatedFileHash: createHash('sha256').update(Buffer.from(contentBase64, 'base64')).digest('hex'),
+          assetType: prepared.brandPreparation?.assetType,
+          route: prepared.brandPreparation?.route,
+          itemId: body.itemId,
+          batchId: body.batchId,
+          channel: body.channel
+        })
         const result = await uploadMedia({
           site,
           filename: `${slug}-cover${optionCount > 1 ? `-option-${optionIndex + 1}` : ''}-${Date.now()}.png`,
@@ -2681,6 +2701,7 @@ const server = createServer(async (req, res) => {
           kind: 'post',
           requireBrandGrounding: true,
           brandPreparationId: prepared.brandPreparation?.preparationId,
+          generationReceiptId: receipt.receiptId,
           brandAssetType: prepared.brandPreparation?.assetType,
           brandRoute: prepared.brandPreparation?.route,
           membershipUserId: auth.userId || ''
@@ -3607,7 +3628,8 @@ const server = createServer(async (req, res) => {
       try {
         const site = siteFrom(auth, body.site || DEFAULT_SITE)
         assertSiteAccess(auth, site)
-        const result = await uploadMedia({ ...body, site, membershipUserId: auth.userId || '' })
+        const kind = String(body.kind || 'post').toLowerCase()
+        const result = await uploadMedia({ ...body, site, kind, requireBrandGrounding: ['post', 'social'].includes(kind), membershipUserId: auth.userId || '' })
         json(res, 200, result.media ? { media: result.media, ...result } : result)
       } catch (err) {
         json(res, err.status || 400, { message: err.message, ...(err.extra || {}) })
