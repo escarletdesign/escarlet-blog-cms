@@ -85,7 +85,7 @@ async function processBlogPublishJob(job) {
   const result = await pool.query(`UPDATE content_variants SET status='published',updated_at=NOW() WHERE id=$1 AND status='scheduled' RETURNING id,item_id`, [variantId])
   if (!result.rowCount) return { published: false, variantId }
   await pool.query("UPDATE schedules SET status='published',last_error=NULL,updated_at=NOW() WHERE variant_id=$1", [variantId])
-  await pool.query(`UPDATE content_items ci SET status=CASE WHEN NOT EXISTS (SELECT 1 FROM content_variants cv WHERE cv.item_id=ci.id AND cv.status NOT IN ('published','canceled')) THEN 'published' ELSE ci.status END,updated_at=NOW() WHERE ci.id=$1`, [result.rows[0].item_id])
+  await pool.query(`UPDATE content_items ci SET status=CASE WHEN NOT EXISTS (SELECT 1 FROM content_variants cv WHERE cv.item_id=ci.id AND cv.status NOT IN ('published','canceled')) THEN 'published' ELSE ci.status END,error=NULL,updated_at=NOW() WHERE ci.id=$1`, [result.rows[0].item_id])
   await triggerBlogRebuild(due.rows[0])
   return { published: true, variantId }
 }
@@ -172,7 +172,7 @@ async function processExternalPublicationEvent(event) {
     WHEN EXISTS (SELECT 1 FROM content_variants cv WHERE cv.item_id=ci.id AND cv.status='failed') THEN 'failed'
     WHEN NOT EXISTS (SELECT 1 FROM content_variants cv WHERE cv.item_id=ci.id AND cv.status NOT IN ('published','canceled')) THEN 'published'
     WHEN EXISTS (SELECT 1 FROM content_variants cv WHERE cv.item_id=ci.id AND cv.status='syncing') THEN 'syncing'
-    ELSE 'scheduled' END,updated_at=NOW() WHERE ci.id=$1`, [itemId])
+  ELSE 'scheduled' END,error=NULL,updated_at=NOW() WHERE ci.id=$1`, [itemId])
 }
 
 async function processMetricoolSyncJob(job) {
