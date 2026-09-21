@@ -661,12 +661,25 @@ async function readV2PublicBlogPosts(siteHandle) {
     const pool = await getPgPool()
     if (!pool) return null
     await coreMigrationPromise
-    const result = await pool.query(`SELECT ci.topic,ci.status,cv.body,ci.created_at FROM content_items ci JOIN content_variants cv ON cv.item_id=ci.id JOIN sites s ON s.id=ci.site_id WHERE s.handle=$1 AND cv.channel='blog' AND cv.status='published' ORDER BY COALESCE(NULLIF(cv.body->>'datePublished','')::date,ci.created_at::date) DESC`, [siteHandle])
+    const result = await pool.query(`SELECT ci.id AS item_id,ci.topic,ci.status,cv.body,ci.created_at,cover.url AS cover_url FROM content_items ci JOIN content_variants cv ON cv.item_id=ci.id JOIN sites s ON s.id=ci.site_id LEFT JOIN LATERAL (SELECT ma.public_url AS url FROM content_variant_media cvm JOIN media_assets ma ON ma.id=cvm.media_asset_id WHERE cvm.variant_id=cv.id ORDER BY cvm.sort_order ASC LIMIT 1) cover ON TRUE WHERE s.handle=$1 AND cv.channel='blog' AND cv.status='published' ORDER BY COALESCE(NULLIF(cv.body->>'datePublished','')::date,ci.created_at::date) DESC`, [siteHandle])
     // A Postgres deployment may be running before the one-time JSON import. In
     // that window an empty canonical feed must not hide the legacy public feed.
     if (!result.rows.length) return null
+    const itemIds = result.rows.map((row) => row.item_id).filter(Boolean)
+    const socialResult = itemIds.length ? await pool.query(`SELECT cv.item_id,cv.body,COALESCE(json_agg(json_build_object('url',ma.public_url,'path',ma.storage_key) ORDER BY cvm.sort_order) FILTER (WHERE ma.id IS NOT NULL),'[]'::json) AS media FROM content_variants cv LEFT JOIN content_variant_media cvm ON cvm.variant_id=cv.id LEFT JOIN media_assets ma ON ma.id=cvm.media_asset_id WHERE cv.item_id=ANY($1::text[]) AND cv.channel='instagram' GROUP BY cv.item_id,cv.body`, [itemIds]) : { rows: [] }
+    const socialByItem = new Map(socialResult.rows.map((row) => [row.item_id, row]))
     return result.rows.map((row) => {
       const body = row.body && typeof row.body === 'object' ? row.body : {}
+      const socialRow = socialByItem.get(row.item_id)
+      const socialBody = socialRow?.body && typeof socialRow.body === 'object' ? socialRow.body : {}
+      const socialPack = socialBody.socialPack && typeof socialBody.socialPack === 'object' ? { ...socialBody.socialPack } : null
+      if (socialPack && Array.isArray(socialPack.instagramSlides)) {
+        const media = Array.isArray(socialRow.media) ? socialRow.media : []
+        socialPack.instagramSlides = socialPack.instagramSlides.map((slide, index) => ({
+          ...slide,
+          imageUrl: slide?.imageUrl || slide?.url || slide?.image || media[index]?.url || media[index]?.path || ''
+        }))
+      }
       return {
         slug: String(body.slug || row.topic || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
         site: siteHandle,
@@ -676,10 +689,11 @@ async function readV2PublicBlogPosts(siteHandle) {
         excerptEs: body.excerpt || body.excerptEs || '',
         metaTitle: body.metaTitle || {},
         metaDescription: body.metaDescription || {},
-        imageUrl: body.imageUrl || '',
+        imageUrl: body.imageUrl || row.cover_url || '',
         imageAlt: body.imageAlt || '',
         datePublished: body.datePublished || row.created_at,
-        dateModified: body.dateModified || row.created_at
+        dateModified: body.dateModified || row.created_at,
+        socialPack
       }
     }).filter((post) => post.slug)
   } catch {

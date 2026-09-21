@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import type { ContentChannel, ContentItem, ContentVariant } from "./types";
 import { Badge, Button, Card, ChannelBadge, EmptyState, IconButton, Inline, Stack, StatusBadge } from "./ui";
 
@@ -34,7 +35,11 @@ function textFor(variant?: ContentVariant) {
 
 function slidesFor(variant?: ContentVariant) {
   const { socialPack } = bodyFor(variant);
-  return Array.isArray(socialPack.instagramSlides) ? socialPack.instagramSlides : [];
+  if (!Array.isArray(socialPack.instagramSlides)) return [];
+  return socialPack.instagramSlides.map((slide: any, index: number) => ({
+    ...slide,
+    imageUrl: slide?.imageUrl || slide?.url || slide?.image || variant?.media?.[index]?.url || variant?.media?.[index]?.path || ""
+  }));
 }
 
 function titleFor(variant?: ContentVariant, fallback = "") {
@@ -43,12 +48,13 @@ function titleFor(variant?: ContentVariant, fallback = "") {
 }
 
 export function ContentPackPreview({ item, busy, onClose, onPublish }: { item: ContentItem; busy: boolean; onClose: () => void; onPublish: (channel: ContentChannel) => void }) {
+  const navigate = useNavigate();
   const variants = (item.variants || []).filter((variant) => packChannels.includes(variant.channel));
   const blog = variants.find((variant) => variant.channel === "blog");
   const instagram = variants.find((variant) => variant.channel === "instagram");
   const slides = slidesFor(instagram);
   const { socialPack } = bodyFor(instagram);
-  const videoScript = String(socialPack.videoScript || variants.find((variant) => variant.channel === "video")?.body?.text || "").trim();
+  const videoScript = String(socialPack.videoScript || variants.find((variant) => variant.channel === "video")?.body?.text || [item.topic, ...slides.map((entry: any) => [entry?.headline, entry?.body].filter(Boolean).join("\n"))].filter(Boolean).join("\n\n")).trim();
   const [activeSlide, setActiveSlide] = useState(0);
   const [showTeleprompter, setShowTeleprompter] = useState(false);
   const safeSlide = slides.length ? Math.min(activeSlide, slides.length - 1) : 0;
@@ -66,7 +72,7 @@ export function ContentPackPreview({ item, busy, onClose, onPublish }: { item: C
     </div>
     {textVariants.length > 0 && <div className="social-pack-grid">{textVariants.map((variant) => <article className="ui-card social-channel-card" key={variant.id}><div className="social-channel-head"><h2><ChannelBadge channel={variant.channel} /> {label(variant.channel)}</h2><Button variant="ghost" size="sm" onClick={() => void copyValue(textFor(variant))}>Copiar</Button></div><p>{textFor(variant)}</p></article>)}</div>}
     {videoScript && <section className="ui-card teleprompter-launch-card"><div><p className="ui-eyebrow">Vídeo</p><h2>Grabar con teleprompter</h2><p className="ui-muted">Usa el guion del pack para grabar desde el navegador.</p></div><Button onClick={() => setShowTeleprompter(true)}>Abrir grabador</Button></section>}
-    <Inline gap="md"><Button variant="ghost" onClick={onClose}>Cerrar</Button><span className="ui-field-hint">Instagram se publica en Buffer. El Blog usa el webhook de Coolify configurado en Administración.</span></Inline>
+    <Inline gap="md"><Button variant="ghost" onClick={onClose}>Cerrar</Button>{(blog || instagram) && <Button variant="secondary" onClick={() => navigate(`/social-pack/${encodeURIComponent(String(item.topic || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""))}`)}>Ver Social Pack</Button>}<span className="ui-field-hint">Instagram se publica en Buffer. El Blog usa el webhook de Coolify configurado en Administración.</span></Inline>
     {showTeleprompter && <TeleprompterModal script={videoScript} onClose={() => setShowTeleprompter(false)} />}
   </Stack>;
 }

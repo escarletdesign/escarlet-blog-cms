@@ -3719,7 +3719,13 @@ function SocialPack() {
   const teleprompterScript =
     typeof socialPack.videoScript === "string" && socialPack.videoScript
       ? socialPack.videoScript
-      : [post?.title, post?.excerptEs].filter(Boolean).join("\n\n");
+      : [
+          post?.title,
+          post?.excerptEs,
+          ...(Array.isArray(socialPack.instagramSlides)
+            ? socialPack.instagramSlides.map((slide: any) => [slide?.headline, slide?.body].filter(Boolean).join("\n"))
+            : []),
+        ].filter(Boolean).join("\n\n");
   const blogImage = post?.imageThumbUrl || post?.imageUrl || "";
   let blogImageSrc = blogImage;
   if (blogImage.startsWith("/images/") && articleUrl) {
