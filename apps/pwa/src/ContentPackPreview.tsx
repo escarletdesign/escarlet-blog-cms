@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ContentChannel, ContentItem, ContentVariant } from "./types";
-import { Button, Card, ChannelBadge, EmptyState, IconButton, Inline, Stack, StatusBadge } from "./ui";
+import { Badge, Button, Card, ChannelBadge, EmptyState, IconButton, Inline, Stack, StatusBadge } from "./ui";
 
 const packChannels: ContentChannel[] = ["blog", "instagram", "linkedin", "x", "substack", "video"];
 const label = (channel: string) => channel === "x" ? "X" : channel === "video" ? "Vídeo" : channel.charAt(0).toUpperCase() + channel.slice(1);
