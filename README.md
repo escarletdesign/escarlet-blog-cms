@@ -46,6 +46,8 @@ Consulta el [contrato de UI](docs/UI-DESIGN-SYSTEM.md) y las reglas para agentes
 [`AGENTS.md`](AGENTS.md) antes de crear una pantalla nueva. El guard se ejecuta con
 `npm run ui:check` y el build de la PWA con `npm run build`.
 
+Showcase público para revisar visualmente los componentes: `/app/design-system`.
+
 ## Nuevo sitio / onboarding
 
 Guía completa. [docs/ONBOARDING.md](docs/ONBOARDING.md)

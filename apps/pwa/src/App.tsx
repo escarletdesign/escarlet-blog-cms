@@ -24,6 +24,7 @@ import type { AiConversation, SocialPackJobResult } from "./api";
 import { getInitialLanguage, Language, translate } from "./i18n";
 import type { Author, BrandSummary, MediaItem, Post, Session } from "./types";
 import { ContentBatches as ContentPlans } from "./ContentBatches";
+import { DesignSystem } from "./DesignSystem";
 import { Badge, Button, Card, ChannelBadge, ConnectionCard, EmptyState as UiEmptyState, Field, Inline, Modal, PageHeader, Select, Stack, StatusBadge, Tabs, TextField } from "./ui";
 
 type Draft = Partial<Post> & { title: string; slug?: string };
@@ -469,6 +470,7 @@ function App() {
             }}
           >
             <Routes>
+              <Route path="/design-system" element={<DesignSystem />} />
               {session.userId && session.profileComplete === false ? (
                 <>
                   <Route path="/onboarding" element={<Onboarding />} />
@@ -510,6 +512,7 @@ function App() {
           </SessionContext.Provider>
         ) : (
           <Routes>
+            <Route path="/design-system" element={<DesignSystem />} />
             <Route path="*" element={<Login onLogin={refresh} />} />
           </Routes>
         )}
