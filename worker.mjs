@@ -111,7 +111,7 @@ async function processExternalPublicationEvent(event) {
     if (!token) throw new Error(`${provider} no está configurado para la marca.`)
     const body = variant.body && typeof variant.body === 'object' ? variant.body : {}
     const socialPack = body.socialPack && typeof body.socialPack === 'object' ? body.socialPack : {}
-    const text = body.text || body.caption || socialPack.instagramCaption || socialPack.caption || body.body || body.bodyHtml || body.title || body.topic || ''
+    const text = socialPack.instagramCaption || socialPack.caption || body.text || body.caption || body.body || body.bodyHtml || body.title || body.topic || ''
     const mediaRows = await pool.query('SELECT ma.public_url AS "url",ma.metadata FROM content_variant_media cvm JOIN media_assets ma ON ma.id=cvm.media_asset_id WHERE cvm.variant_id=$1 ORDER BY cvm.sort_order', [variant.id])
     await recordUsage({ workspaceId: event.workspace_id, siteId: variant.site_id, kind: 'publications', quantity: 1, idempotencyKey: `publication:${event.id}:${variant.id}`, metadata: { itemId, channel: variant.channel, provider } })
     let response

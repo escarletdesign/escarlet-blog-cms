@@ -19,8 +19,8 @@ function bodyFor(variant: ContentVariant) {
 function previewText(variant: ContentVariant) {
   const { body, socialPack } = bodyFor(variant);
   const value = variant.channel === "instagram"
-    ? body.caption || body.text || socialPack.instagramCaption || socialPack.caption || body.body
-    : body.body || body.bodyHtml || body.summary || body.excerpt || body.text;
+    ? socialPack.instagramCaption || socialPack.caption || body.caption || body.text || body.body
+    : body.body || body.bodyHtml || body.summary || body.excerpt || body.text || body.topic;
   return String(value || "Sin contenido generado todavía.").replace(/<[^>]*>/g, "").trim();
 }
 
