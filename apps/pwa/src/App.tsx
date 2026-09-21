@@ -6779,8 +6779,6 @@ function BrandDetailView() {
   const { brandId = "" } = useParams();
   const nav = useNavigate();
   const [brand, setBrand] = useState<BrandSummary | null>(null);
-  const [brandCore, setBrandCore] = useState<Record<string, any>>({});
-  const [identityView, setIdentityView] = useState<"summary" | "edit">("summary");
   const [error, setError] = useState("");
   useEffect(() => { api.brandV2(brandId).then((result) => setBrand(result.brand)).catch((err) => setError(err?.message || "No se pudo cargar la marca.")); }, [brandId]);
   if (error) return <main className="ui-page"><Card><p className="ui-field-error">{error}</p></Card></main>;
@@ -6794,6 +6792,8 @@ function BrandIdentityView() {
   const { t } = useI18n();
   const { showToast } = useToast();
   const [brand, setBrand] = useState<BrandSummary | null>(null);
+  const [brandCore, setBrandCore] = useState<Record<string, any>>({});
+  const [identityView, setIdentityView] = useState<"summary" | "edit">("summary");
   const [kit, setKit] = useState<Record<string, any> | null>(null);
   const [brandFiles, setBrandFiles] = useState<string[]>([]);
   const [referenceMedia, setReferenceMedia] = useState<MediaItem[]>([]);
