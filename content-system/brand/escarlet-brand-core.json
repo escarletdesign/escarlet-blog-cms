@@ -43,7 +43,9 @@
       "Evitar escritorio + portátil + taza como composición por defecto.",
       "Preferir una idea visual única y espacio negativo limpio.",
       "No usar robots, cerebros con circuitos, collages 3D ni gradientes genéricos.",
-      "Las referencias aprobadas orientan materia, luz y encuadre; no se copian literalmente."
+      "Las referencias aprobadas orientan materia, luz y encuadre; no se copian literalmente.",
+      "No usar guiones horizontales, rayas, em dash, en dash ni separadores de guiones como decoración en textos visibles.",
+      "En imágenes con texto no añadir borde, contorno, trazo, outline, halo ni sombra pegada al texto."
     ]
   },
   "variableAxes": [

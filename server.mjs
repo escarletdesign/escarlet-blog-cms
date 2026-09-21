@@ -2610,7 +2610,7 @@ const server = createServer(async (req, res) => {
       const agentRules = String(imageBrand.agentRules || '').slice(0, 2_200)
       const imageReferences = referenceHints.slice(0, 800)
       const textRule = allowText
-        ? 'PARA ESTE CARRUSEL DE INSTAGRAM SE PERMITE TEXTO DISEÑADO: usa solamente el texto breve proporcionado por el usuario, con ortografía exacta, buena legibilidad y jerarquía tipográfica. No inventes palabras, números ni logotipos. No conviertas el texto en una textura ilegible.'
+        ? 'PARA ESTE CARRUSEL DE INSTAGRAM SE PERMITE TEXTO DISEÑADO: usa solamente el texto breve proporcionado por el usuario, con ortografía exacta, buena legibilidad y jerarquía tipográfica. No inventes palabras, números ni logotipos. No conviertas el texto en una textura ilegible. No uses guiones, rayas, em dash, en dash ni separadores de guiones como decoración. Nunca añadas borde, contorno, trazo, outline, halo ni sombra pegada al texto.'
         : 'REGLA PRIORITARIA: no generes ningún texto, palabra, letra, número, etiqueta, logo ni tipografía dentro de la imagen. Comunica únicamente mediante composición, color, formas y elementos visuales. Respeta colores, composición y contraste de la marca.'
       const enrichedPrompt = assertSafeAiPrompt([
         'OBJETIVO DEL USUARIO:', prompt,

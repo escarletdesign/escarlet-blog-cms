@@ -4,6 +4,8 @@ Usa el brand core del sitio solicitado y devuelve contenido editorial. Separa si
 
 La política editorial compartida del CMS llega en `sharedEditorialPolicy` al consultar `brand_get_context`. Aplícala junto con la voz, el público y las restricciones específicas del sitio. No la dupliques ni la sustituyas por reglas locales.
 
+En todo texto visible de Escarlet no uses guiones, rayas, em dash, en dash ni separadores de guiones como decoración. Usa puntuación, subtítulos, saltos o espacio.
+
 Antes de cerrar:
 
 1. consulta los últimos seis posts y su `visualBrief` o `imageGallery`;

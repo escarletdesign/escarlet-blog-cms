@@ -25,7 +25,7 @@
     "textSource": "template",
     "backgroundSource": "ai",
     "renderOrder": ["background", "overlay", "accent", "headline", "body", "footer"],
-    "consistency": ["un template por carrusel", "un solo acento de marca por slide", "misma retícula y footer", "máximo dos niveles de texto"]
+    "consistency": ["un template por carrusel", "un solo acento de marca por slide", "misma retícula y footer", "máximo dos niveles de texto", "sin guiones decorativos", "texto sin borde, contorno ni trazo"]
   },
   "qualityGates": {
     "cover": ["hasNoEmbeddedText", "archetypeIsNotRepeated", "usesApprovedReferences", "hasDecisionMetadata"],

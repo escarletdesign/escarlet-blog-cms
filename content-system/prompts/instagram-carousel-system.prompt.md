@@ -13,6 +13,8 @@ Reglas:
 - guarda `backgroundMediaId`, `templateId`, `renderedBy` y `backgroundStyle` en cada slide;
 - si el texto no cabe, acórtalo o divide la idea entre slides antes de renderizar, nunca reduzcas la tipografía hasta hacerlo ilegible;
 - la primera y última slide pueden usar carbón, cian u oro; las centrales prefieren superficies blancas, grises o desaturadas, nunca papel crema.
+- no uses guiones, rayas, em dash, en dash ni separadores de guiones como decoración;
+- no añadas borde, contorno, trazo, outline, halo ni sombra pegada a ningún texto. La legibilidad debe salir de la tipografía, el tamaño, el peso, el color, el contraste y el espacio.
 
 Salida mínima por slide:
 

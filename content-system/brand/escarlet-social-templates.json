@@ -50,7 +50,11 @@
           "matte-surface",
           "light-or-grayscale"
         ],
-        "overlay": "rgba(255,255,255,.82)"
+        "overlay": "rgba(255,255,255,.82)",
+        "textBorder": false,
+        "textOutline": false,
+        "textStroke": false,
+        "decorativeDashes": false
       },
       "accent": {
         "color": "#47A4E7",
@@ -106,7 +110,11 @@
           "brand-color",
           "light-or-grayscale"
         ],
-        "overlay": "rgba(30,30,30,.76)"
+        "overlay": "rgba(30,30,30,.76)",
+        "textBorder": false,
+        "textOutline": false,
+        "textStroke": false,
+        "decorativeDashes": false
       },
       "accent": {
         "color": "#E8B73A",
