@@ -13,7 +13,7 @@ Paquete preparado para importar en `escarlet-blog-cms` mediante `blog_import_bra
 
 ## Decisión de precedencia
 
-El sistema 2.2.0 activo del CMS usa una única identidad fija: cian `#12B8D6`, verde suave `#62B38A`, crema `#F3E7D0`, oro `#E8B73A`, carbón `#1E1E1E`, gris `#6D6D6D` y blanco `#FFFFFF`. El fondo canónico conserva el flujo cian, verde suave y oro, pero no crea una segunda identidad.
+El sistema 2.2.0 activo del CMS usa una única identidad fija: cian `#12B8D6`, verde suave `#62B38A`, oro `#E8B73A`, carbón `#1E1E1E`, gris `#6D6D6D` y blanco `#FFFFFF`. El fondo canónico conserva el flujo cian, verde suave y oro, pero no crea una segunda identidad. El papel crema no forma parte de la marca.
 
 La regla práctica es:
 

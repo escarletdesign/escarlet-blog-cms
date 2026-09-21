@@ -47,10 +47,10 @@
       "background": {
         "allowed": [
           "ai-background",
-          "paper",
+          "matte-surface",
           "light-or-grayscale"
         ],
-        "overlay": "rgba(243,231,208,.82)"
+        "overlay": "rgba(255,255,255,.82)"
       },
       "accent": {
         "color": "#47A4E7",

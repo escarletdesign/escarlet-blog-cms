@@ -88,7 +88,7 @@
       "signals": ["recorte de interfaz abstracta", "reflejo", "capas translúcidas", "cursor como gesto"],
       "literalness": 0.6,
       "abstraction": 0.6,
-      "promptExamples": ["capas de interfaz abstracta proyectadas sobre papel rugoso, sin palabras legibles, carbón y crema"],
+      "promptExamples": ["capas de interfaz abstracta proyectadas sobre una superficie mate, sin palabras legibles, azul principal y carbón"],
       "repetitionRisk": "medio",
       "topics": ["IA", "UX", "diseño", "producto"]
     }

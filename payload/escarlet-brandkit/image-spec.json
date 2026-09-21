@@ -22,7 +22,6 @@
         "#47A4E7",
         "#12B8D6",
         "#62B38A",
-        "#F3E7D0",
         "#E8B73A",
         "#1E1E1E",
         "#6D6D6D",
@@ -35,14 +34,13 @@
           "#12B8D6",
           "#62B38A",
           "#E8B73A",
-          "#F3E7D0",
           "#1E1E1E",
           "#6D6D6D"
         ],
         "flow": "teal a la izquierda, verde suave en el centro y oro cálido a la derecha",
         "must_not_be_treated_as": "paleta fija de interfaz ni sustitución del brand core"
       },
-      "background": "papel, materia real, luz natural o interior cálido; degradado editorial solo en el preset declarado",
+      "background": "superficies blancas o grises, materia real, luz natural o interior cálido; degradado editorial solo en el preset declarado; nunca papel crema",
       "lighting": "luz suave lateral, con sombras controladas y temperatura cálida",
       "composition_defaults": {
         "format": "horizontal",
@@ -296,7 +294,7 @@
     "referenceFidelity": "high",
     "altText": "Describe la escena de forma breve, concreta y fiel a la pieza.",
     "fixedIdentity": {
-      "palette": ["#47A4E7", "#12B8D6", "#62B38A", "#F3E7D0", "#E8B73A", "#1E1E1E", "#6D6D6D", "#FFFFFF"],
+      "palette": ["#47A4E7", "#12B8D6", "#62B38A", "#E8B73A", "#1E1E1E", "#6D6D6D", "#FFFFFF"],
       "typography": "Montserrat, Arial, sans-serif",
       "coverHasText": false
     },

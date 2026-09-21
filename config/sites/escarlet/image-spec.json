@@ -10,7 +10,6 @@
       "active_palette": [
         "#12B8D6",
         "#62B38A",
-        "#F3E7D0",
         "#E8B73A",
         "#1E1E1E",
         "#6D6D6D",
@@ -23,7 +22,6 @@
           "#12B8D6",
           "#62B38A",
           "#E8B73A",
-          "#F3E7D0",
           "#1E1E1E",
           "#6D6D6D"
         ],
@@ -284,7 +282,7 @@
     "referenceFidelity": "high",
     "altText": "Describe la escena de forma breve, concreta y fiel a la pieza.",
     "fixedIdentity": {
-      "palette": ["#12B8D6", "#62B38A", "#F3E7D0", "#E8B73A", "#1E1E1E", "#6D6D6D", "#FFFFFF"],
+      "palette": ["#12B8D6", "#62B38A", "#E8B73A", "#1E1E1E", "#6D6D6D", "#FFFFFF"],
       "typography": "Inter, Arial, sans-serif",
       "coverHasText": false
     },

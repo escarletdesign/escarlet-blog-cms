@@ -1,6 +1,6 @@
 # Estilo visual canónico de Escarlet
 
-El sistema web usa azul principal `#47A4E7`, teal `#12B8D6`, verde suave `#62B38A`, crema claro `#F3E7D0`, amarillo oro `#E8B73A`, carbón `#1E1E1E`, gris `#6D6D6D` y blanco `#FFFFFF` cuando sea necesario.
+El sistema web usa azul principal `#47A4E7`, teal `#12B8D6`, verde suave `#62B38A`, amarillo oro `#E8B73A`, carbón `#1E1E1E`, gris `#6D6D6D` y blanco `#FFFFFF` cuando sea necesario. El papel crema no forma parte de la marca: usa superficies blancas, grises o materiales naturales sin tinte crema.
 
 La tipografía del sistema es Montserrat, con Arial como fallback. El degradado teal `#12B8D6` a dorado `#E8B73A` está permitido en héroes y llamadas a la acción del sitio web. No se usa como fondo global ni como sustituto de la paleta de interfaz.
 

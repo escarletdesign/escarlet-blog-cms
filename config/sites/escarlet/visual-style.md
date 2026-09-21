@@ -1,6 +1,6 @@
 # Estilo visual canónico de Escarlet
 
-La identidad fija usa turquesa/cian `#12B8D6`, verde suave `#62B38A`, crema claro `#F3E7D0`, amarillo oro `#E8B73A`, carbón `#1E1E1E`, gris `#6D6D6D` y blanco `#FFFFFF` cuando sea necesario.
+La identidad fija usa turquesa/cian `#12B8D6`, verde suave `#62B38A`, amarillo oro `#E8B73A`, carbón `#1E1E1E`, gris `#6D6D6D` y blanco `#FFFFFF` cuando sea necesario. El papel crema no forma parte de la marca.
 
 El fondo obligatorio es `fondo-escarlet.jpg`. Conserva formas orgánicas estratificadas tipo montañas y el flujo cromático turquesa a la izquierda, verde suave en el centro y oro a la derecha. La autoridad visual principal es `05-tablero-visual.png`: define iluminación, composición editorial, anonimato de las personas y tono emocional.
 

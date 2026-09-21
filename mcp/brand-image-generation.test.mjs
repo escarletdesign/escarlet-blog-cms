@@ -28,7 +28,7 @@ test('los tres endpoints usan el mismo snapshot y la misma identidad canónica',
   assert.equal(new Set(values.map((value) => value.brandKitVersionId)).size, 1)
   assert.equal(new Set(values.map((value) => value.brandKitSnapshotHash)).size, 1)
   assert.deepEqual(values[0].canonicalPalette, {
-    primary: '#47A4E7', cyan: '#12B8D6', teal: '#12B8D6', greenSoft: '#62B38A', cream: '#F3E7D0', gold: '#E8B73A', charcoal: '#1E1E1E', gray: '#6D6D6D', white: '#FFFFFF'
+    primary: '#47A4E7', cyan: '#12B8D6', teal: '#12B8D6', greenSoft: '#62B38A', gold: '#E8B73A', charcoal: '#1E1E1E', gray: '#6D6D6D', white: '#FFFFFF'
   })
   assert.equal(values[0].imageSpec.version, '2.2.0')
   assert.equal(values[0].imageSpec.global.referenceSelection.coverCountAutomatic, 'route')

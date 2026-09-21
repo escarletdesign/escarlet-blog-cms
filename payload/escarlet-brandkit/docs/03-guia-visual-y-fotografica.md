@@ -12,14 +12,13 @@ Diseño editorial contemporáneo, cálido y táctil. Una idea visual por pieza, 
 | --- | --- | --- |
 | Turquesa / cian | `#12B8D6` | Flujo cromático y acentos |
 | Verde suave | `#62B38A` | Centro del flujo y escenas humanas |
-| Crema claro | `#F3E7D0` | Superficies y espacio negativo |
 | Amarillo oro | `#E8B73A` | Luz cálida y cierre cromático |
 | Gris neutro | `#6D6D6D` | Texto auxiliar |
 | Carbón | `#1E1E1E` | Contraste y profundidad |
 
 ### Referencia editorial aportada
 
-El fondo canónico usa `#12B8D6`, `#62B38A`, `#E8B73A`, `#F3E7D0`, `#1E1E1E` y `#6D6D6D`, con flujo cian a verde y oro. Conserva siempre las formas orgánicas estratificadas tipo montañas de `fondo-escarlet.jpg`.
+El fondo canónico usa `#12B8D6`, `#62B38A`, `#E8B73A`, `#1E1E1E`, `#6D6D6D` y `#FFFFFF`, con flujo cian a verde y oro. Conserva siempre las formas orgánicas estratificadas tipo montañas de `fondo-escarlet.jpg`. No uses papel crema.
 
 ## Tipografías y jerarquía
 

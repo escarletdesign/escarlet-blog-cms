@@ -2,7 +2,7 @@
 
 ## Estado
 
-Versión preparada para el CMS 2.2.0. La identidad verbal procede del documento estratégico aportado por Escarlet y de la guía activa del repositorio. La paleta cian, verde suave, crema, oro, carbón, gris y blanco es la identidad visual canónica.
+Versión preparada para el CMS 2.2.0. La identidad verbal procede del documento estratégico aportado por Escarlet y de la guía activa del repositorio. La paleta cian, verde suave, oro, carbón, gris y blanco es la identidad visual canónica. El papel crema no forma parte de la marca.
 
 ## Negocio
 

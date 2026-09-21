@@ -12,7 +12,7 @@ Reglas:
 - no mandes `headline` ni `body` al generador de imágenes;
 - guarda `backgroundMediaId`, `templateId`, `renderedBy` y `backgroundStyle` en cada slide;
 - si el texto no cabe, acórtalo o divide la idea entre slides antes de renderizar, nunca reduzcas la tipografía hasta hacerlo ilegible;
-- la primera y última slide pueden usar carbón, cian u oro; las centrales prefieren papel, crema o gris.
+- la primera y última slide pueden usar carbón, cian u oro; las centrales prefieren superficies blancas, grises o desaturadas, nunca papel crema.
 
 Salida mínima por slide:
 

@@ -10,7 +10,7 @@ Si `missingBrand` tiene archivos, para y pide que los suban desde Brand kit en l
 
 Pregunta al humano lo que aún no sepas antes de redactar.
 
-No inventes tono ni paleta. La paleta canónica es `#12B8D6`, `#62B38A`, `#F3E7D0`, `#E8B73A`, `#1E1E1E`, `#6D6D6D` y `#FFFFFF` cuando sea necesario.
+No inventes tono ni paleta. La paleta canónica es `#12B8D6`, `#62B38A`, `#E8B73A`, `#1E1E1E`, `#6D6D6D` y `#FFFFFF` cuando sea necesario. El papel crema no forma parte de la marca.
 
 Aplica siempre la política editorial común `sharedEditorialPolicy` devuelta por `brand_get_context` antes de redactar o revisar. Sus reglas son globales y se combinan con este brand kit.
 
