@@ -12,6 +12,11 @@
     { "id": "esc-background", "role": "background-authority", "filename": "fondo-escarlet.jpg", "mediaId": "media-1789662894828", "approved": true, "required": true },
     { "id": "esc-scene-work", "role": "scene-reference", "filename": "reference-blog-example.png", "mediaId": "media-1789658372371-1", "approved": true, "required": false },
     { "id": "esc-scene-tense", "role": "scene-reference", "filename": "reference-visual-style-01.png", "mediaId": "media-1789658372405-2", "approved": true, "required": false },
-    { "id": "esc-scene-positive", "role": "scene-reference", "filename": "reference-visual-style-02.png", "mediaId": "media-1789658372446-3", "approved": true, "required": false }
+    { "id": "esc-scene-positive", "role": "scene-reference", "filename": "reference-visual-style-02.png", "mediaId": "media-1789658372446-3", "approved": true, "required": false },
+    { "id": "esc-carousel-listen", "role": "carousel-reference", "filename": "carousel-reference-01-listen.jpg", "mediaId": "media-1790016336592", "approved": true, "required": false },
+    { "id": "esc-carousel-logo", "role": "carousel-reference", "filename": "carousel-reference-02-before-logo.jpg", "mediaId": "media-1790016375507", "approved": true, "required": false },
+    { "id": "esc-carousel-branding", "role": "carousel-reference", "filename": "carousel-reference-03-branding-local.jpg", "mediaId": "media-1790016379923", "approved": true, "required": false },
+    { "id": "esc-carousel-coherent", "role": "carousel-reference", "filename": "carousel-reference-04-bonito-coherente.jpg", "mediaId": "media-1790016382792", "approved": true, "required": false },
+    { "id": "esc-carousel-message", "role": "carousel-reference", "filename": "carousel-reference-05-problema-canva.jpg", "mediaId": "media-1790016385295", "approved": true, "required": false }
   ]
 }

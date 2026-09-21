@@ -1126,6 +1126,21 @@ export function buildToolList(auth) {
       annotations: { readOnlyHint: false, destructiveHint: false }
     },
     {
+      name: 'brand_update_file',
+      description: 'Actualiza un archivo editable del brandkit activo. Solo super-admin. Úsala para persistir reglas de diseño y referencias aprobadas en la marca, nunca para saltarse la preparación o la certificación de imágenes.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          site: { type: 'string' },
+          file: { type: 'string' },
+          content: { type: 'string' }
+        },
+        required: ['site', 'file', 'content']
+      },
+      annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false },
+      adminOnly: true
+    },
+    {
       name: 'brand_register_generation',
       description: 'Alias de compatibilidad de brand_complete_image_generation. Solo el backend puede emitir el generationReceipt y siempre aplica la misma comprobación estricta de referencias, versión y hash.',
       inputSchema: {
@@ -1399,6 +1414,11 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             generationReceiptId: receipt.receiptId,
             nextTool: 'content_upload_media'
           })
+        }
+        case 'brand_update_file': {
+          assertSuperAdmin(auth)
+          const site = resolveToolSite(auth, args)
+          return textResult(await cms.updateBrandFile(site, args.file, args.content, { auth }))
         }
         case 'content_upload_media': {
           const site = resolveToolSite(auth, args)

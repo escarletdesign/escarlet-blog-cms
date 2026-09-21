@@ -59,7 +59,7 @@ Recomendado (aviso, no bloquea):
 - imageAlt descriptivo.
 - Al menos 1 enlace interno.
 - Las variantes de cada canal deben incluir el enlace canónico cuando corresponda.
-- Carrusel Instagram. Caption con canónico. Slides con `imageUrl` absoluta del CMS + alt.
+- Carrusel Instagram. Caption con canónico. Slides con `imageUrl` absoluta del CMS + alt. El formato operativo es 1080×1350 o 1080×1440, nunca cuadrado.
 
 ## Imágenes
 
@@ -85,6 +85,9 @@ Recomendado (aviso, no bloquea):
 - Para el modo operativo entrega una única ruta final. No existe exploración automática ni fallback silencioso.
 - En Instagram, la IA solo genera fondos. Nunca le pidas que dibuje `headline` o `body`.
 - Renderiza cada slide con un único template (`editorial` o `impact`) usando `content-system/instagram-renderer.mjs`. La fuente, safe areas, saltos y jerarquías salen del template.
+- El texto de cada slide debe ser grande y legible en móvil. Cada bloque admite una, dos o tres líneas como máximo. Si desborda, divide el mensaje en otra slide, nunca reduzcas la tipografía para que quepa.
+- La primera y la última slide usan colores puros de Escarlet, sin overlay aclarador, texto blanco con contraste y el logo oficial indicado por el brandkit. Las slides centrales usan fondos claros y generalistas, texto oscuro y sin logo.
+- El logo solo se inserta desde el SVG oficial del brandkit. Nunca lo redibujes ni lo generes con IA.
 - Guarda en cada slide `templateId`, `backgroundMediaId`, `backgroundStyle` y `renderedBy: content-system/instagram-renderer`.
 - Si una portada o slide existente repite filename/hash, carece de metadata o rompe el template, marca `regenerate` con `analyze-existing-assets.mjs` y regenera solo ese slug.
 - No heredes la paleta o las referencias de Escarlet en otro sitio. Carga el brand core de la marca solicitada.

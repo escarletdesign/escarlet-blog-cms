@@ -25,7 +25,7 @@
         "y": 255,
         "width": 760,
         "maxChars": 72,
-        "fontSize": 70,
+        "fontSize": 88,
         "lineHeight": 1.05,
         "maxLines": 3
       },
@@ -34,9 +34,9 @@
         "y": 770,
         "width": 760,
         "maxChars": 180,
-        "fontSize": 32,
+        "fontSize": 36,
         "lineHeight": 1.25,
-        "maxLines": 4
+        "maxLines": 3
       },
       "footer": {
         "x": 88,
@@ -50,7 +50,7 @@
           "matte-surface",
           "light-or-grayscale"
         ],
-        "overlay": "rgba(255,255,255,.82)"
+        "overlay": "position-aware"
       },
       "accent": {
         "color": "#47A4E7",
@@ -81,7 +81,7 @@
         "y": 180,
         "width": 820,
         "maxChars": 54,
-        "fontSize": 86,
+        "fontSize": 96,
         "lineHeight": 0.98,
         "maxLines": 3
       },
@@ -90,9 +90,9 @@
         "y": 860,
         "width": 820,
         "maxChars": 140,
-        "fontSize": 30,
+        "fontSize": 36,
         "lineHeight": 1.2,
-        "maxLines": 4
+        "maxLines": 3
       },
       "footer": {
         "x": 88,
@@ -106,7 +106,7 @@
           "brand-color",
           "light-or-grayscale"
         ],
-        "overlay": "rgba(30,30,30,.76)"
+        "overlay": "position-aware"
       },
       "accent": {
         "color": "#E8B73A",

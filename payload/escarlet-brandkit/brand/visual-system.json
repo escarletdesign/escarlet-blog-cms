@@ -24,8 +24,17 @@
     "canvas": { "width": 1080, "height": 1350, "safeTop": 88, "safeRight": 88, "safeBottom": 88, "safeLeft": 88 },
     "textSource": "template",
     "backgroundSource": "ai",
-    "renderOrder": ["background", "overlay", "accent", "headline", "body", "footer"],
-    "consistency": ["un template por carrusel", "un solo acento de marca por slide", "misma retícula y footer", "máximo dos niveles de texto"]
+    "renderOrder": ["background", "positionTreatment", "accent", "headline", "body", "logo"],
+    "consistency": ["un template por carrusel", "un solo acento de marca por slide", "misma retícula", "máximo dos niveles de texto", "texto grande legible en móvil", "primera y última slide con colores puros y logo oficial", "slides centrales claras y generalistas", "una, dos o tres líneas por bloque; dividir si desborda"],
+    "carouselRules": {
+      "firstSlide": { "background": "brand-colors-pure", "overlay": "none", "textColor": "#FFFFFF", "logo": "official-white" },
+      "middleSlides": { "background": "light-generalist", "avoidSaturatedColors": true, "textColor": "#1E1E1E", "logo": "none" },
+      "lastSlide": { "background": "brand-colors-pure", "overlay": "none", "textColor": "#FFFFFF", "logo": "official-white" },
+      "maxLinesPerBlock": 3,
+      "minimumHeadlineFontSize": 86,
+      "minimumBodyFontSize": 34,
+      "overflow": "split-into-another-slide"
+    }
   },
   "qualityGates": {
     "cover": ["hasNoEmbeddedText", "archetypeIsNotRepeated", "usesApprovedReferences", "hasDecisionMetadata"],

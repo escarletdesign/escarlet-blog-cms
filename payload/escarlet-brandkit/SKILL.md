@@ -40,6 +40,8 @@ Esta skill es la copia operativa del brand kit canónico preparado para el handl
 4. Conserva `brandPreparation.preparationId`. Para post o social sube con `content_upload_media` y pasa ese valor. El CMS rechaza imágenes sin grounding o con snapshot vencido.
 5. Si `generationBlocked` es `true`, no generes ni sustituyas referencias. Solicita que se restaure el activo indicado.
 6. Para Instagram genera solo el fondo. El texto lo monta `content-system/instagram-renderer.mjs`.
+7. En un carrusel, la primera y última slide usan colores puros de marca, sin overlay aclarador, texto blanco de alto contraste y el logo SVG oficial. Las slides centrales usan un fondo claro y generalista, con texto oscuro y sin logo.
+8. Mantén titulares y cuerpos grandes para móvil. Cada bloque tiene una, dos o tres líneas como máximo. Si el copy desborda, crea otra slide en vez de encoger la tipografía.
 7. Una petición singular genera exactamente una imagen final, sin variantes ni galerías.
 
 ## Al entregar

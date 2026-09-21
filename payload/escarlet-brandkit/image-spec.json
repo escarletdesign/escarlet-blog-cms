@@ -343,6 +343,19 @@
     "allowText": true,
     "textSource": "template",
     "textRenderer": "content-system/instagram-renderer.mjs",
+    "textLayout": {
+      "maxLinesPerBlock": 3,
+      "headlineMinFontSize": 86,
+      "bodyMinFontSize": 34,
+      "splitWhenOverflow": true,
+      "mobileFirstRead": true
+    },
+    "logo": {
+      "asset": "assets/logo-official-white.svg",
+      "requiredOn": ["first", "last"],
+      "placement": "bottom-right",
+      "doNotRedraw": true
+    },
     "backgroundGeneration": {
       "allowText": false,
       "role": "instagram-carousel-background"
@@ -353,15 +366,24 @@
     ],
     "firstSlide": {
       "background": "brand-color",
-      "allowGradients": true
+      "allowGradients": false,
+      "overlay": "none",
+      "textColor": "#FFFFFF",
+      "logo": "official-white"
     },
     "middleSlides": {
       "background": "light-or-grayscale",
-      "avoidSaturatedColors": true
+      "avoidSaturatedColors": true,
+      "overlay": "light-neutral",
+      "textColor": "#1E1E1E",
+      "logo": "none"
     },
     "lastSlide": {
       "background": "brand-color",
-      "allowGradients": true
+      "allowGradients": false,
+      "overlay": "none",
+      "textColor": "#FFFFFF",
+      "logo": "official-white"
     },
     "mobileReadability": {
       "required": true,
