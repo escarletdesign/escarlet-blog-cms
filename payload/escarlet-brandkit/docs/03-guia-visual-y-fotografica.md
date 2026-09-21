@@ -10,16 +10,17 @@ Diseño editorial contemporáneo, cálido y táctil. Una idea visual por pieza, 
 
 | Color | Hex | Uso |
 | --- | --- | --- |
-| Turquesa / cian | `#12B8D6` | Flujo cromático y acentos |
-| Verde suave | `#62B38A` | Centro del flujo y escenas humanas |
-| Crema claro | `#F3E7D0` | Superficies y espacio negativo |
-| Amarillo oro | `#E8B73A` | Luz cálida y cierre cromático |
-| Gris neutro | `#6D6D6D` | Texto auxiliar |
-| Carbón | `#1E1E1E` | Contraste y profundidad |
+| Papel | `#F4F1EA` | Superficies y espacio negativo |
+| Papel cálido | `#E8E0D3` | Capas, lino y fondos secundarios |
+| Verde bosque | `#1F4D3A` | Identidad y profundidad |
+| Verde profundo | `#15352A` | Fondos oscuros y contraste |
+| Tinta | `#1B211D` | Contraste y tipografía |
+| Gris | `#6C746F` | Texto auxiliar |
+| Terracota | `#C8674B` | Señal contenida |
 
-### Referencia editorial aportada
+### Referencias canónicas
 
-El fondo canónico usa `#12B8D6`, `#62B38A`, `#E8B73A`, `#F3E7D0`, `#1E1E1E` y `#6D6D6D`, con flujo cian a verde y oro. Conserva siempre las formas orgánicas estratificadas tipo montañas de `fondo-escarlet.jpg`.
+`reference-abstract-editorial.jpg` fija paleta, materia y luz. Las referencias de escena muestran trabajo, introspección y claridad con la misma dirección. No uses cian, turquesa, amarillo brillante, degradados oro ni montañas abstractas.
 
 ## Tipografías y jerarquía
 
@@ -69,9 +70,9 @@ Portadas en 3:2. Reservar al menos un 25 % del encuadre sin detalle crítico. Co
 
 ## Adaptaciones por canal
 
-- Blog. 3:2, sin texto ni logo en la imagen, 2–3 referencias aprobadas.
+- Blog. 3:2, sin texto ni logo en la imagen, una referencia material y una referencia de escena cuando corresponda.
 - Instagram. Fondo generado sin texto y texto renderizado en 1080×1350.
-- Presentaciones. Usar el sistema 2.2.0 y el logo oficial colocado.
+- Presentaciones. Usar el sistema 2.3.0 y el logo oficial colocado.
 - Web. Priorizar contraste, espacio negativo y alt descriptivo.
 
 ## Qué evitar

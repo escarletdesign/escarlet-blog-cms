@@ -1,6 +1,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { extname, join } from 'node:path'
+import { createHash } from 'node:crypto'
 import {
   CallToolRequestSchema,
   ListResourcesRequestSchema,
@@ -204,11 +205,6 @@ function imageMimeType(filename) {
   }[ext] || ''
 }
 
-/**
- * MCP hosts often cannot dereference a URL from a text response. Attach local
- * references as image content and retain a resource link for an approved
- * remote URL. Metadata remains in the text block so ids and hashes survive.
- */
 async function brandContextResult(payload) {
   const safePayload = redactWorkflowLinks(payload)
   const references = Array.isArray(payload?.brandKit?.referenceImages)
@@ -216,54 +212,76 @@ async function brandContextResult(payload) {
     : Array.isArray(payload?.referenceImages)
       ? payload.referenceImages
       : []
-  const content = []
-  const delivery = { total: references.length, imageBlocks: 0, resourceLinks: 0, unavailable: 0 }
-  for (const reference of references) {
-    const disk = referenceDiskPath(reference)
-    const mimeType = imageMimeType(reference?.filename || reference?.path)
-    if (disk && mimeType) {
-      try {
-        content.push({ type: 'image', data: readFileSync(disk).toString('base64'), mimeType })
-        delivery.imageBlocks += 1
-        continue
-      } catch {
-        // Fall through to an authorized URL or an unavailable marker.
-      }
-    }
-    const url = String(reference?.url || '').trim()
-    if (/^https:\/\//i.test(url)) {
-      content.push({
-        type: 'resource_link',
-        uri: url,
-        name: String(reference?.filename || reference?.id || 'reference-image'),
-        title: String(reference?.alt || reference?.filename || 'Referencia visual'),
-        description: String(reference?.alt || ''),
-        mimeType: mimeType || 'image/*'
-      })
-      delivery.resourceLinks += 1
-    } else {
-      delivery.unavailable += 1
-    }
-  }
   const textPayload = {
     ...safePayload,
     referenceDelivery: {
-      ...delivery,
-      inspectable: delivery.imageBlocks + delivery.resourceLinks === delivery.total
+      mode: 'catalog_only',
+      total: references.length,
+      imageBlocks: 0,
+      inspectable: false,
+      binaryDeliveryTool: 'brand_prepare_image_generation',
+      instruction: 'El contexto solo cataloga referencias. Llama brand_prepare_image_generation para recibir exclusivamente los ImageContent de la ruta elegida.'
     }
   }
   return {
-    content: [
-      { type: 'text', text: typeof textPayload === 'string' ? textPayload : JSON.stringify(textPayload, null, 2) },
-      ...content
-    ]
+    content: [{ type: 'text', text: typeof textPayload === 'string' ? textPayload : JSON.stringify(textPayload, null, 2) }]
   }
 }
 
 async function preparedImageResult(payload) {
   const prepared = redactWorkflowLinks(payload)
-  const content = [{ type: 'text', text: JSON.stringify({
+  const refs = Array.isArray(payload?.resolvedReferences)
+    ? [...payload.resolvedReferences].sort((a, b) => Number(a.attachmentIndex || 0) - Number(b.attachmentIndex || 0))
+    : []
+  const preparationId = String(payload?.brandPreparation?.preparationId || '')
+  const attachments = []
+  const missing = []
+  for (const reference of refs) {
+    const disk = referenceDiskPath(reference)
+    const mimeType = imageMimeType(reference?.filename)
+    if (!disk || !mimeType) {
+      missing.push(String(reference?.filename || 'referencia-desconocida'))
+      continue
+    }
+    try {
+      const bytes = readFileSync(disk)
+      const sha256 = createHash('sha256').update(bytes).digest('hex')
+      attachments.push({
+        type: 'image',
+        data: bytes.toString('base64'),
+        mimeType,
+        annotations: { audience: ['assistant'], priority: 1 },
+        _meta: {
+          'escarlet/reference': {
+            filename: reference.filename,
+            referenceId: reference.id,
+            mediaId: reference.mediaId,
+            attachmentIndex: reference.attachmentIndex,
+            role: reference.role,
+            sha256,
+            preparationId
+          }
+        }
+      })
+    } catch {
+      missing.push(String(reference?.filename || 'referencia-desconocida'))
+    }
+  }
+  const readyForGeneration = !payload?.generationBlocked && refs.length > 0 && missing.length === 0 && attachments.length === refs.length
+  const referenceDelivery = {
+    expected: refs.length,
+    attached: attachments.length,
+    missing,
+    exactReferenceOrder: refs.map((reference) => reference.filename),
+    hashes: attachments.map((block) => block._meta['escarlet/reference'].sha256),
+    readyForGeneration
+  }
+  const textPayload = {
     ...prepared,
+    generationBlocked: !readyForGeneration,
+    brandPreparation: readyForGeneration ? prepared.brandPreparation : null,
+    readyForGeneration,
+    referenceDelivery,
     brandGroundingContract: {
       requiredForUpload: true,
       preparationIdField: 'brandPreparation.preparationId',
@@ -272,24 +290,19 @@ async function preparedImageResult(payload) {
         maxImageCount: 1,
         unit: 'final_image'
       },
-      exactReferenceOrder: Array.isArray(payload?.resolvedReferences)
-        ? payload.resolvedReferences.map((reference) => reference.filename)
-        : [],
-      instruction: 'Usa exactamente los ImageContent adjuntos y conserva brandPreparation.preparationId al subir la imagen. El CMS rechaza imágenes post/social sin esta preparación o con un snapshot vencido.'
-    }
-  }, null, 2) }]
-  const refs = Array.isArray(payload?.resolvedReferences) ? payload.resolvedReferences : []
-  for (const reference of refs.sort((a, b) => Number(a.attachmentIndex || 0) - Number(b.attachmentIndex || 0))) {
-    const disk = referenceDiskPath(reference)
-    const mimeType = imageMimeType(reference?.filename)
-    if (!disk || !mimeType) continue
-    try {
-      content.push({ type: 'image', data: readFileSync(disk).toString('base64'), mimeType })
-    } catch {
-      // The text contract remains authoritative and reports the missing asset.
+      exactReferenceOrder: referenceDelivery.exactReferenceOrder,
+      instruction: readyForGeneration
+        ? 'Usa todos los ImageContent adjuntos en este orden, genera exactamente una imagen final y conserva brandPreparation.preparationId al subirla.'
+        : 'No generes ninguna imagen. La preparación no pudo adjuntar todas las referencias obligatorias.'
     }
   }
-  return { content }
+  return {
+    isError: !readyForGeneration,
+    content: [
+      { type: 'text', text: JSON.stringify(textPayload, null, 2) },
+      ...(readyForGeneration ? attachments : [])
+    ]
+  }
 }
 
 function assertMcpImageGrounding(site, args = {}) {
@@ -923,10 +936,10 @@ export function buildToolList(auth) {
 
   tools.push(
     { name: 'brand_list', description: 'Lista las marcas v2 visibles para este token. Si devuelve varias, pregunta al usuario cuál quiere usar y pasa site en las siguientes llamadas.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' } } }, annotations: { readOnlyHint: true } },
-    { name: 'brand_get_context', description: 'Devuelve el contexto general canónico de una marca. No reemplaza la preparación de una generación de imagen. Todos los endpoints leen el mismo snapshot versionado.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, siteId: { type: 'string' } } }, annotations: { readOnlyHint: true } },
+    { name: 'brand_get_context', description: 'Devuelve el contexto general canónico y el catálogo de referencias de una marca, sin adjuntar binarios. Para recibir las imágenes exactas llama brand_prepare_image_generation. Todos los endpoints leen el mismo snapshot versionado.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, siteId: { type: 'string' } } }, annotations: { readOnlyHint: true } },
     {
       name: 'brand_prepare_image_generation',
-      description: 'Obligatoria antes de generar cualquier imagen. Clasifica el brief con una política determinista, resuelve exactamente las referencias permitidas y las devuelve como ImageContent en el mismo orden. Una llamada prepara una imagen final, no una galería. El cliente debe entregar exactamente resolvedReferences al generador, no puede escoger ni sustituir referencias. Si generationBlocked es true, debe detenerse.',
+      description: 'Obligatoria antes de generar cualquier imagen. Clasifica el brief con una política determinista y devuelve las referencias binarias exactas como ImageContent, con filename, orden, rol y hash en _meta. Una llamada prepara una imagen final, no una galería. El cliente debe usar todos los adjuntos y no puede escoger ni sustituir referencias. Si generationBlocked es true o readyForGeneration es false, debe detenerse.',
       inputSchema: {
         type: 'object',
         properties: {

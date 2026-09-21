@@ -2,7 +2,7 @@
 
 ## Estado
 
-Versión preparada para el CMS 2.2.0. La identidad verbal procede del documento estratégico aportado por Escarlet y de la guía activa del repositorio. La paleta cian, verde suave, crema, oro, carbón, gris y blanco es la identidad visual canónica.
+Versión preparada para el CMS 2.3.0. La identidad verbal procede del documento estratégico aportado por Escarlet y de la guía activa del repositorio. La identidad visual canónica usa papel cálido, verde bosque, tinta y una señal terracota contenida.
 
 ## Negocio
 
@@ -75,4 +75,4 @@ Medir claridad de la propuesta, solicitudes de contacto, calidad de oportunidade
 ## Historial de decisiones
 
 - 2026-09-17. Se conserva el sistema visual del CMS como identidad operativa.
-- 2026-09-18. Se fija la versión 2.2.0 y la selección determinista de referencias del MCP.
+- 2026-09-18. Se fija la versión 2.3.0, se recupera la identidad visual de `master` y el MCP entrega referencias binarias deterministas.

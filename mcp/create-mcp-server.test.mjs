@@ -15,6 +15,8 @@ test('el contrato MCP expone media y contenido v2, sin operaciones de posts lega
   assert.equal(upload.inputSchema.properties.file.$ref, '#/$defs/OpenAIFile')
   assert.deepEqual(upload.inputSchema.$defs.OpenAIFile.required, ['download_url', 'file_id'])
   assert.ok(tools.some((tool) => tool.name === 'brand_list'))
+  assert.ok(tools.some((tool) => tool.name === 'brand_get_context'))
+  assert.ok(tools.some((tool) => tool.name === 'brand_prepare_image_generation'))
   assert.match(upload.description, /brandPreparationId/)
   assert.ok(upload.inputSchema.properties.brandPreparationId)
   for (const name of ['content_list_plans', 'content_list_items', 'content_list_calendar', 'content_create_batch', 'content_get_batch', 'content_update_item', 'content_approve', 'content_reject', 'content_schedule', 'content_cancel']) {
@@ -24,7 +26,7 @@ test('el contrato MCP expone media y contenido v2, sin operaciones de posts lega
     assert.equal(tools.some((tool) => tool.name === name), false, name)
   }
   assert.equal(tools.some((tool) => /^blog_|^social_/.test(tool.name)), false)
-  assert.equal(MCP_SERVER_VERSION, '2.6.2')
+  assert.equal(MCP_SERVER_VERSION, '2.6.3')
 })
 
 test('createMcpServer anuncia el contrato v2 y la selección explícita de marca', () => {
@@ -47,8 +49,13 @@ test('el MCP no elige una marca por defecto cuando el acceso incluye varias', as
   assert.equal(oldValue.replacement, 'content_list_items')
   assert.match(oldValue.message, /No es un problema de permisos/i)
 
-  for (const name of ['content_list_plans', 'content_list_items', 'content_create_batch']) {
-    const result = await invokeMcpTool(name, name === 'content_create_batch' ? { topics: ['tema'] } : {}, auth)
+  for (const name of ['brand_get_context', 'brand_prepare_image_generation', 'content_list_plans', 'content_list_items', 'content_create_batch']) {
+    const args = name === 'content_create_batch'
+      ? { topics: ['tema'] }
+      : name === 'brand_prepare_image_generation'
+        ? { assetType: 'generic', title: 'imagen' }
+        : {}
+    const result = await invokeMcpTool(name, args, auth)
     const value = payload(result)
     assert.equal(result.isError, true)
     assert.equal(value.code, 'brand_selection_required', name)
@@ -68,10 +75,12 @@ test('brand_get_context y media siguen compartiendo el contrato de referencias',
   const result = await invokeMcpTool('brand_get_context', { site: 'escarlet' }, { role: 'editor', site: 'escarlet', capabilities: ['brand_kit_access'] })
   const value = payload(result)
   assert.equal(value.brandAccessLevel, 'sanitized')
-  assert.ok(value.referenceDelivery.inspectable)
+  assert.equal(value.referenceDelivery.mode, 'catalog_only')
+  assert.equal(value.referenceDelivery.binaryDeliveryTool, 'brand_prepare_image_generation')
+  assert.equal(value.referenceDelivery.imageBlocks, 0)
   assert.match(JSON.stringify(value.brandKit?.agentRules), /content_list_items/)
   assert.doesNotMatch(JSON.stringify(value), /blog_list_posts|blog_get_brand_context|blog_upload_media|blog_open_image_drop/)
-  assert.ok(result.content.some((block) => block.type === 'image' || block.type === 'resource_link'))
+  assert.equal(result.content.some((block) => block.type === 'image' || block.type === 'resource_link'), false)
 })
 
 test('la subida de medios del MCP usa exclusivamente el runtime v2', async () => {

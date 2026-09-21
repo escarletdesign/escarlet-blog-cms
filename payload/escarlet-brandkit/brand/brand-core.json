@@ -1,7 +1,7 @@
 {
   "$schema": "../schemas/brand.schema.json",
   "id": "escarlet",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "identity": {
     "name": "Escarlet",
     "editorialTone": "claro, humano, crítico y práctico",
@@ -13,12 +13,13 @@
   },
   "fixed": {
     "palette": {
-      "cyan": "#12B8D6",
-      "greenSoft": "#62B38A",
-      "cream": "#F3E7D0",
-      "gold": "#E8B73A",
-      "charcoal": "#1E1E1E",
-      "gray": "#6D6D6D",
+      "paper": "#F4F1EA",
+      "paperWarm": "#E8E0D3",
+      "forest": "#1F4D3A",
+      "forestDeep": "#15352A",
+      "ink": "#1B211D",
+      "muted": "#6C746F",
+      "signal": "#C8674B",
       "white": "#FFFFFF"
     },
     "typography": {
@@ -27,12 +28,7 @@
       "label": "Inter, Arial, sans-serif",
       "note": "Sustituir Inter por la fuente licenciada del sitio cuando esté disponible; el layout no depende de la IA."
     },
-    "spacing": {
-      "unit": 8,
-      "page": 88,
-      "safe": 72,
-      "radius": 20
-    },
+    "spacing": { "unit": 8, "page": 88, "safe": 72, "radius": 20 },
     "imageRules": [
       "La portada nunca contiene texto, letras, números, logos ni marcas de agua.",
       "Evitar escritorio + portátil + taza como composición por defecto.",
@@ -54,10 +50,7 @@
     "recentPostsToInspect": 6,
     "maxConsecutiveArchetype": 1,
     "forceDifferentWhenTopicSimilarity": 0.62,
-    "referenceCountCover": {
-      "automatic": "route",
-      "exploration": 0
-    },
+    "referenceCountCover": { "automatic": 2, "exploration": 0 },
     "referenceCountSocial": 1,
     "modeAutomatic": "la política determinista resuelve una única ruta",
     "modeExploration": "no se permite explorar rutas en generación automática",

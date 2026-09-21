@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, rmSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { invokeMcpTool } from './create-mcp-server.mjs'
 import { assertBrandFileAccess, getBrandContext, validateImagePreparation, writeBrandFile } from '../lib/brand-kit.mjs'
 
@@ -11,9 +12,10 @@ function payload(result) {
 test('la skill del brand kit publica el mismo contrato canónico que el MCP', () => {
   const skill = readFileSync(new URL('../payload/escarlet-brandkit/SKILL.md', import.meta.url), 'utf8')
   assert.match(skill, /brand_prepare_image_generation/)
-  assert.match(skill, /#12B8D6/)
+  assert.match(skill, /#1F4D3A/)
+  assert.match(skill, /#C8674B/)
   assert.match(skill, /generationBlocked/)
-  assert.doesNotMatch(skill, /verde bosque|sistema v2|pendiente de confirmación/i)
+  assert.match(skill, /exactamente una imagen final/i)
 })
 
 test('los tres endpoints usan el mismo snapshot y la misma identidad canónica', async () => {
@@ -26,12 +28,12 @@ test('los tres endpoints usan el mismo snapshot y la misma identidad canónica',
   assert.equal(new Set(values.map((value) => value.brandKitVersionId)).size, 1)
   assert.equal(new Set(values.map((value) => value.brandKitSnapshotHash)).size, 1)
   assert.deepEqual(values[0].canonicalPalette, {
-    cyan: '#12B8D6', greenSoft: '#62B38A', cream: '#F3E7D0', gold: '#E8B73A', charcoal: '#1E1E1E', gray: '#6D6D6D', white: '#FFFFFF'
+    paper: '#F4F1EA', paperWarm: '#E8E0D3', forest: '#1F4D3A', forestDeep: '#15352A', ink: '#1B211D', muted: '#6C746F', signal: '#C8674B', white: '#FFFFFF'
   })
-  assert.equal(values[0].imageSpec.version, '2.2.0')
-  assert.equal(values[0].imageSpec.global.referenceSelection.coverCountAutomatic, 'route')
+  assert.equal(values[0].imageSpec.version, '2.3.0')
+  assert.equal(values[0].imageSpec.global.referenceSelection.coverCountAutomatic, 2)
   assert.equal(values[0].brandCore.decisionRules.referenceSelectionPolicy.assistantMayChoose, false)
-  assert.doesNotMatch(JSON.stringify(values), /#F4F1EA|#E8E0D3|#1F4D3A|#15352A|#C8674B/)
+  assert.doesNotMatch(JSON.stringify(values), /#12B8D6|#62B38A|#E8B73A/)
 })
 
 test('la petición genérica resuelve la ruta positiva y adjunta referencias en orden', async () => {
@@ -42,11 +44,24 @@ test('la petición genérica resuelve la ruta positiva y adjunta referencias en 
   assert.equal(value.generationCardinality.defaultImageCount, 1)
   assert.equal(value.generationCardinality.maxImageCount, 1)
   assert.deepEqual(value.resolvedReferences.map((reference) => reference.filename), [
-    '05-tablero-visual.png', 'fondo-escarlet.jpg', 'reference-visual-style-02.png'
+    'reference-abstract-editorial.jpg', 'reference-positive.jpg'
   ])
   const images = result.content.filter((block) => block.type === 'image')
   assert.equal(images.length, value.resolvedReferences.length)
-  assert.deepEqual(value.resolvedReferences.map((reference) => reference.attachmentIndex), [1, 2, 3])
+  assert.deepEqual(value.resolvedReferences.map((reference) => reference.attachmentIndex), [1, 2])
+  assert.equal(value.readyForGeneration, true)
+  assert.equal(value.referenceDelivery.readyForGeneration, true)
+  assert.deepEqual(value.referenceDelivery.exactReferenceOrder, value.resolvedReferences.map((reference) => reference.filename))
+  for (const [index, block] of images.entries()) {
+    const reference = value.resolvedReferences[index]
+    const source = readFileSync(new URL(`../payload/escarlet-brandkit/assets/${reference.filename}`, import.meta.url))
+    assert.equal(block.mimeType, 'image/jpeg')
+    assert.deepEqual(Buffer.from(block.data, 'base64'), source)
+    assert.equal(block._meta['escarlet/reference'].filename, reference.filename)
+    assert.equal(block._meta['escarlet/reference'].attachmentIndex, index + 1)
+    assert.equal(block._meta['escarlet/reference'].preparationId, value.brandPreparation.preparationId)
+    assert.equal(block._meta['escarlet/reference'].sha256, createHash('sha256').update(source).digest('hex'))
+  }
   assert.match(value.brandPreparation.preparationId, /^[a-f0-9]{64}$/)
   assert.deepEqual(value.brandPreparation.exactReferenceFilenames, value.resolvedReferences.map((reference) => reference.filename))
   assert.equal(validateImagePreparation('escarlet', value.brandPreparation.preparationId, { assetType: 'generic', route: value.route }).ok, true)
@@ -58,7 +73,7 @@ test('las rutas de escenas son cerradas y no heredan referencias de otro sitio',
   const tense = payload(await invokeMcpTool('brand_prepare_image_generation', { site: 'escarlet', topic: 'duda e introspección' }, { role: 'admin' }))
   assert.equal(work.route, 'human_or_work')
   assert.equal(tense.route, 'introspective_or_tense')
-  for (const value of [work, tense]) assert.ok(value.resolvedReferences.every((reference) => reference.mediaId?.startsWith('media-1789')))
+  for (const value of [work, tense]) assert.ok(value.resolvedReferences.every((reference) => reference.mediaId?.startsWith('media-escarlet-v23-')))
 })
 
 test('la escritura canónica está autorizada, es atómica y expira el snapshot', () => {
