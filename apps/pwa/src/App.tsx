@@ -810,7 +810,7 @@ function Shell() {
   ];
   return (
     <div className="app-shell">
-      <aside className={`sidebar ${open ? "open" : ""}`}>
+      <aside id="primary-navigation" className={`sidebar ${open ? "open" : ""}`}>
         <div className="sidebar-head">
           <NavLink to="/" className="brand">
             <AppBrand />
@@ -907,6 +907,7 @@ function Shell() {
             onClick={() => setOpen((value) => !value)}
             aria-label={open ? t("nav.close") : t("nav.open")}
             aria-expanded={open}
+            aria-controls="primary-navigation"
           >
             <span className="hamburger-lines" aria-hidden="true"><i /><i /><i /></span>
             <span>{t("nav.menu") || t("nav.open")}</span>

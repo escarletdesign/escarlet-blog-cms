@@ -27,6 +27,20 @@ let stopping = false
 
 const retryAt = (attempts) => new Date(Date.now() + Math.min(60 * 60 * 1000, 1000 * 2 ** Math.max(0, attempts - 1))).toISOString()
 
+async function triggerBlogRebuild(variant) {
+  const config = variant.connection_config && typeof variant.connection_config === 'object' ? variant.connection_config : {}
+  const rawUrl = String(config.rebuildWebhookUrl || '').trim()
+  if (!rawUrl) throw new Error('El webhook de Coolify no está configurado para el Blog.')
+  const url = new URL(rawUrl)
+  url.searchParams.set('force', 'true')
+  const headers = {}
+  const token = decryptSecret(variant.connection_credentials_ciphertext)
+  if (token) headers.Authorization = `Bearer ${token}`
+  let response = await fetch(url, { method: 'GET', headers })
+  if (response.status === 405) response = await fetch(url, { method: 'POST', headers })
+  if (!response.ok) throw new Error(`Webhook de Coolify falló con HTTP ${response.status}.`)
+}
+
 async function processGenerationJob(job) {
   const pool = await getPgPool()
   const batchId = job.payload?.batchId
@@ -61,7 +75,9 @@ async function processBlogPublishJob(job) {
   const pool = await getPgPool()
   const variantId = job.payload?.variantId
   if (!pool || !variantId) throw new Error('content.publish_blog requiere variantId.')
-  const due = await pool.query(`SELECT cv.id,cv.item_id FROM content_variants cv
+  const due = await pool.query(`SELECT cv.id,cv.item_id,cc.credentials_ciphertext AS connection_credentials_ciphertext,cc.config AS connection_config FROM content_variants cv
+    LEFT JOIN content_items ci ON ci.id=cv.item_id
+    LEFT JOIN LATERAL (SELECT credentials_ciphertext,config FROM channel_connections WHERE workspace_id=cv.workspace_id AND site_id=ci.site_id AND channel='blog' AND status='connected' ORDER BY is_primary DESC,updated_at DESC LIMIT 1) cc ON TRUE
     WHERE cv.id=$1 AND cv.channel='blog' AND cv.status='scheduled'
       AND EXISTS (SELECT 1 FROM schedules s WHERE s.variant_id=cv.id AND s.publication_date<=NOW())`, [variantId])
   if (!due.rowCount) return { published: false, variantId }
@@ -70,6 +86,7 @@ async function processBlogPublishJob(job) {
   if (!result.rowCount) return { published: false, variantId }
   await pool.query("UPDATE schedules SET status='published',updated_at=NOW() WHERE variant_id=$1", [variantId])
   await pool.query(`UPDATE content_items ci SET status=CASE WHEN NOT EXISTS (SELECT 1 FROM content_variants cv WHERE cv.item_id=ci.id AND cv.status NOT IN ('published','canceled')) THEN 'published' ELSE ci.status END,updated_at=NOW() WHERE ci.id=$1`, [result.rows[0].item_id])
+  await triggerBlogRebuild(due.rows[0])
   return { published: true, variantId }
 }
 
@@ -102,6 +119,7 @@ async function processExternalPublicationEvent(event) {
         await recordUsage({ workspaceId: event.workspace_id, siteId: variant.site_id, kind: 'publications', quantity: 1, idempotencyKey: `publication:${event.id}:${variant.id}`, metadata: { itemId, channel: 'blog', provider: 'cms' } })
         await pool.query(`UPDATE content_variants SET status='published',updated_at=NOW() WHERE id=$1`, [variant.id])
         await pool.query(`UPDATE schedules SET status='published',updated_at=NOW() WHERE variant_id=$1`, [variant.id])
+        await triggerBlogRebuild(variant)
       }
       continue
     }
