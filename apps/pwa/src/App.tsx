@@ -6749,10 +6749,38 @@ function TeamInviteView() {
   return <main className="ui-page ui-page-narrow"><PageHeader eyebrow="Equipo y acceso" title="Invitar miembro" description="Asigna una o varias marcas y un rol independiente para cada una." back={<NavLink to="/team">← Volver al equipo</NavLink>} /><Card><form className="ui-stack ui-stack-md" onSubmit={(event) => void submit(event)}><Field label="Correo electrónico" required><TextField type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoFocus /></Field><Field label="Rol predeterminado"><Select value={role} onChange={(event) => { setRole(event.target.value); setBrandRoles((current) => Object.fromEntries(Object.entries(current).map(([id]) => [id, event.target.value]))); }}><option value="viewer">Visor</option><option value="author">Autor</option><option value="editor">Editor</option><option value="admin">Administrador</option></Select></Field><fieldset className="ui-site-checks"><legend>Marcas y rol</legend>{brands.map((brand) => { const selected = brandIds.includes(brand.id); return <div key={brand.id} className="ui-team-brand-row"><label className="ui-checkbox"><input type="checkbox" checked={selected} onChange={(event) => setBrandIds((current) => event.target.checked ? [...current, brand.id] : current.filter((id) => id !== brand.id))} /><span>{brand.name || brand.handle || brand.id}</span></label>{selected && <Select aria-label={`Rol en ${brand.name || brand.handle || brand.id}`} value={brandRoles[brand.id] || role} onChange={(event) => setBrandRoles((current) => ({ ...current, [brand.id]: event.target.value }))}><option value="owner">Owner</option><option value="admin">Administrador</option><option value="editor">Editor</option><option value="author">Autor</option><option value="viewer">Visor</option></Select>}</div> })}</fieldset><Inline gap="md"><Button type="button" variant="ghost" onClick={() => nav("/team")}>Cancelar</Button><Button type="submit" loading={busy}>Enviar invitación</Button></Inline>{message && <p className={message.startsWith("No se") ? "ui-field-error" : "ui-success"}>{message}</p>}</form></Card></main>;
 }
 
+function parseBrandDocument(value: unknown): Record<string, any> {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, any>;
+  if (typeof value !== "string" || !value.trim()) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function brandPalette(source: Record<string, any>): Array<{ name: string; value: string }> {
+  const palette = source.fixed?.palette || source.palette || source.designSystem?.palette || {};
+  if (Array.isArray(palette)) {
+    return palette.flatMap((item, index) => {
+      const value = typeof item === "string" ? item : item?.value || item?.hex || item?.color;
+      return typeof value === "string" && /^#[0-9a-f]{3,8}$/i.test(value.trim())
+        ? [{ name: String(item?.name || `Color ${index + 1}`), value: value.trim().toUpperCase() }]
+        : [];
+    });
+  }
+  return Object.entries(palette)
+    .filter(([, value]) => typeof value === "string" && /^#[0-9a-f]{3,8}$/i.test(value.trim()))
+    .map(([name, value]) => ({ name, value: String(value).trim().toUpperCase() }));
+}
+
 function BrandDetailView() {
   const { brandId = "" } = useParams();
   const nav = useNavigate();
   const [brand, setBrand] = useState<BrandSummary | null>(null);
+  const [brandCore, setBrandCore] = useState<Record<string, any>>({});
+  const [identityView, setIdentityView] = useState<"summary" | "edit">("summary");
   const [error, setError] = useState("");
   useEffect(() => { api.brandV2(brandId).then((result) => setBrand(result.brand)).catch((err) => setError(err?.message || "No se pudo cargar la marca.")); }, [brandId]);
   if (error) return <main className="ui-page"><Card><p className="ui-field-error">{error}</p></Card></main>;
@@ -6785,6 +6813,7 @@ function BrandIdentityView() {
   useEffect(() => {
     let active = true;
     setError("");
+    setBrandCore({});
     Promise.all([api.brandV2(brandId), api.brandKitV2(brandId)])
       .then(async ([brandResult, kitResult]) => {
         if (!active) return;
@@ -6792,11 +6821,18 @@ function BrandIdentityView() {
         setBrand(nextBrand);
         setForm({ name: String(nextBrand.name || ""), domain: String(nextBrand.domain || "") });
         setKit(kitResult);
+        const manifestBrandCore = parseBrandDocument(kitResult?.manifest?.["brand-core.json"] || kitResult?.manifest?.["brand-core"]);
         const [legacy, references] = await Promise.all([
           nextBrand.handle ? api.brand(nextBrand.handle).catch(() => null) : Promise.resolve(null),
           nextBrand.handle ? api.media(nextBrand.handle, "reference").catch(() => ({ media: [] })) : Promise.resolve({ media: [] }),
         ]);
         if (!active) return;
+        const coreFile = canEdit && nextBrand.handle
+          ? await api.brandFile(nextBrand.handle, "brand-core.json").catch(() => ({ content: "" }))
+          : { content: "" };
+        if (!active) return;
+        const loadedBrandCore = parseBrandDocument(coreFile.content);
+        setBrandCore(Object.keys(loadedBrandCore).length ? loadedBrandCore : manifestBrandCore);
         const kitReferences = Array.isArray(kitResult?.assets)
           ? kitResult.assets
               .filter((asset: any) => asset?.publicUrl || asset?.metadata?.url || asset?.metadata?.path)
@@ -6818,7 +6854,7 @@ function BrandIdentityView() {
       })
       .catch((err) => { if (active) setError(err?.message || "No se pudo cargar la identidad."); });
     return () => { active = false; };
-  }, [brandId]);
+  }, [brandId, canEdit]);
   useEffect(() => {
     if (!canEdit || !brand?.handle || !selectedBrandFile) {
       setBrandContent("");
@@ -6836,6 +6872,7 @@ function BrandIdentityView() {
     setBrandSaving(true);
     try {
       await api.saveBrandFile(brand.handle, selectedBrandFile, brandContent);
+      if (selectedBrandFile === "brand-core.json") setBrandCore(parseBrandDocument(brandContent));
       showToast(t("admin.savedBrand"));
     } catch (err: any) {
       showToast(err?.message || "No se pudo guardar el archivo.", "error");
@@ -6850,9 +6887,12 @@ function BrandIdentityView() {
       const result = await api.importBrandZip(brand.handle, await fileAsBase64(file));
       const legacy = await api.brand(brand.handle).catch(() => null);
       const references = await api.media(brand.handle, "reference").catch(() => ({ media: [] }));
+      const core = await api.brandFile(brand.handle, "brand-core.json").catch(() => ({ content: "" }));
       const importedFiles = [...(result.importedMd || []), ...(result.importedData || [])];
       const nextFiles = [...new Set([...(legacy?.files || []), ...brandFiles, ...importedFiles])];
       setBrandFiles(nextFiles);
+      const importedCore = parseBrandDocument(core.content);
+      if (Object.keys(importedCore).length) setBrandCore(importedCore);
       setReferenceMedia(references.media || []);
       if (importedFiles.length) setSelectedBrandFile(importedFiles[0]);
       setKit((current) => current ? { ...current, manifest: { ...(current.manifest || {}), ...Object.fromEntries(importedFiles.map((name) => [name, current.manifest?.[name] ?? {}])) } } : current);
@@ -6907,10 +6947,70 @@ function BrandIdentityView() {
   };
   const visibleBrandFiles = [...new Set([...brandFiles, ...Object.keys(kit?.manifest || {})])];
   const referenceUsageLabels: Record<string, string> = { logo: "Logo", reference: "Referencia visual", style_board: "Tablero visual", typography: "Tipografía", palette: "Paleta de color", campaign: "Referencia de campaña" };
+  const palette = brandPalette(brandCore);
+  const identity = brandCore.identity || {};
+  const typography = brandCore.fixed?.typography || {};
+  const imageRules = Array.isArray(brandCore.fixed?.imageRules) ? brandCore.fixed.imageRules : [];
+  const summaryFiles = visibleBrandFiles.filter((file) => file).slice(0, 6);
+  const summaryTabId = "tabpanel-brand-identity-summary";
+  const editTabId = "tabpanel-brand-identity-edit";
   return (
     <main className="ui-page">
-      <PageHeader eyebrow="Marca · Identidad" title={brand?.name || "Identidad y brand kit"} description="Edita la identidad y las referencias del brand kit que usarán las herramientas autorizadas." back={<NavLink to={`/brands/${encodeURIComponent(brandId)}`}>← Volver a la marca</NavLink>} />
-      {error ? <Card><p className="ui-field-error">{error}</p></Card> : <div className="ui-identity-grid">
+      <PageHeader eyebrow="Marca · Identidad" title={brand?.name || "Identidad y brand kit"} description="Consulta la identidad de un vistazo o abre el editor completo cuando necesites cambiarla." back={<NavLink to={`/brands/${encodeURIComponent(brandId)}`}>← Volver a la marca</NavLink>} />
+      <Tabs
+        items={[{ id: "summary", label: t("brandIdentity.summaryTab", "Resumen") }, { id: "edit", label: t("brandIdentity.editTab", "Editar identidad") }]}
+        value={identityView}
+        onChange={setIdentityView}
+        className="ui-identity-view-tabs"
+        idPrefix="identity-view-tabs"
+        panelIdPrefix="tabpanel-brand-identity"
+        ariaLabel={t("brandIdentity.tabsLabel", "Vista de identidad")}
+      />
+      {error ? <Card><p className="ui-field-error">{error}</p></Card> : !brand ? <Card><p className="ui-muted">{t("common.loading")}</p></Card> : identityView === "summary" ? <section id={summaryTabId} role="tabpanel" aria-labelledby="identity-view-tabs-summary" className="ui-brand-summary-grid">
+        <Card className="ui-brand-summary-hero">
+          <div className="ui-card-head">
+            <div>
+              <span className="ui-eyebrow">{t("brandIdentity.summaryEyebrow", "Vista resumida")}</span>
+              <h2>{brand.name || brand.handle}</h2>
+              <p className="ui-muted">{brand.handle}{brand.domain ? ` · ${brand.domain}` : ` · ${t("brandIdentity.noDomain", "Sin dominio configurado")}`}</p>
+            </div>
+            <StatusBadge status={kit?.status === "published" ? "published" : "draft"} label={kit?.version ? `${t("brandIdentity.kitVersion", "Versión")} ${kit.version}` : t("brandIdentity.kitPending", "Kit pendiente")} />
+          </div>
+          <div className="ui-brand-summary-preview">
+            <div className="ui-brand-summary-mark" aria-hidden="true">{String(brand.name || brand.handle || "M").slice(0, 1).toUpperCase()}</div>
+            <div><strong>{identity.visualTone || t("brandIdentity.visualToneMissing", "Define el tono visual en el brand core")}</strong><span>{identity.editorialTone || t("brandIdentity.editorialToneMissing", "Añade un tono editorial para orientar los contenidos")}</span></div>
+          </div>
+        </Card>
+        <Card>
+          <span className="ui-eyebrow">{t("brandIdentity.paletteEyebrow", "Paleta")}</span>
+          <h2>{t("brandIdentity.paletteTitle", "Colores de marca")}</h2>
+          {palette.length ? <div className="ui-brand-palette">{palette.map((color) => <div className="ui-brand-color" key={`${color.name}-${color.value}`}><span className="ui-brand-color-swatch" style={{ backgroundColor: color.value }} aria-hidden="true" /><div><strong>{color.name}</strong><code>{color.value}</code></div></div>)}</div> : <p className="ui-muted">{t("brandIdentity.paletteEmpty", "No hay una paleta publicada en el brand core.")}</p>}
+        </Card>
+        <Card>
+          <span className="ui-eyebrow">{t("brandIdentity.systemEyebrow", "Sistema")}</span>
+          <h2>{t("brandIdentity.systemTitle", "Tipografía y contraste")}</h2>
+          <dl className="ui-brand-summary-list">
+            <div><dt>{t("brandIdentity.headingFont", "Titulares")}</dt><dd>{typography.heading || t("brandIdentity.notDefined", "Sin definir")}</dd></div>
+            <div><dt>{t("brandIdentity.bodyFont", "Cuerpo")}</dt><dd>{typography.body || t("brandIdentity.notDefined", "Sin definir")}</dd></div>
+            <div><dt>{t("brandIdentity.contrast", "Contraste")}</dt><dd>{identity.contrast || t("brandIdentity.notDefined", "Sin definir")}</dd></div>
+          </dl>
+        </Card>
+        <Card>
+          <span className="ui-eyebrow">{t("brandIdentity.documentsEyebrow", "Documentos")}</span>
+          <h2>{t("brandIdentity.documentsTitle", "Fuentes activas")}</h2>
+          {summaryFiles.length ? <div className="ui-brand-document-list">{summaryFiles.map((file) => <div key={file}><span>{file}</span><Badge tone="success">{t("brandIdentity.available", "Disponible")}</Badge></div>)}</div> : <p className="ui-muted">{t("brandIdentity.documentsEmpty", "Todavía no hay documentos visibles.")}</p>}
+          <p className="ui-field-hint">{referenceMedia.length} {t("brandIdentity.referencesCount", "referencias visuales disponibles")}</p>
+        </Card>
+        <Card>
+          <span className="ui-eyebrow">{t("brandIdentity.rulesEyebrow", "Criterio visual")}</span>
+          <h2>{t("brandIdentity.rulesTitle", "Reglas que conviene respetar")}</h2>
+          {imageRules.length ? <ul className="ui-brand-summary-rules">{imageRules.slice(0, 3).map((rule: any) => <li key={String(rule)}>{String(rule)}</li>)}</ul> : <p className="ui-muted">{t("brandIdentity.rulesEmpty", "Añade reglas visuales al brand core para hacerlas visibles aquí.")}</p>}
+        </Card>
+        <Card className="ui-brand-summary-references">
+          <div className="ui-card-head"><div><span className="ui-eyebrow">{t("brandIdentity.referencesEyebrow", "Referencias")}</span><h2>{t("brandIdentity.referencesTitle", "Biblioteca visual")}</h2></div><Badge tone="info">{referenceMedia.length}</Badge></div>
+          {referenceMedia.length ? <div className="ui-brand-summary-reference-grid">{referenceMedia.slice(0, 4).map((media) => <img key={media.id || media.path || media.url} src={media.thumbUrl || media.url || media.path} alt={media.alt || media.filename || t("brandIdentity.visualReference", "Referencia visual")} loading="lazy" />)}</div> : <p className="ui-muted">{t("brandIdentity.referencesEmpty", "Aún no hay imágenes de referencia.")}</p>}
+        </Card>
+      </section> : <div id={editTabId} role="tabpanel" aria-labelledby="identity-view-tabs-edit" className="ui-identity-grid">
         <Card className="ui-identity-brand-card">
           <div className="ui-card-head ui-identity-brand-head"><div><span className="ui-eyebrow">Brand kit activo</span><h2>{kit?.version ? `Versión ${kit.version}` : "Sin versión publicada"}</h2><p className="ui-muted">Edita los archivos de referencia sin salir de la vista v2.</p></div>{canImportBrandKit && <><Button type="button" variant="secondary" onClick={() => brandZipInputRef.current?.click()} loading={brandZipBusy}>{t("admin.importBrandZip")}</Button><input ref={brandZipInputRef} type="file" accept=".zip,application/zip,application/x-zip-compressed" hidden disabled={brandZipBusy} onChange={(event) => void importBrandKit(event.target.files?.[0])} /></>}</div>
           <div className="ui-brandkit-workspace">
