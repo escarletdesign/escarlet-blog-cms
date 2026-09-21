@@ -35,6 +35,7 @@ type SocialPackChannels = {
   x: boolean;
   videoScript: boolean;
   instagramCarousel: boolean;
+  instagramStory: boolean;
 };
 const DEFAULT_SOCIAL_PACK_CHANNELS: SocialPackChannels = {
   substack: true,
@@ -42,6 +43,7 @@ const DEFAULT_SOCIAL_PACK_CHANNELS: SocialPackChannels = {
   x: true,
   videoScript: true,
   instagramCarousel: true,
+  instagramStory: true,
 };
 const SOCIAL_PACK_CHANNEL_KEYS: Array<{ key: keyof SocialPackChannels; labelKey: string }> = [
   { key: "substack", labelKey: "admin.socialPackSubstack" },
@@ -49,6 +51,7 @@ const SOCIAL_PACK_CHANNEL_KEYS: Array<{ key: keyof SocialPackChannels; labelKey:
   { key: "x", labelKey: "admin.socialPackX" },
   { key: "videoScript", labelKey: "admin.socialPackVideo" },
   { key: "instagramCarousel", labelKey: "admin.socialPackInstagram" },
+  { key: "instagramStory", labelKey: "admin.socialPackInstagramStory" },
 ];
 const uniqueSiteHandles = (values: Array<string | undefined> = []) => [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
 type AppState = {

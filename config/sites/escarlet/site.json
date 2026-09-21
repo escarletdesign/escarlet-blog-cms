@@ -23,6 +23,7 @@
     "linkedin": true,
     "x": true,
     "videoScript": true,
-    "instagramCarousel": true
+    "instagramCarousel": true,
+    "instagramStory": true
   }
 }

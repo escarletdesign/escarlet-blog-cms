@@ -27,6 +27,22 @@ let stopping = false
 
 const retryAt = (attempts) => new Date(Date.now() + Math.min(60 * 60 * 1000, 1000 * 2 ** Math.max(0, attempts - 1))).toISOString()
 
+function slugify(value) {
+  return String(value || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+function canonicalArticleUrl(variant) {
+  const domain = String(variant.site_domain || '').trim().replace(/\/$/, '')
+  const blogBody = variant.blog_body && typeof variant.blog_body === 'object' ? variant.blog_body : {}
+  const slug = String(blogBody.slug || blogBody.slug_es || '').trim() || slugify(blogBody.title || variant.topic)
+  return domain && slug ? `${domain}/blog/${slug}` : ''
+}
+
 async function triggerBlogRebuild(variant) {
   const config = variant.connection_config && typeof variant.connection_config === 'object' ? variant.connection_config : {}
   const rawUrl = String(config.rebuildWebhookUrl || '').trim()
@@ -94,11 +110,12 @@ async function processExternalPublicationEvent(event) {
   const pool = await getPgPool()
   if (!pool) throw new Error('Postgres no está configurado.')
   const itemId = event.payload?.itemId || event.aggregate_id
-  const variantsResult = await pool.query(`SELECT cv.id,cv.channel,cv.body,ci.site_id, s.publication_date,s.timezone,s.provider_post_id,
+  const variantsResult = await pool.query(`SELECT cv.id,cv.channel,cv.body,ci.site_id,ci.topic,site.domain AS site_domain,blog.body AS blog_body, s.publication_date,s.timezone,s.provider_post_id,
       cc.provider AS connection_provider,cc.credentials_ciphertext AS connection_credentials_ciphertext,cc.external_account_id AS connection_external_account_id,cc.config AS connection_config,
       mi.user_token_ciphertext,mi.metricool_user_id,mi.blog_id,mi.timezone AS integration_timezone
-    FROM content_variants cv JOIN content_items ci ON ci.id=cv.item_id LEFT JOIN schedules s ON s.variant_id=cv.id
-    LEFT JOIN LATERAL (SELECT provider,credentials_ciphertext,external_account_id,config FROM channel_connections WHERE workspace_id=cv.workspace_id AND site_id=ci.site_id AND channel=cv.channel AND status='connected' ORDER BY is_primary DESC,updated_at DESC LIMIT 1) cc ON TRUE
+    FROM content_variants cv JOIN content_items ci ON ci.id=cv.item_id JOIN sites site ON site.id=ci.site_id LEFT JOIN schedules s ON s.variant_id=cv.id
+    LEFT JOIN LATERAL (SELECT body FROM content_variants WHERE item_id=ci.id AND channel='blog' LIMIT 1) blog ON TRUE
+    LEFT JOIN LATERAL (SELECT provider,credentials_ciphertext,external_account_id,config FROM channel_connections WHERE workspace_id=cv.workspace_id AND site_id=ci.site_id AND channel=CASE WHEN cv.channel='instagram_story' THEN 'instagram' ELSE cv.channel END AND status='connected' ORDER BY is_primary DESC,updated_at DESC LIMIT 1) cc ON TRUE
     LEFT JOIN LATERAL (SELECT user_token_ciphertext,metricool_user_id,blog_id,timezone FROM metricool_integrations WHERE workspace_id=cv.workspace_id AND (site_id=ci.site_id OR site_id IS NULL) AND enabled=TRUE ORDER BY CASE WHEN site_id=ci.site_id THEN 0 ELSE 1 END LIMIT 1) mi ON TRUE
     WHERE ci.id=$1 AND ci.workspace_id=$2 AND cv.status<>'canceled'`, [itemId, event.workspace_id])
   const requestedChannels = new Set(Array.isArray(event.payload?.channels) ? event.payload.channels.map((channel) => String(channel).toLowerCase()) : [])
@@ -129,8 +146,20 @@ async function processExternalPublicationEvent(event) {
     if (!token) throw new Error(`${provider} no está configurado para la marca.`)
     const body = variant.body && typeof variant.body === 'object' ? variant.body : {}
     const socialPack = body.socialPack && typeof body.socialPack === 'object' ? body.socialPack : {}
-    const text = socialPack.instagramCaption || socialPack.caption || body.text || body.caption || body.body || body.bodyHtml || body.title || body.topic || ''
-    const mediaRows = await pool.query('SELECT ma.public_url AS "url",ma.metadata FROM content_variant_media cvm JOIN media_assets ma ON ma.id=cvm.media_asset_id WHERE cvm.variant_id=$1 ORDER BY cvm.sort_order', [variant.id])
+    const story = variant.channel === 'instagram_story'
+    const text = story
+      ? socialPack.instagramStory?.text || body.text || body.caption || body.title || body.topic || variant.topic || ''
+      : socialPack.instagramCaption || socialPack.caption || body.text || body.caption || body.body || body.bodyHtml || body.title || body.topic || ''
+    let mediaRows = await pool.query('SELECT ma.public_url AS "url",ma.metadata FROM content_variant_media cvm JOIN media_assets ma ON ma.id=cvm.media_asset_id WHERE cvm.variant_id=$1 ORDER BY cvm.sort_order', [variant.id])
+    if (story && !mediaRows.rowCount) {
+      mediaRows = await pool.query(`SELECT ma.public_url AS "url",ma.metadata
+        FROM content_variant_media cvm JOIN media_assets ma ON ma.id=cvm.media_asset_id
+        JOIN content_variants feed ON feed.id=cvm.variant_id
+        WHERE feed.item_id=(SELECT item_id FROM content_variants WHERE id=$1) AND feed.channel='instagram'
+        ORDER BY cvm.sort_order`, [variant.id])
+    }
+    if (story && provider !== 'buffer') throw new Error('Instagram Story requiere una conexión Buffer.')
+    if (story && !mediaRows.rows.some((asset) => asset.url)) throw new Error('Instagram Story requiere al menos una imagen pública.')
     await recordUsage({ workspaceId: event.workspace_id, siteId: variant.site_id, kind: 'publications', quantity: 1, idempotencyKey: `publication:${event.id}:${variant.id}`, metadata: { itemId, channel: variant.channel, provider } })
     let response
     if (provider === 'metricool') {
@@ -156,7 +185,7 @@ async function processExternalPublicationEvent(event) {
       const postType = variant.publication_date ? 'schedule' : 'draft'
       response = variant.provider_post_id
         ? await syncBufferPost({ apiToken: token, providerPostId: variant.provider_post_id })
-        : await scheduleBufferPost({ apiToken: token, organizationId, channelId, publicationDate: variant.publication_date || null, text, media: mediaRows.rows.filter((asset) => asset.url), idempotencyKey: `buffer:${variant.id}:${variant.publication_date || 'draft'}`, postType, service: variant.channel })
+        : await scheduleBufferPost({ apiToken: token, organizationId, channelId, publicationDate: variant.publication_date || null, text, media: mediaRows.rows.filter((asset) => asset.url), idempotencyKey: `buffer:${variant.id}:${variant.publication_date || 'draft'}`, postType, service: variant.channel, linkUrl: story ? (socialPack.instagramStory?.linkUrl || canonicalArticleUrl(variant)) : '' })
     } else throw new Error(`El proveedor ${provider} aún no tiene un adaptador de publicación.`)
     const providerPostId = provider === 'postiz' ? (postizPostId(response) || variant.provider_post_id || null) : provider === 'buffer' ? (bufferPostId(response) || variant.provider_post_id || null) : (response?.id || response?.postId || response?.data?.id || response?.posts?.[0]?.id || variant.provider_post_id || null)
     const remoteStatus = provider === 'planable' ? planableStatus(response) : provider === 'postiz' ? postizStatus(response) : provider === 'buffer' ? bufferStatus(response) : String(response?.status || response?.data?.status || '').toLowerCase()

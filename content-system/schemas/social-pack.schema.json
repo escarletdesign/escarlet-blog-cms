@@ -16,6 +16,16 @@
       "maxItems": 7,
       "items": { "$ref": "instagram-slide.schema.json" }
     },
+    "instagramStory": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "imageUrl": { "type": "string" },
+        "alt": { "type": "string" },
+        "text": { "type": "string", "maxLength": 500 },
+        "linkUrl": { "type": "string", "format": "uri-reference" }
+      }
+    },
     "visualSystem": { "type": "object" }
   }
 }

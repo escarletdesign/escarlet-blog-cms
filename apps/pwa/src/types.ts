@@ -20,7 +20,7 @@ export interface Session {
   brandRoles?: Record<string, string>;
 }
 
-export type ContentChannel = "blog" | "instagram" | "linkedin" | "x" | "video" | "substack";
+export type ContentChannel = "blog" | "instagram" | "instagram_story" | "linkedin" | "x" | "video" | "substack";
 export interface BrandChannel {
   channel: ContentChannel;
   enabled: boolean;

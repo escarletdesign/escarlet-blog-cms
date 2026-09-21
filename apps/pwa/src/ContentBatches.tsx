@@ -5,8 +5,8 @@ import type { ContentChannel, ContentItem, ContentPlanSummary } from "./types";
 import { ContentPackPreview } from "./ContentPackPreview";
 import { Badge, Button, BulkActionBar, Card, ChannelBadge, Checkbox, ContentPlanCard, EmptyState, Field, Inline, Modal, PageHeader, Progress, ReviewToolbar, Select, Stack, StatusBadge, TextField, Textarea } from "./ui";
 
-const ALL_CHANNELS: ContentChannel[] = ["blog", "instagram", "linkedin", "x", "video", "substack"];
-const channelLabel = (channel: string) => channel === "x" ? "X" : channel.charAt(0).toUpperCase() + channel.slice(1);
+const ALL_CHANNELS: ContentChannel[] = ["blog", "instagram", "instagram_story", "linkedin", "x", "video", "substack"];
+const channelLabel = (channel: string) => channel === "x" ? "X" : channel === "instagram_story" ? "Instagram Story" : channel.charAt(0).toUpperCase() + channel.slice(1);
 type Props = { site: string; creationEnabled?: boolean; activeChannels?: Array<{ channel: string; enabled: boolean }> };
 type Dialog = { type: "edit" | "reject" | "schedule"; item: ContentItem } | { type: "preview"; item: ContentItem } | null;
 
@@ -30,7 +30,7 @@ export function ContentBatches({ site, creationEnabled = false, activeChannels }
   const [topics, setTopics] = useState("");
   const [searchParams] = useSearchParams();
   const requestedPlanId = searchParams.get("plan") || "";
-  const channels = (activeChannels?.filter((channel) => channel.enabled).map((channel) => channel.channel).filter((channel): channel is ContentChannel => ALL_CHANNELS.includes(channel as ContentChannel)) || ALL_CHANNELS).slice(0, 6);
+  const channels = (activeChannels?.filter((channel) => channel.enabled).map((channel) => channel.channel).filter((channel): channel is ContentChannel => ALL_CHANNELS.includes(channel as ContentChannel)) || ALL_CHANNELS).slice(0, 7);
   const selectedPlan = plans.find((plan) => plan.id === selectedPlanId);
   const previewItem = dialog?.type === "preview" ? dialog.item : null;
 
