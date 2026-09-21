@@ -398,14 +398,17 @@ function containsImageReference(value) {
 async function assertContentUpdateImageGrounding(site, args = {}) {
   const hasMedia = (Array.isArray(args.mediaAssetIds) && args.mediaAssetIds.length > 0) || containsImageReference(args.body) || containsImageReference(args.visualBrief)
   if (!hasMedia) return
-  if (!args.generationReceiptId) {
+  const receiptIds = Array.isArray(args.generationReceiptIds) && args.generationReceiptIds.length
+    ? args.generationReceiptIds.filter(Boolean)
+    : args.generationReceiptId ? [args.generationReceiptId] : []
+  if (!receiptIds.length) {
     throw Object.assign(new Error('Toda imagen de contenido necesita generationReceiptId emitido por el backend antes de asociarse al item.'), {
       status: 409,
       code: 'GENERATION_RECEIPT_REQUIRED',
       extra: { nextTool: 'brand_complete_image_generation' }
     })
   }
-  return assertGenerationReceipt({ site, receiptId: args.generationReceiptId, preparationId: args.brandPreparationId, itemId: args.itemId, kind: args.channel === 'blog' ? 'post' : args.channel === 'instagram' ? 'social' : undefined, allowConsumed: true })
+  return Promise.all(receiptIds.map((receiptId) => assertGenerationReceipt({ site, receiptId, preparationId: args.brandPreparationId, itemId: args.itemId, kind: args.channel === 'blog' ? 'post' : args.channel === 'instagram' ? 'social' : undefined, allowConsumed: true })))
 }
 
 function normalizedBrandFields(brandKit = {}) {
@@ -1133,7 +1136,7 @@ export function buildToolList(auth) {
     { name: 'content_list_calendar', description: 'Lista el calendario v2 con publicaciones programadas, sincronizando, publicadas o con error.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, from: { type: 'string' }, to: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 1000 } } }, annotations: { readOnlyHint: true } },
     { name: 'content_create_batch', description: 'Crea un plan de contenido v2 por temas y canales. La generación se ejecuta de forma asíncrona.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, title: { type: 'string' }, topics: { type: 'array', items: { type: 'string' } }, channels: { type: 'array', items: { type: 'string', enum: ['blog', 'instagram', 'linkedin', 'x', 'video', 'substack'] } }, brandKitVersionId: { type: 'string' }, metadata: { type: 'object' } }, required: ['topics'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_get_batch', description: 'Obtiene el progreso, items y variantes de un batch.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, batchId: { type: 'string' } }, required: ['batchId'] }, annotations: { readOnlyHint: true } },
-    { name: 'content_update_item', description: 'Edita el tema, cuerpo, metadata visual y medios canónicos de una variante v2 antes de aprobar. Cualquier mediaAssetId o URL de imagen exige generationReceiptId y provenance v2 válida para este item. brandPreparationId por sí solo no autoriza la asociación.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, topic: { type: 'string' }, channel: { type: 'string' }, body: { type: 'object' }, visualBrief: { type: 'object' }, brandPreparationId: { type: 'string' }, generationReceiptId: { type: 'string' }, mediaAssetIds: { type: 'array', items: { type: 'string' } } }, required: ['itemId'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
+    { name: 'content_update_item', description: 'Edita el tema, cuerpo, metadata visual y medios canónicos de una variante v2 antes de aprobar. Cualquier mediaAssetId o URL de imagen exige generationReceiptId o generationReceiptIds ordenados y provenance v2 válida para este item. brandPreparationId por sí solo no autoriza la asociación.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, topic: { type: 'string' }, channel: { type: 'string' }, body: { type: 'object' }, visualBrief: { type: 'object' }, brandPreparationId: { type: 'string' }, generationReceiptId: { type: 'string' }, generationReceiptIds: { type: 'array', items: { type: 'string', minLength: 1 } }, mediaAssetIds: { type: 'array', items: { type: 'string' } } }, required: ['itemId'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_approve', description: 'Aprueba un item o todos los items de un batch.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' } }, oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_reject', description: 'Rechaza un item o todos los items de un batch y deja comentario.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' }, comment: { type: 'string' } }, oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_schedule', description: 'Programa un item o batch aprobado en zona horaria indicada.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' }, publicationDate: { type: 'string' }, timezone: { type: 'string' } }, required: ['publicationDate'], oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } },
@@ -1480,7 +1483,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
         case 'content_update_item': {
           const scope = await resolveContentScope(auth, args)
           await assertContentUpdateImageGrounding(scope.siteHandle, args)
-          return textResult(await updateContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId: args.itemId, userId: auth.userId, role: scope.role, topic: args.topic, body: args.body, channel: args.channel, visualBrief: args.visualBrief, brandPreparationId: args.brandPreparationId, generationReceiptId: args.generationReceiptId, mediaAssetIds: args.mediaAssetIds }))
+          return textResult(await updateContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId: args.itemId, userId: auth.userId, role: scope.role, topic: args.topic, body: args.body, channel: args.channel, visualBrief: args.visualBrief, brandPreparationId: args.brandPreparationId, generationReceiptId: args.generationReceiptId, generationReceiptIds: args.generationReceiptIds, mediaAssetIds: args.mediaAssetIds }))
         }
         case 'content_approve': {
           const scope = await resolveContentScope(auth, args)
