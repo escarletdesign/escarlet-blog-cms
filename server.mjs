@@ -2609,6 +2609,7 @@ const server = createServer(async (req, res) => {
       // GPT Image 2 is the current stable image model. Keep an environment
       // override for controlled rollouts or a future dated snapshot.
       const imageModel = String(process.env.OPENAI_IMAGE_MODEL || 'gpt-image-2')
+      const outputDimensions = prepared.composition?.dimensions || '1024x1024'
       const referenceFiles = (prepared.resolvedReferences || [])
         .slice(0, 6)
         .map((item) => {
@@ -2651,7 +2652,7 @@ const server = createServer(async (req, res) => {
               model: imageModel,
               images,
               prompt: enrichedPrompt,
-              size: '1024x1024',
+              size: outputDimensions,
               quality: 'high',
               output_format: 'png'
             })
@@ -2663,7 +2664,7 @@ const server = createServer(async (req, res) => {
             body: JSON.stringify({
               model: imageModel,
               prompt: enrichedPrompt,
-              size: '1024x1024',
+              size: outputDimensions,
               quality: 'medium',
               output_format: 'png'
             })

@@ -381,7 +381,8 @@ async function assertMcpImageGrounding(site, args = {}, options = {}) {
     preparationId: args.brandPreparationId,
     assetType: args.brandAssetType || args.assetType,
     route: args.brandRoute,
-    itemId: options.itemId || args.itemId
+    itemId: options.itemId || args.itemId,
+    kind
   })
 }
 
@@ -404,7 +405,7 @@ async function assertContentUpdateImageGrounding(site, args = {}) {
       extra: { nextTool: 'brand_complete_image_generation' }
     })
   }
-  return assertGenerationReceipt({ site, receiptId: args.generationReceiptId, preparationId: args.brandPreparationId, itemId: args.itemId })
+  return assertGenerationReceipt({ site, receiptId: args.generationReceiptId, preparationId: args.brandPreparationId, itemId: args.itemId, kind: args.channel === 'blog' ? 'post' : args.channel === 'instagram' ? 'social' : undefined })
 }
 
 function normalizedBrandFields(brandKit = {}) {
@@ -864,7 +865,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_upload_media_file',
       description:
-        'Plan A de compatibilidad. Para kind post o social exige generationReceiptId emitido por brand_complete_image_generation. brandPreparationId por sí solo no autoriza la subida.',
+        'Plan A de compatibilidad. Para kind post exige receipt de blog_cover y para social receipt de social_image o instagram_background. El backend valida también las dimensiones reales. brandPreparationId por sí solo no autoriza la subida.',
       inputSchema: {
         type: 'object',
         $defs: openaiFileDefs(),
@@ -899,7 +900,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_open_image_drop',
       description:
-        'Compatibilidad. Solo si el host puede hacer HTTP PUT. Para kind post o social exige generationReceiptId vigente. El sandbox de ChatGPT no resuelve DNS.',
+        'Compatibilidad. Solo si el host puede hacer HTTP PUT. Para kind post o social exige receipt con assetType y dimensiones correctos. El sandbox de ChatGPT no resuelve DNS.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -927,7 +928,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_upload_media',
       description:
-        'Plan B/C de compatibilidad. Para kind post o social exige generationReceiptId vigente. Pasa contentBase64 o blob. Si el host recorta o rechaza, uploadId + chunkIndex + chunkCount.',
+        'Plan B/C de compatibilidad. Para kind post o social exige receipt con assetType y dimensiones correctos. Pasa contentBase64 o blob. Si el host recorta o rechaza, uploadId + chunkIndex + chunkCount.',
       inputSchema: {
         type: 'object',
         additionalProperties: true,
@@ -975,7 +976,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_import_remote_image',
       description:
-        'Compatibilidad para una URL https pública real. Para kind post o social exige generationReceiptId vigente. Para archivos del chat usa content_upload_media.',
+        'Compatibilidad para una URL https pública real. Para kind post o social exige receipt con assetType y dimensiones correctos. Para archivos del chat usa content_upload_media.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1030,7 +1031,7 @@ export function buildToolList(auth) {
     { name: 'brand_get_context', description: 'Devuelve el contexto general canónico y el catálogo de referencias de una marca, sin adjuntar binarios. Para recibir las imágenes exactas llama brand_prepare_image_generation. Todos los endpoints leen el mismo snapshot versionado.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, siteId: { type: 'string' } } }, annotations: { readOnlyHint: true } },
     {
       name: 'brand_prepare_image_generation',
-      description: 'Obligatoria antes de toda generación visual. Devuelve una preparación versionada y las referencias binarias exactas como ImageContent. Esta tool no autoriza por sí sola el upload final: certifica el resultado con brand_complete_image_generation usando exactamente esas referencias y sube solo con generationReceiptId. Si generationBlocked es true, aborta.',
+      description: 'Obligatoria antes de toda generación visual. Devuelve una preparación versionada, las dimensiones de salida y las referencias binarias exactas como ImageContent. Esta tool no autoriza por sí sola el upload final: certifica el resultado con brand_complete_image_generation usando exactamente esas referencias y sube solo con generationReceiptId. Si generationBlocked es true, aborta.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1050,7 +1051,7 @@ export function buildToolList(auth) {
     },
     {
       name: 'brand_complete_image_generation',
-      description: 'Emite exclusivamente desde backend un generationReceipt verificable. Rechaza preparaciones bloqueadas, vencidas o de otra marca, y exige la lista exacta y ordenada de referencias con sus hashes, además del hash SHA-256 del archivo resultante. No acepta referencias escogidas por el agente.',
+      description: 'Emite exclusivamente desde backend un generationReceipt verificable. Rechaza preparaciones bloqueadas, vencidas o de otra marca, y exige la lista exacta y ordenada de referencias con sus hashes, además del hash SHA-256 del archivo resultante. El upload posterior valida también el assetType y las dimensiones reales del archivo. No acepta referencias escogidas por el agente.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1092,7 +1093,7 @@ export function buildToolList(auth) {
     },
     {
       name: 'content_upload_media',
-      description: 'Sube una única imagen al almacenamiento canónico v2 y devuelve un mediaAssetId utilizable por content_update_item. Para kind post o social exige generationReceiptId válido. Un brandPreparationId por sí solo no demuestra que las referencias hayan sido utilizadas. El backend comprueba sitio, preparación, brandkit, referencias, expiración, consumo y hash del archivo.',
+      description: 'Sube una única imagen al almacenamiento canónico v2 y devuelve un mediaAssetId utilizable por content_update_item. Para kind post exige un receipt de blog_cover y para kind social un receipt de social_image o instagram_background, además de las dimensiones reales correctas. Un brandPreparationId por sí solo no demuestra que las referencias hayan sido utilizadas. El backend comprueba sitio, preparación, brandkit, referencias, expiración, consumo, assetType y hash del archivo.',
       inputSchema: {
         type: 'object',
         $defs: openaiFileDefs(),

@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
+import Jimp from 'jimp'
 import { readDb, writeDb } from '../lib/db.mjs'
 import { prepareImageGeneration } from '../lib/brand-kit.mjs'
 import {
@@ -22,6 +23,17 @@ function referenceEvidence(prepared) {
   }))
 }
 
+function clearPreparation(preparationId) {
+  const db = readDb()
+  if (db.imagePreparations) delete db.imagePreparations[preparationId]
+  if (db.generationReceipts) {
+    for (const [id, receipt] of Object.entries(db.generationReceipts)) {
+      if (receipt.preparationId === preparationId) delete db.generationReceipts[id]
+    }
+  }
+  writeDb(db)
+}
+
 async function readyReceipt(assetType = 'presentation') {
   const prepared = prepareImageGeneration('escarlet', { assetType, title: `provenance-${Date.now()}` })
   const db = readDb()
@@ -33,7 +45,8 @@ async function readyReceipt(assetType = 'presentation') {
   }
   writeDb(db)
   await persistImagePreparation(prepared)
-  const output = readFileSync('data/media/escarlet/reference/05-tablero-visual.png')
+  const [width, height] = prepared.composition.dimensions.split('x').map(Number)
+  const output = await new Jimp(width, height, 0xc45c48ff).getBufferAsync(Jimp.MIME_PNG)
   const receipt = await issueGenerationReceipt({
     site: 'escarlet',
     preparationId: prepared.brandPreparation.preparationId,
@@ -76,8 +89,8 @@ test('generationReceipt certifica el flujo válido y rechaza variaciones', async
   )
 })
 
-test('el upload de post exige receipt y el hash del archivo', async () => {
-  const { prepared, receipt, output } = await readyReceipt('social_image')
+test('el upload de post exige receipt, assetType blog_cover y dimensiones correctas', async () => {
+  const { prepared, receipt, output } = await readyReceipt('blog_cover')
   await assert.rejects(
     () => uploadMedia({ site: 'escarlet', filename: 'no-receipt.png', kind: 'post', contentBase64: output.toString('base64'), requireBrandGrounding: true }),
     (error) => error.code === 'GENERATION_RECEIPT_REQUIRED'
@@ -109,10 +122,41 @@ test('el upload de post exige receipt y el hash del archivo', async () => {
   writeDb(db)
   rmSync(join('data', 'media', 'escarlet', uploaded.media.filename), { force: true })
   if (uploaded.media.thumbPath) rmSync(join('data', uploaded.media.thumbPath.replace(/^\/media\//, '')), { force: true })
+
+  const social = await readyReceipt('social_image')
+  await assert.rejects(
+    () => uploadMedia({
+      site: 'escarlet', filename: 'wrong-asset-type.png', kind: 'post', contentBase64: social.output.toString('base64'),
+      requireBrandGrounding: true, generationReceiptId: social.receipt.receiptId, brandPreparationId: social.prepared.brandPreparation.preparationId
+    }),
+    (error) => error.code === 'ASSET_TYPE_MISMATCH'
+  )
+
+  const squarePrepared = prepareImageGeneration('escarlet', { assetType: 'blog_cover', title: `square-${Date.now()}` })
+  clearPreparation(squarePrepared.brandPreparation.preparationId)
+  await persistImagePreparation(squarePrepared)
+  const square = await new Jimp(1080, 1080, 0xc45c48ff).getBufferAsync(Jimp.MIME_PNG)
+  const squareReceipt = await issueGenerationReceipt({
+    site: 'escarlet',
+    preparationId: squarePrepared.brandPreparation.preparationId,
+    usedReferences: referenceEvidence(squarePrepared),
+    generatedResultId: `square-${Date.now()}`,
+    generatedFileHash: createHash('sha256').update(square).digest('hex'),
+    assetType: 'blog_cover',
+    route: squarePrepared.route
+  })
+  await assert.rejects(
+    () => uploadMedia({
+      site: 'escarlet', filename: 'wrong-dimensions.png', kind: 'post', contentBase64: square.toString('base64'),
+      requireBrandGrounding: true, generationReceiptId: squareReceipt.receiptId, brandPreparationId: squarePrepared.brandPreparation.preparationId
+    }),
+    (error) => error.code === 'GENERATED_IMAGE_DIMENSIONS_MISMATCH'
+  )
 })
 
 test('las referencias deben coincidir en identidad, hash y orden', async () => {
   const prepared = prepareImageGeneration('escarlet', { assetType: 'blog_cover', title: `references-${Date.now()}` })
+  clearPreparation(prepared.brandPreparation.preparationId)
   await persistImagePreparation(prepared)
   const evidence = referenceEvidence(prepared)
   await assert.rejects(
