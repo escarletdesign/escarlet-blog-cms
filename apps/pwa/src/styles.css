@@ -709,6 +709,10 @@
 @media (max-width: 900px) { .ui-plans-layout { grid-template-columns: 1fr; } .ui-plan-list { position: static; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); } }
 @media (max-width: 560px) { .ui-plan-list { grid-template-columns: 1fr; } .ui-alert-card { align-items: flex-start; flex-direction: column; } }
 .ui-page.ui-plans-page, .ui-page.ui-calendar-page, .ui-page.admin-index-page { width: min(100%, 1540px); max-width: 1540px; }
+.ui-plan-pack-modal { width: min(980px, 100%); }
+.ui-plan-pack-visual-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ui-plan-pack-visual-grid > * { min-width: 0; }
+.ui-plan-caption { margin: 12px 0 0; color: var(--ui-muted); white-space: pre-wrap; line-height: 1.5; }
 .ui-plans-layout { grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); gap: 28px; }
 .ui-plan-list { gap: 14px; }
 .ui-plan-detail > .ui-card { min-height: 100%; }
@@ -732,6 +736,7 @@
   .ui-plan-list { position: static; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
   .ui-plan-overview .ui-button { margin-left: 0; }
 }
+@media (max-width: 700px) { .ui-plan-pack-modal { width: min(100%, 560px); } .ui-plan-pack-visual-grid { grid-template-columns: 1fr; } }
 @media (max-width: 560px) { .ui-plan-list { grid-template-columns: 1fr; } }
 select, .ui-plans-page .ui-select, .ui-page .ui-input.ui-select, .site-switcher select, .ui-settings-card select, .date-picker-fields select, .teleprompter-controls select { appearance: none; padding-right: var(--ui-select-chevron-space); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14' fill='none'%3E%3Cpath d='m3.25 5.25 3.75 3.75 3.75-3.75' stroke='%23a7b6af' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right var(--ui-select-chevron-offset) center; background-size: 14px; }
 .back-link { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; margin: 0 0 14px; padding: 7px 11px; border: 1px solid var(--ui-border-strong); border-radius: 9px; color: var(--ui-text); background: transparent; font-size: .8rem; font-weight: 750; }
