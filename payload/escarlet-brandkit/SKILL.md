@@ -16,7 +16,7 @@ Esta skill es la copia operativa del brand kit canónico preparado para el handl
 
 ## Precedencia visual
 
-- La identidad fija es la paleta de `brand/brand-core.json`: cian `#12B8D6`, verde suave `#62B38A`, crema `#F3E7D0`, oro `#E8B73A`, carbón `#1E1E1E`, gris `#6D6D6D` y blanco `#FFFFFF`.
+- La identidad fija es la paleta de `brand/brand-core.json`: azul principal `#47A4E7`, teal `#12B8D6`, verde suave `#62B38A`, crema `#F3E7D0`, oro `#E8B73A`, carbón `#1E1E1E`, gris `#6D6D6D` y blanco `#FFFFFF`. La tipografía es Montserrat y el degradado teal a dorado solo se usa en héroes y llamadas a la acción web.
 - `fondo-escarlet.jpg` y `05-tablero-visual.png` son referencias obligatorias para cualquier generación. El fondo conserva el flujo cian a la izquierda, verde suave en el centro y oro a la derecha.
 - Las imágenes incluidas muestran personas anónimas. No son referencias de identidad facial y no se copian literalmente.
 - La selección es determinista. No es válido escoger, sustituir, reordenar ni reinterpretar referencias.

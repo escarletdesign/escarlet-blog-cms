@@ -76,6 +76,8 @@ Recomendado (aviso, no bloquea):
 
 ## Sistema visual v2 (obligatorio)
 
+- El sistema web usa `#47A4E7` como color principal, Montserrat como tipografía y un degradado teal `#12B8D6` a dorado `#E8B73A` solo en héroes y llamadas a la acción.
+
 - Antes de generar una portada, inspecciona las publicaciones recientes con `content_list_items` y sus variantes.
 - Consulta el arquetipo y el historial para redactar el brief, pero no uses esa decisión para seleccionar referencias. La ruta de referencias la resuelve `brand_prepare_image_generation` de forma determinista.
 - Construye y guarda un `visualBrief` con `archetype`, `composition`, `references`, `negativeRules` y `decision.recentPostsInspected`.

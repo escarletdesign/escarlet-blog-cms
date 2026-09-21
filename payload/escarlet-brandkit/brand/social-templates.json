@@ -10,7 +10,7 @@
         "height": 1350
       },
       "font": {
-        "family": "Inter, Arial, sans-serif",
+        "family": "Montserrat, Arial, sans-serif",
         "headlineWeight": 700,
         "bodyWeight": 400
       },
@@ -53,7 +53,7 @@
         "overlay": "rgba(243,231,208,.82)"
       },
       "accent": {
-        "color": "#12B8D6",
+        "color": "#47A4E7",
         "shape": "rule"
       }
     },
@@ -66,7 +66,7 @@
         "height": 1350
       },
       "font": {
-        "family": "Inter, Arial, sans-serif",
+        "family": "Montserrat, Arial, sans-serif",
         "headlineWeight": 800,
         "bodyWeight": 500
       },

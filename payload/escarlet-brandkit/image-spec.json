@@ -5,9 +5,21 @@
     "name": "Escarlet",
     "slug": "escarlet",
     "website": "https://escarlet.design",
+    "design_system": {
+      "primary_color": "#47A4E7",
+      "typography": "Montserrat, Arial, sans-serif",
+      "hero_cta_gradient": {
+        "enabled": true,
+        "from": "#12B8D6",
+        "to": "#E8B73A",
+        "direction": "teal-to-gold",
+        "usage": ["web heroes", "web CTAs"]
+      }
+    },
     "visual_style_lock": {
       "style_name": "Editorial contemporáneo, cálido y táctil",
       "active_palette": [
+        "#47A4E7",
         "#12B8D6",
         "#62B38A",
         "#F3E7D0",
@@ -27,7 +39,7 @@
           "#1E1E1E",
           "#6D6D6D"
         ],
-        "flow": "cian o turquesa a la izquierda, verde suave en el centro y oro cálido a la derecha",
+        "flow": "teal a la izquierda, verde suave en el centro y oro cálido a la derecha",
         "must_not_be_treated_as": "paleta fija de interfaz ni sustitución del brand core"
       },
       "background": "papel, materia real, luz natural o interior cálido; degradado editorial solo en el preset declarado",
@@ -284,8 +296,8 @@
     "referenceFidelity": "high",
     "altText": "Describe la escena de forma breve, concreta y fiel a la pieza.",
     "fixedIdentity": {
-      "palette": ["#12B8D6", "#62B38A", "#F3E7D0", "#E8B73A", "#1E1E1E", "#6D6D6D", "#FFFFFF"],
-      "typography": "Inter, Arial, sans-serif",
+      "palette": ["#47A4E7", "#12B8D6", "#62B38A", "#F3E7D0", "#E8B73A", "#1E1E1E", "#6D6D6D", "#FFFFFF"],
+      "typography": "Montserrat, Arial, sans-serif",
       "coverHasText": false
     },
     "referenceSelection": {

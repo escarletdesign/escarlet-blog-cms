@@ -13,7 +13,9 @@
   },
   "fixed": {
     "palette": {
+      "primary": "#47A4E7",
       "cyan": "#12B8D6",
+      "teal": "#12B8D6",
       "greenSoft": "#62B38A",
       "cream": "#F3E7D0",
       "gold": "#E8B73A",
@@ -22,10 +24,19 @@
       "white": "#FFFFFF"
     },
     "typography": {
-      "heading": "Inter, Arial, sans-serif",
-      "body": "Inter, Arial, sans-serif",
-      "label": "Inter, Arial, sans-serif",
-      "note": "Sustituir Inter por la fuente licenciada del sitio cuando esté disponible; el layout no depende de la IA."
+      "heading": "Montserrat, Arial, sans-serif",
+      "body": "Montserrat, Arial, sans-serif",
+      "label": "Montserrat, Arial, sans-serif",
+      "note": "Montserrat es la fuente del sistema web; el layout conserva Arial como fallback."
+    },
+    "webGradients": {
+      "heroCta": {
+        "enabled": true,
+        "from": "#12B8D6",
+        "to": "#E8B73A",
+        "direction": "teal-to-gold",
+        "usage": ["web heroes", "web CTAs"]
+      }
     },
     "spacing": {
       "unit": 8,

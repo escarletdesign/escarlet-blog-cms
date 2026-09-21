@@ -405,7 +405,7 @@ async function assertContentUpdateImageGrounding(site, args = {}) {
       extra: { nextTool: 'brand_complete_image_generation' }
     })
   }
-  return assertGenerationReceipt({ site, receiptId: args.generationReceiptId, preparationId: args.brandPreparationId, itemId: args.itemId, kind: args.channel === 'blog' ? 'post' : args.channel === 'instagram' ? 'social' : undefined })
+  return assertGenerationReceipt({ site, receiptId: args.generationReceiptId, preparationId: args.brandPreparationId, itemId: args.itemId, kind: args.channel === 'blog' ? 'post' : args.channel === 'instagram' ? 'social' : undefined, allowConsumed: true })
 }
 
 function normalizedBrandFields(brandKit = {}) {

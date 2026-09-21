@@ -1,6 +1,17 @@
 {
   "site": "escarlet",
   "version": "2.2.0",
+  "designSystem": {
+    "primaryColor": "#47A4E7",
+    "typography": "Montserrat, Arial, sans-serif",
+    "heroCtaGradient": {
+      "enabled": true,
+      "from": "#12B8D6",
+      "to": "#E8B73A",
+      "direction": "teal-to-gold",
+      "usage": ["web heroes", "web CTAs"]
+    }
+  },
   "cover": {
     "aspectRatio": "3:2",
     "preferredSizes": ["1536x1024", "1024x1024"],

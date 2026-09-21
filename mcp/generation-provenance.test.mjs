@@ -9,6 +9,7 @@ import { readDb, writeDb } from '../lib/db.mjs'
 import { prepareImageGeneration } from '../lib/brand-kit.mjs'
 import {
   assertGenerationReceipt,
+  consumeGenerationReceipt,
   generationReceiptFromPostgresRow,
   issueGenerationReceipt,
   persistImagePreparation
@@ -102,6 +103,16 @@ test('generationReceipt certifica el flujo válido y rechaza variaciones', async
     () => assertGenerationReceipt({ site: 'escarlet', receiptId: receipt.receiptId, fileHash: 'f'.repeat(64) }),
     (error) => error.code === 'GENERATED_FILE_HASH_MISMATCH'
   )
+
+  await consumeGenerationReceipt(receipt.receiptId)
+  const associated = await assertGenerationReceipt({
+    site: 'escarlet',
+    receiptId: receipt.receiptId,
+    preparationId: prepared.brandPreparation.preparationId,
+    assetType: prepared.brandPreparation.assetType,
+    allowConsumed: true
+  })
+  assert.equal(associated.receipt.status, 'consumed')
 })
 
 test('el upload de post exige receipt, assetType blog_cover y dimensiones correctas', async () => {
