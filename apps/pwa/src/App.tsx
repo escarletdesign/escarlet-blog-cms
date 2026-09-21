@@ -3550,10 +3550,14 @@ function PublishSocial() {
 
 function SocialPack() {
   const { slug = "" } = useParams();
+  const location = useLocation();
   const { site } = useApp();
   const { t } = useI18n();
   const { showToast } = useToast();
-  const standalone = !slug;
+  const search = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const itemId = search.get("itemId") || "";
+  const batchId = search.get("batchId") || "";
+  const standalone = !slug && !itemId;
   const [post, setPost] = useState<Post | null>(null);
   const [socialPack, setSocialPack] = useState<Record<string, any>>({});
   const [articleUrl, setArticleUrl] = useState("");
@@ -3572,7 +3576,37 @@ function SocialPack() {
       return;
     }
     let active = true;
-    Promise.all([api.post(slug, site), api.onboarding(site).catch(() => ({}))])
+    const contentPreview = itemId && batchId
+      ? api.contentBatch(batchId, site).then((batch) => {
+          const item = batch.items?.find((entry) => entry.id === itemId);
+          if (!item) throw new Error("No se encontró el item del Social Pack.");
+          const blog = item.variants?.find((variant) => variant.channel === "blog");
+          const instagram = item.variants?.find((variant) => variant.channel === "instagram");
+          const blogBody = blog?.body || {};
+          const instagramBody = instagram?.body || {};
+          const pack = instagramBody.socialPack && typeof instagramBody.socialPack === "object" ? { ...instagramBody.socialPack } : {};
+          if (Array.isArray(pack.instagramSlides)) {
+            pack.instagramSlides = pack.instagramSlides.map((slide: any, index: number) => ({
+              ...slide,
+              imageUrl: slide?.imageUrl || slide?.url || slide?.image || instagram?.media?.[index]?.url || instagram?.media?.[index]?.path || ""
+            }));
+          }
+          return {
+            post: {
+              slug,
+              site,
+              title: blogBody.title || item.topic,
+              status: item.status,
+              bodyHtml: blogBody.bodyHtml || blogBody.body || "",
+              excerptEs: blogBody.excerpt || blogBody.excerptEs || "",
+              imageUrl: blogBody.imageUrl || blog?.media?.[0]?.url || blog?.media?.[0]?.path || "",
+              imageAlt: blogBody.imageAlt || item.topic,
+              socialPack: pack
+            } as Post
+          };
+        })
+      : api.post(slug, site);
+    Promise.all([contentPreview, api.onboarding(site).catch(() => ({}))])
       .then(([postData, onboarding]) => {
         if (!active) return;
         setPost(postData.post);
@@ -3590,7 +3624,7 @@ function SocialPack() {
     return () => {
       active = false;
     };
-  }, [slug, site, t, standalone]);
+  }, [batchId, itemId, slug, site, t, standalone]);
   const generatePack = async () => {
     if (standalone && !standaloneBrief.trim()) {
       const reason = t("social.standaloneRequired");
