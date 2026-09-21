@@ -10,7 +10,9 @@ import {
 } from '@modelcontextprotocol/sdk/types.js'
 import * as cms from '../lib/cms-ops.mjs'
 import {
+  MCP_CANONICAL_URL,
   MCP_INSTRUCTIONS,
+  MCP_SERVER_NAME,
   MCP_SERVER_VERSION,
   withMediaUploadContract
 } from '../lib/media-upload-contract.mjs'
@@ -173,8 +175,14 @@ function redactWorkflowLinks(value) {
 
 function textResult(payload) {
   const safePayload = redactWorkflowLinks(payload)
+  const response = safePayload && typeof safePayload === 'object' && !Array.isArray(safePayload)
+    ? {
+        ...safePayload,
+        mcpServer: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION, contract: 'v2', canonicalUrl: MCP_CANONICAL_URL }
+      }
+    : safePayload
   return {
-    content: [{ type: 'text', text: typeof safePayload === 'string' ? safePayload : JSON.stringify(safePayload, null, 2) }]
+    content: [{ type: 'text', text: typeof response === 'string' ? response : JSON.stringify(response, null, 2) }]
   }
 }
 
@@ -214,6 +222,7 @@ async function brandContextResult(payload) {
       : []
   const textPayload = {
     ...safePayload,
+    mcpServer: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION, contract: 'v2', canonicalUrl: MCP_CANONICAL_URL },
     referenceDelivery: {
       mode: 'catalog_only',
       total: references.length,
@@ -284,6 +293,7 @@ async function preparedImageResult(payload) {
   }
   const textPayload = {
     ...prepared,
+    mcpServer: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION, contract: 'v2', canonicalUrl: MCP_CANONICAL_URL },
     generationBlocked: !readyForGeneration,
     brandPreparation: readyForGeneration ? prepared.brandPreparation : null,
     readyForGeneration,
@@ -390,6 +400,7 @@ function errorResult(err) {
   const payload = redactWorkflowLinks({
     message: err.message,
     status: err.status || 500,
+    mcpServer: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION, contract: 'v2', canonicalUrl: MCP_CANONICAL_URL },
     ...(err.code ? { code: err.code } : {}),
     ...(err.extra || {})
   })
@@ -1050,7 +1061,7 @@ export function buildToolList(auth) {
  */
 export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = false, source = 'mcp' } = {}) {
   const server = new Server(
-    { name: 'escarlet-cms-v2', version: MCP_SERVER_VERSION, title: 'Escarlet CMS v2' },
+    { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION, title: 'Escarlet CMS v2' },
     { capabilities: { tools: {}, resources: {} }, instructions: MCP_INSTRUCTIONS }
   )
 

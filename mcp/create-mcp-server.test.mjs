@@ -42,6 +42,7 @@ test('createMcpServer anuncia el contrato v2 y la selección explícita de marca
   assert.match(MCP_INSTRUCTIONS, /content_upload_media/)
   assert.match(MCP_INSTRUCTIONS, /exactamente una imagen/i)
   assert.match(MCP_INSTRUCTIONS, /barrera obligatoria/i)
+  assert.match(MCP_INSTRUCTIONS, /versión 2\.6\.3/)
 })
 
 test('el MCP no elige una marca por defecto cuando el acceso incluye varias', async () => {
@@ -82,9 +83,18 @@ test('brand_get_context y media siguen compartiendo el contrato de referencias',
   assert.equal(value.referenceDelivery.mode, 'catalog_only')
   assert.equal(value.referenceDelivery.binaryDeliveryTool, 'brand_prepare_image_generation')
   assert.equal(value.referenceDelivery.imageBlocks, 0)
+  assert.deepEqual(value.mcpServer, { name: 'escarlet-cms-v2', version: '2.6.3', contract: 'v2', canonicalUrl: 'https://cms.escarlet.design/mcp' })
   assert.match(JSON.stringify(value.brandKit?.agentRules), /content_list_items/)
   assert.doesNotMatch(JSON.stringify(value), /blog_list_posts|blog_get_brand_context|blog_upload_media|blog_open_image_drop/)
   assert.equal(result.content.some((block) => block.type === 'image' || block.type === 'resource_link'), false)
+})
+
+test('las respuestas de preparación exponen la versión MCP activa', async () => {
+  const result = await invokeMcpTool('brand_prepare_image_generation', { site: 'escarlet', assetType: 'generic', title: 'versión MCP' }, { role: 'admin' })
+  const value = payload(result)
+  assert.equal(value.mcpServer.name, 'escarlet-cms-v2')
+  assert.equal(value.mcpServer.version, '2.6.3')
+  assert.equal(value.mcpServer.contract, 'v2')
 })
 
 test('la subida de medios del MCP usa exclusivamente el runtime v2', async () => {
