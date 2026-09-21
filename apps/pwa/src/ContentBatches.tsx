@@ -50,7 +50,13 @@ export function ContentBatches({ site, creationEnabled = false, activeChannels }
   const update = (id: string, topic: string) => run(() => api.updateContentItem(id, { site, topic }));
   const reject = (id: string, comment: string) => run(() => api.rejectContent(id, comment, site));
   const schedule = (id: string, value: string) => run(() => api.scheduleContent(id, value, Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", site));
-  const publishBuffer = (item: ContentItem, channel: ContentChannel) => run(async () => { await api.publishContentViaBuffer(item.id, [channel], site); setDialog(null); });
+  const publishBuffer = (item: ContentItem, channel: ContentChannel) => {
+    if (channel === "blog") {
+      setError("El Blog se publica mediante el webhook de Coolify configurado en Administración.");
+      return;
+    }
+    return run(async () => { await api.publishContentViaBuffer(item.id, [channel], site); setDialog(null); });
+  };
   const openPreview = (item: ContentItem) => setDialog({ type: "preview", item });
 
   return <main className="ui-page ui-plans-page">
