@@ -1077,7 +1077,7 @@ export function buildToolList(auth) {
     { name: 'brand_get_context', description: 'Devuelve el contexto general canónico y el catálogo de referencias de una marca, sin adjuntar binarios. También incluye la política global: las imágenes social finales llevan texto renderizado y usan formato 4:5 o 3:4. Para recibir las imágenes exactas llama brand_prepare_image_generation. Todos los endpoints leen el mismo snapshot versionado.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, siteId: { type: 'string' } } }, annotations: { readOnlyHint: true } },
     {
       name: 'brand_prepare_image_generation',
-      description: 'Obligatoria antes de toda generación visual. Devuelve una preparación versionada, la política global de asset final, las dimensiones de salida y las referencias binarias exactas como ImageContent. Para social la imagen final debe llevar texto renderizado por content-system/instagram-renderer en formato 4:5 o 3:4. Esta tool no autoriza por sí sola el upload final: certifica el resultado final con brand_complete_image_generation usando exactamente esas referencias y sube solo con generationReceiptId. Si generationBlocked es true, aborta.',
+      description: 'Obligatoria antes de toda generación visual. Devuelve una preparación versionada, la política global de asset final, las dimensiones de salida y las referencias binarias exactas como ImageContent. Para un carrusel pasa expectedAssetCount y recibe una preparación padre multiuso controlada, con un receipt por slide. Para social la imagen final debe llevar texto renderizado por content-system/instagram-renderer en formato 4:5 o 3:4. Esta tool no autoriza por sí sola el upload final: certifica cada resultado con brand_complete_image_generation usando exactamente esas referencias y sube solo con generationReceiptId. Si generationBlocked es true, aborta.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1088,6 +1088,7 @@ export function buildToolList(auth) {
           topic: { type: 'string' },
           tone: { type: 'string' },
           channel: { type: 'string' },
+          expectedAssetCount: { type: 'integer', minimum: 1, maximum: 20, description: 'Cantidad explícita de imágenes finales relacionadas. Usa 1 para una imagen singular y el total de slides para un carrusel.' },
           itemId: { type: 'string' },
           batchId: { type: 'string' }
         },

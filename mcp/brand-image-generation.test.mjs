@@ -69,6 +69,24 @@ test('la petición genérica resuelve la ruta positiva y adjunta referencias en 
   assert.equal(validateImagePreparation('escarlet', `${value.brandPreparation.preparationId.slice(0, -1)}0`, { assetType: 'generic', route: value.route }).ok, false)
 })
 
+test('un carrusel declara cardinalidad explícita y recibe una preparación multiuso', async () => {
+  const value = payload(await invokeMcpTool('brand_prepare_image_generation', {
+    site: 'escarlet',
+    assetType: 'social_image',
+    expectedAssetCount: 4,
+    itemId: 'item-carousel-test',
+    batchId: 'batch-carousel-test',
+    channel: 'instagram',
+    topic: 'fondo abstracto editorial'
+  }, { role: 'admin' }))
+  assert.equal(value.generationCardinality.defaultImageCount, 4)
+  assert.equal(value.generationCardinality.maxImageCount, 4)
+  assert.equal(value.brandPreparation.expectedAssetCount, 4)
+  assert.notEqual(value.brandPreparation.preparationId, payload(await invokeMcpTool('brand_prepare_image_generation', {
+    site: 'escarlet', assetType: 'social_image', topic: 'fondo abstracto editorial'
+  }, { role: 'admin' })).brandPreparation.preparationId)
+})
+
 test('las rutas de escenas son cerradas y no heredan referencias de otro sitio', async () => {
   const work = payload(await invokeMcpTool('brand_prepare_image_generation', { site: 'escarlet', topic: 'trabajo y colaboración' }, { role: 'admin' }))
   const tense = payload(await invokeMcpTool('brand_prepare_image_generation', { site: 'escarlet', topic: 'duda e introspección' }, { role: 'admin' }))

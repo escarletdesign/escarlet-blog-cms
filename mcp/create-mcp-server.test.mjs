@@ -22,6 +22,7 @@ test('el contrato MCP expone media y contenido v2, sin operaciones de posts lega
   assert.ok(tools.some((tool) => tool.name === 'brand_list'))
   assert.ok(tools.some((tool) => tool.name === 'brand_get_context'))
   assert.ok(tools.some((tool) => tool.name === 'brand_prepare_image_generation'))
+  assert.equal(tools.find((tool) => tool.name === 'brand_prepare_image_generation').inputSchema.properties.expectedAssetCount.type, 'integer')
   assert.match(upload.description, /brandPreparationId/)
   assert.ok(upload.inputSchema.properties.brandPreparationId)
   assert.ok(upload.inputSchema.properties.generationReceiptId)
@@ -47,7 +48,7 @@ test('el contrato MCP expone media y contenido v2, sin operaciones de posts lega
     assert.equal(tools.some((tool) => tool.name === name), false, name)
   }
   assert.equal(tools.some((tool) => /^blog_|^social_/.test(tool.name) && !['blog_upload_media_file', 'blog_open_image_drop', 'blog_upload_media', 'blog_import_remote_image'].includes(tool.name)), false)
-  assert.equal(MCP_SERVER_VERSION, '2.7.8')
+  assert.equal(MCP_SERVER_VERSION, '2.7.9')
 })
 
 test('el registro tools/list publica la certificación y todos los uploads compatibles', async () => {
@@ -95,7 +96,7 @@ test('createMcpServer anuncia el contrato v2 y la selección explícita de marca
   assert.match(MCP_INSTRUCTIONS, /content_upload_media/)
   assert.match(MCP_INSTRUCTIONS, /exactamente una imagen/i)
   assert.match(MCP_INSTRUCTIONS, /barrera obligatoria/i)
-  assert.match(MCP_INSTRUCTIONS, /versión 2\.7\.8/)
+  assert.match(MCP_INSTRUCTIONS, /versión 2\.7\.9/)
 })
 
 test('el MCP no elige una marca por defecto cuando el acceso incluye varias', async () => {
@@ -136,7 +137,7 @@ test('brand_get_context y media siguen compartiendo el contrato de referencias',
   assert.equal(value.referenceDelivery.mode, 'catalog_only')
   assert.equal(value.referenceDelivery.binaryDeliveryTool, 'brand_prepare_image_generation')
   assert.equal(value.referenceDelivery.imageBlocks, 0)
-  assert.deepEqual(value.mcpServer, { name: 'escarlet-cms-v2', version: '2.7.8', contract: 'v2', canonicalUrl: 'https://cms.escarlet.design/mcp' })
+  assert.deepEqual(value.mcpServer, { name: 'escarlet-cms-v2', version: '2.7.9', contract: 'v2', canonicalUrl: 'https://cms.escarlet.design/mcp' })
   assert.match(JSON.stringify(value.brandKit?.agentRules), /content_list_items/)
   assert.doesNotMatch(JSON.stringify(value), /blog_list_posts|blog_get_brand_context|blog_upload_media|blog_open_image_drop/)
   assert.equal(result.content.some((block) => block.type === 'image' || block.type === 'resource_link'), false)
@@ -146,7 +147,7 @@ test('las respuestas de preparación exponen la versión MCP activa', async () =
   const result = await invokeMcpTool('brand_prepare_image_generation', { site: 'escarlet', assetType: 'generic', title: 'versión MCP' }, { role: 'admin' })
   const value = payload(result)
   assert.equal(value.mcpServer.name, 'escarlet-cms-v2')
-  assert.equal(value.mcpServer.version, '2.7.8')
+  assert.equal(value.mcpServer.version, '2.7.9')
   assert.equal(value.mcpServer.contract, 'v2')
 })
 
