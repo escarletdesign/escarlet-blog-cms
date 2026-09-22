@@ -11,18 +11,18 @@ test('el contrato MCP expone media y contenido v2, sin operaciones de posts lega
   const tools = buildToolList({ role: 'admin' })
   const upload = tools.find((tool) => tool.name === 'content_upload_media')
   const update = tools.find((tool) => tool.name === 'content_update_item')
-  const complete = tools.find((tool) => tool.name === 'brand_complete_image_generation')
   const createBatch = tools.find((tool) => tool.name === 'content_create_batch')
   assert.ok(upload)
   assert.ok(update)
-  assert.ok(complete)
   assert.ok(createBatch)
   assert.ok(createBatch.inputSchema.properties.items)
+  assert.ok(createBatch.inputSchema.properties.items.items.properties.variants)
   assert.ok(createBatch.inputSchema.properties.batchId)
   assert.ok(createBatch.inputSchema.properties.createNewPlan)
-  assert.match(createBatch.description, /título del plan.*título de una publicación/i)
-  assert.ok(tools.some((tool) => tool.name === 'brand_update_file'))
-  assert.deepEqual(complete.inputSchema.required, ['site', 'preparationId', 'usedReferences', 'generatedResultId', 'generatedFileHash'])
+  assert.match(createBatch.description, /guarda literalmente/i)
+  assert.equal(tools.some((tool) => tool.name === 'brand_update_file'), false)
+  assert.equal(tools.some((tool) => tool.name === 'brand_complete_image_generation'), false)
+  assert.equal(tools.some((tool) => tool.name === 'brand_register_generation'), false)
   assert.deepEqual(upload._meta['openai/fileParams'], ['file'])
   assert.equal(upload.inputSchema.properties.file.$ref, '#/$defs/OpenAIFile')
   assert.deepEqual(upload.inputSchema.$defs.OpenAIFile.required, ['download_url', 'file_id'])
@@ -30,23 +30,13 @@ test('el contrato MCP expone media y contenido v2, sin operaciones de posts lega
   assert.ok(tools.some((tool) => tool.name === 'brand_get_context'))
   assert.ok(tools.some((tool) => tool.name === 'brand_prepare_image_generation'))
   assert.equal(tools.find((tool) => tool.name === 'brand_prepare_image_generation').inputSchema.properties.expectedAssetCount.type, 'integer')
-  assert.match(upload.description, /brandPreparationId/)
-  assert.ok(upload.inputSchema.properties.brandPreparationId)
-  assert.ok(upload.inputSchema.properties.generationReceiptId)
-  assert.ok(upload.inputSchema.properties.textRendered)
-  assert.ok(upload.inputSchema.properties.templateId)
-  assert.ok(upload.inputSchema.properties.renderedBy)
-  assert.ok(upload.inputSchema.properties.textContent)
-  assert.ok(upload.inputSchema.oneOf.some((branch) => branch.properties?.kind?.const === 'social' && branch.required?.includes('textRendered')))
-  assert.ok(upload.inputSchema.oneOf.some((branch) => branch.required?.includes('generationReceiptId')))
-  assert.ok(update.inputSchema.properties.generationReceiptIds)
-  assert.match(update.description, /brandPreparationId/)
+  assert.match(upload.description, /conserva exactamente sus bytes/i)
+  for (const field of ['preparationId', 'itemId', 'channels', 'assetIndex']) assert.ok(upload.inputSchema.properties[field], field)
+  assert.equal(upload.inputSchema.properties.generationReceiptId, undefined)
+  assert.ok(update.inputSchema.properties.readyForReview)
+  assert.match(update.description, /sin reescritura/i)
   for (const name of ['blog_upload_media_file', 'blog_open_image_drop', 'blog_upload_media', 'blog_import_remote_image']) {
-    const legacyUpload = tools.find((tool) => tool.name === name)
-    assert.ok(legacyUpload, name)
-    assert.ok(legacyUpload.inputSchema.properties.generationReceiptId, name)
-    assert.ok(legacyUpload.inputSchema.oneOf.some((branch) => branch.required?.includes('generationReceiptId')), name)
-    assert.ok(legacyUpload.inputSchema.required.includes('kind'), name)
+    assert.equal(tools.some((tool) => tool.name === name), false, name)
   }
   for (const name of ['content_list_plans', 'content_list_items', 'content_list_calendar', 'content_create_batch', 'content_get_batch', 'content_update_item', 'content_approve', 'content_reject', 'content_schedule', 'content_cancel']) {
     assert.ok(tools.some((tool) => tool.name === name), name)
@@ -54,43 +44,27 @@ test('el contrato MCP expone media y contenido v2, sin operaciones de posts lega
   for (const name of ['blog_list_posts', 'blog_get_post', 'blog_create_draft', 'blog_update_post', 'blog_publish', 'blog_schedule_post', 'blog_list_calendar', 'blog_get_workflow', 'blog_get_brand_context', 'social_list_packs']) {
     assert.equal(tools.some((tool) => tool.name === name), false, name)
   }
-  assert.equal(tools.some((tool) => /^blog_|^social_/.test(tool.name) && !['blog_upload_media_file', 'blog_open_image_drop', 'blog_upload_media', 'blog_import_remote_image'].includes(tool.name)), false)
+  assert.equal(tools.some((tool) => /^blog_|^social_/.test(tool.name)), false)
+  const publicContract = JSON.stringify(tools)
+  assert.doesNotMatch(publicContract, /generationReceiptId|brand_complete_image_generation|brand_register_generation|content-system\/instagram-renderer/)
   assert.equal(buildToolList({ role: 'editor' }).some((tool) => tool.name === 'brand_update_file'), false)
-  assert.equal(MCP_SERVER_VERSION, '2.8.0')
+  assert.equal(MCP_SERVER_VERSION, '3.0.0')
 })
 
-test('el registro tools/list publica la certificación y todos los uploads compatibles', async () => {
+test('el registro tools/list publica un único upload y no expone aliases legacy', async () => {
   const server = createMcpServer({ role: 'admin', site: 'escarlet' })
   assert.equal(server._capabilities.tools.listChanged, true)
   const listed = await server._requestHandlers.get('tools/list')({ method: 'tools/list', params: {} })
   const names = listed.tools.map((tool) => tool.name)
-  assert.ok(names.includes('brand_complete_image_generation'))
-  for (const name of ['content_upload_media', 'blog_upload_media_file', 'blog_open_image_drop', 'blog_upload_media', 'blog_import_remote_image']) {
-    assert.ok(names.includes(name), name)
-  }
+  assert.ok(names.includes('content_upload_media'))
+  assert.equal(names.includes('brand_complete_image_generation'), false)
+  assert.equal(names.some((name) => /^blog_.*upload|^blog_import_remote_image/.test(name)), false)
 })
 
-test('brand_complete_image_generation es invocable y los uploads legacy rechazan post sin receipt', async () => {
-  const completion = await invokeMcpTool('brand_complete_image_generation', {
-    site: 'escarlet',
-    preparationId: 'missing-preparation',
-    usedReferences: [],
-    generatedResultId: 'generated-result',
-    generatedFileHash: 'a'.repeat(64)
-  }, { role: 'admin', site: 'escarlet' })
-  assert.equal(completion.isError, true)
-  assert.equal(payload(completion).code, 'BRAND_PREPARATION_REQUIRED')
-
-  const legacyArgs = {
-    blog_upload_media_file: { file: { file_id: 'file-1', download_url: 'https://example.com/image.png' } },
-    blog_open_image_drop: {},
-    blog_upload_media: { contentBase64: 'not-an-image' },
-    blog_import_remote_image: { imageUrl: 'https://example.com/image.png' }
-  }
-  for (const [name, extra] of Object.entries(legacyArgs)) {
-    const result = await invokeMcpTool(name, { site: 'escarlet', filename: `${name}.png`, kind: 'post', ...extra }, { role: 'admin', site: 'escarlet' })
+test('las tools retiradas no son invocables', async () => {
+  for (const name of ['brand_complete_image_generation', 'brand_register_generation', 'blog_upload_media']) {
+    const result = await invokeMcpTool(name, {}, { role: 'admin', site: 'escarlet' })
     assert.equal(result.isError, true, name)
-    assert.equal(payload(result).code, 'GENERATION_RECEIPT_REQUIRED', name)
   }
 })
 
@@ -103,8 +77,8 @@ test('createMcpServer anuncia el contrato v2 y la selección explícita de marca
   assert.match(MCP_INSTRUCTIONS, /content_list_items/)
   assert.match(MCP_INSTRUCTIONS, /content_upload_media/)
   assert.match(MCP_INSTRUCTIONS, /exactamente una imagen/i)
-  assert.match(MCP_INSTRUCTIONS, /barrera obligatoria/i)
-  assert.match(MCP_INSTRUCTIONS, /versión 2\.8\.0/)
+  assert.match(MCP_INSTRUCTIONS, /preparationId, itemId, channels y assetIndex/i)
+  assert.match(MCP_INSTRUCTIONS, /versión 3\.0\.0/)
 })
 
 test('el MCP no elige una marca por defecto cuando el acceso incluye varias', async () => {
@@ -125,9 +99,8 @@ test('el MCP no elige una marca por defecto cuando el acceso incluye varias', as
     const result = await invokeMcpTool(name, args, auth)
     const value = payload(result)
     assert.equal(result.isError, true)
-    assert.equal(value.code, 'brand_selection_required', name)
-    assert.deepEqual(value.sites, ['escarlet', 'segunda-marca'])
-    assert.match(value.askUser, /Con qué marca/i)
+    const expectedCode = name === 'brand_get_context' ? 'postgres_required' : 'brand_selection_required'
+    assert.equal(value.code, expectedCode, name)
   }
 })
 
@@ -138,24 +111,18 @@ test('una marca explícita llega al resolver v2 aunque Postgres no esté configu
   assert.equal(value.code, 'postgres_required')
 })
 
-test('brand_get_context y media siguen compartiendo el contrato de referencias', async () => {
+test('brand_get_context exige la fuente canónica Postgres', async () => {
   const result = await invokeMcpTool('brand_get_context', { site: 'escarlet' }, { role: 'editor', site: 'escarlet', capabilities: ['brand_kit_access'] })
   const value = payload(result)
-  assert.equal(value.brandAccessLevel, 'sanitized')
-  assert.equal(value.referenceDelivery.mode, 'catalog_only')
-  assert.equal(value.referenceDelivery.binaryDeliveryTool, 'brand_prepare_image_generation')
-  assert.equal(value.referenceDelivery.imageBlocks, 0)
-  assert.deepEqual(value.mcpServer, { name: 'escarlet-cms-v2', version: '2.8.0', contract: 'v2', canonicalUrl: 'https://cms.escarlet.design/mcp' })
-  assert.match(JSON.stringify(value.brandKit?.agentRules), /content_list_items/)
-  assert.doesNotMatch(JSON.stringify(value), /blog_list_posts|blog_get_brand_context|blog_upload_media|blog_open_image_drop/)
-  assert.equal(result.content.some((block) => block.type === 'image' || block.type === 'resource_link'), false)
+  assert.equal(result.isError, true)
+  assert.equal(value.code, 'postgres_required')
 })
 
 test('las respuestas de preparación exponen la versión MCP activa', async () => {
   const result = await invokeMcpTool('brand_prepare_image_generation', { site: 'escarlet', assetType: 'generic', title: 'versión MCP' }, { role: 'admin' })
   const value = payload(result)
   assert.equal(value.mcpServer.name, 'escarlet-cms-v2')
-  assert.equal(value.mcpServer.version, '2.8.0')
+  assert.equal(value.mcpServer.version, '3.0.0')
   assert.equal(value.mcpServer.contract, 'v2')
 })
 
@@ -168,7 +135,7 @@ test('la subida de medios del MCP usa exclusivamente el runtime v2', async () =>
   }, { role: 'admin' })
   assert.equal(result.isError, true)
   const value = payload(result)
-  assert.equal(value.code, 'GENERATION_RECEIPT_REQUIRED')
+  assert.equal(value.code, 'postgres_required')
 })
 
 test('los recursos MCP solo anuncian archivos que el rol puede leer', async () => {

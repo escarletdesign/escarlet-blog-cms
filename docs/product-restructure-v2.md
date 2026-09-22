@@ -9,7 +9,7 @@ La interfaz usa cuatro conceptos visibles:
 
 ## Flujo de revisión
 
-`ChatGPT/MCP → Plan → generación asíncrona → Revisión → aprobación → agenda → outbox → proveedor (Buffer, Postiz, Metricool o Planable)`.
+`brand_get_context → brand_prepare_image_generation → ChatGPT genera → content_create_batch/upload → Revisión → aprobación → agenda → outbox → Buffer/Coolify`.
 
 La PWA no muestra creación por defecto. `creation_ui_enabled` y `manual_creation_enabled` viven en Postgres con override por espacio o marca; `CREATION_UI_KILL_SWITCH=true` fuerza ambos valores a `false`. MCP no usa ese encabezado y conserva la creación.
 

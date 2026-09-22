@@ -261,11 +261,11 @@ const baseApi = {
       `/api/v2/content/batches/${encodeURIComponent(batchId)}${site ? `?site=${encodeURIComponent(site)}` : ""}`,
     ),
   createContentBatch: (input: { site?: string; title: string; topics: string[]; channels: string[]; brandKitVersionId?: string }) =>
-    request<{ batchId: string; itemIds: string[]; jobId: string; totalItems: number }>(
+    request<{ batchId: string; itemIds: string[]; operationId: string; status: "draft"; totalItems: number }>(
       "/api/v2/content/batches",
       { method: "POST", headers: { "X-Escarlet-Client": "pwa" }, body: JSON.stringify(input) },
     ),
-  updateContentItem: (itemId: string, input: { site?: string; topic?: string; channel?: string; body?: Record<string, any>; visualBrief?: Record<string, any>; brandPreparationId?: string; generationReceiptId?: string; mediaAssetIds?: string[] }) =>
+  updateContentItem: (itemId: string, input: { site?: string; topic?: string; channel?: string; body?: Record<string, any>; visualBrief?: Record<string, any>; mediaAssetIds?: string[]; readyForReview?: boolean }) =>
     request<ContentItem>(
       `/api/v2/content/items/${encodeURIComponent(itemId)}`,
       { method: "PATCH", body: JSON.stringify(input) },
@@ -280,10 +280,10 @@ const baseApi = {
       `/api/v2/content/items/${encodeURIComponent(itemId)}/reject`,
       { method: "POST", body: JSON.stringify({ site, comment }) },
     ),
-  scheduleContent: (itemId: string, publicationDate: string, timezone: string, site?: string) =>
+  scheduleContent: (itemId: string, publicationDate: string, timezone: string, site?: string, channels?: string[]) =>
     request<{ itemId: string; status: string }>(
       `/api/v2/content/items/${encodeURIComponent(itemId)}/schedule`,
-      { method: "POST", body: JSON.stringify({ site, publicationDate, timezone }) },
+      { method: "POST", body: JSON.stringify({ site, channels, publicationDate, timezone }) },
     ),
   publishContentViaBuffer: (itemId: string, channels: string[], site?: string) =>
     request<{ itemId: string; status: string; channels: string[]; provider: string; publicationDate: string }>(

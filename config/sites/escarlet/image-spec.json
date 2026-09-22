@@ -222,7 +222,7 @@
   "hard_rules": [
     "No texto, letras, números, logos ni marcas de agua dentro de fotografías generadas.",
     "No redibujar logos con IA.",
-    "La IA genera solo fondos para Instagram; el texto lo renderiza el CMS.",
+    "ChatGPT genera cada pieza final de Instagram con el texto ya integrado.",
     "Llamar brand_prepare_image_generation antes de generar cualquier imagen.",
     "Entregar exactamente sus resolvedReferences como ImageContent y detenerse si generationBlocked es true.",
     "No transferir la identidad de una referencia a otra marca.",
@@ -329,16 +329,13 @@
     },
     "dimensions": "1080x1350",
     "allowText": true,
-    "textSource": "template",
-    "textRenderer": "content-system/instagram-renderer.mjs",
+    "textSource": "ChatGPT",
+    "textRenderer": "ChatGPT",
     "backgroundGeneration": {
-      "allowText": false,
-      "role": "instagram-carousel-background"
+      "allowText": true,
+      "role": "final-social-asset"
     },
-    "templates": [
-      "editorial",
-      "impact"
-    ],
+    "templates": [],
     "firstSlide": {
       "background": "brand-color",
       "allowGradients": true
@@ -357,5 +354,12 @@
       "allowFontShrinkingToFit": false,
       "overflowAction": "shorten-or-split"
     }
+  },
+  "instagramStory": {
+    "dimensions": "1080x1920",
+    "aspectRatio": "9:16",
+    "allowText": true,
+    "textSource": "ChatGPT",
+    "publicationMode": "buffer-notification"
   }
 }

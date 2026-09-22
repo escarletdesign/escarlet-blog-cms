@@ -37,7 +37,7 @@ ejecuta como recurso gestionado aparte (en local lo levanta `docker-compose`). A
 roles cliente y endpoints de IA/Stripe. Las claves `OPENAI_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY` y `STRIPE_SECRET_KEY`
 se quedan siempre en el servidor. `ADMIN_TOKEN` es obligatorio (no hay token por defecto). Para guardar claves desde **Administración → IA y Billing**, configura también `AI_CONNECTOR_ENCRYPTION_KEY` con un secreto aleatorio de al menos 32 bytes; las claves se cifran con AES-256-GCM en `data/db.json`, que se escribe con modo `0600`. Para producción v2 configura `DATABASE_URL` y `CMS_SECRET_KEY`; ejecuta `npm run db:migrate` una única vez con el CMS en modo escritura congelada. Consulta `.env.example` para el catálogo de precios y la migración explícita de instalaciones antiguas.
 
-Para operar únicamente con ChatGPT mediante MCP y edición manual, define `CMS_AI_ENABLED=0`. Ese kill switch devuelve `403 CMS_AI_DISABLED` en todas las rutas REST de IA, bloquea conectores, transcripción, imágenes y créditos, y oculta los flujos AI de la PWA; el endpoint `/mcp`, la membresía MCP y el editor manual siguen disponibles. Puede reactivarse con `CMS_AI_ENABLED=1` o con el flag global de Administración cuando no exista un valor de entorno.
+El CMS mantiene desactivada de forma permanente la generación de IA server-side. Las rutas REST de IA, conectores, transcripción, imágenes y créditos devuelven `403 CMS_AI_DISABLED`; `/mcp`, la membresía MCP y el editor manual siguen disponibles. ChatGPT genera el texto y los píxeles finales mediante el MCP canónico.
 
 ### Sistema de diseño de la PWA
 
@@ -124,7 +124,7 @@ Build incluye sync automático. Ver [docs/ONBOARDING.md](docs/ONBOARDING.md).
 
 ## Sistema visual de contenidos
 
-La arquitectura nueva de portadas y carruseles está en [`content-system/`](content-system/README.md). Usa `visualBrief` para controlar variedad y referencias, y `lib/instagram-renderer.mjs` para renderizar la tipografía fuera del generador de imágenes.
+La arquitectura nueva de portadas y carruseles está en [`content-system/`](content-system/README.md). El MCP entrega referencias y reglas, ChatGPT genera los textos y píxeles finales, y el CMS conserva los archivos sin recomponerlos.
 
 Comandos útiles:
 

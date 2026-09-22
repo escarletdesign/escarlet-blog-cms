@@ -35,7 +35,7 @@ function handler() {
   )
 }
 
-test('el handler moderno publica tools/list incluyendo brand_complete_image_generation', async () => {
+test('el handler moderno publica el contrato MCP único', async () => {
   const response = await handler().fetch(new Request('https://cms.escarlet.design/mcp', {
     method: 'POST',
     headers,
@@ -43,8 +43,9 @@ test('el handler moderno publica tools/list incluyendo brand_complete_image_gene
   }), { authInfo: { role: 'admin', site: 'escarlet' } })
   assert.equal(response.status, 200)
   const body = await response.json()
-  assert.ok(body.result.tools.some((tool) => tool.name === 'brand_complete_image_generation'))
-  assert.equal(body.result._meta['io.modelcontextprotocol/serverInfo'].version, '2.8.0')
+  assert.ok(body.result.tools.some((tool) => tool.name === 'content_upload_media'))
+  assert.equal(body.result.tools.some((tool) => tool.name === 'brand_complete_image_generation'), false)
+  assert.equal(body.result._meta['io.modelcontextprotocol/serverInfo'].version, '3.0.0')
 })
 
 test('el handler moderno acepta tools/call con envelope por request', async () => {

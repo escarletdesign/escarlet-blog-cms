@@ -39,7 +39,7 @@ export interface BrandSummary {
   capabilities?: Record<string, boolean>;
   connections?: Array<Record<string, any>>;
 }
-export type ContentStatus = "draft" | "generated" | "needs_review" | "approved" | "scheduled" | "syncing" | "published" | "failed" | "canceled";
+export type ContentStatus = "draft" | "generated" | "needs_review" | "approved" | "scheduled" | "syncing" | "action_required" | "published" | "failed" | "canceled";
 export interface ContentVariant {
   id: string;
   channel: ContentChannel;

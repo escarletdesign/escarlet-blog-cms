@@ -387,6 +387,26 @@ function siteFrom(auth, preferred) {
   return requested || DEFAULT_SITE
 }
 
+async function appBrandContext(site, auth) {
+  if (!isPostgresConfigured()) return getBrandContext(site, { auth })
+  const workspace = await resolveWorkspaceContext({ userId: auth?.userId || undefined, siteHandle: site, role: auth?.role === 'admin' ? 'admin' : undefined })
+  const selected = workspace.sites.find((entry) => entry.handle === site) || workspace.sites[0]
+  if (!selected) throw Object.assign(new Error('Sitio no migrado a Postgres.'), { status: 404, code: 'SITE_NOT_MIGRATED' })
+  const [activeBrandKit, brandCapabilities] = await Promise.all([
+    getActiveBrandKit({ workspaceId: workspace.workspaceId, siteId: selected.id }),
+    listBrandCapabilities({ workspaceId: workspace.workspaceId, siteId: selected.id })
+  ])
+  if (!activeBrandKit) throw Object.assign(new Error('La marca no tiene un brand kit activo en Postgres.'), { status: 503, code: 'BRAND_KIT_REQUIRED' })
+  return getBrandContext(site, {
+    auth,
+    brandCapabilities,
+    canonicalManifest: activeBrandKit.manifest,
+    canonicalAssets: activeBrandKit.assets,
+    brandKitVersionId: activeBrandKit.id,
+    brandKitVersion: { version: activeBrandKit.version }
+  })
+}
+
 const MAX_BODY_BYTES = 15 * 1024 * 1024
 
 function readRawBuffer(req, maxBytes = MAX_BODY_BYTES) {
@@ -943,6 +963,14 @@ function queueSocialPackImages({ site, post, socialPack, auth }) {
 const server = createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://127.0.0.1:${PORT}`)
   const path = url.pathname.replace(/\/+$/, '') || '/'
+
+  const legacyPreview = path.match(/^\/app\/preview\/([^/]+)$/)
+  if (req.method === 'GET' && legacyPreview && DEPRECATED_CMS_HOSTS.includes(requestHostname(req))) {
+    const slug = encodeURIComponent(decodeURIComponent(legacyPreview[1]))
+    res.writeHead(308, { Location: `${CANONICAL_CMS_URL}/app/preview/${slug}?site=escarlet`, 'Cache-Control': 'no-store' })
+    res.end()
+    return
+  }
 
   if (req.method === 'OPTIONS') {
     sendMcpCors(res)
@@ -2190,7 +2218,7 @@ const server = createServer(async (req, res) => {
       if (req.method === 'PATCH' && itemMatch) {
         const scope = await requireV2Context(req, url, res, body)
         if (!scope) return
-        const result = await updateContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId: decodeURIComponent(itemMatch[1]), userId: scope.auth.userId, role: scope.context.role, topic: body.topic, body: body.body, channel: body.channel, visualBrief: body.visualBrief, brandPreparationId: body.brandPreparationId, generationReceiptId: body.generationReceiptId, mediaAssetIds: body.mediaAssetIds })
+        const result = await updateContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId: decodeURIComponent(itemMatch[1]), userId: scope.auth.userId, role: scope.context.role, topic: body.topic, body: body.body, channel: body.channel, visualBrief: body.visualBrief, mediaAssetIds: body.mediaAssetIds, readyForReview: body.readyForReview })
         json(res, 200, result)
         return
       }
@@ -2215,7 +2243,7 @@ const server = createServer(async (req, res) => {
           json(res, 202, await publishContentItemViaBuffer({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role, channels: body.channels }))
           return
         }
-        json(res, 200, await scheduleContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role, publicationDate: body.publicationDate, timezone: body.timezone }))
+        json(res, 200, await scheduleContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role, channels: body.channels, publicationDate: body.publicationDate, timezone: body.timezone }))
         return
       }
       if (req.method === 'POST' && batchActionMatch) {
@@ -2224,7 +2252,7 @@ const server = createServer(async (req, res) => {
         const batchId = decodeURIComponent(batchActionMatch[1])
         json(res, 200, batchActionMatch[2] === 'cancel'
           ? await cancelContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, batchId, userId: scope.auth.userId, role: scope.context.role })
-          : await scheduleContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, batchId, userId: scope.auth.userId, role: scope.context.role, publicationDate: body.publicationDate, timezone: body.timezone }))
+          : await scheduleContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, batchId, userId: scope.auth.userId, role: scope.context.role, channels: body.channels, publicationDate: body.publicationDate, timezone: body.timezone }))
         return
       }
       if (req.method === 'POST' && batchReviewMatch && batchReviewMatch[2] === 'approve') {
@@ -2892,7 +2920,7 @@ const server = createServer(async (req, res) => {
         if (!siteRecord) throw Object.assign(new Error('Sitio no migrado a Postgres.'), { status: 404 })
         const workspaceRole = auth.role === 'admin' ? 'admin' : auth.userId ? rawScope.role || workspaceRoleForAuth(auth) : workspaceRoleForAuth(auth)
         const result = await createContentBatch({ workspaceId: rawScope.workspaceId, siteId: siteRecord.id, userId: auth.userId || null, role: workspaceRole, title: body.title || 'Batch generado desde chat', topics: body.topics, channels: body.channels, metadata: { source: 'chat' } })
-        json(res, 202, { site, batchId: result.batchId, itemIds: result.itemIds, jobId: result.jobId, totalItems: result.totalItems })
+        json(res, 202, { site, batchId: result.batchId, itemIds: result.itemIds, operationId: result.operationId, status: result.status, totalItems: result.totalItems })
         return
       }
 
@@ -3616,11 +3644,15 @@ const server = createServer(async (req, res) => {
       const allowedLabels = brandLabelsForAuth(auth)
       const allowed = !file || BRAND_ALL_FILES.includes(file) || file === 'agent-rules.md'
       if (req.method === 'GET' && !file) {
-        json(res, 200, {
-          ...getBrandContext(site, { auth }),
-          files: allowedFiles,
-          labels: allowedLabels
-        })
+        try {
+          json(res, 200, {
+            ...await appBrandContext(site, auth),
+            files: allowedFiles,
+            labels: allowedLabels
+          })
+        } catch (err) {
+          json(res, err.status || 503, { message: err.message, code: err.code })
+        }
         return
       }
       if (req.method === 'GET' && file && allowed) {

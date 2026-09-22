@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { getPgPool, runCoreMigrations, closePgPool } from './lib/pg.mjs'
-import { claimJobs, finishJob, claimOutbox, finishOutbox, recordUsage, enqueueJob, contentTitleFromBrief } from './lib/workspace-domain.mjs'
+import { claimJobs, finishJob, claimOutbox, finishOutbox, recordUsage, enqueueJob } from './lib/workspace-domain.mjs'
 import { decryptSecret } from './lib/secret-crypto.mjs'
 import { scheduleMetricoolPost, syncMetricoolPost } from './lib/metricool.mjs'
 import { schedulePlanablePost, syncPlanablePost, planableStatus } from './lib/planable.mjs'
@@ -57,37 +57,6 @@ async function triggerBlogRebuild(variant) {
   if (!response.ok) throw new Error(`Webhook de Coolify falló con HTTP ${response.status}.`)
 }
 
-async function processGenerationJob(job) {
-  const pool = await getPgPool()
-  const batchId = job.payload?.batchId
-  if (!pool || !batchId) throw new Error('content.generate_batch requiere batchId.')
-  const client = await pool.connect()
-  try {
-    await client.query('BEGIN')
-    const batch = await client.query('SELECT * FROM content_batches WHERE id=$1 FOR UPDATE', [batchId])
-    if (!batch.rowCount) throw new Error('Batch no encontrado.')
-    const items = await client.query('SELECT id,topic,metadata FROM content_items WHERE batch_id=$1 ORDER BY created_at', [batchId])
-    for (const item of items.rows) {
-      const contentTitle = contentTitleFromBrief(item.metadata?.contentTitle || item.topic)
-      await client.query(`UPDATE content_items SET status='generated',error=NULL,updated_at=NOW() WHERE id=$1 AND status IN ('draft','failed')`, [item.id])
-      await client.query(`UPDATE content_variants SET status='generated',body=CASE
-        WHEN body='{}'::jsonb OR body->>'topic' IS NOT NULL THEN
-          CASE WHEN channel='blog' THEN jsonb_build_object('topic',$2::text,'title',$3::text,'body','Borrador generado. Revisar y editar antes de aprobar.')
-          ELSE jsonb_build_object('topic',$2::text,'title',$3::text,'text','Borrador generado para ' || channel || '. Revisar y editar antes de aprobar.') END
-        ELSE body END,updated_at=NOW() WHERE item_id=$1 AND status IN ('draft','failed')`, [item.id, item.topic, contentTitle])
-    }
-    const counts = await client.query(`SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE status='generated')::int AS generated, COUNT(*) FILTER (WHERE status='failed')::int AS failed FROM content_items WHERE batch_id=$1`, [batchId])
-    await client.query(`UPDATE content_batches SET status=CASE WHEN status='canceled' THEN 'canceled' ELSE 'generated' END,total_items=$1,generated_items=$2,failed_items=$3,updated_at=NOW() WHERE id=$4`, [counts.rows[0].total, counts.rows[0].generated, counts.rows[0].failed, batchId])
-    await client.query('COMMIT')
-    return { generated: items.rows.length, batchId }
-  } catch (error) {
-    await client.query('ROLLBACK')
-    throw error
-  } finally {
-    client.release()
-  }
-}
-
 async function processBlogPublishJob(job) {
   const pool = await getPgPool()
   const variantId = job.payload?.variantId
@@ -125,11 +94,9 @@ async function processExternalPublicationEvent(event) {
     : variantsResult.rows
   if (event.type === 'content.item.approved' && variants.every((variant) => !variant.publication_date)) return
   for (const variant of variants) {
-    // Blog remains a first-class channel. Keep the legacy CMS/webhook path for
-    // existing web connections, but allow Postiz's WordPress integration to
-    // execute it like any other provider when explicitly configured.
+    // Blog remains a first-class channel and always deploys through Coolify.
     const configuredProvider = String(variant.connection_provider || '').toLowerCase()
-    if (variant.channel === 'blog' && !['postiz', 'buffer'].includes(configuredProvider)) {
+    if (variant.channel === 'blog') {
       const publicationDate = variant.publication_date ? new Date(variant.publication_date) : null
       if (publicationDate && publicationDate.getTime() > Date.now()) {
         await enqueueJob({ workspaceId: event.workspace_id, type: 'content.publish_blog', payload: { variantId: variant.id }, idempotencyKey: `blog-publish:${variant.id}:${publicationDate.toISOString()}`, availableAt: publicationDate })
@@ -190,7 +157,7 @@ async function processExternalPublicationEvent(event) {
     } else throw new Error(`El proveedor ${provider} aún no tiene un adaptador de publicación.`)
     const providerPostId = provider === 'postiz' ? (postizPostId(response) || variant.provider_post_id || null) : provider === 'buffer' ? (bufferPostId(response) || variant.provider_post_id || null) : (response?.id || response?.postId || response?.data?.id || response?.posts?.[0]?.id || variant.provider_post_id || null)
     const remoteStatus = provider === 'planable' ? planableStatus(response) : provider === 'postiz' ? postizStatus(response) : provider === 'buffer' ? bufferStatus(response) : String(response?.status || response?.data?.status || '').toLowerCase()
-    const status = ['failed', 'error', 'rejected'].includes(remoteStatus) ? 'failed' : remoteStatus === 'published' ? 'published' : ['postiz', 'buffer'].includes(provider) && remoteStatus === 'canceled' ? 'canceled' : ['postiz', 'buffer'].includes(provider) && (remoteStatus === 'scheduled' || remoteStatus === 'draft') ? 'scheduled' : 'syncing'
+    const status = provider === 'buffer' && story && remoteStatus === 'published' ? 'action_required' : ['failed', 'error', 'rejected'].includes(remoteStatus) ? 'failed' : remoteStatus === 'published' ? 'published' : ['postiz', 'buffer'].includes(provider) && remoteStatus === 'canceled' ? 'canceled' : ['postiz', 'buffer'].includes(provider) && (remoteStatus === 'scheduled' || remoteStatus === 'draft') ? 'scheduled' : 'syncing'
     await pool.query('UPDATE content_variants SET status=$1,updated_at=NOW() WHERE id=$2', [status, variant.id])
     await pool.query('UPDATE schedules SET status=$1,provider=$2,provider_post_id=COALESCE($3,provider_post_id),attempts=attempts+1,last_error=NULL,updated_at=NOW() WHERE variant_id=$4', [status, provider, providerPostId, variant.id])
     if ((status === 'syncing' || (['postiz', 'buffer'].includes(provider) && status === 'scheduled')) && providerPostId) {
@@ -201,6 +168,7 @@ async function processExternalPublicationEvent(event) {
   await pool.query(`UPDATE content_items ci SET status=CASE
     WHEN EXISTS (SELECT 1 FROM content_variants cv WHERE cv.item_id=ci.id AND cv.status='failed') THEN 'failed'
     WHEN NOT EXISTS (SELECT 1 FROM content_variants cv WHERE cv.item_id=ci.id AND cv.status NOT IN ('published','canceled')) THEN 'published'
+    WHEN EXISTS (SELECT 1 FROM content_variants cv WHERE cv.item_id=ci.id AND cv.status='action_required') THEN 'action_required'
     WHEN EXISTS (SELECT 1 FROM content_variants cv WHERE cv.item_id=ci.id AND cv.status='syncing') THEN 'syncing'
   ELSE 'scheduled' END,error=NULL,updated_at=NOW() WHERE ci.id=$1`, [itemId])
 }
@@ -295,7 +263,7 @@ async function processPostizSyncJob(job) {
     const config = row.config && typeof row.config === 'object' ? row.config : {}
     const response = await syncPostizPost({ apiToken: token, providerPostId: row.provider_post_id, apiBaseUrl: config.apiBaseUrl || config.api_base_url })
     const remoteStatus = postizStatus(response)
-    const status = remoteStatus === 'failed' ? 'failed' : remoteStatus === 'published' ? 'published' : remoteStatus === 'canceled' ? 'canceled' : remoteStatus === 'draft' || remoteStatus === 'scheduled' ? 'scheduled' : 'syncing'
+    const status = row.channel === 'instagram_story' && remoteStatus === 'published' ? 'action_required' : remoteStatus === 'failed' ? 'failed' : remoteStatus === 'published' ? 'published' : remoteStatus === 'canceled' ? 'canceled' : remoteStatus === 'draft' || remoteStatus === 'scheduled' ? 'scheduled' : 'syncing'
     await pool.query('UPDATE content_variants SET status=$1,updated_at=NOW() WHERE id=$2', [status, row.id])
     await pool.query('UPDATE schedules SET status=$1,last_error=NULL,updated_at=NOW() WHERE variant_id=$2', [status, row.id])
     await recordUsage({ workspaceId: job.workspace_id, siteId: row.site_id, kind: 'external_syncs', quantity: 1, idempotencyKey: `sync:${job.id}:${row.id}`, metadata: { itemId: row.item_id, channel: row.channel, provider: 'postiz' } })
@@ -328,7 +296,15 @@ async function processBufferSyncJob(job) {
     const config = row.config && typeof row.config === 'object' ? row.config : {}
     const response = await syncBufferPost({ apiToken: token, providerPostId: row.provider_post_id, apiBaseUrl: config.apiBaseUrl || config.api_base_url })
     const remoteStatus = bufferStatus(response)
-    const status = remoteStatus === 'failed' ? 'failed' : remoteStatus === 'published' ? 'published' : remoteStatus === 'canceled' ? 'canceled' : remoteStatus === 'draft' || remoteStatus === 'scheduled' ? 'scheduled' : 'syncing'
+    const status = row.channel === 'instagram_story' && remoteStatus === 'published'
+      ? 'action_required'
+      : remoteStatus === 'failed'
+        ? 'failed'
+        : remoteStatus === 'published'
+          ? 'published'
+          : remoteStatus === 'canceled'
+            ? 'canceled'
+            : remoteStatus === 'draft' || remoteStatus === 'scheduled' ? 'scheduled' : 'syncing'
     await pool.query('UPDATE content_variants SET status=$1,updated_at=NOW() WHERE id=$2', [status, row.id])
     await pool.query('UPDATE schedules SET status=$1,last_error=NULL,updated_at=NOW() WHERE variant_id=$2', [status, row.id])
     await recordUsage({ workspaceId: job.workspace_id, siteId: row.site_id, kind: 'external_syncs', quantity: 1, idempotencyKey: `sync:${job.id}:${row.id}`, metadata: { itemId: row.item_id, channel: row.channel, provider: 'buffer' } })
@@ -342,11 +318,6 @@ async function processBufferSyncJob(job) {
 }
 
 async function processJob(job) {
-  if (job.type === 'content.generate_batch') {
-    const result = await processGenerationJob(job)
-    await recordUsage({ workspaceId: job.workspace_id, kind: 'generations', quantity: result.generated, idempotencyKey: `generation:${result.batchId}`, metadata: { batchId: result.batchId, reserved: true } })
-    return result
-  }
   if (job.type === 'content.publish_blog') return processBlogPublishJob(job)
   if (job.type === 'metricool.sync') return processMetricoolSyncJob(job)
   if (job.type === 'planable.sync') return processPlanableSyncJob(job)

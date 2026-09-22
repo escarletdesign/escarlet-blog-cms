@@ -106,7 +106,6 @@ DEFAULT_SITE=escarlet
 DATABASE_URL=postgres://usuario:password@postgres:5432/escarlet_blog
 CMS_SECRET_KEY=<32+ bytes aleatorios; 64 hex recomendado>
 WORKER_ENABLED=1
-CMS_AI_ENABLED=0
 PRODUCT_RESTRUCTURE_V1=1
 ```
 
@@ -125,7 +124,7 @@ Con `PRODUCT_RESTRUCTURE_V1=1`:
 4. Env: `STRIPE_WEBHOOK_SECRET`, `DATABASE_URL` y `CMS_SECRET_KEY` (32 bytes o más). Postgres es obligatorio para `/api/v2`, membresías workspace y jobs; el ledger Stripe conserva compatibilidad JSON solo durante la importación.
 5. Agency: `GET /api/admin/payment-links` muestra el contrato de metadata.
 
-Si el contenido lo genera ChatGPT por MCP, añade `CMS_AI_ENABLED=0` al entorno del CMS. Se desactivan las rutas REST de IA, conectores, transcripción, imágenes y créditos; `/mcp` y el editor manual siguen operativos.
+La generación server-side permanece desactivada. No hace falta un flag adicional: las rutas REST de IA, conectores, transcripción, imágenes y créditos están bloqueadas; `/mcp` y el editor manual siguen operativos. ChatGPT genera el contenido final mediante `https://cms.escarlet.design/mcp`.
 
 Si montaste el volumen en otra ruta:
 

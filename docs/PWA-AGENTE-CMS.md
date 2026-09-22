@@ -97,7 +97,7 @@ flowchart TB
 | Planes / cups | [`lib/plans.mjs`](../lib/plans.mjs) | Contar tokens/generaciones del gateway; bloquear si cupo 0 |
 | Stripe | [`lib/stripe-webhook.mjs`](../lib/stripe-webhook.mjs) | Checkout/portal cliente + catálogo packs (uso + bundles) |
 | Magic link | [`lib/access-tokens.mjs`](../lib/access-tokens.mjs), [`lib/magic-email.mjs`](../lib/magic-email.mjs) | Login PWA por defecto; password opcional admin |
-| MCP | [`mcp/`](../mcp/) | Herramientas de workflow `/app`, generación server-side y publicación |
+| MCP | [`mcp/`](../mcp/) | Contexto de marca, almacenamiento literal, revisión y publicación |
 
 **Nuevo módulo:** `lib/ai-gateway.mjs`
 

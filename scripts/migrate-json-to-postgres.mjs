@@ -76,8 +76,30 @@ function channelsForPost(post) {
   if (pack.x) channels.push('x')
   if (pack.substackBody || pack.substackTitle) channels.push('substack')
   if (pack.instagramCarousel || pack.instagramSlides) channels.push('instagram')
+  if (pack.instagramStory) channels.push('instagram_story')
   if (pack.videoScript) channels.push('video')
   return channels
+}
+
+function postVariantBody(post, channel) {
+  const pack = post?.socialPack && typeof post.socialPack === 'object' ? post.socialPack : {}
+  if (channel === 'blog') return {
+    title: post.title,
+    slug: post.slug,
+    excerpt: post.excerpt || post.excerptEs,
+    bodyHtml: post.bodyHtml,
+    metaTitle: post.metaTitle,
+    metaDescription: post.metaDescription,
+    imageAlt: post.imageAlt,
+    author: post.author || post.authorName,
+    datePublished: post.datePublished,
+    dateModified: post.dateModified,
+    imageUrl: post.imageUrl
+  }
+  if (channel === 'instagram') return { socialPack: { instagramCaption: pack.instagramCaption || pack.caption || '', instagramSlides: pack.instagramSlides || pack.instagramCarousel || [] } }
+  if (channel === 'instagram_story') return { socialPack: { instagramStory: pack.instagramStory } }
+  if (channel === 'linkedin') return { text: pack.linkedin || '' }
+  return { text: pack[channel] || pack[channel === 'substack' ? 'substackBody' : channel] || '', title: pack.substackTitle || post.title }
 }
 function contentStatus(status) {
   if (status === 'draft') return 'draft'
@@ -95,6 +117,7 @@ function socialChannels(pack) {
   if (pack?.substackBody || pack?.substackTitle) channels.push('substack')
   if (pack?.videoScript) channels.push('video')
   if (pack?.instagramCarousel || pack?.instagramSlides || pack?.instagramCaption) channels.push('instagram')
+  if (pack?.instagramStory) channels.push('instagram_story')
   return channels
 }
 
@@ -195,6 +218,7 @@ export async function migrateJsonToPostgres({ db = readDb(), users = readJson('u
       const channels = {
         blog: legacyConfig.contentMode !== 'socialmedia' && legacyConfig.blogEnabled !== false,
         instagram: social.instagramCarousel !== false,
+        instagram_story: social.instagramStory !== false,
         linkedin: social.linkedin !== false,
         x: social.x !== false,
         video: social.videoScript !== false,
@@ -222,7 +246,7 @@ export async function migrateJsonToPostgres({ db = readDb(), users = readJson('u
       }
       for (const assetPath of brandAssetFiles(site.handle)) {
         const stat = statSync(assetPath)
-        await client.query('INSERT INTO brand_assets (id,brand_kit_version_id,name,storage_key,size_bytes,visibility) VALUES ($1,$2,$3,$4,$5,\'private\') ON CONFLICT (id) DO NOTHING', [`brand-asset-${siteId}-${hash(assetPath).slice(0, 16)}`, versionId, assetPath.split('/').pop(), assetPath, stat.size])
+        await client.query('INSERT INTO brand_assets (id,brand_kit_version_id,name,storage_key,size_bytes,sha256,visibility) VALUES ($1,$2,$3,$4,$5,$6,\'private\') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name,storage_key=EXCLUDED.storage_key,size_bytes=EXCLUDED.size_bytes,sha256=EXCLUDED.sha256', [`brand-asset-${siteId}-${hash(assetPath).slice(0, 16)}`, versionId, assetPath.split('/').pop(), assetPath, stat.size, createHash('sha256').update(readFileSync(assetPath)).digest('hex')])
       }
     }
     const posts = Array.isArray(db.posts) ? db.posts : []
@@ -232,11 +256,11 @@ export async function migrateJsonToPostgres({ db = readDb(), users = readJson('u
       const batchId = `legacy-batch-${site.id}-${clean(post.slug, 120)}`
       const itemId = `legacy-item-${site.id}-${clean(post.slug, 120)}`
       const migratedStatus = contentStatus(post.status)
-      await client.query('INSERT INTO content_batches (id,workspace_id,site_id,created_by,title,status,total_items,generated_items,metadata) VALUES ($1,$2,$3,$4,$5,$6,1,1,$7) ON CONFLICT (id) DO NOTHING', [batchId, workspaceId, site.id, post.ownerId || workspaceOwnerId, `Migrated: ${post.title || post.slug}`, migratedStatus, json({ legacySlug: post.slug })])
-      await client.query('INSERT INTO content_items (id,batch_id,workspace_id,site_id,topic,status,owner_id,metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO NOTHING', [itemId, batchId, workspaceId, site.id, post.title || post.slug, migratedStatus, post.ownerId || workspaceOwnerId, json({ legacySlug: post.slug })])
+      await client.query('INSERT INTO content_batches (id,workspace_id,site_id,created_by,title,status,total_items,generated_items,metadata) VALUES ($1,$2,$3,$4,$5,$6,1,1,$7) ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title,status=EXCLUDED.status,metadata=EXCLUDED.metadata,updated_at=NOW()', [batchId, workspaceId, site.id, post.ownerId || workspaceOwnerId, `Migrated: ${post.title || post.slug}`, migratedStatus, json({ legacySlug: post.slug })])
+      await client.query('INSERT INTO content_items (id,batch_id,workspace_id,site_id,topic,status,owner_id,metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO UPDATE SET topic=EXCLUDED.topic,status=EXCLUDED.status,metadata=EXCLUDED.metadata,updated_at=NOW()', [itemId, batchId, workspaceId, site.id, post.title || post.slug, migratedStatus, post.ownerId || workspaceOwnerId, json({ legacySlug: post.slug })])
       for (const channel of channelsForPost(post)) {
-        const body = channel === 'blog' ? { title: post.title, bodyHtml: post.bodyHtml, excerpt: post.excerptEs, slug: post.slug, imageUrl: post.imageUrl } : { text: post.socialPack?.[channel] || post.socialPack?.[channel === 'substack' ? 'substackBody' : channel] || '', title: post.socialPack?.substackTitle || post.title }
-        await client.query('INSERT INTO content_variants (id,item_id,workspace_id,channel,status,body) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (item_id,channel) DO NOTHING', [`legacy-variant-${site.id}-${clean(post.slug, 120)}-${channel}`, itemId, workspaceId, channel, migratedStatus, json(body)])
+        const body = postVariantBody(post, channel)
+        await client.query('INSERT INTO content_variants (id,item_id,workspace_id,channel,status,body) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (item_id,channel) DO UPDATE SET status=EXCLUDED.status,body=EXCLUDED.body,updated_at=NOW()', [`legacy-variant-${site.id}-${clean(post.slug, 120)}-${channel}`, itemId, workspaceId, channel, migratedStatus, json(body)])
         counts.variants++
       }
       if (post.publishAt && ['scheduled', 'pending_schedule'].includes(post.status)) {
@@ -266,20 +290,34 @@ export async function migrateJsonToPostgres({ db = readDb(), users = readJson('u
       const site = sites.find((entry) => entry.handle === media.site) || sites[0]
       if (!site) continue
       const mediaKey = clean(media.path || media.url, 1000)
-      await client.query('INSERT INTO media_assets (id,workspace_id,site_id,storage_key,public_url,content_type,size_bytes,sha256,metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO NOTHING', [id(media.id, `legacy-media-${hash(`${site.id}:${mediaKey}`).slice(0, 24)}`), workspaceId, site.id, mediaKey, publicMediaUrl(media.url || media.path), clean(media.contentType, 120) || null, Number(media.storedBytes || media.originalBytes) || null, mediaDigest(media), json(media)])
+      await client.query('INSERT INTO media_assets (id,workspace_id,site_id,storage_key,public_url,content_type,size_bytes,sha256,metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO UPDATE SET storage_key=EXCLUDED.storage_key,public_url=EXCLUDED.public_url,content_type=EXCLUDED.content_type,size_bytes=EXCLUDED.size_bytes,sha256=EXCLUDED.sha256,metadata=EXCLUDED.metadata', [id(media.id, `legacy-media-${hash(`${site.id}:${mediaKey}`).slice(0, 24)}`), workspaceId, site.id, mediaKey, publicMediaUrl(media.url || media.path), clean(media.contentType, 120) || null, Number(media.storedBytes || media.originalBytes) || null, mediaDigest(media), json(media)])
       counts.media++
     }
-    // Preserve reusable media links, not only the legacy URL embedded in the
-    // blog body. A later batch can reference the same media_asset id.
+    // Preserve the exact media order for every migrated channel.
     for (const post of posts) {
       const site = sites.find((entry) => entry.handle === post.site) || sites[0]
-      const imageRef = clean(post.imageUrl || post.imageThumbUrl, 1000)
-      const media = (db.media || []).find((entry) => entry.site === site?.handle && imageRef && [entry.url, entry.path, entry.thumbUrl, entry.thumbPath].includes(imageRef))
-      if (!site || !media) continue
-      const mediaKey = clean(media.path || media.url, 1000)
-      const mediaAssetId = id(media.id, `legacy-media-${hash(`${site.id}:${mediaKey}`).slice(0, 24)}`)
-      const variantId = `legacy-variant-${site.id}-${clean(post.slug, 120)}-blog`
-      await client.query('INSERT INTO content_variant_media (variant_id,media_asset_id,sort_order) VALUES ($1,$2,0) ON CONFLICT DO NOTHING', [variantId, mediaAssetId])
+      if (!site) continue
+      const pack = post.socialPack && typeof post.socialPack === 'object' ? post.socialPack : {}
+      const slides = Array.isArray(pack.instagramSlides) ? pack.instagramSlides : Array.isArray(pack.instagramCarousel) ? pack.instagramCarousel : []
+      const story = pack.instagramStory && typeof pack.instagramStory === 'object' ? pack.instagramStory : {}
+      const cover = clean(post.imageUrl || post.imageThumbUrl, 1000)
+      const channelRefs = {
+        blog: [cover],
+        linkedin: [cover],
+        instagram: slides.map((slide) => clean(typeof slide === 'string' ? slide : slide.imageUrl || slide.url || slide.backgroundUrl, 1000)),
+        instagram_story: [clean(story.imageUrl || story.url, 1000)]
+      }
+      for (const [channel, refs] of Object.entries(channelRefs)) {
+        for (let index = 0; index < refs.filter(Boolean).length; index++) {
+          const imageRef = refs.filter(Boolean)[index]
+          const media = (db.media || []).find((entry) => entry.site === site.handle && [entry.url, entry.path, entry.thumbUrl, entry.thumbPath].includes(imageRef))
+          if (!media) continue
+          const mediaKey = clean(media.path || media.url, 1000)
+          const mediaAssetId = id(media.id, `legacy-media-${hash(`${site.id}:${mediaKey}`).slice(0, 24)}`)
+          const variantId = `legacy-variant-${site.id}-${clean(post.slug, 120)}-${channel}`
+          await client.query('INSERT INTO content_variant_media (variant_id,media_asset_id,sort_order) SELECT $1,$2,$3 WHERE EXISTS (SELECT 1 FROM content_variants WHERE id=$1) ON CONFLICT (variant_id,media_asset_id) DO UPDATE SET sort_order=EXCLUDED.sort_order', [variantId, mediaAssetId, index])
+        }
+      }
     }
     const conversations = db.aiConversations && typeof db.aiConversations === 'object' ? db.aiConversations : {}
     for (const [scopeKey, rawThreads] of Object.entries(conversations)) {
