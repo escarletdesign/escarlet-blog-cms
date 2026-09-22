@@ -1,13 +1,7 @@
-import { Server } from '@modelcontextprotocol/sdk/server/index.js'
+import { Server } from '@modelcontextprotocol/server'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { extname, join } from 'node:path'
 import { createHash } from 'node:crypto'
-import {
-  CallToolRequestSchema,
-  ListResourcesRequestSchema,
-  ListToolsRequestSchema,
-  ReadResourceRequestSchema
-} from '@modelcontextprotocol/sdk/types.js'
 import * as cms from '../lib/cms-ops.mjs'
 import {
   MCP_CANONICAL_URL,
@@ -1237,11 +1231,11 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
     { capabilities: { tools: { listChanged: true }, resources: {} }, instructions: MCP_INSTRUCTIONS }
   )
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  server.setRequestHandler('tools/list', async () => ({
     tools: buildToolList(auth)
   }))
 
-  server.setRequestHandler(ListResourcesRequestSchema, async () => {
+  server.setRequestHandler('resources/list', async () => {
     const sites = availableToolSites(auth)
     const allowedFiles = new Set(brandFilesForAuth(auth).filter((file) => !SECRET_BRAND_FILES.includes(file)))
     const resources = []
@@ -1266,7 +1260,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
     return { resources }
   })
 
-  server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+  server.setRequestHandler('resources/read', async (request) => {
     const match = request.params.uri.match(/^brand:\/\/([^/]+)\/([^/]+)$/)
     if (!match) throw new Error(`URI desconocida: ${request.params.uri}`)
     const [, site, key] = match
@@ -1289,7 +1283,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
     }
   })
 
-  server.setRequestHandler(CallToolRequestSchema, async (request) => withGenerationPolicy({ externalMcp: !['app', 'chat'].includes(source), auth }, async () => {
+  server.setRequestHandler('tools/call', async (request) => withGenerationPolicy({ externalMcp: !['app', 'chat'].includes(source), auth }, async () => {
     const { name, arguments: args = {} } = request.params
     try {
       let scopedAuth = auth
@@ -1854,5 +1848,8 @@ export async function invokeMcpTool(
   const server = createMcpServer(auth, { restrictMutations, source })
   const handler = server._requestHandlers.get('tools/call')
   if (typeof handler !== 'function') throw new Error('El servidor MCP no registró tools/call.')
-  return handler({ method: 'tools/call', params: { name, arguments: args } })
+  return handler(
+    { method: 'tools/call', params: { name, arguments: args } },
+    { mcpReq: { requestState: () => undefined } }
+  )
 }
