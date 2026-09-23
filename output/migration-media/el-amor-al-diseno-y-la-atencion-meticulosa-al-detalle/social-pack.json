@@ -1,0 +1,32 @@
+{
+  "site": "escarlet",
+  "slug": "el-amor-al-diseno-y-la-atencion-meticulosa-al-detalle",
+  "templateId": "editorial",
+  "instagramCaption": "La inteligencia artificial impulsa el diseño, pero el verdadero secreto está en el amor y la atención al detalle. Solo el toque humano crea experiencias auténticas y memorables.\n\nDescubre el artículo completo en nuestro blog: https://escarlet.design/blog/el-amor-al-diseno-y-la-atencion-meticulosa-al-detalle",
+  "instagramSlides": [
+    {
+      "id": "el-amor-al-diseno-y-la-atencion-meticulosa-al-detalle-ig-01",
+      "headline": "No es solo tecnología",
+      "body": "La inteligencia artificial ayuda, pero la pasión por el diseño marca la diferencia en cada proyecto.",
+      "alt": "Diseñadora trabajando con atención sobre un boceto de interfaz."
+    },
+    {
+      "id": "el-amor-al-diseno-y-la-atencion-meticulosa-al-detalle-ig-02",
+      "headline": "Cuidado en los detalles",
+      "body": "Cada elemento diseñado con atención genera conexión y autenticidad con tu audiencia.",
+      "alt": "Manos revisando detalles de diseño junto a muestras de color."
+    },
+    {
+      "id": "el-amor-al-diseno-y-la-atencion-meticulosa-al-detalle-ig-03",
+      "headline": "Diseño que deja huella",
+      "body": "El diseño con amor transforma lo funcional en algo que emociona y permanece en la mente.",
+      "alt": "Espacio de trabajo cálido con bocetos, portátil y materiales de diseño."
+    },
+    {
+      "id": "el-amor-al-diseno-y-la-atencion-meticulosa-al-detalle-ig-04",
+      "headline": "Colaboración humana",
+      "body": "El mejor diseño surge de la unión entre talento, sensibilidad y tecnología bien aplicada.",
+      "alt": "Profesional refinando una interfaz con criterio y atención al detalle."
+    }
+  ]
+}

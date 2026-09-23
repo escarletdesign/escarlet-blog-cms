@@ -1,0 +1,38 @@
+{
+  "site": "escarlet",
+  "slug": "que-es-branding",
+  "templateId": "editorial",
+  "instagramCaption": "Un logo puede estar bien diseñado y, aun así, vivir dentro de una marca que nadie reconoce.\n\nPasa cuando la web habla de una forma, las redes de otra y la experiencia real cuenta una tercera historia.\n\nEl branding pone esas decisiones en la misma dirección. No busca decorar. Busca que nombre, diseño, mensaje y experiencia preparen la misma expectativa.\n\nLa gente no recuerda cada detalle. Recuerda patrones. Cuando se repiten con criterio, la marca empieza a reconocerse.\n\n¿Tus piezas cuentan la misma historia o parecen proyectos distintos?\n\nLee el artículo completo en https://escarlet.design/blog/que-es-branding",
+  "instagramSlides": [
+    {
+      "id": "que-es-branding-ig-01",
+      "headline": "Branding no es solo decorar.",
+      "body": "Es hacer que cada pieza cuente la misma historia.",
+      "alt": "Profesional ordenando materiales visuales de una marca sobre una mesa de trabajo."
+    },
+    {
+      "id": "que-es-branding-ig-02",
+      "headline": "Tu marca habla cuando tú no estás.",
+      "body": "La web, los colores, las fotos y el tono preparan una expectativa.",
+      "alt": "Materiales de diseño, muestras de color y un portátil en un espacio creativo."
+    },
+    {
+      "id": "que-es-branding-ig-03",
+      "headline": "La gente recuerda patrones.",
+      "body": "Si cada pieza cuenta algo distinto, la confianza se resiente.",
+      "alt": "Muestras visuales organizadas para construir una identidad coherente."
+    },
+    {
+      "id": "que-es-branding-ig-04",
+      "headline": "Coherencia no es repetirlo todo.",
+      "body": "Es lograr que diseño, mensaje y experiencia avancen en la misma dirección.",
+      "alt": "Composición editorial con materiales de marca alineados sobre una mesa."
+    },
+    {
+      "id": "que-es-branding-ig-05",
+      "headline": "Una marca se reconoce antes de explicarse.",
+      "body": "Ordena qué muestras, qué dices, qué prometes y qué entregas.",
+      "alt": "Sistema visual de Escarlet organizado con muestras de color y materiales editoriales."
+    }
+  ]
+}

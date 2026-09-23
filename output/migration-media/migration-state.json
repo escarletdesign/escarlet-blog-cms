@@ -1,0 +1,30 @@
+{
+  "batchId": "5c45151e-049d-4f02-a49d-40fc1bcc1431",
+  "items": {
+    "que-es-branding": "cbb53c1d-6177-4c02-9e5e-8f0e9d323980",
+    "tu-aplicacion-funciona-pero-no-parece-profesional": "4a038568-271b-4ba1-a0ed-c127599a9f90",
+    "el-problema-no-es-canva": "ee5f9727-b8d0-445d-9fde-b9df54213b71",
+    "conocer-cliente-ideal-contenido-2026": "0002a8a5-08df-4eec-b072-24830eb1ac67",
+    "el-amor-al-diseno-y-la-atencion-meticulosa-al-detalle": "d734fa3c-4d9e-485b-9574-0cb5f32a458d",
+    "la-ia-ya-disena-bien-ese-empieza-a-ser-el-problema": "9662a544-0371-46bc-93e7-bac3b0434ef4"
+  },
+  "completed": {
+    "que-es-branding": true,
+    "tu-aplicacion-funciona-pero-no-parece-profesional": true,
+    "el-problema-no-es-canva": true,
+    "conocer-cliente-ideal-contenido-2026": true,
+    "el-amor-al-diseno-y-la-atencion-meticulosa-al-detalle": true,
+    "la-ia-ya-disena-bien-ese-empieza-a-ser-el-problema": true,
+    "si-todas-las-marcas-de-tu-sector-se-parecen": true
+  },
+  "schedules": {
+    "que-es-branding": "2026-09-24T08:00:00.000Z",
+    "tu-aplicacion-funciona-pero-no-parece-profesional": "2026-09-25T08:00:00.000Z",
+    "el-problema-no-es-canva": "2026-09-26T08:00:00.000Z",
+    "conocer-cliente-ideal-contenido-2026": "2026-09-27T08:00:00.000Z",
+    "el-amor-al-diseno-y-la-atencion-meticulosa-al-detalle": "2026-09-28T08:00:00.000Z",
+    "la-ia-ya-disena-bien-ese-empieza-a-ser-el-problema": "2026-09-29T08:00:00.000Z",
+    "si-todas-las-marcas-de-tu-sector-se-parecen": "2026-09-30T08:00:00.000Z"
+  },
+  "reusedItemId": "9a12e43e-8bc6-4329-ae76-fccf01b38bd5"
+}
