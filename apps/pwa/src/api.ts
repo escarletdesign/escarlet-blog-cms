@@ -285,6 +285,11 @@ const baseApi = {
       `/api/v2/content/items/${encodeURIComponent(itemId)}/schedule`,
       { method: "POST", body: JSON.stringify({ site, channels, publicationDate, timezone }) },
     ),
+  rescheduleContent: (itemId: string, publicationDate: string, timezone: string, site?: string, channels?: string[]) =>
+    request<{ itemId: string; status: string; channels: string[] }>(
+      `/api/v2/content/items/${encodeURIComponent(itemId)}/reschedule`,
+      { method: "POST", body: JSON.stringify({ site, channels, publicationDate, timezone }) },
+    ),
   publishContentViaBuffer: (itemId: string, channels: string[], site?: string) =>
     request<{ itemId: string; status: string; channels: string[]; provider: string; publicationDate: string }>(
       `/api/v2/content/items/${encodeURIComponent(itemId)}/publish-buffer`,

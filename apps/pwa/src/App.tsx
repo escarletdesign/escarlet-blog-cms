@@ -22,10 +22,10 @@ import {
 import { api } from "./api";
 import type { AiConversation, SocialPackJobResult } from "./api";
 import { getInitialLanguage, Language, translate } from "./i18n";
-import type { Author, BrandSummary, MediaItem, Post, Session } from "./types";
+import type { Author, BrandSummary, ContentItem, MediaItem, Post, Session } from "./types";
 import { ContentBatches as ContentPlans } from "./ContentBatches";
 import { DesignSystem } from "./DesignSystem";
-import { Badge, Button, Card, ChannelBadge, ConnectionCard, EmptyState as UiEmptyState, Field, Inline, Modal, PageHeader, Select, Stack, StatusBadge, Tabs, TextField } from "./ui";
+import { Badge, Button, Card, ChannelBadge, Checkbox, ConnectionCard, EmptyState as UiEmptyState, Field, Inline, Modal, PageHeader, Select, Stack, StatusBadge, Tabs, TextField } from "./ui";
 
 type Draft = Partial<Post> & { title: string; slug?: string };
 type WorkflowFlags = { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean; creationUiEnabled: boolean; manualCreationEnabled: boolean };
@@ -163,6 +163,13 @@ const fileAsBase64 = (file: File) =>
     reader.onerror = () => reject(reader.error || new Error("No se pudo leer el archivo."));
     reader.readAsDataURL(file);
   });
+const socialImageUrl = (value: unknown) => {
+  const candidate = value && typeof value === "object"
+    ? (value as any).url || (value as any).publicUrl || (value as any).imageUrl || (value as any).path
+    : value;
+  const url = String(candidate || "").trim();
+  return url.startsWith("/") || /^https?:\/\//i.test(url) ? url : "";
+};
 
 async function waitForSocialPackJob(
   jobId: string,
@@ -1128,6 +1135,7 @@ function Home() {
         </>}
       </div>
       {publishingEnabled && <section className="home-section">
+        <RecentContentWork />
         <div className="section-title">
           <h2>{t("home.continue")}</h2>
           <NavLink to="/posts">{t("home.seeAll")}</NavLink>
@@ -1142,6 +1150,22 @@ function Home() {
       </section>}
     </main>
   );
+}
+
+function RecentContentWork() {
+  const { site } = useApp();
+  const { t } = useI18n();
+  const nav = useNavigate();
+  const [items, setItems] = useState<ContentItem[]>([]);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    api.contentBatches(site)
+      .then((result) => setItems((result.items || []).filter((item) => ["draft", "generated", "needs_review", "approved", "scheduled", "failed"].includes(item.status)).slice(0, 4)))
+      .catch((cause) => setError(cause instanceof Error ? cause.message : "No se pudo cargar el contenido en curso."));
+  }, [site]);
+  if (error || !items.length) return null;
+  const title = (item: ContentItem) => String(item.metadata?.contentTitle || item.topic || "Publicación").split(/[.!?]\s+/)[0].slice(0, 100);
+  return <section className="home-content-work"><div className="section-title"><h2>{t("home.inProgress")}</h2><NavLink to="/plans">{t("home.openContent")}</NavLink></div><div className="post-list compact">{items.map((item) => <button key={item.id} type="button" className="post-row" onClick={() => nav(`/plans?plan=${encodeURIComponent(item.batch_id || item.batchId || "")}`)}><span><StatusBadge status={item.status} /><h3>{title(item)}</h3><p>{(item.variants || []).map((variant) => variant.channel).join(" · ") || t("home.noChannel")}</p></span><span className="chevron">›</span></button>)}</div></section>;
 }
 
 function RecentPosts() {
@@ -3585,14 +3609,23 @@ function SocialPack() {
           if (!item) throw new Error("No se encontró el item del Social Pack.");
           const blog = item.variants?.find((variant) => variant.channel === "blog");
           const instagram = item.variants?.find((variant) => variant.channel === "instagram");
+          const instagramStory = item.variants?.find((variant) => variant.channel === "instagram_story");
           const blogBody = blog?.body || {};
           const instagramBody = instagram?.body || {};
+          const instagramStoryBody = instagramStory?.body || {};
           const pack = instagramBody.socialPack && typeof instagramBody.socialPack === "object" ? { ...instagramBody.socialPack } : {};
           if (Array.isArray(pack.instagramSlides)) {
             pack.instagramSlides = pack.instagramSlides.map((slide: any, index: number) => ({
               ...slide,
               imageUrl: slide?.imageUrl || slide?.url || slide?.image || instagram?.media?.[index]?.url || instagram?.media?.[index]?.path || ""
             }));
+          }
+          const storyPack = instagramStoryBody.socialPack?.instagramStory;
+          if ((storyPack && typeof storyPack === "object") || instagramStory?.media?.length) {
+            pack.instagramStory = {
+              ...(storyPack && typeof storyPack === "object" ? storyPack : {}),
+              imageUrl: storyPack?.imageUrl || storyPack?.url || instagramStory?.media?.[0]?.url || instagramStory?.media?.[0]?.path || "",
+            };
           }
           return {
             post: {
@@ -3773,13 +3806,18 @@ function SocialPack() {
     }
   }
   const carouselSlides = Array.isArray(socialPack.instagramSlides)
-    ? socialPack.instagramSlides
+    ? socialPack.instagramSlides.map((slide: any, index: number) => ({
+        ...slide,
+        imageUrl: socialImageUrl(slide?.imageUrl || slide?.url || slide?.image || slide?.media || post?.imageGallery?.[index]),
+      }))
     : [];
   const safeSlideIndex = carouselSlides.length
     ? Math.min(activeSlide, carouselSlides.length - 1)
     : 0;
   const activeCarouselSlide = carouselSlides[safeSlideIndex];
-  const activeCarouselImage = activeCarouselSlide?.imageUrl || activeCarouselSlide?.url || activeCarouselSlide?.image || "";
+  const activeCarouselImage = socialImageUrl(activeCarouselSlide?.imageUrl || activeCarouselSlide?.url || activeCarouselSlide?.image);
+  const story = socialPack.instagramStory && typeof socialPack.instagramStory === "object" ? socialPack.instagramStory : {};
+  const storyImage = socialImageUrl(story.imageUrl || story.image || story.url || story.media || carouselSlides[0]?.imageUrl);
   return (
     <main className="ui-page social-pack-page">
       <PageTitle
@@ -3979,6 +4017,12 @@ function SocialPack() {
                   </p>
                 )}
           </article>
+          <article className="ui-card social-story-card">
+            <div className="social-channel-head"><div><p className="ui-eyebrow">{t("social.instagramStory")}</p><h2>Story publicada</h2></div><ChannelBadge channel="instagram_story" /></div>
+            {storyImage ? <img src={storyImage} alt={story.imageAlt || post.title} /> : <div className="carousel-placeholder">Story</div>}
+            {story.text && <p>{story.text}</p>}
+            <p className="ui-field-hint">La imagen y el enlace quedan visibles aquí aunque Buffer requiera confirmar el sticker manualmente.</p>
+          </article>
         </section>
       )}
       {post && teleprompterScript && (
@@ -4067,7 +4111,7 @@ function TeleprompterModal({
   const countdownTimerRef = useRef<number | null>(null);
   const [recording, setRecording] = useState(false);
   const paragraphs = useMemo(
-    () => script.split(/\n\s*\n/).map((part) => part.trim()).filter(Boolean),
+    () => script.replace(/([.!?])\s+/g, "$1\n").split(/\r?\n/).map((part) => part.trim()).filter(Boolean),
     [script],
   );
   const paragraphRefs = useRef<Array<HTMLParagraphElement | null>>([]);
@@ -4088,11 +4132,27 @@ function TeleprompterModal({
   useEffect(() => {
     if (!playing) return;
     const timer = window.setInterval(
-      () => scrollRef.current?.scrollBy({ top: speed, behavior: "auto" }),
+      () => {
+        const container = scrollRef.current;
+        if (!container) return;
+        container.scrollBy({ top: speed, behavior: "auto" });
+        const center = container.scrollTop + container.clientHeight / 2;
+        let nearest = currentParagraph;
+        let distance = Number.POSITIVE_INFINITY;
+        paragraphRefs.current.forEach((paragraph, index) => {
+          if (!paragraph) return;
+          const nextDistance = Math.abs(paragraph.offsetTop - center);
+          if (nextDistance < distance) {
+            distance = nextDistance;
+            nearest = index;
+          }
+        });
+        if (nearest !== currentParagraph) setCurrentParagraph(nearest);
+      },
       45,
     );
     return () => window.clearInterval(timer);
-  }, [playing, speed]);
+  }, [currentParagraph, playing, speed]);
   useEffect(
     () => () => {
       streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -4605,22 +4665,68 @@ function Calendar({ embedded = false, postsOverride }: { embedded?: boolean; pos
  * schedules/variants directly so plans and execution are clearly separate. */
 function EditorialCalendar() {
   const { site } = useApp();
-  const { language } = useI18n();
+  const { language, t } = useI18n();
   const [entries, setEntries] = useState<Array<Record<string, any>>>([]);
   const [view, setView] = useState<"list" | "month">("list");
   const [cursor, setCursor] = useState(() => new Date());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [retrySelection, setRetrySelection] = useState<string[]>([]);
+  const [retryDate, setRetryDate] = useState("");
+  const [retryOpen, setRetryOpen] = useState(false);
+  const [retryBusy, setRetryBusy] = useState(false);
   const load = () => {
     setLoading(true);
     setError("");
     api.calendarV2(site)
-      .then((result) => setEntries(result.entries || []))
+      .then((result) => { setEntries(result.entries || []); setRetrySelection([]); })
       .catch((err) => setError(err instanceof Error ? err.message : "No se pudo cargar el calendario."))
       .finally(() => setLoading(false));
   };
   useEffect(() => { void load(); }, [site]);
   const validEntries = useMemo(() => entries.filter((entry) => entry.publicationDate), [entries]);
+  const groupedEntries = useMemo(() => {
+    const grouped = new Map<string, Record<string, any>>();
+    for (const entry of validEntries) {
+      const key = `${entry.itemId || entry.variantId}:${entry.publicationDate}`;
+      const current = grouped.get(key) || { ...entry, channels: [], errors: [] };
+      current.channels = [...current.channels, { channel: entry.channel || "blog", provider: entry.provider, status: entry.status || entry.variantStatus }];
+      if (entry.lastError) current.errors.push(entry.lastError);
+      grouped.set(key, current);
+    }
+    return [...grouped.values()];
+  }, [validEntries]);
+  const entryKey = (entry: Record<string, any>) => `${entry.itemId || entry.variantId}:${entry.publicationDate}`;
+  const retryChannels = (entry: Record<string, any>) => entry.channels.filter((channel: any) => ["failed", "action_required"].includes(channel.status)).map((channel: any) => channel.channel);
+  const retryableEntries = groupedEntries.filter((entry) => retryChannels(entry).length > 0);
+  const retryDateValue = () => {
+    const next = new Date(Date.now() + 60 * 60 * 1000);
+    const pad = (value: number) => String(value).padStart(2, "0");
+    return `${next.getFullYear()}-${pad(next.getMonth() + 1)}-${pad(next.getDate())}T${pad(next.getHours())}:${pad(next.getMinutes())}`;
+  };
+  const openRetry = () => { setRetryDate(retryDate || retryDateValue()); setRetryOpen(true); };
+  const toggleRetry = (key: string) => setRetrySelection((current) => current.includes(key) ? current.filter((value) => value !== key) : [...current, key]);
+  const reschedule = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!retryDate || !retrySelection.length) return;
+    setRetryBusy(true);
+    setError("");
+    try {
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+      for (const key of retrySelection) {
+        const entry = retryableEntries.find((candidate) => entryKey(candidate) === key);
+        if (!entry) continue;
+        await api.rescheduleContent(entry.itemId, new Date(retryDate).toISOString(), timezone, site, retryChannels(entry));
+      }
+      setRetryOpen(false);
+      setRetrySelection([]);
+      load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t("calendar.retryError", "No se pudieron reagendar las publicaciones."));
+    } finally {
+      setRetryBusy(false);
+    }
+  };
   const dayKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
   const monthDays = useMemo(() => {
     const year = cursor.getFullYear();
@@ -4635,10 +4741,16 @@ function EditorialCalendar() {
   const monthLabel = new Intl.DateTimeFormat(language === "en" ? "en-GB" : "es-ES", { month: "long", year: "numeric" }).format(cursor);
   const weekdays = language === "en" ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] : ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
   const formatDate = (value: string) => new Intl.DateTimeFormat(language === "en" ? "en-GB" : "es-ES", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+  const topicLabel = (value: unknown) => {
+    const clean = String(value || "Publicación").replace(/\s+/g, " ").trim();
+    return clean.length > 118 ? `${clean.slice(0, 115).replace(/\s+\S*$/, "").trim()}…` : clean;
+  };
   return <main className="ui-page ui-calendar-page">
-    <PageHeader eyebrow="Ejecución editorial" title="Calendario editorial" description="Planes = qué contenido estamos preparando. Calendario = cuándo se publicará y qué está ocurriendo en cada canal. La conexión externa actualiza aquí su estado." actions={<Inline gap="sm"><Button variant={view === "list" ? "secondary" : "ghost"} onClick={() => setView("list")}>Lista</Button><Button variant={view === "month" ? "secondary" : "ghost"} onClick={() => setView("month")}>Mes</Button></Inline>} />
+    <PageHeader eyebrow="Ejecución editorial" title="Calendario editorial" description="Planes = qué contenido estamos preparando. Calendario = cuándo se publicará y qué está ocurriendo en cada canal. La conexión externa actualiza aquí su estado." actions={<Inline gap="sm">{retryableEntries.length > 0 && <Button variant="primary" disabled={!retrySelection.length || retryBusy} onClick={openRetry}>{t("calendar.retrySelected", "Reagendar seleccionadas")}{retrySelection.length ? ` (${retrySelection.length})` : ""}</Button>}<Button variant={view === "list" ? "secondary" : "ghost"} onClick={() => setView("list")}>Lista</Button><Button variant={view === "month" ? "secondary" : "ghost"} onClick={() => setView("month")}>Mes</Button></Inline>} />
     {error && <Card><Inline gap="md"><p className="ui-field-error">{error}</p><Button size="sm" variant="ghost" onClick={load}>Reintentar</Button></Inline></Card>}
-    {loading ? <div className="ui-calendar-loading"><span className="ui-skeleton" style={{ height: 180 }} /><span className="ui-skeleton" style={{ height: 90 }} /></div> : validEntries.length === 0 && !error ? <UiEmptyState title="Todavía no hay publicaciones programadas" description="Cuando apruebes y agendes una publicación desde Planes de contenido, aparecerá aquí con su zona horaria y conexión." action={<NavLink className="ui-button ui-button-secondary" to="/plans">Abrir planes</NavLink>} /> : view === "list" ? <div className="ui-calendar-list">{validEntries.map((entry) => <Card key={entry.variantId || entry.itemId}><div className="ui-card-head"><div><span className="ui-eyebrow">{entry.timezone || "UTC"}</span><h2>{entry.topic || "Publicación"}</h2><p className="ui-muted">{formatDate(entry.publicationDate)}</p></div><StatusBadge status={entry.status || entry.variantStatus} /></div><div className="ui-channel-list"><ChannelBadge channel={entry.channel || "blog"} />{entry.provider && <Badge tone="neutral">{entry.provider}</Badge>}{entry.updatedAt && <small className="ui-calendar-sync">Actualizado {formatDate(entry.updatedAt)}</small>}{entry.lastError && <Badge tone="danger">Error de sincronización</Badge>}</div>{entry.lastError && <p className="ui-field-error">{entry.lastError}</p>}</Card>)}</div> : <Card className="ui-calendar-month"><div className="ui-calendar-month-head"><Button variant="ghost" size="sm" onClick={() => setCursor((date) => new Date(date.getFullYear(), date.getMonth() - 1, 1))}>‹</Button><strong>{monthLabel}</strong><Button variant="ghost" size="sm" onClick={() => setCursor((date) => new Date(date.getFullYear(), date.getMonth() + 1, 1))}>›</Button></div><div className="ui-calendar-weekdays">{weekdays.map((day) => <span key={day}>{day}</span>)}</div><div className="ui-calendar-grid">{monthDays.map(({ date, inMonth }) => { const rows = validEntries.filter((entry) => dayKey(new Date(entry.publicationDate)) === dayKey(date)); return <div className={`ui-calendar-day ${inMonth ? "" : "outside"} ${rows.length ? "has-items" : ""}`} key={dayKey(date)}><span>{date.getDate()}</span>{rows.slice(0, 3).map((entry) => <div className="ui-calendar-item" key={entry.variantId || entry.itemId}><ChannelBadge channel={entry.channel || "blog"} /><small>{entry.topic || "Publicación"}</small></div>)}{rows.length > 3 && <small>+{rows.length - 3}</small>}</div>; })}</div></Card>}
+    {retryableEntries.length > 0 && <Card className="ui-calendar-retry-help"><strong>{t("calendar.retryTitle", "Publicaciones con error")}</strong><p>{t("calendar.retryHelp", "Selecciona solo los errores que quieras volver a programar. Las publicaciones programadas o publicadas no se incluyen.")}</p></Card>}
+    {loading ? <div className="ui-calendar-loading"><span className="ui-skeleton" style={{ height: 180 }} /><span className="ui-skeleton" style={{ height: 90 }} /></div> : !groupedEntries.length && !error ? <UiEmptyState title="Todavía no hay publicaciones programadas" description="Cuando apruebes y agendes una publicación desde Planes de contenido, aparecerá aquí con su zona horaria y conexión." action={<NavLink className="ui-button ui-button-secondary" to="/plans">Abrir planes</NavLink>} /> : view === "list" ? <div className="ui-calendar-list">{groupedEntries.map((entry) => { const key = entryKey(entry); const channelsToRetry = retryChannels(entry); const status = entry.channels.some((channel: any) => channel.status === "failed") ? "failed" : entry.channels.some((channel: any) => channel.status === "action_required") ? "action_required" : entry.channels.some((channel: any) => channel.status === "published") ? "published" : entry.status || entry.variantStatus; return <Card key={key}><div className="ui-card-head"><div className="ui-calendar-card-title">{channelsToRetry.length > 0 && <Checkbox label="" aria-label={`${t("calendar.retrySelect", "Seleccionar para reagendar")}: ${topicLabel(entry.topic)}`} checked={retrySelection.includes(key)} onChange={() => toggleRetry(key)} />}<div><span className="ui-eyebrow">{entry.timezone || "UTC"}</span><h2>{topicLabel(entry.topic)}</h2><p className="ui-muted">{formatDate(entry.publicationDate)}</p></div></div><StatusBadge status={status} /></div><div className="ui-calendar-channel-groups">{entry.channels.map((channel: any, index: number) => <Inline gap="sm" key={`${channel.channel}-${index}`}><ChannelBadge channel={channel.channel} />{channel.provider && <Badge tone="neutral">{channel.provider}</Badge>}</Inline>)}</div>{entry.updatedAt && <small className="ui-calendar-sync">Actualizado {formatDate(entry.updatedAt)}</small>}{entry.errors.length > 0 && <><Badge tone="danger">Error de sincronización</Badge><p className="ui-field-error">{[...new Set(entry.errors)].join(" ")}</p></>}</Card>; })}</div> : <Card className="ui-calendar-month"><div className="ui-calendar-month-head"><Button variant="ghost" size="sm" onClick={() => setCursor((date) => new Date(date.getFullYear(), date.getMonth() - 1, 1))}>‹</Button><strong>{monthLabel}</strong><Button variant="ghost" size="sm" onClick={() => setCursor((date) => new Date(date.getFullYear(), date.getMonth() + 1, 1))}>›</Button></div><div className="ui-calendar-weekdays">{weekdays.map((day) => <span key={day}>{day}</span>)}</div><div className="ui-calendar-grid">{monthDays.map(({ date, inMonth }) => { const rows = groupedEntries.filter((entry) => dayKey(new Date(entry.publicationDate)) === dayKey(date)); return <div className={`ui-calendar-day ${inMonth ? "" : "outside"} ${rows.length ? "has-items" : ""}`} key={dayKey(date)}><span>{date.getDate()}</span>{rows.slice(0, 3).map((entry) => <div className="ui-calendar-item" key={`${entry.itemId || entry.variantId}:${entry.publicationDate}`}><Inline gap="sm">{entry.channels.slice(0, 2).map((channel: any, index: number) => <ChannelBadge key={`${channel.channel}-${index}`} channel={channel.channel} />)}</Inline><small>{topicLabel(entry.topic)}</small></div>)}{rows.length > 3 && <small>+{rows.length - 3}</small>}</div>; })}</div></Card>}
+    <Modal open={retryOpen} title={t("calendar.retryTitle", "Reagendar publicaciones con error")} onClose={() => setRetryOpen(false)}><form className="ui-stack ui-stack-md" onSubmit={reschedule}><Field label={t("calendar.retryDate", "Nueva fecha y hora")} hint={t("calendar.retryDateHelp", "Se usará tu zona horaria local.")} required><TextField type="datetime-local" value={retryDate} onChange={(event) => setRetryDate(event.target.value)} autoFocus required /></Field><p className="ui-field-hint">{t("calendar.retryCount", "Se reagendarán las publicaciones seleccionadas. Las ya programadas o publicadas no se modifican.")}</p><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setRetryOpen(false)}>{t("common.cancel", "Cancelar")}</Button><Button type="submit" loading={retryBusy}>{t("calendar.retryConfirm", "Reagendar")}</Button></Inline></form></Modal>
   </main>;
 }
 
