@@ -17,6 +17,9 @@ ALTER TABLE channel_connections
 ALTER TABLE channel_connections
   ADD COLUMN IF NOT EXISTS last_error TEXT;
 
+ALTER TABLE channel_connections
+  ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'connected';
+
 CREATE INDEX IF NOT EXISTS brand_capabilities_enabled_idx
   ON brand_capabilities(site_id, enabled);
 
