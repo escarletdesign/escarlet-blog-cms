@@ -67,12 +67,12 @@ async function processBlogPublishJob(job) {
     WHERE cv.id=$1 AND cv.channel='blog' AND cv.status='scheduled'
       AND EXISTS (SELECT 1 FROM schedules s WHERE s.variant_id=cv.id AND s.publication_date<=NOW())`, [variantId])
   if (!due.rowCount) return { published: false, variantId }
+  await triggerBlogRebuild(due.rows[0])
   await recordUsage({ workspaceId: job.workspace_id, kind: 'publications', quantity: 1, idempotencyKey: `publication:${job.id}:${variantId}`, metadata: { variantId, channel: 'blog', provider: 'cms' } })
   const result = await pool.query(`UPDATE content_variants SET status='published',updated_at=NOW() WHERE id=$1 AND status='scheduled' RETURNING id,item_id`, [variantId])
   if (!result.rowCount) return { published: false, variantId }
   await pool.query("UPDATE schedules SET status='published',last_error=NULL,updated_at=NOW() WHERE variant_id=$1", [variantId])
   await pool.query(`UPDATE content_items ci SET status=CASE WHEN NOT EXISTS (SELECT 1 FROM content_variants cv WHERE cv.item_id=ci.id AND cv.status NOT IN ('published','canceled')) THEN 'published' ELSE ci.status END,error=NULL,updated_at=NOW() WHERE ci.id=$1`, [result.rows[0].item_id])
-  await triggerBlogRebuild(due.rows[0])
   return { published: true, variantId }
 }
 
@@ -95,16 +95,17 @@ async function processExternalPublicationEvent(event) {
     : variantsResult.rows
   if (event.type === 'content.item.approved' && variants.every((variant) => !variant.publication_date)) return
   for (const variant of variants) {
+    try {
     // Blog remains a first-class channel and always deploys through Coolify.
     if (variant.channel === 'blog') {
       const publicationDate = variant.publication_date ? new Date(variant.publication_date) : null
       if (publicationDate && publicationDate.getTime() > Date.now()) {
         await enqueueJob({ workspaceId: event.workspace_id, type: 'content.publish_blog', payload: { variantId: variant.id }, idempotencyKey: `blog-publish:${variant.id}:${publicationDate.toISOString()}`, availableAt: publicationDate })
       } else {
+        await triggerBlogRebuild(variant)
         await recordUsage({ workspaceId: event.workspace_id, siteId: variant.site_id, kind: 'publications', quantity: 1, idempotencyKey: `publication:${event.id}:${variant.id}`, metadata: { itemId, channel: 'blog', provider: 'cms' } })
         await pool.query(`UPDATE content_variants SET status='published',updated_at=NOW() WHERE id=$1`, [variant.id])
-        await pool.query(`UPDATE schedules SET status='published',updated_at=NOW() WHERE variant_id=$1`, [variant.id])
-        await triggerBlogRebuild(variant)
+        await pool.query(`UPDATE schedules SET status='published',last_error=NULL,updated_at=NOW() WHERE variant_id=$1`, [variant.id])
       }
       continue
     }
@@ -188,13 +189,22 @@ async function processExternalPublicationEvent(event) {
       const nextPoll = new Date(Date.now() + metricoolPollMs)
       await enqueueJob({ workspaceId: event.workspace_id, type: `${provider}.sync`, payload: { siteId: variant.site_id }, idempotencyKey: `${provider}:poll:${variant.id}:${Math.floor(nextPoll.getTime() / metricoolPollMs)}`, availableAt: nextPoll })
     }
+    } catch (error) {
+      const message = String(error.message || 'Error de publicación').slice(0, 2000)
+      console.error(`[publish] ${variant.channel} ${variant.id}: ${message}`)
+      await pool.query(`UPDATE content_variants SET status='failed',updated_at=NOW() WHERE id=$1 AND status NOT IN ('published','canceled')`, [variant.id])
+      await pool.query(`UPDATE schedules SET status='failed',last_error=$2,updated_at=NOW() WHERE variant_id=$1 AND status NOT IN ('published','canceled')`, [variant.id, message])
+    }
   }
   await pool.query(`UPDATE content_items ci SET status=CASE
+    WHEN EXISTS (SELECT 1 FROM content_variants cv WHERE cv.item_id=ci.id AND cv.status='scheduled') THEN 'scheduled'
     WHEN EXISTS (SELECT 1 FROM content_variants cv WHERE cv.item_id=ci.id AND cv.status='failed') THEN 'failed'
     WHEN NOT EXISTS (SELECT 1 FROM content_variants cv WHERE cv.item_id=ci.id AND cv.status NOT IN ('published','canceled')) THEN 'published'
     WHEN EXISTS (SELECT 1 FROM content_variants cv WHERE cv.item_id=ci.id AND cv.status='action_required') THEN 'action_required'
     WHEN EXISTS (SELECT 1 FROM content_variants cv WHERE cv.item_id=ci.id AND cv.status='syncing') THEN 'syncing'
-  ELSE 'scheduled' END,error=NULL,updated_at=NOW() WHERE ci.id=$1`, [itemId])
+  ELSE ci.status END,
+  error=(SELECT string_agg(cv.channel || ': ' || s.last_error, chr(10) ORDER BY cv.channel) FROM content_variants cv JOIN schedules s ON s.variant_id=cv.id WHERE cv.item_id=ci.id AND s.last_error IS NOT NULL),
+  updated_at=NOW() WHERE ci.id=$1`, [itemId])
 }
 
 async function processMetricoolSyncJob(job) {
@@ -357,7 +367,16 @@ async function drainOnce() {
       await processJob(job)
       await finishJob(job.id, { ok: true })
     } catch (error) {
-      await finishJob(job.id, { ok: false, error: error.message, retryAt: job.attempts >= maxAttempts ? null : retryAt(job.attempts), deadLetter: job.attempts >= maxAttempts })
+      const deadLetter = job.attempts >= maxAttempts
+      await finishJob(job.id, { ok: false, error: error.message, retryAt: deadLetter ? null : retryAt(job.attempts), deadLetter })
+      if (deadLetter && job.type === 'content.publish_blog' && job.payload?.variantId) {
+        const pool = await getPgPool()
+        const message = String(error.message || 'No se pudo publicar el blog en Coolify.').slice(0, 2000)
+        if (pool) {
+          await pool.query(`UPDATE content_variants SET status='failed',updated_at=NOW() WHERE id=$1 AND status='scheduled'`, [job.payload.variantId])
+          await pool.query(`UPDATE schedules SET status='failed',last_error=$2,updated_at=NOW() WHERE variant_id=$1 AND status NOT IN ('published','canceled')`, [job.payload.variantId, message])
+        }
+      }
     }
   }
   const events = await claimOutbox({ workerId, limit: 10 })
@@ -370,10 +389,11 @@ async function drainOnce() {
       const itemId = event.payload?.itemId || event.aggregate_id
       const terminalFailure = event.attempts >= maxAttempts
       const errorMessage = String(error.message || 'External provider error').slice(0, 2000)
-      if (pool && itemId && terminalFailure) {
-        await pool.query(`UPDATE content_items SET status='failed',error=$1,updated_at=NOW() WHERE id=$2`, [errorMessage, itemId])
-        await pool.query(`UPDATE content_variants SET status='failed',updated_at=NOW() WHERE item_id=$1 AND status IN ('scheduled','syncing')`, [itemId])
-        await pool.query(`UPDATE schedules SET status='failed',last_error=$1,updated_at=NOW() WHERE variant_id IN (SELECT id FROM content_variants WHERE item_id=$2)`, [errorMessage, itemId])
+      const channels = Array.isArray(event.payload?.channels) ? event.payload.channels.map((channel) => String(channel).toLowerCase()) : []
+      if (pool && itemId && terminalFailure && channels.length) {
+        await pool.query(`UPDATE content_items SET error=$1,updated_at=NOW() WHERE id=$2`, [errorMessage, itemId])
+        await pool.query(`UPDATE content_variants SET status='failed',updated_at=NOW() WHERE item_id=$1 AND channel=ANY($2::text[]) AND status IN ('scheduled','syncing')`, [itemId, channels])
+        await pool.query(`UPDATE schedules SET status='failed',last_error=$1,updated_at=NOW() WHERE variant_id IN (SELECT id FROM content_variants WHERE item_id=$2 AND channel=ANY($3::text[])) AND status NOT IN ('published','canceled')`, [errorMessage, itemId, channels])
       }
       await finishOutbox(event.id, { ok: false, error: error.message, retryAt: terminalFailure ? null : retryAt(event.attempts), deadLetter: terminalFailure })
     }

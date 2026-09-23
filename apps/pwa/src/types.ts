@@ -49,6 +49,7 @@ export interface ContentVariant {
   publicationDate?: string;
   scheduleTimezone?: string;
   scheduleStatus?: ContentStatus;
+  lastError?: string | null;
 }
 export interface ContentItem {
   id: string;
