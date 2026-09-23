@@ -25,7 +25,7 @@ import { getInitialLanguage, Language, translate } from "./i18n";
 import type { Author, BrandSummary, ContentItem, MediaItem, Post, Session } from "./types";
 import { ContentBatches as ContentPlans } from "./ContentBatches";
 import { DesignSystem } from "./DesignSystem";
-import { Badge, Button, Card, ChannelBadge, Checkbox, ConnectionCard, EmptyState as UiEmptyState, Field, Inline, Modal, PageHeader, Select, Stack, StatusBadge, Tabs, TextField } from "./ui";
+import { Badge, Button, Card, ChannelBadge, Checkbox, ConnectionCard, Drawer, EmptyState as UiEmptyState, Field, Inline, Modal, PageHeader, Select, Stack, StatusBadge, Tabs, TextField } from "./ui";
 
 type Draft = Partial<Post> & { title: string; slug?: string };
 type WorkflowFlags = { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean; creationUiEnabled: boolean; manualCreationEnabled: boolean };
@@ -4675,28 +4675,33 @@ function EditorialCalendar() {
   const [retryDate, setRetryDate] = useState("");
   const [retryOpen, setRetryOpen] = useState(false);
   const [retryBusy, setRetryBusy] = useState(false);
-  const load = () => {
-    setLoading(true);
+  const [openId, setOpenId] = useState("");
+  const load = (quiet = false) => {
+    if (!quiet) setLoading(true);
     setError("");
     api.calendarV2(site)
-      .then((result) => { setEntries(result.entries || []); setRetrySelection([]); })
+      .then((result) => { setEntries(result.entries || []); if (!quiet) setRetrySelection([]); })
       .catch((err) => setError(err instanceof Error ? err.message : "No se pudo cargar el calendario."))
-      .finally(() => setLoading(false));
+      .finally(() => { if (!quiet) setLoading(false); });
   };
   useEffect(() => { void load(); }, [site]);
   const validEntries = useMemo(() => entries.filter((entry) => entry.publicationDate), [entries]);
   const groupedEntries = useMemo(() => {
     const grouped = new Map<string, Record<string, any>>();
     for (const entry of validEntries) {
-      const key = `${entry.itemId || entry.variantId}:${entry.publicationDate}`;
-      const current = grouped.get(key) || { ...entry, channels: [], errors: [] };
-      current.channels = [...current.channels, { channel: entry.channel || "blog", provider: entry.provider, status: entry.status || entry.variantStatus }];
-      if (entry.lastError) current.errors.push(entry.lastError);
+      const key = String(entry.itemId || entry.variantId);
+      const channel = { channel: entry.channel || "blog", provider: entry.provider, status: entry.status || entry.variantStatus, lastError: entry.lastError || "", publicationDate: entry.publicationDate, timezone: entry.timezone || "UTC", updatedAt: entry.updatedAt || "" };
+      const current = grouped.get(key) || { ...entry, itemKey: key, channels: [] };
+      current.channels = [...current.channels, channel];
       grouped.set(key, current);
     }
-    return [...grouped.values()];
+    return [...grouped.values()].map((entry) => {
+      const channels = [...entry.channels].sort((a, b) => String(a.publicationDate).localeCompare(String(b.publicationDate)));
+      const updatedAt = channels.map((channel) => channel.updatedAt).filter(Boolean).sort().at(-1) || entry.updatedAt;
+      return { ...entry, channels, publicationDate: channels[0]?.publicationDate, updatedAt };
+    }).sort((a, b) => String(a.publicationDate).localeCompare(String(b.publicationDate)));
   }, [validEntries]);
-  const entryKey = (entry: Record<string, any>) => `${entry.itemId || entry.variantId}:${entry.publicationDate}`;
+  const entryKey = (entry: Record<string, any>) => String(entry.itemKey || entry.itemId || entry.variantId);
   const retryChannels = (entry: Record<string, any>) => entry.channels.filter((channel: any) => ["failed", "action_required"].includes(channel.status)).map((channel: any) => channel.channel);
   const retryableEntries = groupedEntries.filter((entry) => retryChannels(entry).length > 0);
   const retryDateValue = () => {
@@ -4741,15 +4746,22 @@ function EditorialCalendar() {
   const monthLabel = new Intl.DateTimeFormat(language === "en" ? "en-GB" : "es-ES", { month: "long", year: "numeric" }).format(cursor);
   const weekdays = language === "en" ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] : ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
   const formatDate = (value: string) => new Intl.DateTimeFormat(language === "en" ? "en-GB" : "es-ES", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+  const dateSpan = (entry: Record<string, any>) => {
+    const dates = [...new Set(entry.channels.map((channel: any) => channel.publicationDate))].sort();
+    if (dates.length <= 1) return formatDate(dates[0] || entry.publicationDate);
+    return `${formatDate(dates[0])} – ${formatDate(dates[dates.length - 1])}`;
+  };
   const topicLabel = (value: unknown) => {
     const clean = String(value || "Publicación").replace(/\s+/g, " ").trim();
     return clean.length > 118 ? `${clean.slice(0, 115).replace(/\s+\S*$/, "").trim()}…` : clean;
   };
+  const openEntry = groupedEntries.find((entry) => entryKey(entry) === openId) || null;
   return <main className="ui-page ui-calendar-page">
     <PageHeader eyebrow="Ejecución editorial" title="Calendario editorial" description="Planes = qué contenido estamos preparando. Calendario = cuándo se publicará y qué está ocurriendo en cada canal. La conexión externa actualiza aquí su estado." actions={<Inline gap="sm">{retryableEntries.length > 0 && <Button variant="primary" disabled={!retrySelection.length || retryBusy} onClick={openRetry}>{t("calendar.retrySelected", "Reagendar seleccionadas")}{retrySelection.length ? ` (${retrySelection.length})` : ""}</Button>}<Button variant={view === "list" ? "secondary" : "ghost"} onClick={() => setView("list")}>Lista</Button><Button variant={view === "month" ? "secondary" : "ghost"} onClick={() => setView("month")}>Mes</Button></Inline>} />
-    {error && <Card><Inline gap="md"><p className="ui-field-error">{error}</p><Button size="sm" variant="ghost" onClick={load}>Reintentar</Button></Inline></Card>}
+    {error && <Card><Inline gap="md"><p className="ui-field-error">{error}</p><Button size="sm" variant="ghost" onClick={() => load()}>Reintentar</Button></Inline></Card>}
     {retryableEntries.length > 0 && <Card className="ui-calendar-retry-help"><strong>{t("calendar.retryTitle", "Publicaciones con error")}</strong><p>{t("calendar.retryHelp", "Selecciona solo los errores que quieras volver a programar. Las publicaciones programadas o publicadas no se incluyen.")}</p></Card>}
-    {loading ? <div className="ui-calendar-loading"><span className="ui-skeleton" style={{ height: 180 }} /><span className="ui-skeleton" style={{ height: 90 }} /></div> : !groupedEntries.length && !error ? <UiEmptyState title="Todavía no hay publicaciones programadas" description="Cuando apruebes y agendes una publicación desde Planes de contenido, aparecerá aquí con su zona horaria y conexión." action={<NavLink className="ui-button ui-button-secondary" to="/plans">Abrir planes</NavLink>} /> : view === "list" ? <div className="ui-calendar-list">{groupedEntries.map((entry) => { const key = entryKey(entry); const channelsToRetry = retryChannels(entry); const status = entry.channels.some((channel: any) => channel.status === "failed") ? "failed" : entry.channels.some((channel: any) => channel.status === "action_required") ? "action_required" : entry.channels.some((channel: any) => channel.status === "published") ? "published" : entry.status || entry.variantStatus; return <Card key={key}><div className="ui-card-head"><div className="ui-calendar-card-title">{channelsToRetry.length > 0 && <Checkbox label="" aria-label={`${t("calendar.retrySelect", "Seleccionar para reagendar")}: ${topicLabel(entry.topic)}`} checked={retrySelection.includes(key)} onChange={() => toggleRetry(key)} />}<div><span className="ui-eyebrow">{entry.timezone || "UTC"}</span><h2>{topicLabel(entry.topic)}</h2><p className="ui-muted">{formatDate(entry.publicationDate)}</p></div></div><StatusBadge status={status} /></div><div className="ui-calendar-channel-groups">{entry.channels.map((channel: any, index: number) => <Inline gap="sm" key={`${channel.channel}-${index}`}><ChannelBadge channel={channel.channel} />{channel.provider && <Badge tone="neutral">{channel.provider}</Badge>}</Inline>)}</div>{entry.updatedAt && <small className="ui-calendar-sync">Actualizado {formatDate(entry.updatedAt)}</small>}{entry.errors.length > 0 && <><Badge tone="danger">Error de sincronización</Badge><p className="ui-field-error">{[...new Set(entry.errors)].join(" ")}</p></>}</Card>; })}</div> : <Card className="ui-calendar-month"><div className="ui-calendar-month-head"><Button variant="ghost" size="sm" onClick={() => setCursor((date) => new Date(date.getFullYear(), date.getMonth() - 1, 1))}>‹</Button><strong>{monthLabel}</strong><Button variant="ghost" size="sm" onClick={() => setCursor((date) => new Date(date.getFullYear(), date.getMonth() + 1, 1))}>›</Button></div><div className="ui-calendar-weekdays">{weekdays.map((day) => <span key={day}>{day}</span>)}</div><div className="ui-calendar-grid">{monthDays.map(({ date, inMonth }) => { const rows = groupedEntries.filter((entry) => dayKey(new Date(entry.publicationDate)) === dayKey(date)); return <div className={`ui-calendar-day ${inMonth ? "" : "outside"} ${rows.length ? "has-items" : ""}`} key={dayKey(date)}><span>{date.getDate()}</span>{rows.slice(0, 3).map((entry) => <div className="ui-calendar-item" key={`${entry.itemId || entry.variantId}:${entry.publicationDate}`}><Inline gap="sm">{entry.channels.slice(0, 2).map((channel: any, index: number) => <ChannelBadge key={`${channel.channel}-${index}`} channel={channel.channel} />)}</Inline><small>{topicLabel(entry.topic)}</small></div>)}{rows.length > 3 && <small>+{rows.length - 3}</small>}</div>; })}</div></Card>}
+    {loading ? <div className="ui-calendar-loading"><span className="ui-skeleton" style={{ height: 180 }} /><span className="ui-skeleton" style={{ height: 90 }} /></div> : !groupedEntries.length && !error ? <UiEmptyState title="Todavía no hay publicaciones programadas" description="Cuando apruebes y agendes una publicación desde Planes de contenido, aparecerá aquí con su zona horaria y conexión." action={<NavLink className="ui-button ui-button-secondary" to="/plans">Abrir planes</NavLink>} /> : view === "list" ? <div className="ui-calendar-list">{groupedEntries.map((entry) => { const key = entryKey(entry); const channelsToRetry = retryChannels(entry); const statuses = entry.channels.map((channel: any) => channel.status).filter(Boolean); const status = statuses.length && statuses.every((value: string) => value === statuses[0]) ? statuses[0] : ""; return <Card key={key}><div className="ui-card-head"><div className="ui-calendar-card-title">{channelsToRetry.length > 0 && <Checkbox label="" aria-label={`${t("calendar.retrySelect", "Seleccionar para reagendar")}: ${topicLabel(entry.topic)}`} checked={retrySelection.includes(key)} onChange={() => toggleRetry(key)} />}<div><span className="ui-eyebrow">{entry.channels.length} {entry.channels.length === 1 ? "canal" : "canales"}</span><h2>{topicLabel(entry.topic)}</h2><p className="ui-muted">{dateSpan(entry)}</p></div></div>{status && <StatusBadge status={status} />}</div><div className="ui-calendar-channel-groups">{entry.channels.map((channel: any, index: number) => <Inline gap="sm" key={`${channel.channel}-${index}`}><ChannelBadge channel={channel.channel} /><StatusBadge status={channel.status} /></Inline>)}</div><Button size="sm" variant="ghost" onClick={() => setOpenId(key)}>Ver canales</Button></Card>; })}</div> : <Card className="ui-calendar-month"><div className="ui-calendar-month-head"><Button variant="ghost" size="sm" onClick={() => setCursor((date) => new Date(date.getFullYear(), date.getMonth() - 1, 1))}>‹</Button><strong>{monthLabel}</strong><Button variant="ghost" size="sm" onClick={() => setCursor((date) => new Date(date.getFullYear(), date.getMonth() + 1, 1))}>›</Button></div><div className="ui-calendar-weekdays">{weekdays.map((day) => <span key={day}>{day}</span>)}</div><div className="ui-calendar-grid">{monthDays.map(({ date, inMonth }) => { const rows = groupedEntries.filter((entry) => entry.channels.some((channel: any) => dayKey(new Date(channel.publicationDate)) === dayKey(date))); return <div className={`ui-calendar-day ${inMonth ? "" : "outside"} ${rows.length ? "has-items" : ""}`} key={dayKey(date)}><span>{date.getDate()}</span>{rows.slice(0, 3).map((entry) => <button type="button" className="ui-calendar-item" key={entryKey(entry)} onClick={() => setOpenId(entryKey(entry))}><Inline gap="sm">{entry.channels.filter((channel: any) => dayKey(new Date(channel.publicationDate)) === dayKey(date)).slice(0, 2).map((channel: any, index: number) => <ChannelBadge key={`${channel.channel}-${index}`} channel={channel.channel} />)}</Inline><small>{topicLabel(entry.topic)}</small></button>)}{rows.length > 3 && <small>+{rows.length - 3}</small>}</div>; })}</div></Card>}
+    <Drawer open={Boolean(openEntry)} title={topicLabel(openEntry?.topic)} onClose={() => setOpenId("")}>{openEntry && <Stack gap="md"><p className="ui-muted">{dateSpan(openEntry)}</p>{openEntry.channels.map((channel: any, index: number) => <div className="ui-calendar-channel-row" key={`${channel.channel}-${index}`}><Inline gap="sm"><ChannelBadge channel={channel.channel} />{channel.provider && <Badge tone="neutral">{channel.provider}</Badge>}<StatusBadge status={channel.status} /></Inline><p className="ui-muted">{channel.timezone} · {formatDate(channel.publicationDate)}</p>{channel.updatedAt && <small className="ui-calendar-sync">Actualizado {formatDate(channel.updatedAt)}</small>}{channel.lastError && <p className="ui-field-error">{channel.lastError}</p>}</div>)}<Button size="sm" variant="secondary" onClick={() => load(true)}>Actualizar estado</Button><p className="ui-field-hint">El estado es el último que guardó la sincronización con Buffer. Actualizar vuelve a leerlo.</p></Stack>}</Drawer>
     <Modal open={retryOpen} title={t("calendar.retryTitle", "Reagendar publicaciones con error")} onClose={() => setRetryOpen(false)}><form className="ui-stack ui-stack-md" onSubmit={reschedule}><Field label={t("calendar.retryDate", "Nueva fecha y hora")} hint={t("calendar.retryDateHelp", "Se usará tu zona horaria local.")} required><TextField type="datetime-local" value={retryDate} onChange={(event) => setRetryDate(event.target.value)} autoFocus required /></Field><p className="ui-field-hint">{t("calendar.retryCount", "Se reagendarán las publicaciones seleccionadas. Las ya programadas o publicadas no se modifican.")}</p><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setRetryOpen(false)}>{t("common.cancel", "Cancelar")}</Button><Button type="submit" loading={retryBusy}>{t("calendar.retryConfirm", "Reagendar")}</Button></Inline></form></Modal>
   </main>;
 }

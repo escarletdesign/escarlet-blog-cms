@@ -829,7 +829,10 @@ select, .ui-plans-page .ui-select, .ui-page .ui-input.ui-select, .site-switcher 
 .ui-calendar-card-title > div { min-width: 0; }
 .ui-calendar-retry-help { display: grid; gap: var(--ui-space-2); margin-bottom: var(--ui-space-3); }
 .ui-calendar-retry-help p { margin: 0; color: var(--ui-muted); }
-.ui-calendar-channel-groups { display: flex; flex-wrap: wrap; gap: var(--ui-space-2); margin: 12px 0 4px; }
+.ui-calendar-channel-groups { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--ui-space-2); margin: 12px 0 4px; }
+.ui-calendar-channel-row { display: flex; flex-direction: column; align-items: flex-start; gap: var(--ui-space-1); }
+button.ui-calendar-item { width: 100%; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+button.ui-calendar-item:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
 .ui-calendar-sync { align-self: center; color: var(--ui-muted); font-size: .72rem; }
 .ui-calendar-month { padding: 16px; } .ui-calendar-month-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; } .ui-calendar-month-head strong { text-transform: capitalize; }
 .ui-calendar-weekdays, .ui-calendar-grid { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); gap: 6px; } .ui-calendar-weekdays { margin-bottom: 6px; color: var(--ui-muted); font-size: .72rem; font-weight: 800; text-align: center; text-transform: uppercase; }
