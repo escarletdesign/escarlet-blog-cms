@@ -267,7 +267,7 @@ function imageMimeType(filename) {
 export function normalizeImagePreparationArgs(args = {}) {
   const channel = String(args.channel || '').trim().toLowerCase()
   const assetType = String(args.assetType || '').trim().toLowerCase()
-  if (channel === 'linkedin' && args.allowAlternateAssetType !== true) return { ...args, assetType: 'blog_cover' }
+  if (channel === 'linkedin' && (!assetType || assetType === 'generic')) return { ...args, assetType: 'blog_cover' }
   return args
 }
 
@@ -394,7 +394,7 @@ export async function preparedImageResult(payload, { referenceIndex = 0 } = {}) 
       },
       exactReferenceOrder: referenceDelivery.exactReferenceOrder,
       instruction: complete
-        ? 'Ya recibiste todos los ImageContent en llamadas consecutivas. Usa todas las referencias en el orden exacto indicado, genera los píxeles finales y sube el archivo con preparationId, itemId, channels y assetIndex.'
+        ? 'Ya recibiste todos los ImageContent en llamadas consecutivas. Usa todas las referencias en el orden exacto indicado, genera los píxeles finales y sube el archivo con preparationId, channels y assetIndex. Incluye itemId si el contenido ya existe.'
         : allReferencesAvailable
           ? `Esta llamada entrega solo la referencia ${selectedIndex + 1} de ${refs.length}. Vuelve a llamar brand_prepare_image_generation con preparationId ${preparationId} y referenceIndex ${selectedIndex + 1} antes de generar. No uses Pillow ni sustituyas referencias.`
           : 'No generes ninguna imagen. La preparación no pudo adjuntar la referencia solicitada.'
@@ -458,7 +458,7 @@ async function preparedUploadGrounding(site, scope, args) {
   if (preparation.site !== site || (preparation.siteId && preparation.siteId !== scope.siteId) || preparation.workspaceId !== scope.workspaceId) throw Object.assign(new Error('La preparación no pertenece a esta marca.'), { status: 409, code: 'SITE_MISMATCH' })
   if (preparation.generationBlocked || preparation.state === 'blocked') throw Object.assign(new Error('La preparación visual está bloqueada.'), { status: 409, code: 'GENERATION_BLOCKED' })
   if (preparation.expiresAt && new Date(preparation.expiresAt).getTime() <= Date.now()) throw Object.assign(new Error('La preparación visual ha expirado.'), { status: 409, code: 'BRAND_PREPARATION_EXPIRED' })
-  if (preparation.itemId && preparation.itemId !== args.itemId) throw Object.assign(new Error('La preparación pertenece a otro item.'), { status: 409, code: 'ITEM_MISMATCH' })
+  if (preparation.itemId && args.itemId && preparation.itemId !== args.itemId) throw Object.assign(new Error('La preparación pertenece a otro item.'), { status: 409, code: 'ITEM_MISMATCH' })
   const kind = String(args.kind || '').toLowerCase()
   const channels = Array.isArray(args.channels) ? args.channels.map((channel) => String(channel).toLowerCase()) : []
   if (kind === 'post' && preparation.assetType !== 'blog_cover') throw Object.assign(new Error('kind post requiere una preparación blog_cover.'), { status: 409, code: 'ASSET_TYPE_MISMATCH' })
@@ -1123,7 +1123,7 @@ export function buildToolList(auth) {
     { name: 'brand_get_context', description: 'Devuelve el contexto y el catálogo de referencias del brand kit activo en Postgres. La app y el MCP leen exactamente la misma versión, hash y lista de assets.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, siteId: { type: 'string' } } }, annotations: { readOnlyHint: true } },
     {
       name: 'brand_prepare_image_generation',
-      description: 'Obligatoria antes de toda generación visual. Devuelve preparationId, versión, hash, dimensiones y las referencias binarias exactas. Entrega una referencia por llamada para evitar errores de transporte, repite con preparationId y referenceIndex hasta completar la lista, y solo entonces genera el archivo final. LinkedIn usa blog_cover 3:2 salvo que allowAlternateAssetType=true. Después llama content_upload_media con preparationId, itemId, channels y assetIndex.',
+      description: 'Obligatoria antes de toda generación visual. Devuelve preparationId, versión, hash, dimensiones y las referencias binarias exactas. Entrega una referencia por llamada para evitar errores de transporte, repite con preparationId y referenceIndex hasta completar la lista, y solo entonces genera el archivo final. LinkedIn usa blog_cover 3:2 cuando no se indica assetType; si se indica social_image, respétalo. Después llama content_upload_media con preparationId, channels y assetIndex, e incluye itemId solo si ya existe.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1137,7 +1137,6 @@ export function buildToolList(auth) {
           expectedAssetCount: { type: 'integer', minimum: 1, maximum: 20, description: 'Cantidad explícita de imágenes finales relacionadas. Usa 1 para una imagen singular y el total de slides para un carrusel.' },
           itemId: { type: 'string' },
           batchId: { type: 'string' },
-          allowAlternateAssetType: { type: 'boolean', description: 'Solo true si el usuario pidió explícitamente una pieza distinta de la portada de blog para LinkedIn.' },
           preparationId: { type: 'string', description: 'Preparación existente para entregar la siguiente referencia binaria sin crear otra preparación.' },
           referenceIndex: { type: 'integer', minimum: 0, description: 'Índice cero-based de la referencia que se debe entregar en esta llamada.' }
         },
@@ -1212,7 +1211,7 @@ export function buildToolList(auth) {
     },
     {
       name: 'content_upload_media',
-      description: 'Sube el archivo final generado por ChatGPT, comprueba marca, item, preparación, formato y dimensiones, conserva exactamente sus bytes y lo asocia a las variantes indicadas en una sola llamada.',
+      description: 'Sube el archivo final generado por ChatGPT, comprueba marca, preparación, formato y dimensiones, conserva exactamente sus bytes y lo asocia a las variantes indicadas si itemId ya existe. Sin itemId lo guarda como medio pendiente para asociarlo después.',
       inputSchema: {
         type: 'object',
         $defs: openaiFileDefs(),
@@ -1237,7 +1236,7 @@ export function buildToolList(auth) {
           assetIndex: { type: 'integer', minimum: 0, maximum: 19 }
         },
         required: ['site', 'filename', 'kind'],
-        allOf: [{ if: { properties: { kind: { enum: ['post', 'social'] } } }, then: { required: ['preparationId', 'itemId', 'channels', 'assetIndex'] } }]
+        allOf: [{ if: { properties: { kind: { enum: ['post', 'social'] } } }, then: { required: ['preparationId', 'channels', 'assetIndex'] } }]
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
       _meta: {
@@ -1480,9 +1479,11 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             attachment,
             nextStep: kind === 'reference'
               ? 'Referencia guardada en el almacenamiento de la marca.'
-              : 'Actualiza el mismo itemId con content_update_item y readyForReview=true cuando todas las variantes y medios estén completos.',
+              : attachment
+                ? 'Actualiza el mismo itemId con content_update_item y readyForReview=true cuando todas las variantes y medios estén completos.'
+                : `Medio guardado sin asociar. Cuando exista el item, usa content_update_item con mediaAssetIds: ["${asset.id}"].`,
             suggestedTool: kind === 'reference' ? null : 'content_update_item',
-            reviewHint: kind === 'reference' ? 'Referencia guardada.' : 'Medio asociado al item y a sus variantes.'
+            reviewHint: kind === 'reference' ? 'Referencia guardada.' : attachment ? 'Medio asociado al item y a sus variantes.' : 'Medio guardado, pendiente de asociar a un item.'
           })
         }
         case 'brand_get_context': {

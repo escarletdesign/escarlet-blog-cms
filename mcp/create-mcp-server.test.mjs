@@ -32,6 +32,7 @@ test('el contrato MCP expone media y contenido v2, sin operaciones de posts lega
   assert.equal(tools.find((tool) => tool.name === 'brand_prepare_image_generation').inputSchema.properties.expectedAssetCount.type, 'integer')
   assert.match(upload.description, /conserva exactamente sus bytes/i)
   for (const field of ['preparationId', 'itemId', 'channels', 'assetIndex']) assert.ok(upload.inputSchema.properties[field], field)
+  assert.deepEqual(upload.inputSchema.allOf[0].then.required, ['preparationId', 'channels', 'assetIndex'])
   assert.equal(upload.inputSchema.properties.generationReceiptId, undefined)
   assert.ok(update.inputSchema.properties.readyForReview)
   assert.match(update.description, /sin reescritura/i)
@@ -48,7 +49,7 @@ test('el contrato MCP expone media y contenido v2, sin operaciones de posts lega
   const publicContract = JSON.stringify(tools)
   assert.doesNotMatch(publicContract, /generationReceiptId|brand_complete_image_generation|brand_register_generation|content-system\/instagram-renderer/)
   assert.equal(buildToolList({ role: 'editor' }).some((tool) => tool.name === 'brand_update_file'), false)
-  assert.equal(MCP_SERVER_VERSION, '3.1.0')
+  assert.equal(MCP_SERVER_VERSION, '3.2.0')
 })
 
 test('el registro tools/list publica un único upload y no expone aliases legacy', async () => {
@@ -77,15 +78,14 @@ test('createMcpServer anuncia el contrato v2 y la selección explícita de marca
   assert.match(MCP_INSTRUCTIONS, /content_list_items/)
   assert.match(MCP_INSTRUCTIONS, /content_upload_media/)
   assert.match(MCP_INSTRUCTIONS, /exactamente una imagen/i)
-  assert.match(MCP_INSTRUCTIONS, /preparationId, itemId, channels y assetIndex/i)
-  assert.match(MCP_INSTRUCTIONS, /versión 3\.1\.0/)
+  assert.match(MCP_INSTRUCTIONS, /preparationId, channels y assetIndex/i)
+  assert.match(MCP_INSTRUCTIONS, /versión 3\.2\.0/)
 })
 
 test('LinkedIn usa la portada del blog salvo petición explícita de otra pieza', () => {
   assert.equal(normalizeImagePreparationArgs({ channel: 'linkedin', title: 'Trabajo fraccional' }).assetType, 'blog_cover')
   assert.equal(normalizeImagePreparationArgs({ channel: 'linkedin', assetType: 'generic' }).assetType, 'blog_cover')
-  assert.equal(normalizeImagePreparationArgs({ channel: 'linkedin', assetType: 'social_image' }).assetType, 'blog_cover')
-  assert.equal(normalizeImagePreparationArgs({ channel: 'linkedin', assetType: 'social_image', allowAlternateAssetType: true }).assetType, 'social_image')
+  assert.equal(normalizeImagePreparationArgs({ channel: 'linkedin', assetType: 'social_image' }).assetType, 'social_image')
 })
 
 test('la preparación entrega una referencia binaria por llamada y conserva el orden', async () => {
@@ -154,7 +154,7 @@ test('las respuestas de preparación exponen la versión MCP activa', async () =
   const result = await invokeMcpTool('brand_prepare_image_generation', { site: 'escarlet', assetType: 'generic', title: 'versión MCP' }, { role: 'admin' })
   const value = payload(result)
   assert.equal(value.mcpServer.name, 'escarlet-cms-v2')
-  assert.equal(value.mcpServer.version, '3.1.0')
+  assert.equal(value.mcpServer.version, '3.2.0')
   assert.equal(value.mcpServer.contract, 'v2')
 })
 
