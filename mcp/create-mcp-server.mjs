@@ -264,6 +264,13 @@ function imageMimeType(filename) {
   }[ext] || ''
 }
 
+export function normalizeImagePreparationArgs(args = {}) {
+  const channel = String(args.channel || '').trim().toLowerCase()
+  const assetType = String(args.assetType || '').trim().toLowerCase()
+  if (channel === 'linkedin' && (!assetType || assetType === 'generic')) return { ...args, assetType: 'blog_cover' }
+  return args
+}
+
 async function brandContextResult(payload) {
   const safePayload = redactWorkflowLinks(payload)
   const references = Array.isArray(payload?.brandKit?.referenceImages)
@@ -1357,7 +1364,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           if (!scope) throw Object.assign(new Error('La preparación visual requiere Postgres.'), { status: 503, code: 'postgres_required' })
           const activeBrandKit = await getActiveBrandKit({ workspaceId: scope.workspaceId, siteId: scope.siteId })
           const canonicalSnapshot = loadActiveBrandKitSnapshot(scope.siteHandle, { manifest: activeBrandKit.manifest, assets: activeBrandKit.assets, brandKitVersionId: activeBrandKit.id, version: activeBrandKit.version })
-          const prepared = prepareImageGeneration(scope.siteHandle, args, { canonicalSnapshot })
+          const prepared = prepareImageGeneration(scope.siteHandle, normalizeImagePreparationArgs(args), { canonicalSnapshot })
           await persistImagePreparation(prepared, {
             workspaceId: scope?.workspaceId || auth?.workspaceId,
             siteId: scope?.siteId,

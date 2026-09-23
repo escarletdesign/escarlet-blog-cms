@@ -78,6 +78,18 @@ if (production && process.env.DATABASE_URL && process.env.AUTO_MIGRATE_JSON !== 
   }
 }
 
+if (production && process.env.DATABASE_URL && process.env.AUTO_REPAIR_BRAND_ASSETS !== '0') {
+  console.log('[entrypoint] comprobando referencias visuales del brand kit')
+  const repair = spawnSync('node', ['scripts/migrate-json-to-postgres.mjs', '--repair-brand-assets'], {
+    cwd: root,
+    env: process.env,
+    encoding: 'utf8'
+  })
+  if (repair.stdout?.trim()) process.stdout.write(`[entrypoint] ${repair.stdout.trim()}\n`)
+  if (repair.stderr?.trim()) process.stderr.write(`[entrypoint] ${repair.stderr.trim()}\n`)
+  if (repair.status !== 0) console.warn(`[entrypoint] reparación de referencias omitida (código ${repair.status ?? 'desconocido'})`)
+}
+
 const children = new Map()
 let stopping = false
 let exitCode = 0

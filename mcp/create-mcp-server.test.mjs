@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildToolList, createMcpServer, invokeMcpTool } from './create-mcp-server.mjs'
+import { buildToolList, createMcpServer, invokeMcpTool, normalizeImagePreparationArgs } from './create-mcp-server.mjs'
 import { MCP_INSTRUCTIONS, MCP_SERVER_VERSION } from '../lib/media-upload-contract.mjs'
 
 function payload(result) {
@@ -79,6 +79,12 @@ test('createMcpServer anuncia el contrato v2 y la selección explícita de marca
   assert.match(MCP_INSTRUCTIONS, /exactamente una imagen/i)
   assert.match(MCP_INSTRUCTIONS, /preparationId, itemId, channels y assetIndex/i)
   assert.match(MCP_INSTRUCTIONS, /versión 3\.0\.0/)
+})
+
+test('LinkedIn usa la portada del blog salvo petición explícita de otra pieza', () => {
+  assert.equal(normalizeImagePreparationArgs({ channel: 'linkedin', title: 'Trabajo fraccional' }).assetType, 'blog_cover')
+  assert.equal(normalizeImagePreparationArgs({ channel: 'linkedin', assetType: 'generic' }).assetType, 'blog_cover')
+  assert.equal(normalizeImagePreparationArgs({ channel: 'linkedin', assetType: 'social_image' }).assetType, 'social_image')
 })
 
 test('el MCP no elige una marca por defecto cuando el acceso incluye varias', async () => {

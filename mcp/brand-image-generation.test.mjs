@@ -22,7 +22,7 @@ function activeKit() {
   }))
   const assets = readdirSync(referenceDir).filter((name) => /\.(?:png|jpe?g|webp|gif)$/i.test(name)).sort().map((name, index) => ({
     id: `asset-${index + 1}`,
-    name,
+    name: `/app/data/brand/escarlet/${name}`,
     storageKey: `media/escarlet/reference/${name}`,
     metadata: {}
   }))

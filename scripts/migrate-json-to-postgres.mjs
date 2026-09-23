@@ -136,19 +136,52 @@ function brandManifest(handle) {
   return manifest
 }
 
-function brandAssetFiles(handle) {
-  const root = join(dataDir, 'brand', handle)
-  if (!existsSync(root)) return []
+export function brandAssetFiles(handle) {
+  const roots = [join(dataDir, 'brand', handle), join(dataDir, 'media', handle, 'reference')]
   const output = []
+  const seen = new Set()
   const walk = (directory) => {
+    if (!existsSync(directory)) return
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const file = join(directory, entry.name)
       if (entry.isDirectory()) walk(file)
-      else if (entry.isFile() && /\.(?:png|jpe?g|webp|gif|svg)$/i.test(entry.name)) output.push(file)
+      else if (entry.isFile() && /\.(?:png|jpe?g|webp|gif|svg)$/i.test(entry.name) && !/_thumb\.(?:png|jpe?g|webp|gif|svg)$/i.test(entry.name)) {
+        const resolved = file
+        if (!seen.has(resolved)) {
+          seen.add(resolved)
+          output.push(resolved)
+        }
+      }
     }
   }
-  walk(root)
+  for (const root of roots) walk(root)
   return output
+}
+
+export async function repairBrandAssets({ siteHandle = '' } = {}) {
+  const pool = await getPgPool()
+  if (!pool) throw Object.assign(new Error('DATABASE_URL es obligatorio para reparar referencias.'), { status: 503 })
+  await runCoreMigrations()
+  const params = []
+  const where = siteHandle ? 'WHERE s.handle=$1' : ''
+  if (siteHandle) params.push(clean(siteHandle, 120).toLowerCase())
+  const sites = await pool.query(`SELECT s.id,s.handle,bk.active_version_id AS "activeVersionId" FROM sites s JOIN brand_kits bk ON bk.site_id=s.id ${where}`, params)
+  const counts = { sites: 0, assets: 0 }
+  await withPgTransaction(pool, async (client) => {
+    for (const site of sites.rows) {
+      if (!site.activeVersionId) continue
+      counts.sites++
+      for (const assetPath of brandAssetFiles(site.handle)) {
+        const stat = statSync(assetPath)
+        await client.query(
+          'INSERT INTO brand_assets (id,brand_kit_version_id,name,storage_key,size_bytes,sha256,visibility) VALUES ($1,$2,$3,$4,$5,$6,\'private\') ON CONFLICT (id) DO UPDATE SET brand_kit_version_id=EXCLUDED.brand_kit_version_id,name=EXCLUDED.name,storage_key=EXCLUDED.storage_key,size_bytes=EXCLUDED.size_bytes,sha256=EXCLUDED.sha256',
+          [`brand-asset-${site.id}-${hash(assetPath).slice(0, 16)}`, site.activeVersionId, assetPath.split('/').pop(), assetPath, stat.size, createHash('sha256').update(readFileSync(assetPath)).digest('hex')]
+        )
+        counts.assets++
+      }
+    }
+  })
+  return { repaired: true, counts }
 }
 
 function mediaDigest(media) {
@@ -361,5 +394,8 @@ export async function migrateJsonToPostgres({ db = readDb(), users = readJson('u
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  migrateJsonToPostgres({ dryRun: process.argv.includes('--dry-run'), backup: !process.argv.includes('--no-backup'), ifEmpty: process.argv.includes('--if-empty') }).then((result) => { console.log(JSON.stringify(result, null, 2)); process.exit(0) }).catch((error) => { console.error(error.message); process.exit(1) })
+  const command = process.argv.includes('--repair-brand-assets')
+    ? repairBrandAssets({ siteHandle: process.env.REPAIR_SITE || '' })
+    : migrateJsonToPostgres({ dryRun: process.argv.includes('--dry-run'), backup: !process.argv.includes('--no-backup'), ifEmpty: process.argv.includes('--if-empty') })
+  command.then((result) => { console.log(JSON.stringify(result, null, 2)); process.exit(0) }).catch((error) => { console.error(error.message); process.exit(1) })
 }
