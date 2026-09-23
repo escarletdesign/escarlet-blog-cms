@@ -12,7 +12,7 @@ import {
 } from '../lib/media-upload-contract.mjs'
 import { openaiFileDefs, connectorFileMeta } from '../lib/openai-file.mjs'
 import { assertSiteAccess, assertSuperAdmin, allowedSiteHandles, isSiteScopedRole, workspaceRoleForAuth } from '../lib/auth.mjs'
-import { brandFilesForAuth, SECRET_BRAND_FILES, prepareImageGeneration, loadActiveBrandKitSnapshot } from '../lib/brand-kit.mjs'
+import { brandFilesForAuth, SECRET_BRAND_FILES, prepareImageGeneration, loadActiveBrandKitSnapshot, compositionForAssetType } from '../lib/brand-kit.mjs'
 import { CANONICAL_CMS_URL, canonicalCmsPublicUrl } from '../lib/cms-url.mjs'
 import { assertChatToolAllowed, assertSafeToolArguments } from '../lib/ai-security.mjs'
 import { loadSiteConfig, isSocialMediaOnlySite } from '../lib/site-config.mjs'
@@ -267,7 +267,7 @@ function imageMimeType(filename) {
 export function normalizeImagePreparationArgs(args = {}) {
   const channel = String(args.channel || '').trim().toLowerCase()
   const assetType = String(args.assetType || '').trim().toLowerCase()
-  if (channel === 'linkedin' && (!assetType || assetType === 'generic')) return { ...args, assetType: 'blog_cover' }
+  if (channel === 'linkedin' && args.allowAlternateAssetType !== true) return { ...args, assetType: 'blog_cover' }
   return args
 }
 
@@ -313,16 +313,18 @@ async function brandContextResult(payload) {
   }
 }
 
-async function preparedImageResult(payload) {
+export async function preparedImageResult(payload, { referenceIndex = 0 } = {}) {
   const prepared = redactWorkflowLinks(payload)
   const refs = Array.isArray(payload?.resolvedReferences)
     ? [...payload.resolvedReferences].sort((a, b) => Number(a.attachmentIndex || 0) - Number(b.attachmentIndex || 0))
     : []
+  const selectedIndex = Number.isInteger(Number(referenceIndex)) ? Number(referenceIndex) : 0
+  const selectedReferences = refs.length ? [refs[selectedIndex]].filter(Boolean) : []
   const preparationId = String(payload?.brandPreparation?.preparationId || '')
   const attachments = []
   const attachmentHashes = []
   const missing = []
-  for (const reference of refs) {
+  for (const reference of selectedReferences) {
     const disk = referenceDiskPath(reference)
     const mimeType = imageMimeType(reference?.filename)
     if (!disk || !mimeType) {
@@ -351,19 +353,25 @@ async function preparedImageResult(payload) {
       ...(referenceHashes.has(reference.filename) ? { sha256: referenceHashes.get(reference.filename) } : {})
     }
   })
-  const readyForGeneration = !payload?.generationBlocked && refs.length > 0 && missing.length === 0 && attachments.length === refs.length
+  const allReferencesAvailable = !payload?.generationBlocked && refs.length > 0 && missing.length === 0 && attachments.length === selectedReferences.length
+  const complete = allReferencesAvailable && selectedIndex === refs.length - 1
+  const readyForGeneration = complete
   const referenceDelivery = {
     expected: refs.length,
     attached: attachments.length,
     missing,
     exactReferenceOrder: refs.map((reference) => reference.filename),
     hashes: attachmentHashes.map((entry) => entry.sha256),
-    readyForGeneration
+    readyForGeneration,
+    mode: 'single_image_per_call',
+    deliveredIndex: selectedReferences.length ? selectedIndex : null,
+    complete,
+    nextReferenceIndex: complete ? null : selectedIndex + 1
   }
   const textPayload = {
     ...prepared,
     mcpServer: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION, contract: 'v2', canonicalUrl: MCP_CANONICAL_URL },
-    generationBlocked: !readyForGeneration,
+    generationBlocked: Boolean(payload?.generationBlocked) || selectedReferences.length === 0 || attachments.length !== selectedReferences.length,
     brandPreparation: prepared.brandPreparation,
     readyForGeneration,
     referenceDelivery,
@@ -385,17 +393,62 @@ async function preparedImageResult(payload) {
         unit: 'final_image'
       },
       exactReferenceOrder: referenceDelivery.exactReferenceOrder,
-      instruction: readyForGeneration
-        ? 'Usa todos los ImageContent adjuntos en este orden. Genera los píxeles finales y sube el archivo con preparationId, itemId, channels y assetIndex.'
-        : 'No generes ninguna imagen. La preparación no pudo adjuntar todas las referencias obligatorias.'
+      instruction: complete
+        ? 'Ya recibiste todos los ImageContent en llamadas consecutivas. Usa todas las referencias en el orden exacto indicado, genera los píxeles finales y sube el archivo con preparationId, itemId, channels y assetIndex.'
+        : allReferencesAvailable
+          ? `Esta llamada entrega solo la referencia ${selectedIndex + 1} de ${refs.length}. Vuelve a llamar brand_prepare_image_generation con preparationId ${preparationId} y referenceIndex ${selectedIndex + 1} antes de generar. No uses Pillow ni sustituyas referencias.`
+          : 'No generes ninguna imagen. La preparación no pudo adjuntar la referencia solicitada.'
     }
   }
   return {
-    isError: !readyForGeneration,
+    isError: Boolean(payload?.generationBlocked) || selectedReferences.length === 0 || attachments.length !== selectedReferences.length,
     content: [
       { type: 'text', text: JSON.stringify(textPayload, null, 2) },
-      ...(readyForGeneration ? attachments : [])
+      ...attachments
     ]
+  }
+}
+
+function preparedPayloadFromStoredPreparation(preparation, canonicalSnapshot) {
+  const byFilename = new Map((canonicalSnapshot.references || []).map((reference) => [reference.filename, reference]))
+  const resolvedReferences = (preparation.expectedReferences || []).map((expected) => {
+    const current = byFilename.get(expected.filename) || {}
+    return {
+      ...current,
+      id: expected.id || current.id,
+      mediaId: expected.mediaId || current.mediaId || null,
+      filename: expected.filename,
+      attachmentIndex: expected.attachmentIndex,
+      sha256: expected.sha256 || current.sha256 || ''
+    }
+  })
+  const assetType = preparation.assetType || 'blog_cover'
+  return {
+    schemaVersion: '1.0.0',
+    site: preparation.site,
+    brandKitVersionId: preparation.brandKitVersionId,
+    brandKitSnapshotHash: preparation.brandKitSnapshotHash,
+    generationBlocked: preparation.generationBlocked,
+    route: preparation.route,
+    composition: compositionForAssetType(assetType),
+    generationCardinality: {
+      defaultImageCount: Number(preparation.expectedAssetCount || 1),
+      maxImageCount: Number(preparation.expectedAssetCount || 1),
+      unit: 'final_image'
+    },
+    brandPreparation: {
+      version: '1.0.0',
+      preparationId: preparation.preparationId,
+      site: preparation.site,
+      brandKitVersionId: preparation.brandKitVersionId,
+      brandKitSnapshotHash: preparation.brandKitSnapshotHash,
+      route: preparation.route,
+      assetType,
+      expectedAssetCount: Number(preparation.expectedAssetCount || 1),
+      finalAssetRequiresText: ['social_image', 'instagram_story'].includes(assetType),
+      finalTextRenderer: ['social_image', 'instagram_story'].includes(assetType) ? 'ChatGPT' : null
+    },
+    resolvedReferences
   }
 }
 
@@ -862,7 +915,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_get_brand_context',
       description:
-        'Devuelve el contexto general canónico y versionado, pero no reemplaza brand_prepare_image_generation. Para cualquier imagen llama primero a brand_prepare_image_generation y entrega exactamente sus ImageContent al generador. Está prohibido escoger o sustituir referencias; si generationBlocked es true, detén la generación.',
+        'Devuelve el contexto general canónico y versionado, pero no reemplaza brand_prepare_image_generation. Para cualquier imagen llama primero a brand_prepare_image_generation y repite con preparationId y referenceIndex para recibir un ImageContent por llamada. Está prohibido escoger, sustituir referencias o usar Pillow; si generationBlocked es true, detén la generación.',
       inputSchema: {
         type: 'object',
         properties: { site: { type: 'string' } },
@@ -1070,7 +1123,7 @@ export function buildToolList(auth) {
     { name: 'brand_get_context', description: 'Devuelve el contexto y el catálogo de referencias del brand kit activo en Postgres. La app y el MCP leen exactamente la misma versión, hash y lista de assets.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, siteId: { type: 'string' } } }, annotations: { readOnlyHint: true } },
     {
       name: 'brand_prepare_image_generation',
-      description: 'Obligatoria antes de toda generación visual. Devuelve preparationId, versión y hash del brand kit, dimensiones, reglas negativas y las referencias binarias exactas. ChatGPT genera el archivo final y luego llama content_upload_media con preparationId, itemId, channels y assetIndex.',
+      description: 'Obligatoria antes de toda generación visual. Devuelve preparationId, versión, hash, dimensiones y las referencias binarias exactas. Entrega una referencia por llamada para evitar errores de transporte, repite con preparationId y referenceIndex hasta completar la lista, y solo entonces genera el archivo final. LinkedIn usa blog_cover 3:2 salvo que allowAlternateAssetType=true. Después llama content_upload_media con preparationId, itemId, channels y assetIndex.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1083,7 +1136,10 @@ export function buildToolList(auth) {
           channel: { type: 'string' },
           expectedAssetCount: { type: 'integer', minimum: 1, maximum: 20, description: 'Cantidad explícita de imágenes finales relacionadas. Usa 1 para una imagen singular y el total de slides para un carrusel.' },
           itemId: { type: 'string' },
-          batchId: { type: 'string' }
+          batchId: { type: 'string' },
+          allowAlternateAssetType: { type: 'boolean', description: 'Solo true si el usuario pidió explícitamente una pieza distinta de la portada de blog para LinkedIn.' },
+          preparationId: { type: 'string', description: 'Preparación existente para entregar la siguiente referencia binaria sin crear otra preparación.' },
+          referenceIndex: { type: 'integer', minimum: 0, description: 'Índice cero-based de la referencia que se debe entregar en esta llamada.' }
         },
         required: ['site']
       },
@@ -1362,6 +1418,18 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           let scope = null
           if (isPostgresConfigured()) scope = await resolveContentScope(auth, { ...args, site })
           if (!scope) throw Object.assign(new Error('La preparación visual requiere Postgres.'), { status: 503, code: 'postgres_required' })
+          if (args.preparationId) {
+            const preparation = await getImagePreparation(args.preparationId)
+            if (!preparation) throw Object.assign(new Error('No existe la preparación visual.'), { status: 409, code: 'BRAND_PREPARATION_REQUIRED' })
+            if (preparation.site !== scope.siteHandle || preparation.workspaceId !== scope.workspaceId || (preparation.siteId && preparation.siteId !== scope.siteId)) {
+              throw Object.assign(new Error('La preparación no pertenece a esta marca.'), { status: 409, code: 'SITE_MISMATCH' })
+            }
+            if (preparation.expiresAt && new Date(preparation.expiresAt).getTime() <= Date.now()) throw Object.assign(new Error('La preparación visual ha expirado.'), { status: 409, code: 'BRAND_PREPARATION_EXPIRED' })
+            const activeBrandKit = await getActiveBrandKit({ workspaceId: scope.workspaceId, siteId: scope.siteId })
+            const canonicalSnapshot = loadActiveBrandKitSnapshot(scope.siteHandle, { manifest: activeBrandKit.manifest, assets: activeBrandKit.assets, brandKitVersionId: activeBrandKit.id, version: activeBrandKit.version })
+            if (preparation.brandKitVersionId !== activeBrandKit.id || preparation.brandKitSnapshotHash !== canonicalSnapshot.snapshotHash) throw Object.assign(new Error('El brand kit cambió desde la preparación. Vuelve a preparar la imagen.'), { status: 409, code: 'BRAND_VERSION_MISMATCH' })
+            return preparedImageResult(preparedPayloadFromStoredPreparation(preparation, canonicalSnapshot), { referenceIndex: args.referenceIndex })
+          }
           const activeBrandKit = await getActiveBrandKit({ workspaceId: scope.workspaceId, siteId: scope.siteId })
           const canonicalSnapshot = loadActiveBrandKitSnapshot(scope.siteHandle, { manifest: activeBrandKit.manifest, assets: activeBrandKit.assets, brandKitVersionId: activeBrandKit.id, version: activeBrandKit.version })
           const prepared = prepareImageGeneration(scope.siteHandle, normalizeImagePreparationArgs(args), { canonicalSnapshot })
@@ -1372,7 +1440,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             batchId: args.batchId,
             channel: args.channel
           })
-          return preparedImageResult(prepared)
+          return preparedImageResult(prepared, { referenceIndex: args.referenceIndex })
         }
         case 'brand_update_file': {
           assertSuperAdmin(auth)

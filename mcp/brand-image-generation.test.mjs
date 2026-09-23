@@ -48,6 +48,9 @@ test('contexto y preparación usan el mismo snapshot activo y sus 11 referencias
   assert.equal(context.referenceImages.length, 11)
   assert.equal(context.canonicalPalette.cream, undefined)
   assert.match(context.brandCore.fixed.typography.heading, /Montserrat/)
+  assert.doesNotMatch(context.files['visual-style.md'], /#F4F1EA|#1F4D3A/)
+  assert.doesNotMatch(context.files['image-guide.md'], /#F4F1EA|#1F4D3A/)
+  assert.match(context.files['visual-style.md'], /#47A4E7|#12B8D6|#62B38A|#E8B73A/)
 })
 
 test('la preparación fija dimensiones finales y cardinalidad sin receipts', () => {

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildToolList, createMcpServer, invokeMcpTool, normalizeImagePreparationArgs } from './create-mcp-server.mjs'
+import { buildToolList, createMcpServer, invokeMcpTool, normalizeImagePreparationArgs, preparedImageResult } from './create-mcp-server.mjs'
 import { MCP_INSTRUCTIONS, MCP_SERVER_VERSION } from '../lib/media-upload-contract.mjs'
 
 function payload(result) {
@@ -48,7 +48,7 @@ test('el contrato MCP expone media y contenido v2, sin operaciones de posts lega
   const publicContract = JSON.stringify(tools)
   assert.doesNotMatch(publicContract, /generationReceiptId|brand_complete_image_generation|brand_register_generation|content-system\/instagram-renderer/)
   assert.equal(buildToolList({ role: 'editor' }).some((tool) => tool.name === 'brand_update_file'), false)
-  assert.equal(MCP_SERVER_VERSION, '3.0.0')
+  assert.equal(MCP_SERVER_VERSION, '3.1.0')
 })
 
 test('el registro tools/list publica un único upload y no expone aliases legacy', async () => {
@@ -78,13 +78,39 @@ test('createMcpServer anuncia el contrato v2 y la selección explícita de marca
   assert.match(MCP_INSTRUCTIONS, /content_upload_media/)
   assert.match(MCP_INSTRUCTIONS, /exactamente una imagen/i)
   assert.match(MCP_INSTRUCTIONS, /preparationId, itemId, channels y assetIndex/i)
-  assert.match(MCP_INSTRUCTIONS, /versión 3\.0\.0/)
+  assert.match(MCP_INSTRUCTIONS, /versión 3\.1\.0/)
 })
 
 test('LinkedIn usa la portada del blog salvo petición explícita de otra pieza', () => {
   assert.equal(normalizeImagePreparationArgs({ channel: 'linkedin', title: 'Trabajo fraccional' }).assetType, 'blog_cover')
   assert.equal(normalizeImagePreparationArgs({ channel: 'linkedin', assetType: 'generic' }).assetType, 'blog_cover')
-  assert.equal(normalizeImagePreparationArgs({ channel: 'linkedin', assetType: 'social_image' }).assetType, 'social_image')
+  assert.equal(normalizeImagePreparationArgs({ channel: 'linkedin', assetType: 'social_image' }).assetType, 'blog_cover')
+  assert.equal(normalizeImagePreparationArgs({ channel: 'linkedin', assetType: 'social_image', allowAlternateAssetType: true }).assetType, 'social_image')
+})
+
+test('la preparación entrega una referencia binaria por llamada y conserva el orden', async () => {
+  const resolvedReferences = ['05-tablero-visual.png', 'fondo-escarlet.jpg', 'reference-blog-example.png'].map((filename, index) => ({
+    filename,
+    attachmentIndex: index + 1,
+    path: `/media/escarlet/reference/${filename}`
+  }))
+  const payload = {
+    generationBlocked: false,
+    resolvedReferences,
+    brandPreparation: { preparationId: 'preparation-test', site: 'escarlet', assetType: 'blog_cover' },
+    composition: { allowedAspectRatios: ['3:2'] },
+    generationCardinality: { maxImageCount: 1 }
+  }
+  const first = await preparedImageResult(payload, { referenceIndex: 0 })
+  const firstText = JSON.parse(first.content[0].text)
+  assert.equal(first.isError, false)
+  assert.equal(first.content.length, 2)
+  assert.equal(firstText.referenceDelivery.complete, false)
+  assert.equal(firstText.referenceDelivery.nextReferenceIndex, 1)
+  const last = await preparedImageResult(payload, { referenceIndex: 2 })
+  const lastText = JSON.parse(last.content[0].text)
+  assert.equal(lastText.referenceDelivery.complete, true)
+  assert.equal(lastText.readyForGeneration, true)
 })
 
 test('el MCP no elige una marca por defecto cuando el acceso incluye varias', async () => {
@@ -128,7 +154,7 @@ test('las respuestas de preparación exponen la versión MCP activa', async () =
   const result = await invokeMcpTool('brand_prepare_image_generation', { site: 'escarlet', assetType: 'generic', title: 'versión MCP' }, { role: 'admin' })
   const value = payload(result)
   assert.equal(value.mcpServer.name, 'escarlet-cms-v2')
-  assert.equal(value.mcpServer.version, '3.0.0')
+  assert.equal(value.mcpServer.version, '3.1.0')
   assert.equal(value.mcpServer.contract, 'v2')
 })
 
