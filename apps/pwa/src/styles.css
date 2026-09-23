@@ -825,6 +825,7 @@ select, .ui-plans-page .ui-select, .ui-page .ui-input.ui-select, .site-switcher 
 .ui-blog-connection-card { grid-column: 1 / -1; } .ui-connection-card p { margin: 6px 0 0; color: var(--ui-muted); }
 .ui-calendar-loading { display: grid; gap: 14px; } .ui-calendar-loading .ui-skeleton { width: 100%; }
 .ui-calendar-list { display: grid; gap: 12px; } .ui-calendar-list .ui-card { padding: 18px 20px; }
+.ui-calendar-plan-filter { max-width: 360px; }
 .ui-calendar-card-title { display: flex; align-items: flex-start; gap: var(--ui-space-3); min-width: 0; }
 .ui-calendar-card-title > div { min-width: 0; }
 .ui-calendar-retry-help { display: grid; gap: var(--ui-space-2); margin-bottom: var(--ui-space-3); }
