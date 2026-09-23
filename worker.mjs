@@ -6,7 +6,7 @@ import { decryptSecret } from './lib/secret-crypto.mjs'
 import { scheduleMetricoolPost, syncMetricoolPost } from './lib/metricool.mjs'
 import { schedulePlanablePost, syncPlanablePost, planableStatus } from './lib/planable.mjs'
 import { schedulePostizPost, syncPostizPost, postizPostId, postizProviderForChannel, postizStatus } from './lib/postiz.mjs'
-import { scheduleBufferPost, syncBufferPost, bufferPostId, bufferStatus } from './lib/buffer.mjs'
+import { scheduleBufferPost, syncBufferPost, updateBufferPostDueAt, bufferPostId, bufferStatus } from './lib/buffer.mjs'
 
 function loadEnv() {
   const path = new URL('./.env', import.meta.url)
@@ -89,6 +89,7 @@ async function processExternalPublicationEvent(event) {
     LEFT JOIN LATERAL (SELECT user_token_ciphertext,metricool_user_id,blog_id,timezone FROM metricool_integrations WHERE workspace_id=cv.workspace_id AND (site_id=ci.site_id OR site_id IS NULL) AND enabled=TRUE ORDER BY CASE WHEN site_id=ci.site_id THEN 0 ELSE 1 END LIMIT 1) mi ON TRUE
     WHERE ci.id=$1 AND ci.workspace_id=$2 AND cv.status<>'canceled'`, [itemId, event.workspace_id])
   const requestedChannels = new Set(Array.isArray(event.payload?.channels) ? event.payload.channels.map((channel) => String(channel).toLowerCase()) : [])
+  const moveChannels = new Set(Array.isArray(event.payload?.moveChannels) ? event.payload.moveChannels.map((channel) => String(channel).toLowerCase()) : [])
   const variants = requestedChannels.size
     ? variantsResult.rows.filter((variant) => requestedChannels.has(String(variant.channel).toLowerCase()))
     : variantsResult.rows
@@ -143,7 +144,8 @@ async function processExternalPublicationEvent(event) {
       await pool.query("UPDATE schedules SET status='action_required',last_error=$1,updated_at=NOW() WHERE variant_id=$2", [message, variant.id])
       continue
     }
-    await recordUsage({ workspaceId: event.workspace_id, siteId: variant.site_id, kind: 'publications', quantity: 1, idempotencyKey: `publication:${event.id}:${variant.id}`, metadata: { itemId, channel: variant.channel, provider } })
+    const movingBuffer = provider === 'buffer' && moveChannels.has(String(variant.channel).toLowerCase()) && variant.provider_post_id
+    if (!movingBuffer) await recordUsage({ workspaceId: event.workspace_id, siteId: variant.site_id, kind: 'publications', quantity: 1, idempotencyKey: `publication:${event.id}:${variant.id}`, metadata: { itemId, channel: variant.channel, provider } })
     let response
     if (provider === 'metricool') {
       if (!variant.connection_credentials_ciphertext && (!variant.metricool_user_id || !variant.blog_id)) {
@@ -171,9 +173,11 @@ async function processExternalPublicationEvent(event) {
       const organizationId = connectionConfig.organizationId || connectionConfig.organization_id
       const channelId = connectionConfig.channelId || connectionConfig.channel_id || variant.connection_external_account_id
       const postType = variant.publication_date ? 'schedule' : 'draft'
-      response = variant.provider_post_id
-        ? await syncBufferPost({ apiToken: token, providerPostId: variant.provider_post_id })
-        : await scheduleBufferPost({ apiToken: token, organizationId, channelId, publicationDate: variant.publication_date || null, text, media: mediaRows.rows.filter((asset) => asset.url), idempotencyKey: `buffer:${variant.id}:${variant.publication_date || 'draft'}:${event.id}`, postType, service: variant.channel, linkUrl: story ? (socialPack.instagramStory?.linkUrl || canonicalArticleUrl(variant)) : '' })
+      response = movingBuffer
+        ? await updateBufferPostDueAt({ apiToken: token, providerPostId: variant.provider_post_id, publicationDate: variant.publication_date, idempotencyKey: `buffer-move:${variant.id}:${event.id}` })
+        : variant.provider_post_id
+          ? await syncBufferPost({ apiToken: token, providerPostId: variant.provider_post_id })
+          : await scheduleBufferPost({ apiToken: token, organizationId, channelId, publicationDate: variant.publication_date || null, text, media: mediaRows.rows.filter((asset) => asset.url), idempotencyKey: `buffer:${variant.id}:${variant.publication_date || 'draft'}:${event.id}`, postType, service: variant.channel, linkUrl: story ? (socialPack.instagramStory?.linkUrl || canonicalArticleUrl(variant)) : '' })
     } else throw new Error(`El proveedor ${provider} aún no tiene un adaptador de publicación.`)
     const providerPostId = provider === 'postiz' ? (postizPostId(response) || variant.provider_post_id || null) : provider === 'buffer' ? (bufferPostId(response) || variant.provider_post_id || null) : (response?.id || response?.postId || response?.data?.id || response?.posts?.[0]?.id || variant.provider_post_id || null)
     const remoteStatus = provider === 'planable' ? planableStatus(response) : provider === 'postiz' ? postizStatus(response) : provider === 'buffer' ? bufferStatus(response) : String(response?.status || response?.data?.status || '').toLowerCase()
