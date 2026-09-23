@@ -79,7 +79,7 @@ export function ContentBatches({ site, creationEnabled = false, activeChannels }
   const publishBufferAll = (item: ContentItem) => {
     const channels = (item.variants || [])
       .map((variant) => variant.channel)
-      .filter((channel): channel is ContentChannel => ["instagram", "instagram_story", "linkedin", "video"].includes(channel));
+      .filter((channel): channel is ContentChannel => ["instagram", "instagram_story", "linkedin", "x", "video"].includes(channel));
     if (!channels.length) {
       setError("Este contenido no tiene variantes compatibles con Buffer.");
       return;
