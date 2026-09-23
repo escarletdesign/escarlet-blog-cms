@@ -244,6 +244,7 @@ import {
   scheduleContentItem,
   rescheduleContentItem,
   markContentChannelPublished,
+  reconcileContentItemScheduled,
   publishContentItemViaBuffer,
   scheduleContentBatch,
   cancelContentItem,
@@ -1810,7 +1811,7 @@ const server = createServer(async (req, res) => {
     }
     const batchMatch = path.match(/^\/api\/v2\/content\/batches\/([^/]+)$/)
     const itemMatch = path.match(/^\/api\/v2\/content\/items\/([^/]+)$/)
-    const itemActionMatch = path.match(/^\/api\/v2\/content\/items\/([^/]+)\/(approve|reject|schedule|reschedule|publish-buffer|cancel|mark-published)$/)
+    const itemActionMatch = path.match(/^\/api\/v2\/content\/items\/([^/]+)\/(approve|reject|schedule|reschedule|publish-buffer|cancel|mark-published|reconcile-scheduled)$/)
     const batchActionMatch = path.match(/^\/api\/v2\/content\/batches\/([^/]+)\/(schedule|cancel)$/)
     const batchReviewMatch = path.match(/^\/api\/v2\/content\/batches\/([^/]+)\/(approve|reject)$/)
     const brandMatch = path.match(/^\/api\/v2\/brands\/([^/]+)$/)
@@ -2253,6 +2254,10 @@ const server = createServer(async (req, res) => {
         }
         if (action === 'mark-published') {
           json(res, 200, await markContentChannelPublished({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role, channel: body.channel }))
+          return
+        }
+        if (action === 'reconcile-scheduled') {
+          json(res, 200, await reconcileContentItemScheduled({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role, channels: body.channels, publicationDate: body.publicationDate, timezone: body.timezone }))
           return
         }
         if (action === 'publish-buffer') {
