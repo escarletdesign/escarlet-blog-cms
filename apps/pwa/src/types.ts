@@ -46,6 +46,9 @@ export interface ContentVariant {
   status: ContentStatus;
   body: Record<string, any>;
   media?: MediaItem[];
+  publicationDate?: string;
+  scheduleTimezone?: string;
+  scheduleStatus?: ContentStatus;
 }
 export interface ContentItem {
   id: string;

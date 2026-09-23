@@ -694,6 +694,7 @@
 .ui-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; } .ui-card h2, .ui-card h3 { margin: 4px 0 0; } .ui-card-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 10px; color: var(--ui-muted); font-size: .83rem; }
 .ui-card-actions { justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .ui-input { width: 100%; min-height: 44px; padding: 10px 12px; color: var(--ui-text); background: var(--ui-surface-control); border: 1px solid var(--ui-border-strong); border-radius: var(--ui-radius-sm); font: inherit; transition: border-color .2s, box-shadow .2s; }
+.ui-input[type="datetime-local"]::-webkit-calendar-picker-indicator { filter: invert(1); opacity: 1; cursor: pointer; }
 .ui-textarea { min-height: 120px; resize: vertical; } .ui-select { appearance: none; }
 .ui-input:focus, .ui-button:focus-visible, .ui-icon-button:focus-visible, .ui-checkbox input:focus-visible { outline: none; box-shadow: var(--ui-focus-ring); border-color: var(--ui-accent); }
 .ui-field { display: flex; flex-direction: column; gap: 7px; color: var(--ui-text); } .ui-field-label { font-size: .86rem; font-weight: 700; } .ui-field-hint { color: var(--ui-muted); font-size: .78rem; } .ui-field-error, .ui-danger-text { color: var(--ui-danger); font-size: .82rem; }
@@ -735,6 +736,10 @@
 .ui-plan-detail > .ui-card { min-height: 100%; }
 .ui-review-item { padding: 22px; }
 .ui-review-item-title > div { min-width: 0; }
+.ui-review-thumb { width: 72px; height: 72px; flex: 0 0 72px; object-fit: cover; border-radius: var(--ui-radius-sm); background: var(--ui-surface-soft); }
+.ui-review-excerpt { margin: var(--ui-space-1) 0 var(--ui-space-2); color: var(--ui-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ui-review-date { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--ui-space-3); margin-top: var(--ui-space-3); }
+.ui-review-date .ui-field { flex: 1 1 220px; margin: 0; }
 .ui-review-item-title h3 { font-size: clamp(1rem, 1.55vw, 1.35rem); line-height: 1.18; }
 .ui-plan-overview { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 22px; margin: 20px 0 18px; padding: 14px 16px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); background: rgba(21,28,28,.75); }
 .ui-plan-overview > div { display: grid; gap: 3px; min-width: 110px; }
