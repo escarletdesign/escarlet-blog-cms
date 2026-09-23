@@ -96,6 +96,12 @@ async function processExternalPublicationEvent(event) {
   if (event.type === 'content.item.approved' && variants.every((variant) => !variant.publication_date)) return
   for (const variant of variants) {
     try {
+    if (variant.channel === 'substack') {
+      const message = 'La publicación en Substack está suspendida porque no hay API disponible.'
+      await pool.query("UPDATE content_variants SET status='action_required',updated_at=NOW() WHERE id=$1", [variant.id])
+      await pool.query("UPDATE schedules SET status='action_required',last_error=$1,updated_at=NOW() WHERE variant_id=$2", [message, variant.id])
+      continue
+    }
     // Blog remains a first-class channel and always deploys through Coolify.
     if (variant.channel === 'blog') {
       const publicationDate = variant.publication_date ? new Date(variant.publication_date) : null
@@ -124,10 +130,12 @@ async function processExternalPublicationEvent(event) {
     const story = variant.channel === 'instagram_story'
     const text = story
       ? socialPack.instagramStory?.text || body.text || body.caption || body.title || body.topic || variant.topic || ''
+      : variant.channel === 'video'
+        ? socialPack.videoScript || body.videoScript || body.script || body.text || body.title || body.topic || variant.topic || ''
       : socialPack.instagramCaption || socialPack.caption || body.text || body.caption || body.body || body.bodyHtml || body.title || body.topic || ''
-    let mediaRows = await pool.query('SELECT ma.public_url AS "url",ma.metadata FROM content_variant_media cvm JOIN media_assets ma ON ma.id=cvm.media_asset_id WHERE cvm.variant_id=$1 ORDER BY cvm.sort_order', [variant.id])
+    let mediaRows = await pool.query('SELECT ma.public_url AS "url",ma.content_type AS "mimeType",ma.metadata FROM content_variant_media cvm JOIN media_assets ma ON ma.id=cvm.media_asset_id WHERE cvm.variant_id=$1 ORDER BY cvm.sort_order', [variant.id])
     if (story && !mediaRows.rowCount) {
-      mediaRows = await pool.query(`SELECT ma.public_url AS "url",ma.metadata
+      mediaRows = await pool.query(`SELECT ma.public_url AS "url",ma.content_type AS "mimeType",ma.metadata
         FROM content_variant_media cvm JOIN media_assets ma ON ma.id=cvm.media_asset_id
         JOIN content_variants feed ON feed.id=cvm.variant_id
         WHERE feed.item_id=(SELECT item_id FROM content_variants WHERE id=$1) AND feed.channel='instagram'

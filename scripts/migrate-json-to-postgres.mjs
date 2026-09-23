@@ -255,7 +255,7 @@ export async function migrateJsonToPostgres({ db = readDb(), users = readJson('u
         linkedin: social.linkedin !== false,
         x: social.x !== false,
         video: social.videoScript !== false,
-        substack: social.substack !== false
+        substack: false
       }
       for (const [channel, enabled] of Object.entries(channels)) {
         await client.query('INSERT INTO site_channels (site_id,channel,enabled,connection_status) VALUES ($1,$2,$3,\'not_connected\') ON CONFLICT (site_id,channel) DO UPDATE SET enabled=EXCLUDED.enabled,updated_at=NOW()', [siteId, channel, enabled])

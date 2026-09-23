@@ -3595,6 +3595,7 @@ function SocialPack() {
   const [message, setMessage] = useState("");
   const [showTeleprompter, setShowTeleprompter] = useState(false);
   const [activeSlide, setActiveSlide] = useState(0);
+  const recordRequested = search.get("record") === "1";
   useEffect(() => {
     if (standalone) {
       setPost(null);
@@ -3629,6 +3630,7 @@ function SocialPack() {
           }
           return {
             post: {
+              itemId: item.id,
               slug,
               site,
               title: blogBody.title || item.topic,
@@ -3647,6 +3649,7 @@ function SocialPack() {
         if (!active) return;
         setPost(postData.post);
         setSocialPack(postData.post.socialPack || {});
+        if (recordRequested && postData.post.socialPack?.videoScript) setShowTeleprompter(true);
         const domain = String(
           (onboarding as any)?.site?.domain || window.location.origin,
         ).replace(/\/$/, "");
@@ -3660,7 +3663,7 @@ function SocialPack() {
     return () => {
       active = false;
     };
-  }, [batchId, itemId, slug, site, t, standalone]);
+  }, [batchId, itemId, recordRequested, slug, site, t, standalone]);
   const generatePack = async () => {
     if (standalone && !standaloneBrief.trim()) {
       const reason = t("social.standaloneRequired");
@@ -3778,6 +3781,22 @@ function SocialPack() {
       link.remove();
     }
     showToast(t("social.slideDownloaded"));
+  };
+  const contentItemId = post?.itemId || itemId;
+  const publishReel = async () => {
+    if (!contentItemId) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      await api.publishContentViaBuffer(contentItemId, ["video"], site);
+      setMessage("Reel programado en Buffer.");
+      showToast("Reel programado en Buffer.");
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : "No se pudo programar el reel en Buffer.");
+      showToast(cause instanceof Error ? cause.message : "No se pudo programar el reel en Buffer.", "error");
+    } finally {
+      setBusy(false);
+    }
   };
   const fields = [
     { key: "substackTitle", label: t("social.substackTitle") },
@@ -4088,6 +4107,12 @@ function SocialPack() {
       {showTeleprompter && (
         <TeleprompterModal
           script={teleprompterScript}
+          itemId={contentItemId}
+          site={site}
+          canPublish={Boolean(contentItemId)}
+          busy={busy}
+          onUploaded={() => setMessage("Vídeo subido. Ya puedes programar el reel en Buffer.")}
+          onPublish={() => void publishReel()}
           onClose={() => setShowTeleprompter(false)}
         />
       )}
@@ -4097,9 +4122,21 @@ function SocialPack() {
 
 function TeleprompterModal({
   script,
+  itemId,
+  site,
+  canPublish,
+  busy,
+  onUploaded,
+  onPublish,
   onClose,
 }: {
   script: string;
+  itemId?: string;
+  site?: string;
+  canPublish?: boolean;
+  busy?: boolean;
+  onUploaded?: () => void;
+  onPublish?: () => void;
   onClose: () => void;
 }) {
   const { t } = useI18n();
@@ -4120,6 +4157,9 @@ function TeleprompterModal({
   const [currentParagraph, setCurrentParagraph] = useState(0);
   const speed = 1;
   const [videoUrl, setVideoUrl] = useState("");
+  const [videoBlob, setVideoBlob] = useState<Blob | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploaded, setUploaded] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
     setCurrentParagraph(0);
@@ -4128,20 +4168,25 @@ function TeleprompterModal({
     return () => {
       if (countdownTimerRef.current) window.clearInterval(countdownTimerRef.current);
     };
-  }, []);
+  }, [script]);
   useEffect(() => {
     if (!playing) return;
     const timer = window.setInterval(
       () => {
         const container = scrollRef.current;
         if (!container) return;
+        if (container.scrollTop >= container.scrollHeight - container.clientHeight - 1) {
+          setPlaying(false);
+          return;
+        }
         container.scrollBy({ top: speed, behavior: "auto" });
-        const center = container.scrollTop + container.clientHeight / 2;
+        const center = container.getBoundingClientRect().top + container.clientHeight / 2;
         let nearest = currentParagraph;
         let distance = Number.POSITIVE_INFINITY;
         paragraphRefs.current.forEach((paragraph, index) => {
           if (!paragraph) return;
-          const nextDistance = Math.abs(paragraph.offsetTop - center);
+          const rect = paragraph.getBoundingClientRect();
+          const nextDistance = Math.abs(rect.top + rect.height / 2 - center);
           if (nextDistance < distance) {
             distance = nextDistance;
             nearest = index;
@@ -4179,10 +4224,10 @@ function TeleprompterModal({
         if (event.data.size) chunksRef.current.push(event.data);
       };
       recorder.onstop = () => {
-        const url = URL.createObjectURL(
-          new Blob(chunksRef.current, { type: "video/webm" }),
-        );
-        setVideoUrl(url);
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "video/webm" });
+        setVideoBlob(blob);
+        setVideoUrl(URL.createObjectURL(blob));
+        setUploaded(false);
       };
       recorder.start();
       recorderRef.current = recorder;
@@ -4219,8 +4264,26 @@ function TeleprompterModal({
   const nextParagraph = () => {
     const next = Math.min(currentParagraph + 1, Math.max(paragraphs.length - 1, 0));
     setCurrentParagraph(next);
-    paragraphRefs.current[next]?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const container = scrollRef.current;
+    const paragraph = paragraphRefs.current[next];
+    if (container && paragraph) container.scrollTo({ top: Math.max(0, paragraph.offsetTop - container.clientHeight / 2 + paragraph.offsetHeight / 2), behavior: "smooth" });
     setPlaying(true);
+  };
+  const upload = async () => {
+    if (!videoBlob || !itemId || !site || uploading) return;
+    setUploading(true);
+    setError("");
+    try {
+      const extension = videoBlob.type.includes("mp4") ? "mp4" : videoBlob.type.includes("quicktime") ? "mov" : "webm";
+      const file = new File([videoBlob], `escarlet-reel.${extension}`, { type: videoBlob.type || "video/webm" });
+      await api.uploadContentVideo(itemId, file, site);
+      setUploaded(true);
+      onUploaded?.();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudo subir el vídeo.");
+    } finally {
+      setUploading(false);
+    }
   };
   return (
     <div className="ui-modal-backdrop" role="presentation">
@@ -4295,6 +4358,16 @@ function TeleprompterModal({
             >
               {t("social.downloadVideo")}
             </a>
+          )}
+          {videoBlob && itemId && site && (
+            <button className="ui-button ui-button-secondary" onClick={() => void upload()} disabled={uploading || uploaded}>
+              {uploaded ? "Vídeo subido" : uploading ? "Subiendo vídeo…" : "Subir vídeo a Buffer"}
+            </button>
+          )}
+          {uploaded && canPublish && onPublish && (
+            <button className="ui-button ui-button-primary" onClick={onPublish} disabled={Boolean(busy)}>
+              {busy ? "Programando…" : "Publicar reel en Buffer"}
+            </button>
           )}
         </div>
         {error && <p className="ui-error">{error}</p>}
@@ -4486,6 +4559,17 @@ function PostRow({ post, onDeleted }: { post: Post; onDeleted?: (slug: string) =
           title={t("preview.socialPack")}
         >
           <MobileSocialIcon />
+        </button>
+      )}
+      {hasSocialPack(post) && post.socialPack?.videoScript && (
+        <button
+          className="post-pack-button"
+          type="button"
+          onClick={() => postSlug && nav(`/social-pack/${encodeURIComponent(postSlug)}?record=1`)}
+          aria-label={t("social.record")}
+          title={t("social.record")}
+        >
+          ◉
         </button>
       )}
       <button

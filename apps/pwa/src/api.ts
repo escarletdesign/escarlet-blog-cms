@@ -10,9 +10,12 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const headers = options.body instanceof FormData
+    ? options.headers
+    : { "Content-Type": "application/json", ...(options.headers || {}) };
   const response = await fetch(path, {
     credentials: "include",
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    headers,
     ...options,
   });
   const data = await response.json().catch(() => ({}));
@@ -300,6 +303,17 @@ const baseApi = {
       `/api/v2/content/items/${encodeURIComponent(itemId)}/publish-buffer`,
       { method: "POST", body: JSON.stringify({ site, channels }) },
     ),
+  uploadContentVideo: (itemId: string, file: File, site?: string) => {
+    const body = new FormData();
+    body.append("site", site || "");
+    body.append("filename", file.name || "escarlet-reel.webm");
+    body.append("mimeType", file.type || "video/webm");
+    body.append("file", file, file.name || "escarlet-reel.webm");
+    return request<{ itemId: string; media: Record<string, any> }>(
+      `/api/v2/content/items/${encodeURIComponent(itemId)}/video`,
+      { method: "POST", body },
+    );
+  },
   cancelContent: (itemId: string, site?: string) =>
     request<{ itemId: string; status: string }>(
       `/api/v2/content/items/${encodeURIComponent(itemId)}/cancel`,

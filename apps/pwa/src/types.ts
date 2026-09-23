@@ -86,6 +86,7 @@ export interface ContentPlanSummary {
 }
 
 export interface Post {
+  itemId?: string;
   slug: string;
   site: string;
   title: string;

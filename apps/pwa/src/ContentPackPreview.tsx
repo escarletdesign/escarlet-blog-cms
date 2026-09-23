@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { api } from "./api";
 import type { ContentChannel, ContentItem, ContentVariant } from "./types";
 import { Badge, Button, Card, ChannelBadge, EmptyState, IconButton, Inline, Stack, StatusBadge } from "./ui";
 
-const packChannels: ContentChannel[] = ["blog", "instagram", "instagram_story", "linkedin", "x", "substack", "video"];
+const packChannels: ContentChannel[] = ["blog", "instagram", "instagram_story", "linkedin", "x", "video"];
 const label = (channel: string) => channel === "x" ? "X" : channel === "video" ? "Vídeo" : channel === "instagram_story" ? "Instagram Story" : channel.charAt(0).toUpperCase() + channel.slice(1);
 const shortTitle = (value: string) => { const raw = value.replace(/\s+/g, " ").trim(); const first = raw.split(/\b(?:enfoque|contexto|objetivo|idea central|brief)\s*:/i)[0].split(/[.!?]\s+/)[0].replace(/[.!?]+$/, "").trim(); return first.length <= 90 ? first || "Publicación" : `${first.slice(0, 87).replace(/\s+\S*$/, "").trim()}...`; };
 const itemTitle = (item: ContentItem) => String(item.metadata?.contentTitle || shortTitle(item.topic || "Publicación")).trim();
@@ -53,18 +54,20 @@ function titleFor(variant?: ContentVariant, fallback = "") {
   return String((body.title && body.title !== body.topic ? body.title : "") || body.headline || fallback);
 }
 
-export function ContentPackPreview({ item, busy, onClose, onPublish, onPublishAll }: { item: ContentItem; busy: boolean; onClose: () => void; onPublish: (channel: ContentChannel) => void; onPublishAll?: () => void }) {
+export function ContentPackPreview({ site, item, busy, autoRecord = false, onVideoUploaded, onClose, onPublish, onPublishAll }: { site: string; item: ContentItem; busy: boolean; autoRecord?: boolean; onVideoUploaded?: () => void; onClose: () => void; onPublish: (channel: ContentChannel) => void; onPublishAll?: () => void }) {
   const navigate = useNavigate();
   const variants = (item.variants || []).filter((variant) => packChannels.includes(variant.channel));
   const blog = variants.find((variant) => variant.channel === "blog");
   const instagram = variants.find((variant) => variant.channel === "instagram");
   const instagramStory = variants.find((variant) => variant.channel === "instagram_story");
+  const video = variants.find((variant) => variant.channel === "video");
   const slides = slidesFor(instagram);
   const { socialPack } = bodyFor(instagram);
   const contentTitle = itemTitle(item);
-  const videoScript = String(socialPack.videoScript || variants.find((variant) => variant.channel === "video")?.body?.text || [contentTitle, ...slides.map((entry: any) => [entry?.headline, entry?.body].filter(Boolean).join("\n"))].filter(Boolean).join("\n\n")).trim();
+  const videoScript = String(socialPack.videoScript || video?.body?.videoScript || video?.body?.script || video?.body?.text || [contentTitle, ...slides.map((entry: any) => [entry?.headline, entry?.body].filter(Boolean).join("\n"))].filter(Boolean).join("\n\n")).trim();
   const [activeSlide, setActiveSlide] = useState(0);
   const [showTeleprompter, setShowTeleprompter] = useState(false);
+  useEffect(() => { if (autoRecord && videoScript) setShowTeleprompter(true); }, [autoRecord, videoScript]);
   const safeSlide = slides.length ? Math.min(activeSlide, slides.length - 1) : 0;
   const slide = slides[safeSlide];
   const slideImage = cleanImageUrl(slide?.imageUrl || slide?.url || slide?.image);
@@ -81,9 +84,9 @@ export function ContentPackPreview({ item, busy, onClose, onPublish, onPublishAl
       {instagramStory && <article className="ui-card social-channel-card"><div className="social-channel-head"><div><p className="ui-eyebrow">Instagram</p><h2>Story con enlace</h2></div><ChannelBadge channel="instagram_story" /></div>{storyImage ? <img src={storyImage} alt={String(instagramStory.body?.imageAlt || contentTitle)} loading="lazy" /> : <div className="carousel-placeholder">Story</div>}<p>{textFor(instagramStory)}</p><p className="ui-field-hint">Buffer enviará una notificación para añadir el link sticker en Instagram.</p>{instagramStory.body?.socialPack?.instagramStory?.linkUrl && <a className="text-link" href={instagramStory.body.socialPack.instagramStory.linkUrl} target="_blank" rel="noreferrer">{instagramStory.body.socialPack.instagramStory.linkUrl}</a>}<PackActions variant={instagramStory} busy={busy} onCopy={() => void copyValue(textFor(instagramStory))} onPublish={() => onPublish("instagram_story")} /></article>}
     </div>
     {textVariants.length > 0 && <div className="social-pack-grid">{textVariants.map((variant) => <article className="ui-card social-channel-card" key={variant.id}><div className="social-channel-head"><h2><ChannelBadge channel={variant.channel} /> {label(variant.channel)}</h2><Button variant="ghost" size="sm" onClick={() => void copyValue(textFor(variant))}>Copiar</Button></div><p>{textFor(variant)}</p></article>)}</div>}
-    {videoScript && <section className="ui-card teleprompter-launch-card"><div><p className="ui-eyebrow">Vídeo</p><h2>Grabar con teleprompter</h2><p className="ui-muted">Usa el guion del pack para grabar desde el navegador.</p></div><Button onClick={() => setShowTeleprompter(true)}>Abrir grabador</Button></section>}
-    <Inline gap="md"><Button variant="ghost" onClick={onClose}>Cerrar</Button>{onPublishAll && <Button variant="primary" disabled={busy} onClick={onPublishAll}>Publicar canales Buffer</Button>}{(blog || instagram || instagramStory) && <Button variant="secondary" onClick={() => navigate(`/social-pack/${encodeURIComponent(contentTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""))}?itemId=${encodeURIComponent(item.id)}&batchId=${encodeURIComponent(String(item.batchId || item.batch_id || ""))}`)}>Ver Social Pack</Button>}<span className="ui-field-hint">Instagram, Stories y LinkedIn se envían por Buffer. El Blog usa el webhook de Coolify.</span></Inline>
-    {showTeleprompter && <TeleprompterModal script={videoScript} onClose={() => setShowTeleprompter(false)} />}
+    {videoScript && <section className="ui-card teleprompter-launch-card"><div><p className="ui-eyebrow">Vídeo para Reel</p><h2>Grabar con teleprompter</h2><p className="ui-muted">Usa el guion del pack, sube el vídeo y publícalo en Buffer.</p></div><Button onClick={() => setShowTeleprompter(true)}>Abrir grabador</Button></section>}
+    <Inline gap="md"><Button variant="ghost" onClick={onClose}>Cerrar</Button>{onPublishAll && <Button variant="primary" disabled={busy} onClick={onPublishAll}>Publicar canales Buffer</Button>}{(blog || instagram || instagramStory) && <Button variant="secondary" onClick={() => navigate(`/social-pack/${encodeURIComponent(contentTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""))}?itemId=${encodeURIComponent(item.id)}&batchId=${encodeURIComponent(String(item.batchId || item.batch_id || ""))}`)}>Ver Social Pack</Button>}<span className="ui-field-hint">Instagram, Stories, LinkedIn y vídeos se envían por Buffer. El Blog usa el webhook de Coolify.</span></Inline>
+    {showTeleprompter && <TeleprompterModal script={videoScript} itemId={video?.id ? item.id : ""} site={site} canPublish={Boolean(video)} busy={busy} onUploaded={onVideoUploaded} onPublish={() => onPublish("video")} onClose={() => setShowTeleprompter(false)} />}
   </Stack>;
 }
 
@@ -91,7 +94,7 @@ function PackActions({ variant, busy, onCopy, onPublish }: { variant: ContentVar
   return <Inline gap="sm"><Button variant="ghost" size="sm" onClick={onCopy}>Copiar</Button><Button variant="primary" size="sm" disabled={busy || variant.status !== "approved"} loading={busy} onClick={onPublish}>Publicar en Buffer</Button></Inline>;
 }
 
-function TeleprompterModal({ script, onClose }: { script: string; onClose: () => void }) {
+function TeleprompterModal({ script, itemId, site, canPublish, busy, onUploaded, onPublish, onClose }: { script: string; itemId: string; site: string; canPublish: boolean; busy: boolean; onUploaded?: () => void; onPublish: () => void; onClose: () => void }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -101,23 +104,33 @@ function TeleprompterModal({ script, onClose }: { script: string; onClose: () =>
   const [playing, setPlaying] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const [videoUrl, setVideoUrl] = useState("");
+  const [videoBlob, setVideoBlob] = useState<Blob | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploaded, setUploaded] = useState(false);
   const [error, setError] = useState("");
   const paragraphs = useMemo(() => script.replace(/([.!?])\s+/g, "$1\n").split(/\r?\n/).map((part) => part.trim()).filter(Boolean), [script]);
   const [currentParagraph, setCurrentParagraph] = useState(0);
   const paragraphRefs = useRef<Array<HTMLParagraphElement | null>>([]);
+  useEffect(() => {
+    setCurrentParagraph(0);
+    setPlaying(false);
+    scrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
+  }, [script]);
   useEffect(() => () => { streamRef.current?.getTracks().forEach((track) => track.stop()); if (videoUrl) URL.revokeObjectURL(videoUrl); }, [videoUrl]);
   useEffect(() => {
     if (!playing) return undefined;
     const timer = window.setInterval(() => {
       const container = scrollRef.current;
       if (!container) return;
+      if (container.scrollTop >= container.scrollHeight - container.clientHeight - 1) { setPlaying(false); return; }
       container.scrollBy({ top: 1, behavior: "auto" });
-      const center = container.scrollTop + container.clientHeight / 2;
+      const center = container.getBoundingClientRect().top + container.clientHeight / 2;
       let nearest = currentParagraph;
       let distance = Number.POSITIVE_INFINITY;
       paragraphRefs.current.forEach((paragraph, index) => {
         if (!paragraph) return;
-        const nextDistance = Math.abs(paragraph.offsetTop - center);
+        const rect = paragraph.getBoundingClientRect();
+        const nextDistance = Math.abs(rect.top + rect.height / 2 - center);
         if (nextDistance < distance) { distance = nextDistance; nearest = index; }
       });
       if (nearest !== currentParagraph) setCurrentParagraph(nearest);
@@ -133,7 +146,12 @@ function TeleprompterModal({ script, onClose }: { script: string; onClose: () =>
       chunksRef.current = [];
       const recorder = new MediaRecorder(stream);
       recorder.ondataavailable = (event) => { if (event.data.size) chunksRef.current.push(event.data); };
-      recorder.onstop = () => setVideoUrl(URL.createObjectURL(new Blob(chunksRef.current, { type: "video/webm" })));
+      recorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "video/webm" });
+        setVideoBlob(blob);
+        setVideoUrl(URL.createObjectURL(blob));
+        setUploaded(false);
+      };
       recorder.start(); recorderRef.current = recorder; setRecording(true); setCountdown(3); setPlaying(false); setError("");
       window.setTimeout(() => { setCountdown(0); setPlaying(true); }, 3000);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo abrir la cámara."); }
@@ -142,8 +160,26 @@ function TeleprompterModal({ script, onClose }: { script: string; onClose: () =>
   const nextParagraph = () => {
     const next = Math.min(currentParagraph + 1, Math.max(paragraphs.length - 1, 0));
     setCurrentParagraph(next);
-    paragraphRefs.current[next]?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const container = scrollRef.current;
+    const paragraph = paragraphRefs.current[next];
+    if (container && paragraph) container.scrollTo({ top: Math.max(0, paragraph.offsetTop - container.clientHeight / 2 + paragraph.offsetHeight / 2), behavior: "smooth" });
     setPlaying(true);
   };
-  return <div className="ui-modal-backdrop" role="presentation"><section className="ui-modal teleprompter-modal" role="dialog" aria-modal="true" aria-label="Grabador con teleprompter"><div className="ui-modal-head"><div><p className="ui-eyebrow">Vídeo</p><h2>Grabador con teleprompter</h2></div><Button variant="ghost" onClick={onClose}>Cerrar</Button></div><div className="teleprompter-layout"><div className="camera-stage"><video ref={videoRef} muted playsInline /><span>{recording ? "●" : "○"}</span>{countdown > 0 && <div className="teleprompter-countdown" aria-live="assertive"><strong>{countdown}</strong><small>Prepárate</small></div>}</div><div className="teleprompter-script" ref={scrollRef}>{paragraphs.map((paragraph, index) => <p key={`${index}-${paragraph.slice(0, 18)}`} ref={(element) => { paragraphRefs.current[index] = element; }} className={index === currentParagraph ? "active" : ""}>{paragraph}</p>)}</div></div><div className="teleprompter-controls"><Button variant={recording ? "danger" : "primary"} onClick={recording ? stop : start}>{recording ? "Detener" : "Grabar"}</Button><Button variant="secondary" onClick={() => setPlaying((value) => !value)} disabled={countdown > 0}>{playing ? "Pausar" : "Reproducir"}</Button><Button variant="secondary" onClick={nextParagraph} disabled={!paragraphs.length || currentParagraph >= paragraphs.length - 1}>Siguiente línea</Button>{videoUrl && <a className="ui-button ui-button-secondary" href={videoUrl} download="escarlet-video.webm">Descargar vídeo</a>}</div>{error && <p className="ui-field-error" role="alert">{error}</p>}</section></div>;
+  const upload = async () => {
+    if (!videoBlob || !itemId || uploading) return;
+    setUploading(true);
+    setError("");
+    try {
+      const extension = videoBlob.type.includes("mp4") ? "mp4" : videoBlob.type.includes("quicktime") ? "mov" : "webm";
+      const file = new File([videoBlob], `escarlet-reel.${extension}`, { type: videoBlob.type || "video/webm" });
+      await api.uploadContentVideo(itemId, file, site);
+      setUploaded(true);
+      onUploaded?.();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudo subir el vídeo.");
+    } finally {
+      setUploading(false);
+    }
+  };
+  return <div className="ui-modal-backdrop" role="presentation"><section className="ui-modal teleprompter-modal" role="dialog" aria-modal="true" aria-label="Grabador con teleprompter"><div className="ui-modal-head"><div><p className="ui-eyebrow">Vídeo para Reel</p><h2>Grabador con teleprompter</h2></div><Button variant="ghost" onClick={onClose}>Cerrar</Button></div><div className="teleprompter-layout"><div className="camera-stage"><video ref={videoRef} muted playsInline /><span>{recording ? "●" : "○"}</span>{countdown > 0 && <div className="teleprompter-countdown" aria-live="assertive"><strong>{countdown}</strong><small>Prepárate</small></div>}</div><div className="teleprompter-script" ref={scrollRef}>{paragraphs.map((paragraph, index) => <p key={`${index}-${paragraph.slice(0, 18)}`} ref={(element) => { paragraphRefs.current[index] = element; }} className={index === currentParagraph ? "active" : ""}>{paragraph}</p>)}</div></div><div className="teleprompter-controls"><Button variant={recording ? "danger" : "primary"} onClick={recording ? stop : start}>{recording ? "Detener" : "Grabar"}</Button><Button variant="secondary" onClick={() => setPlaying((value) => !value)} disabled={countdown > 0}>{playing ? "Pausar" : "Reproducir"}</Button><Button variant="secondary" onClick={nextParagraph} disabled={!paragraphs.length || currentParagraph >= paragraphs.length - 1}>Siguiente línea</Button>{videoUrl && <a className="ui-button ui-button-secondary" href={videoUrl} download="escarlet-video.webm">Descargar vídeo</a>}{videoBlob && itemId && <Button variant="secondary" loading={uploading} disabled={uploading || uploaded} onClick={() => void upload()}>{uploaded ? "Vídeo subido" : "Subir vídeo a Buffer"}</Button>}{uploaded && canPublish && <Button variant="primary" loading={busy} disabled={busy} onClick={onPublish}>Publicar reel en Buffer</Button>}</div>{error && <p className="ui-field-error" role="alert">{error}</p>}</section></div>;
 }

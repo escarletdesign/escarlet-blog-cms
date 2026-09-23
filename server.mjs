@@ -130,6 +130,7 @@ import {
 import {
   notifyRebuild,
   uploadMedia,
+  saveUploadedVideoMedia,
   receiveImageDrop,
   publishPost as cmsPublishPost,
   validateSeo as cmsValidateSeo,
@@ -257,7 +258,9 @@ import {
   createBrandKitVersion,
   getActiveBrandKit,
   enqueueJob,
-  assertWorkspaceRole
+  assertWorkspaceRole,
+  registerContentMedia,
+  attachContentMedia
 } from './lib/workspace-domain.mjs'
 import { isPostgresConfigured, getPgPool, runCoreMigrations } from './lib/pg.mjs'
 import { encryptSecret, decryptSecret } from './lib/secret-crypto.mjs'
@@ -432,8 +435,8 @@ function readRawBuffer(req, maxBytes = MAX_BODY_BYTES) {
   })
 }
 
-function parseBody(req) {
-  return readRawBuffer(req).then((buf) => {
+function parseBody(req, maxBytes = MAX_BODY_BYTES) {
+  return readRawBuffer(req, maxBytes).then((buf) => {
     if (!buf.length) return {}
     if (isMultipartRequest(req)) {
       const parsed = parseMultipart(buf, req.headers['content-type'])
@@ -1345,7 +1348,11 @@ const server = createServer(async (req, res) => {
       '.jpg': 'image/jpeg',
       '.jpeg': 'image/jpeg',
       '.png': 'image/png',
-      '.gif': 'image/gif'
+      '.gif': 'image/gif',
+      '.webm': 'video/webm',
+      '.mp4': 'video/mp4',
+      '.mov': 'video/quicktime',
+      '.m4v': 'video/x-m4v'
     }
     serveStaticFile(res, filePath, types[ext] || 'application/octet-stream', req.method)
     return
@@ -1807,12 +1814,14 @@ const server = createServer(async (req, res) => {
   // this Postgres-backed service.
   if (path.startsWith('/api/v2/')) {
     let body = {}
-    try { if (req.method !== 'GET') body = await parseBody(req) } catch (error) {
+    const videoUploadRequest = req.method === 'POST' && /^\/api\/v2\/content\/items\/[^/]+\/video$/.test(path)
+    try { if (req.method !== 'GET') body = await parseBody(req, videoUploadRequest ? 60 * 1024 * 1024 : MAX_BODY_BYTES) } catch (error) {
       json(res, error.status || 400, { message: error.message })
       return
     }
     const batchMatch = path.match(/^\/api\/v2\/content\/batches\/([^/]+)$/)
     const itemMatch = path.match(/^\/api\/v2\/content\/items\/([^/]+)$/)
+    const videoUploadMatch = path.match(/^\/api\/v2\/content\/items\/([^/]+)\/video$/)
     const itemActionMatch = path.match(/^\/api\/v2\/content\/items\/([^/]+)\/(approve|reject|schedule|reschedule|publish-buffer|cancel|mark-published|reconcile-scheduled|clear-published-errors|reopen-unsent-channel)$/)
     const batchActionMatch = path.match(/^\/api\/v2\/content\/batches\/([^/]+)\/(schedule|cancel)$/)
     const batchReviewMatch = path.match(/^\/api\/v2\/content\/batches\/([^/]+)\/(approve|reject)$/)
@@ -2224,6 +2233,38 @@ const server = createServer(async (req, res) => {
         const scope = await requireV2Context(req, url, res)
         if (!scope) return
         json(res, 200, { items: await listContentItems({ workspaceId: scope.workspaceId, batchId: url.searchParams.get('batchId'), siteId: scope.siteId || undefined, status: url.searchParams.get('status') || undefined, channel: url.searchParams.get('channel') || undefined, query: url.searchParams.get('query') || undefined, limit: url.searchParams.get('limit') }) })
+        return
+      }
+      if (req.method === 'POST' && videoUploadMatch) {
+        const scope = await requireV2Context(req, url, res, body)
+        if (!scope) return
+        assertWorkspaceRole(scope.context.role, ['owner', 'admin', 'editor', 'author'])
+        const itemId = decodeURIComponent(videoUploadMatch[1])
+        const siteHandle = scope.context.siteHandle || scope.siteId
+        const video = await saveUploadedVideoMedia({
+          site: siteHandle,
+          filename: body.filename,
+          buffer: body.buffer,
+          mimeType: body.mimeType || 'video/webm'
+        })
+        const asset = await registerContentMedia({
+          workspaceId: scope.workspaceId,
+          siteId: scope.siteId,
+          userId: scope.auth.userId,
+          role: scope.context.role,
+          media: video
+        })
+        await attachContentMedia({
+          workspaceId: scope.workspaceId,
+          siteId: scope.siteId,
+          itemId,
+          userId: scope.auth.userId,
+          role: scope.context.role,
+          mediaAssetId: asset.id,
+          channels: ['video'],
+          assetIndex: 0
+        })
+        json(res, 201, { itemId, media: { ...asset, url: asset.publicUrl || video.url, path: asset.storageKey || video.path } })
         return
       }
       if (req.method === 'PATCH' && itemMatch) {
