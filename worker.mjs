@@ -85,7 +85,7 @@ async function processExternalPublicationEvent(event) {
       mi.user_token_ciphertext,mi.metricool_user_id,mi.blog_id,mi.timezone AS integration_timezone
     FROM content_variants cv JOIN content_items ci ON ci.id=cv.item_id JOIN sites site ON site.id=ci.site_id LEFT JOIN schedules s ON s.variant_id=cv.id
     LEFT JOIN LATERAL (SELECT body FROM content_variants WHERE item_id=ci.id AND channel='blog' LIMIT 1) blog ON TRUE
-    LEFT JOIN LATERAL (SELECT provider,credentials_ciphertext,external_account_id,config FROM channel_connections WHERE workspace_id=cv.workspace_id AND site_id=ci.site_id AND channel=CASE WHEN cv.channel='instagram_story' THEN 'instagram' ELSE cv.channel END AND status='connected' ORDER BY is_primary DESC,updated_at DESC LIMIT 1) cc ON TRUE
+    LEFT JOIN LATERAL (SELECT provider,status,credentials_ciphertext,external_account_id,config FROM channel_connections WHERE workspace_id=cv.workspace_id AND site_id=ci.site_id AND channel=CASE WHEN cv.channel='instagram_story' THEN 'instagram' ELSE cv.channel END AND status='connected' ORDER BY is_primary DESC,updated_at DESC LIMIT 1) cc ON TRUE
     LEFT JOIN LATERAL (SELECT user_token_ciphertext,metricool_user_id,blog_id,timezone FROM metricool_integrations WHERE workspace_id=cv.workspace_id AND (site_id=ci.site_id OR site_id IS NULL) AND enabled=TRUE ORDER BY CASE WHEN site_id=ci.site_id THEN 0 ELSE 1 END LIMIT 1) mi ON TRUE
     WHERE ci.id=$1 AND ci.workspace_id=$2 AND cv.status<>'canceled'`, [itemId, event.workspace_id])
   const requestedChannels = new Set(Array.isArray(event.payload?.channels) ? event.payload.channels.map((channel) => String(channel).toLowerCase()) : [])
@@ -379,12 +379,22 @@ async function drainOnce() {
 
 export async function startWorker({ once = false } = {}) {
   if (!process.env.DATABASE_URL) throw Object.assign(new Error('DATABASE_URL es obligatorio para el worker.'), { status: 503 })
-  await runCoreMigrations()
-  do {
-    const processed = await drainOnce()
-    if (once || stopping) break
-    if (!processed) await new Promise((resolve) => setTimeout(resolve, pollMs))
-  } while (!stopping)
+  let failures = 0
+  while (!stopping) {
+    try {
+      await runCoreMigrations()
+      const processed = await drainOnce()
+      failures = 0
+      if (once || stopping) break
+      if (!processed) await new Promise((resolve) => setTimeout(resolve, pollMs))
+    } catch (error) {
+      if (once) throw error
+      failures += 1
+      const retryMs = Math.min(30_000, 1_000 * 2 ** Math.min(failures, 5))
+      console.error(`[worker] ${error.message}; reintento en ${retryMs}ms`)
+      await new Promise((resolve) => setTimeout(resolve, retryMs))
+    }
+  }
 }
 
 process.once('SIGTERM', () => { stopping = true })

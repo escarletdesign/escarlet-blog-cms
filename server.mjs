@@ -561,13 +561,19 @@ function redirectPwaSiteAlias(req, res, path) {
 }
 
 function servePwa(req, res, path) {
-  if (!existsSync(pwaDist) || (path !== '/' && path !== '/app' && !path.startsWith('/app/'))) return false
+  const isAppPath = path === '/' || path === '/app' || path.startsWith('/app/')
+  const isServerPath = path === '/mcp' || path.startsWith('/mcp/') || path === '/runtime' || path.startsWith('/runtime/') || path === '/api' || path.startsWith('/api/') || path === '/media' || path.startsWith('/media/') || path === '/oauth' || path.startsWith('/oauth/') || path === '/.well-known' || path.startsWith('/.well-known/')
+  const isAssetPath = Boolean(extname(path))
+  // React Router owns extensionless browser routes such as /calendar and
+  // /plans. Serve the same entrypoint on direct navigation so a reload does
+  // not fall through to the JSON API 404 handler.
+  if (!existsSync(pwaDist) || (!isAppPath && (isServerPath || isAssetPath))) return false
   if (redirectPwaSiteAlias(req, res, path)) return true
   // Magic consumption is a server route, not an SPA route.
   if (path === '/app/magic/consume') return false
   let suffix = ''
   try {
-    suffix = path === '/' || path === '/app' ? '' : decodeURIComponent(path.slice('/app/'.length))
+    suffix = isAppPath && path !== '/' && path !== '/app' ? decodeURIComponent(path.slice('/app/'.length)) : ''
   } catch {
     json(res, 400, { message: 'Ruta inválida' })
     return true
