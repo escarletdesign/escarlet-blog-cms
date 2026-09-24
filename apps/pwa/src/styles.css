@@ -783,6 +783,12 @@ select, .ui-plans-page .ui-select, .ui-page .ui-input.ui-select, .site-switcher 
 .ui-preview-slides h4 { margin: var(--ui-space-2) 0; }
 .ui-preview-slides p { margin: 0; color: var(--ui-muted); line-height: 1.5; white-space: pre-wrap; }
 .ui-connection-form { max-width: 720px; margin-top: 22px; } .ui-connection-form .ui-inline { align-items: flex-start; } .ui-connection-form .ui-inline > .ui-field { flex: 1 1 0; min-width: 0; } .ui-modal .ui-connection-form { max-width: none; margin-top: 0; }
+.ui-buffer-key-row { align-items: flex-end !important; }
+.ui-buffer-key-row > .ui-button { flex: 0 0 auto; align-self: end; }
+.ui-channel-detail { display: grid; gap: var(--ui-space-2); background: var(--ui-surface-soft); }
+.ui-channel-detail .ui-inline { align-items: center; }
+.ui-channel-detail .ui-input { min-width: 0; }
+@media (max-width: 560px) { .ui-buffer-key-row { align-items: stretch !important; flex-direction: column; } .ui-buffer-key-row > .ui-button { width: 100%; align-self: stretch; } }
 .ui-mcp-card { margin-bottom: 20px; background: linear-gradient(145deg, rgba(39,58,34,.7), var(--ui-surface)); }
 .ui-mcp-card .ui-card-head { align-items: center; }
 .ui-mcp-card h2 { margin-top: 5px; }

@@ -23,6 +23,7 @@ import { api } from "./api";
 import type { AiConversation, SocialPackJobResult } from "./api";
 import { getInitialLanguage, Language, translate } from "./i18n";
 import type { Author, BrandSummary, ContentItem, MediaItem, Post, Session } from "./types";
+import { itemTitle } from "./content-format";
 import { ContentBatches as ContentPlans } from "./ContentBatches";
 import { DesignSystem } from "./DesignSystem";
 import { Badge, Button, Card, ChannelBadge, Checkbox, ConnectionCard, Drawer, EmptyState as UiEmptyState, Field, Inline, Modal, PageHeader, Select, Stack, StatusBadge, Tabs, TextField } from "./ui";
@@ -497,7 +498,7 @@ function App() {
                   <Route path="/publish/:slug" element={<PublishSocial />} />
                   <Route path="/posts" element={<Posts />} />
                 </>}
-                <Route path="/calendar" element={<EditorialCalendar />} />
+                <Route path="/calendar" element={<Navigate to="/plans" replace />} />
                 <Route path="/social-pack" element={<Navigate to="/plans" replace />} />
                 {contentMode === "blog" && <Route path="/social-pack/:slug" element={<SocialPack />} />}
                 <Route path="/plans" element={<ContentPlans site={site} creationEnabled={workflowFlags.creationUiEnabled && brandCapabilities.content_publishing !== false} activeChannels={channels} />} />
@@ -753,7 +754,6 @@ function Onboarding() {
           <div className="onboarding-v2-nav-list">
             <div><span aria-hidden="true">▤</span><strong>{t("nav.brands")}</strong><small>{t("onboarding.workspaceBrands")}</small></div>
             <div><span aria-hidden="true">✦</span><strong>{t("nav.plans")}</strong><small>{t("onboarding.workspacePlans")}</small></div>
-            <div><span aria-hidden="true">◷</span><strong>{t("nav.calendar")}</strong><small>{t("onboarding.workspaceCalendar")}</small></div>
           </div>
         </Card>
       </div>
@@ -809,8 +809,7 @@ function Shell() {
   const adminUser = isWorkspaceAdmin(session);
   const links = [
     { to: "/", label: t("nav.home", "Resumen"), icon: "home" },
-    { to: "/plans", label: t("nav.plans", "Planes de contenido"), icon: "plans" },
-    { to: "/calendar", label: t("nav.calendar", "Calendario"), icon: "calendar" },
+    { to: "/plans", label: t("nav.plans", "Contenido"), icon: "plans" },
     ...(!adminUser ? [
       { to: "/brands", label: t("nav.brands", "Marcas"), icon: "brands" },
       { to: "/team", label: t("nav.team", "Equipo y acceso"), icon: "team" },
@@ -1107,7 +1106,6 @@ function Home() {
       <div className="choice-grid">
         {!creationEnabled ? <>
           <button className="choice-card" onClick={() => nav("/plans")}><span>✓</span><strong>Planes de contenido</strong><small>Revisa, aprueba y agenda el contenido creado desde ChatGPT.</small><b>Abrir planes →</b></button>
-          <button className="choice-card" onClick={() => nav("/calendar")}><span>▦</span><strong>Calendario de publicación</strong><small>Consulta lo agendado y el estado de cada canal.</small><b>Ver calendario →</b></button>
           {presentationEnabled && <button className="choice-card" onClick={() => nav("/brands")}><span>▤</span><strong>Brand kit para presentaciones</strong><small>ChatGPT puede usar la identidad de esta marca en Slides y otras herramientas.</small><b>Ver marcas →</b></button>}
         </> : <>
         {workflowFlags.assistantEnabled && (
@@ -1142,7 +1140,7 @@ function Home() {
         </div>
         <RecentPosts />
         <div className="quick-actions">
-          <button onClick={() => nav("/posts?status=scheduled&view=month")}>{t("home.calendar")}</button>
+          <button onClick={() => nav("/plans?status=scheduled")}>{t("home.calendar")}</button>
           {isWorkspaceAdmin(session) && (
             <button onClick={() => nav("/admin")}>{t("home.openAdmin")}</button>
           )}
@@ -1164,8 +1162,7 @@ function RecentContentWork() {
       .catch((cause) => setError(cause instanceof Error ? cause.message : "No se pudo cargar el contenido en curso."));
   }, [site]);
   if (error || !items.length) return null;
-  const title = (item: ContentItem) => String(item.metadata?.contentTitle || item.topic || "Publicación").split(/[.!?]\s+/)[0].slice(0, 100);
-  return <section className="home-content-work"><div className="section-title"><h2>{t("home.inProgress")}</h2><NavLink to="/plans">{t("home.openContent")}</NavLink></div><div className="post-list compact">{items.map((item) => <button key={item.id} type="button" className="post-row" onClick={() => nav(`/plans?plan=${encodeURIComponent(item.batch_id || item.batchId || "")}`)}><span><StatusBadge status={item.status} /><h3>{title(item)}</h3><p>{(item.variants || []).map((variant) => variant.channel).join(" · ") || t("home.noChannel")}</p></span><span className="chevron">›</span></button>)}</div></section>;
+  return <section className="home-content-work"><div className="section-title"><h2>{t("home.inProgress")}</h2><NavLink to="/plans">{t("home.openContent")}</NavLink></div><div className="post-list compact">{items.map((item) => <button key={item.id} type="button" className="post-row" onClick={() => nav(`/plans?plan=${encodeURIComponent(item.batch_id || item.batchId || "")}`)}><span><StatusBadge status={item.status} /><h3>{itemTitle(item)}</h3><p>{(item.variants || []).map((variant) => variant.channel).join(" · ") || t("home.noChannel")}</p></span><span className="chevron">›</span></button>)}</div></section>;
 }
 
 function RecentPosts() {
@@ -7481,7 +7478,7 @@ function ConnectionsView({ brandId, backTo, embedded = false }: { brandId?: stri
       const channels = result.channels || [];
       setBufferOrganizations(organizations);
       setBufferChannels(channels);
-      const suggested = { ...form.channelIds };
+      const suggested: Record<string, string> = {};
       for (const target of BUFFER_TARGET_CHANNELS) {
         if (suggested[target]) continue;
         const match = channels.find((channel) => bufferServiceForTarget(String(channel.service || ""), target));
@@ -7519,8 +7516,8 @@ function ConnectionsView({ brandId, backTo, embedded = false }: { brandId?: stri
       <form className="ui-stack ui-stack-md ui-connection-form" onSubmit={(event) => void connect(event)}>
       <Field label="Proveedor"><Select autoFocus value={form.provider} onChange={(event) => { const provider = event.target.value; setForm((current) => ({ ...current, provider, channel: provider === "buffer" ? "buffer" : provider === "web" ? "blog" : current.channel === "blog" || current.channel === "buffer" ? "instagram" : current.channel })); setPostizIntegrations([]); setBufferOrganizations([]); setBufferChannels([]); }}><option value="buffer">Buffer (una conexión)</option><option value="postiz">Postiz (self-hosted)</option><option value="metricool">Metricool</option><option value="planable">Planable.io</option><option value="web">Coolify webhook / Web</option></Select></Field>
       {form.provider !== "buffer" && <Field label="Canal"><Select value={form.channel} onChange={(event) => setForm({ ...form, channel: event.target.value })}>{availableChannels.filter((channel) => channel.enabled && (channel.channel !== "blog" || form.provider === "web" || form.provider === "postiz")).map((channel) => <option key={channel.channel} value={channel.channel}>{channel.channel}</option>)}</Select></Field>}
-      <Field label={tokenLabel} hint={form.provider === "buffer" ? "Buffer → Settings → API. Se cifra en el servidor y nunca se vuelve a mostrar." : form.provider === "postiz" ? "Postiz → Settings → Developers → Public API." : form.provider === "planable" ? "Planable → Ajustes de cuenta → Integraciones → Public API." : "Se cifra en el servidor y nunca se vuelve a mostrar."} required><TextField type="password" value={form.userToken} onChange={(event) => setForm({ ...form, userToken: event.target.value })} required /></Field>
-      {form.provider === "buffer" && <Stack gap="sm"><Inline gap="md"><Field label="Organization ID" hint="Carga las organizaciones disponibles con tu API key." required><TextField value={form.organizationId} onChange={(event) => setForm({ ...form, organizationId: event.target.value, channelId: "", channelIds: {} })} required /></Field><Button type="button" variant="ghost" size="sm" onClick={() => void loadBufferChannels()} loading={loadingBufferChannels}>Cargar canales</Button></Inline>{bufferOrganizations.length > 0 && <Field label="Organización"><Select value={form.organizationId} onChange={(event) => { setForm((current) => ({ ...current, organizationId: event.target.value, channelId: "", channelIds: {} })); void loadBufferChannels(event.target.value); }}>{bufferOrganizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name || organization.id} · {organization.channelCount ?? 0} canales</option>)}</Select></Field>}<p className="ui-field-hint">Una sola conexión de Buffer. Elige qué cuenta recibe cada canal del CMS.</p>{bufferChannels.length > 0 ? <Stack gap="sm">{enabledBufferTargets.map((target) => <Field key={target} label={bufferTargetLabel(target)} required><Select value={form.channelIds[target] || ""} onChange={(event) => setForm((current) => ({ ...current, channelIds: { ...current.channelIds, [target]: event.target.value } }))} required><option value="">Selecciona una cuenta</option>{bufferChannels.filter((channel) => bufferServiceForTarget(String(channel.service || ""), target)).map((channel) => <option key={`${target}-${channel.id}`} value={channel.id}>{channel.displayName || channel.name || channel.descriptor || channel.id} · {channel.service || "canal"}</option>)}</Select></Field>)}</Stack> : <p className="ui-field-hint">Carga los canales para configurar las cuentas de Buffer.</p>}{instagramStoryEnabled && <p className="ui-field-hint">Instagram Story reutiliza automáticamente la cuenta de Instagram, no necesita otra conexión.</p>}</Stack>}
+      {form.provider === "buffer" ? <Inline gap="md" className="ui-buffer-key-row"><Field label={tokenLabel} hint="Buffer → Settings → API. Se cifra en el servidor y nunca se vuelve a mostrar." required><TextField type="password" value={form.userToken} onChange={(event) => setForm({ ...form, userToken: event.target.value })} required /></Field><Button type="button" variant="ghost" size="sm" onClick={() => void loadBufferChannels()} loading={loadingBufferChannels}>Cargar canales</Button></Inline> : <Field label={tokenLabel} hint={form.provider === "postiz" ? "Postiz → Settings → Developers → Public API." : form.provider === "planable" ? "Planable → Ajustes de cuenta → Integraciones → Public API." : "Se cifra en el servidor y nunca se vuelve a mostrar."} required><TextField type="password" value={form.userToken} onChange={(event) => setForm({ ...form, userToken: event.target.value })} required /></Field>}
+      {form.provider === "buffer" && <Stack gap="sm">{bufferOrganizations.length > 0 && <Field label="Organización"><Select value={form.organizationId} onChange={(event) => { setForm((current) => ({ ...current, organizationId: event.target.value, channelId: "", channelIds: {} })); void loadBufferChannels(event.target.value); }}>{bufferOrganizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name || organization.id} · {organization.channelCount ?? 0} canales</option>)}</Select></Field>}<p className="ui-field-hint">Una sola conexión de Buffer. Elige qué cuenta recibe cada canal del CMS.</p>{bufferChannels.length > 0 ? <Stack gap="sm">{enabledBufferTargets.map((target) => <Field key={target} label={bufferTargetLabel(target)} required><Select value={form.channelIds[target] || ""} onChange={(event) => setForm((current) => ({ ...current, channelIds: { ...current.channelIds, [target]: event.target.value } }))} required><option value="">Selecciona una cuenta</option>{bufferChannels.filter((channel) => bufferServiceForTarget(String(channel.service || ""), target)).map((channel) => <option key={`${target}-${channel.id}`} value={channel.id}>{channel.displayName || channel.name || channel.descriptor || channel.id} · {channel.service || "canal"}</option>)}</Select></Field>)}</Stack> : <p className="ui-field-hint">Pega la API key y pulsa Cargar canales para descubrir las cuentas disponibles.</p>}{instagramStoryEnabled && <p className="ui-field-hint">Instagram Story reutiliza automáticamente la cuenta de Instagram, no necesita otra conexión.</p>}</Stack>}
       {form.provider === "postiz" && <><Field label="URL de Postiz"><TextField type="url" value={form.apiBaseUrl} onChange={(event) => setForm({ ...form, apiBaseUrl: event.target.value })} placeholder="https://postiz.tudominio.com/api" /></Field><Inline gap="md"><Field label="Integration ID" required><TextField value={form.integrationId} onChange={(event) => setForm({ ...form, integrationId: event.target.value })} required /></Field><Button type="button" variant="ghost" size="sm" onClick={() => void loadPostizAccounts()} loading={loadingPostizIntegrations}>Cargar cuentas</Button><Field label="Tipo de proveedor"><TextField value={form.providerType} onChange={(event) => setForm({ ...form, providerType: event.target.value })} placeholder="instagram, linkedin, x…" /></Field></Inline>{postizIntegrations.length > 0 && <Field label="Cuenta conectada"><Select value={form.integrationId} onChange={(event) => { const integration = postizIntegrations.find((item) => String(item.id) === event.target.value); setForm({ ...form, integrationId: event.target.value, providerType: String(integration?.identifier || form.providerType || "") }); }}>{postizIntegrations.map((integration) => <option key={integration.id} value={integration.id}>{integration.name || integration.profile || integration.identifier || integration.id} · {integration.identifier || "canal"}</option>)}</Select></Field>}</>}
       {form.provider === "metricool" && <Inline gap="md"><Field label="userId" required><TextField value={form.userId} onChange={(event) => setForm({ ...form, userId: event.target.value })} required /></Field><Field label="blogId" required><TextField value={form.blogId} onChange={(event) => setForm({ ...form, blogId: event.target.value })} required /></Field></Inline>}
       {form.provider === "planable" && <Inline gap="md"><Field label="Workspace ID" required><TextField value={form.workspaceId} onChange={(event) => setForm({ ...form, workspaceId: event.target.value })} required /></Field><Field label="Page ID" required><TextField value={form.pageId} onChange={(event) => setForm({ ...form, pageId: event.target.value })} required /></Field></Inline>}

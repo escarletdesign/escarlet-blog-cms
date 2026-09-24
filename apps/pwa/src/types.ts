@@ -56,6 +56,8 @@ export interface ContentItem {
   batch_id?: string;
   batchId?: string;
   topic: string;
+  planTitle?: string;
+  planStatus?: ContentStatus;
   metadata?: Record<string, any>;
   status: ContentStatus;
   variants: ContentVariant[];

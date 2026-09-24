@@ -2,12 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "./api";
 import type { ContentChannel, ContentItem, ContentVariant } from "./types";
+import { itemTitle } from "./content-format";
 import { Badge, Button, Card, ChannelBadge, EmptyState, IconButton, Inline, Stack, StatusBadge } from "./ui";
 
 const packChannels: ContentChannel[] = ["blog", "instagram", "instagram_story", "linkedin", "x", "video"];
 const label = (channel: string) => channel === "x" ? "X" : channel === "video" ? "Vídeo" : channel === "instagram_story" ? "Instagram Story" : channel.charAt(0).toUpperCase() + channel.slice(1);
-const shortTitle = (value: string) => { const raw = value.replace(/\s+/g, " ").trim(); const first = raw.split(/\b(?:enfoque|contexto|objetivo|idea central|brief)\s*:/i)[0].split(/[.!?]\s+/)[0].replace(/[.!?]+$/, "").trim(); return first.length <= 90 ? first || "Publicación" : `${first.slice(0, 87).replace(/\s+\S*$/, "").trim()}...`; };
-const itemTitle = (item: ContentItem) => String(item.metadata?.contentTitle || shortTitle(item.topic || "Publicación")).trim();
 
 function bodyFor(variant?: ContentVariant) {
   const body = variant?.body || {};
