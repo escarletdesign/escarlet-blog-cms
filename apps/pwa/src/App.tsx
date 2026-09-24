@@ -3769,7 +3769,7 @@ function SocialPack() {
     showToast(t("social.slideDownloaded"));
   };
   const contentItemId = post?.itemId || itemId;
-  const publishChannels = channels.filter((channel) => ["instagram", "linkedin", "x", "video"].includes(channel.channel) && channel.enabled && channel.connectionStatus === "connected").map((channel) => channel.channel);
+  const publishChannels = channels.filter((channel) => ["instagram", "linkedin", "x", "video"].includes(channel.channel) && channel.enabled && String(channel.connectionStatus || "").toLowerCase() === "connected").map((channel) => channel.channel);
   const bufferReady = publishChannels.length > 0;
   const publishReel = async (channel = "video") => {
     if (!contentItemId) return;
@@ -4135,10 +4135,10 @@ function TeleprompterModal({
   const chunksRef = useRef<Blob[]>([]);
   const countdownTimerRef = useRef<number | null>(null);
   const [recording, setRecording] = useState(false);
-  const paragraphs = useMemo(
-    () => script.replace(/([.!?])\s+/g, "$1\n").split(/\r?\n/).map((part) => part.trim()).filter(Boolean),
-    [script],
-  );
+  const paragraphs = useMemo(() => {
+    const lines = script.replace(/([.!?])\s+/g, "$1\n").split(/\r?\n/).map((part) => part.trim()).filter(Boolean);
+    return lines.filter((line, index) => index === 0 || line.replace(/\s+/g, " ").toLocaleLowerCase() !== lines[index - 1].replace(/\s+/g, " ").toLocaleLowerCase());
+  }, [script]);
   const paragraphRefs = useRef<Array<HTMLParagraphElement | null>>([]);
   const [showCamera, setShowCamera] = useState(true);
   const [countdown, setCountdown] = useState(0);
@@ -4326,7 +4326,7 @@ function TeleprompterModal({
               {uploaded ? "Vídeo guardado" : uploading ? "Guardando vídeo…" : "Guardar vídeo"}
             </button>
           )}
-          {uploaded && canPublish && onPublish && publishChannels.map((channel) => <button key={channel} className={`ui-button ${channel === "video" ? "ui-button-primary" : "ui-button-secondary"}`} onClick={() => onPublish(channel)} disabled={Boolean(busy)}>{busy ? "Programando…" : `Publicar en ${publishLabel(channel)}`}</button>)}
+          {uploaded && onPublish && (canPublish ? publishChannels.map((channel) => <button key={channel} className={`ui-button ${channel === "video" ? "ui-button-primary" : "ui-button-secondary"}`} onClick={() => onPublish(channel)} disabled={Boolean(busy)}>{busy ? "Programando…" : `Publicar en ${publishLabel(channel)}`}</button>) : <><button className="ui-button ui-button-secondary" disabled>Publicar en Buffer</button><span className="ui-field-hint">Conecta y activa un canal de Buffer en Administración para publicar.</span></>)}
         </div>
         {error && <p className="ui-error">{error}</p>}
       </section>
