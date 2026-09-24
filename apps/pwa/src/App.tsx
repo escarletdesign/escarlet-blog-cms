@@ -26,7 +26,7 @@ import type { Author, BrandSummary, ContentItem, MediaItem, Post, Session } from
 import { itemTitle } from "./content-format";
 import { ContentBatches as ContentPlans } from "./ContentBatches";
 import { DesignSystem } from "./DesignSystem";
-import { Badge, Button, Card, ChannelBadge, Checkbox, ConnectionCard, Drawer, EmptyState as UiEmptyState, Field, Inline, Modal, PageHeader, Select, Stack, StatusBadge, Tabs, TextField } from "./ui";
+import { Badge, Button, Card, ChannelBadge, Checkbox, ConnectionCard, Drawer, EmptyState as UiEmptyState, Field, Inline, Modal, PageHeader, Select, Stack, StatusBadge, Tabs, TextField, Toast as UiToast } from "./ui";
 
 type Draft = Partial<Post> & { title: string; slug?: string };
 type WorkflowFlags = { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean; creationUiEnabled: boolean; manualCreationEnabled: boolean };
@@ -299,20 +299,9 @@ function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={{ showToast }}>
       {children}
-      <div className="toast-region" aria-live="polite" aria-atomic="true">
+      <div className="ui-toast-region" aria-live="polite" aria-atomic="true">
         {toasts.map((toast) => (
-          <div key={toast.id} className={`toast toast-${toast.kind}`} role="status">
-            <span aria-hidden="true">{toast.kind === "error" ? "!" : toast.kind === "info" ? "i" : "✓"}</span>
-            <p>{toast.message}</p>
-            <button
-              type="button"
-              className="toast-close"
-              aria-label={t("common.closeToast")}
-              onClick={() => setToasts((current) => current.filter((item) => item.id !== toast.id))}
-            >
-              ×
-            </button>
-          </div>
+          <UiToast key={toast.id} message={toast.message} tone={toast.kind === "error" ? "danger" : toast.kind} closeLabel={t("common.closeToast")} onClose={() => setToasts((current) => current.filter((item) => item.id !== toast.id))} />
         ))}
       </div>
     </ToastContext.Provider>
@@ -7394,6 +7383,7 @@ function ConnectionsView({ brandId, backTo, embedded = false }: { brandId?: stri
   const Root = embedded ? "section" : "main";
   const { site, session, channels: configuredChannels, productContext } = useApp();
   const { t } = useI18n();
+  const { showToast } = useToast();
   const [selectedBrandId, setSelectedBrandId] = useState(brandId || productContext?.activeBrand?.id || site);
   const [availableChannels, setAvailableChannels] = useState(configuredChannels);
   const [connections, setConnections] = useState<Array<Record<string, any>>>([]);
@@ -7405,9 +7395,9 @@ function ConnectionsView({ brandId, backTo, embedded = false }: { brandId?: stri
   const [bufferChannels, setBufferChannels] = useState<Array<Record<string, any>>>([]);
   const [loadingBufferChannels, setLoadingBufferChannels] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [mcpInfo, setMcpInfo] = useState<Record<string, any> | null>(null);
+  const notify = (nextMessage: string, kind: ToastKind = "success") => showToast(nextMessage, kind);
 
   useEffect(() => { setSelectedBrandId(brandId || productContext?.activeBrand?.id || site); }, [brandId, productContext?.activeBrand?.id, site]);
   useEffect(() => {
@@ -7417,8 +7407,15 @@ function ConnectionsView({ brandId, backTo, embedded = false }: { brandId?: stri
 
   const connect = async (event: FormEvent) => {
     event.preventDefault();
+    if (form.provider === "buffer" && !form.organizationId) {
+      notify("Carga los canales de Buffer y selecciona una organización antes de guardar.", "error");
+      return;
+    }
+    if (form.provider === "buffer" && !Object.keys(form.channelIds).length) {
+      notify("Selecciona al menos una cuenta de Buffer antes de guardar.", "error");
+      return;
+    }
     setBusy(true);
-    setMessage("");
     try {
       await api.saveBrandConnection(selectedBrandId, {
         ...form,
@@ -7443,36 +7440,36 @@ function ConnectionsView({ brandId, backTo, embedded = false }: { brandId?: stri
       });
       const result = await api.brandConnections(selectedBrandId);
       setConnections(result.connections || []);
-      setMessage("Conexión guardada y lista para probar.");
+      notify("Conexión guardada y lista para probar.");
       setForm((current) => ({ ...current, userToken: "" }));
       setFormOpen(false);
     } catch (err: any) {
-      setMessage(err?.message || "No se pudo guardar la conexión.");
+      notify(err?.message || "No se pudo guardar la conexión.", "error");
     } finally {
       setBusy(false);
     }
   };
 
   const loadPostizAccounts = async () => {
-    if (!form.userToken) { setMessage("Pega primero la API key u OAuth token de Postiz."); return; }
+    if (!form.userToken) { notify("Pega primero la API key u OAuth token de Postiz.", "error"); return; }
     setLoadingPostizIntegrations(true);
     try {
       const result = await api.postizIntegrations(selectedBrandId, { apiToken: form.userToken, apiBaseUrl: form.apiBaseUrl || undefined });
       const integrations = result.integrations || [];
       setPostizIntegrations(integrations);
       if (integrations.length === 1) setForm((current) => ({ ...current, integrationId: String(integrations[0].id || ""), providerType: String(integrations[0].identifier || current.providerType || "") }));
-      setMessage(integrations.length ? "Cuentas de Postiz cargadas." : "Postiz no devolvió cuentas conectadas.");
-    } catch (err: any) { setMessage(err?.message || "No se pudieron cargar las cuentas de Postiz."); } finally { setLoadingPostizIntegrations(false); }
+      notify(integrations.length ? "Cuentas de Postiz cargadas." : "Postiz no devolvió cuentas conectadas.", integrations.length ? "success" : "info");
+    } catch (err: any) { notify(err?.message || "No se pudieron cargar las cuentas de Postiz.", "error"); } finally { setLoadingPostizIntegrations(false); }
   };
 
   const loadBufferChannels = async (organizationId = form.organizationId) => {
-    if (!form.userToken) { setMessage("Pega primero la API key de Buffer."); return; }
+    if (!form.userToken) { notify("Pega primero la API key de Buffer.", "error"); return; }
     setLoadingBufferChannels(true);
     try {
       const result = await api.bufferChannels(selectedBrandId, { apiToken: form.userToken, organizationId: organizationId || undefined });
       const organizations = result.organizations || [];
-      const selectedOrganizationId = String(result.organizationId || organizationId || organizations[0]?.id || "");
       const channels = result.channels || [];
+      const selectedOrganizationId = String(result.organizationId || organizationId || organizations[0]?.id || channels.find((channel) => channel.organizationId)?.organizationId || "");
       setBufferOrganizations(organizations);
       setBufferChannels(channels);
       const suggested: Record<string, string> = {};
@@ -7483,8 +7480,11 @@ function ConnectionsView({ brandId, backTo, embedded = false }: { brandId?: stri
       }
       if (suggested.instagram && !suggested.instagram_story) suggested.instagram_story = suggested.instagram;
       setForm((current) => ({ ...current, organizationId: selectedOrganizationId, channelId: "", channelIds: suggested }));
-      setMessage(channels.length ? "Canales de Buffer cargados." : "Buffer no devolvió canales para esa organización.");
-    } catch (err: any) { setMessage(err?.message || "No se pudieron cargar los canales de Buffer."); } finally { setLoadingBufferChannels(false); }
+      notify(channels.length ? "Canales de Buffer cargados." : "Buffer no devolvió canales para esa organización.", channels.length ? "success" : "info");
+    } catch (err: any) {
+      const message = err?.status === 429 ? "Buffer está limitando solicitudes. Espera unos segundos y vuelve a cargar los canales." : err?.message || "No se pudieron cargar los canales de Buffer.";
+      notify(message, "error");
+    } finally { setLoadingBufferChannels(false); }
   };
 
   const canManage = isWorkspaceAdmin(session);
@@ -7498,17 +7498,16 @@ function ConnectionsView({ brandId, backTo, embedded = false }: { brandId?: stri
   const copyMcpUrl = async () => {
     if (!mcpInfo?.mcpUrl) return;
     await navigator.clipboard?.writeText(mcpInfo.mcpUrl).catch(() => {});
-    setMessage("URL del MCP copiada.");
+    notify("URL del MCP copiada.");
   };
   const tokenLabel = form.provider === "postiz" ? "API key / OAuth token" : form.provider === "planable" ? "API token" : form.provider === "buffer" ? "API key de Buffer" : "Token";
   const enabledBufferTargets = (availableChannels.length ? BUFFER_TARGET_CHANNELS.filter((target) => availableChannels.some((channel) => channel.channel === target && channel.enabled) || (target === "instagram" && availableChannels.some((channel) => channel.channel === "instagram_story" && channel.enabled))) : BUFFER_TARGET_CHANNELS);
   const instagramStoryEnabled = availableChannels.some((channel) => channel.channel === "instagram_story" && channel.enabled);
   return <Root className={embedded ? "ui-admin-section" : "ui-page"}>
-    <PageHeader eyebrow={brandId ? `Marca · ${brandOptions.find((brand) => brand.id === selectedBrandId)?.name || brandOptions.find((brand) => brand.id === selectedBrandId)?.handle || "Conexiones"}` : "Proveedores por canal"} title="Conexiones" description={t("admin.connectionsDescription", "El Blog publica mediante el webhook de Coolify. Las conexiones sociales se gestionan aquí.")} back={backTo ? <NavLink to={backTo}>← Volver a la marca</NavLink> : undefined} actions={<Inline gap="sm">{!brandId && brandOptions.length > 1 && <Select aria-label="Filtrar por marca" value={selectedBrandId} onChange={(event) => setSelectedBrandId(event.target.value)}>{brandOptions.map((brand) => <option key={brand.id} value={brand.id}>{brand.name || brand.handle}</option>)}</Select>}{canManage && <Button onClick={() => { setMessage(""); setFormOpen(true); }}>{t("admin.addConnection")}</Button>}</Inline>} />
+    <PageHeader eyebrow={brandId ? `Marca · ${brandOptions.find((brand) => brand.id === selectedBrandId)?.name || brandOptions.find((brand) => brand.id === selectedBrandId)?.handle || "Conexiones"}` : "Proveedores por canal"} title="Conexiones" description={t("admin.connectionsDescription", "El Blog publica mediante el webhook de Coolify. Las conexiones sociales se gestionan aquí.")} back={backTo ? <NavLink to={backTo}>← Volver a la marca</NavLink> : undefined} actions={<Inline gap="sm">{!brandId && brandOptions.length > 1 && <Select aria-label="Filtrar por marca" value={selectedBrandId} onChange={(event) => setSelectedBrandId(event.target.value)}>{brandOptions.map((brand) => <option key={brand.id} value={brand.id}>{brand.name || brand.handle}</option>)}</Select>}{canManage && <Button onClick={() => setFormOpen(true)}>{t("admin.addConnection")}</Button>}</Inline>} />
     {error && <Card><p className="ui-field-error">{error}</p></Card>}
     <Card className="ui-mcp-card"><div className="ui-card-head"><div><span className="ui-eyebrow">Conexión externa</span><h2>Conectar esta marca con ChatGPT</h2><p className="ui-muted">Añade la URL del MCP y completa OAuth con tu cuenta. El acceso se resuelve por tus membresías actuales de marca.</p></div></div>{mcpInfo?.mcpUrl && <div className="ui-mcp-value"><div><span className="ui-field-label">URL del MCP</span><code>{mcpInfo.mcpUrl}</code></div><Button type="button" variant="ghost" size="sm" onClick={() => void copyMcpUrl()}>Copiar</Button></div>}<p className="ui-field-hint">No existen tokens de marca. Para Cursor, Claude u otros clientes usa tu PAT personal desde Ajustes o el flujo OAuth.</p><NavLink className="text-link" to="/settings">{t("settings.mcpTokenRegenerate")}</NavLink></Card>
-    {connections.length ? <div className="ui-connection-grid">{connections.map((connection) => <ConnectionCard key={connection.id} provider={connection.provider === "buffer" && connection.channel === "buffer" ? "Buffer · todos los canales" : `${connection.provider || "Proveedor"} · ${connection.channel || "canal"}`} status={connection.status || (connection.enabled ? "connected" : "disabled")} account={connection.externalAccountId || connection.userId ? `Cuenta ${connection.externalAccountId || connection.userId}` : undefined} actions={<Inline gap="sm"><Button variant="ghost" size="sm" onClick={async () => { try { await api.testConnection(connection.id, selectedBrandId); setMessage("Prueba correcta."); } catch (err: any) { setMessage(err?.message || "La prueba falló."); } }}>Probar</Button>{canManage && <Button variant="ghost" size="sm" onClick={async () => { try { await api.disconnectConnection(connection.id, selectedBrandId); setConnections((current) => current.filter((item) => item.id !== connection.id)); } catch (err: any) { setMessage(err?.message || "No se pudo desconectar."); } }}>Desconectar</Button>}</Inline>} />)}</div> : !error && <UiEmptyState title="Aún no hay conexiones" description="Activa un canal y conecta el proveedor que lo ejecutará." />}
-    {message && !formOpen && <p className={message.includes("falló") || message.includes("No se") ? "ui-field-error" : "ui-success"} role="status">{message}</p>}
+    {connections.length ? <div className="ui-connection-grid">{connections.map((connection) => <ConnectionCard key={connection.id} provider={connection.provider === "buffer" && connection.channel === "buffer" ? "Buffer · todos los canales" : `${connection.provider || "Proveedor"} · ${connection.channel || "canal"}`} status={connection.status || (connection.enabled ? "connected" : "disabled")} account={connection.externalAccountId || connection.userId ? `Cuenta ${connection.externalAccountId || connection.userId}` : undefined} actions={<Inline gap="sm"><Button variant="ghost" size="sm" onClick={async () => { try { await api.testConnection(connection.id, selectedBrandId); notify("Prueba correcta."); } catch (err: any) { notify(err?.message || "La prueba falló.", "error"); } }}>Probar</Button>{canManage && <Button variant="ghost" size="sm" onClick={async () => { try { await api.disconnectConnection(connection.id, selectedBrandId); setConnections((current) => current.filter((item) => item.id !== connection.id)); notify("Conexión desconectada."); } catch (err: any) { notify(err?.message || "No se pudo desconectar.", "error"); } }}>Desconectar</Button>}</Inline>} />)}</div> : !error && <UiEmptyState title="Aún no hay conexiones" description="Activa un canal y conecta el proveedor que lo ejecutará." />}
     <Modal open={canManage && formOpen} title={t("admin.addConnection")} onClose={() => setFormOpen(false)}>
       <form className="ui-stack ui-stack-md ui-connection-form" onSubmit={(event) => void connect(event)}>
       <Field label="Proveedor"><Select autoFocus value={form.provider} onChange={(event) => { const provider = event.target.value; setForm((current) => ({ ...current, provider, channel: provider === "buffer" ? "buffer" : provider === "web" ? "blog" : current.channel === "blog" || current.channel === "buffer" ? "instagram" : current.channel })); setPostizIntegrations([]); setBufferOrganizations([]); setBufferChannels([]); }}><option value="buffer">Buffer (una conexión)</option><option value="postiz">Postiz (self-hosted)</option><option value="metricool">Metricool</option><option value="planable">Planable.io</option><option value="web">Coolify webhook / Web</option></Select></Field>
@@ -7518,7 +7517,7 @@ function ConnectionsView({ brandId, backTo, embedded = false }: { brandId?: stri
       {form.provider === "postiz" && <><Field label="URL de Postiz"><TextField type="url" value={form.apiBaseUrl} onChange={(event) => setForm({ ...form, apiBaseUrl: event.target.value })} placeholder="https://postiz.tudominio.com/api" /></Field><Inline gap="md"><Field label="Integration ID" required><TextField value={form.integrationId} onChange={(event) => setForm({ ...form, integrationId: event.target.value })} required /></Field><Button type="button" variant="ghost" size="sm" onClick={() => void loadPostizAccounts()} loading={loadingPostizIntegrations}>Cargar cuentas</Button><Field label="Tipo de proveedor"><TextField value={form.providerType} onChange={(event) => setForm({ ...form, providerType: event.target.value })} placeholder="instagram, linkedin, x…" /></Field></Inline>{postizIntegrations.length > 0 && <Field label="Cuenta conectada"><Select value={form.integrationId} onChange={(event) => { const integration = postizIntegrations.find((item) => String(item.id) === event.target.value); setForm({ ...form, integrationId: event.target.value, providerType: String(integration?.identifier || form.providerType || "") }); }}>{postizIntegrations.map((integration) => <option key={integration.id} value={integration.id}>{integration.name || integration.profile || integration.identifier || integration.id} · {integration.identifier || "canal"}</option>)}</Select></Field>}</>}
       {form.provider === "metricool" && <Inline gap="md"><Field label="userId" required><TextField value={form.userId} onChange={(event) => setForm({ ...form, userId: event.target.value })} required /></Field><Field label="blogId" required><TextField value={form.blogId} onChange={(event) => setForm({ ...form, blogId: event.target.value })} required /></Field></Inline>}
       {form.provider === "planable" && <Inline gap="md"><Field label="Workspace ID" required><TextField value={form.workspaceId} onChange={(event) => setForm({ ...form, workspaceId: event.target.value })} required /></Field><Field label="Page ID" required><TextField value={form.pageId} onChange={(event) => setForm({ ...form, pageId: event.target.value })} required /></Field></Inline>}
-      <Field label="Zona horaria"><TextField value={form.timezone} onChange={(event) => setForm({ ...form, timezone: event.target.value })} /></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setFormOpen(false)}>{t("editor.cancel")}</Button><Button type="submit" loading={busy}>Guardar conexión</Button></Inline>{message && <p className={message.includes("falló") || message.includes("No se") ? "ui-field-error" : "ui-success"} role="status">{message}</p>}
+      <Field label="Zona horaria"><TextField value={form.timezone} onChange={(event) => setForm({ ...form, timezone: event.target.value })} /></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setFormOpen(false)}>{t("editor.cancel")}</Button><Button type="submit" loading={busy}>Guardar conexión</Button></Inline>
     </form>
     </Modal>
   </Root>;

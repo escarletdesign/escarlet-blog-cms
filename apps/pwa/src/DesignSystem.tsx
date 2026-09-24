@@ -98,7 +98,7 @@ export function DesignSystem() {
       <Drawer open={drawerOpen} title="Drawer de referencia" onClose={() => setDrawerOpen(false)}>
         <Stack gap="md"><p className="ui-muted">Los drawers sirven para tareas secundarias que no necesitan una página completa.</p><Button onClick={() => setDrawerOpen(false)}>Cerrar drawer</Button></Stack>
       </Drawer>
-      {toastVisible && <div className="ui-ds-toast-wrap"><Toast tone="success" message="Toast visible y accesible" /><Button size="sm" variant="ghost" onClick={() => setToastVisible(false)}>Ocultar</Button></div>}
+      {toastVisible && <div className="ui-ds-toast-wrap"><Toast className="ui-toast-demo" tone="success" message="Conexión guardada" /><Toast className="ui-toast-demo" tone="info" message="Canales cargados" /><Toast className="ui-toast-demo" tone="danger" message="No se pudo conectar con Buffer" /><Button size="sm" variant="ghost" onClick={() => setToastVisible(false)}>Ocultar</Button></div>}
     </main>
   );
 }
