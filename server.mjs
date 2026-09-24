@@ -2289,7 +2289,8 @@ const server = createServer(async (req, res) => {
           role: scope.context.role,
           mediaAssetId: asset.id,
           channels: ['video'],
-          assetIndex: 0
+          assetIndex: 0,
+          createMissingVariants: ['video']
         })
         json(res, 201, { itemId, media: { ...asset, url: asset.publicUrl || video.url, path: asset.storageKey || video.path } })
         return

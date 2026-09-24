@@ -3798,7 +3798,6 @@ function SocialPack() {
     typeof socialPack.videoScript === "string" && socialPack.videoScript
       ? socialPack.videoScript
       : [
-          post?.title,
           post?.excerptEs,
           ...(Array.isArray(socialPack.instagramSlides)
             ? socialPack.instagramSlides.map((slide: any) => [slide?.headline, slide?.body].filter(Boolean).join("\n"))

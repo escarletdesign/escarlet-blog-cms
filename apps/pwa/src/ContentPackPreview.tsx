@@ -70,7 +70,7 @@ export function ContentPackPreview({ site, item, busy, autoRecord = false, buffe
   const slides = slidesFor(instagram);
   const { socialPack } = bodyFor(instagram);
   const contentTitle = itemTitle(item);
-  const videoScript = String(socialPack.videoScript || video?.body?.videoScript || video?.body?.script || video?.body?.text || [contentTitle, ...slides.map((entry: any) => [entry?.headline, entry?.body].filter(Boolean).join("\n"))].filter(Boolean).join("\n\n")).trim();
+  const videoScript = String(socialPack.videoScript || video?.body?.videoScript || video?.body?.script || video?.body?.text || slides.map((entry: any) => [entry?.headline, entry?.body].filter(Boolean).join("\n")).filter(Boolean).join("\n\n")).trim();
   const [activeSlide, setActiveSlide] = useState(0);
   const [showTeleprompter, setShowTeleprompter] = useState(false);
   useEffect(() => { if (autoRecord && videoScript) setShowTeleprompter(true); }, [autoRecord, videoScript]);
@@ -92,7 +92,7 @@ export function ContentPackPreview({ site, item, busy, autoRecord = false, buffe
     </div>
     {textVariants.length > 0 && <div className="social-pack-grid">{textVariants.map((variant) => <article className="ui-card social-channel-card" key={variant.id}><div className="social-channel-head"><h2><ChannelBadge channel={variant.channel} /> {label(variant.channel)}</h2>{["linkedin", "x"].includes(variant.channel) ? <PackActions variant={variant} busy={busy} onCopy={() => void copyValue(textFor(variant))} onPublish={() => onPublish(variant.channel)} /> : <Button variant="ghost" size="sm" onClick={() => void copyValue(textFor(variant))}>Copiar</Button>}</div><p>{textFor(variant)}</p></article>)}</div>}
     <Inline gap="md"><Button variant="ghost" onClick={onClose}>Cerrar</Button>{onPublishAll && <Button variant="primary" disabled={busy || !pendingPublishChannels.length} onClick={onPublishAll}>Publicar pendientes en Buffer</Button>}{onPublishAll && !pendingPublishChannels.length && <span className="ui-field-hint">No hay canales aprobados pendientes de enviar a Buffer.</span>}{(blog || instagram || instagramStory) && <Button variant="secondary" onClick={() => navigate(socialPackPath(item))}>Ver Social Pack</Button>}<span className="ui-field-hint">Instagram, Stories, LinkedIn, X y vídeos se envían por Buffer. El Blog usa el webhook de Coolify.</span></Inline>
-    {showTeleprompter && <TeleprompterModal script={videoScript} itemId={item.id} site={site} canPublish={Boolean(availablePublishChannels.length)} publishChannels={availablePublishChannels} busy={busy} onUploaded={onVideoUploaded} onPublish={onPublish} onClose={() => setShowTeleprompter(false)} />}
+    {showTeleprompter && <TeleprompterModal script={videoScript} itemId={item.id} site={site} canPublish={Boolean(pendingPublishChannels.length)} publishChannels={pendingPublishChannels} busy={busy} onUploaded={onVideoUploaded} onPublish={onPublish} onClose={() => setShowTeleprompter(false)} />}
   </Stack>;
 }
 

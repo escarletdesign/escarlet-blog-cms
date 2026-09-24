@@ -57,7 +57,13 @@ export function ContentBatches({ site, creationEnabled = false, activeChannels }
     try {
       const [planResponse, reviewResponse] = await Promise.all([api.contentPlans(site), api.reviewItems(site)]);
       setPlans((planResponse.plans || []) as ContentPlanSummary[]);
-      setItems((reviewResponse.items || []).map(normalizeItem));
+      const nextItems = (reviewResponse.items || []).map(normalizeItem);
+      setItems(nextItems);
+      setDialog((current) => {
+        if (current?.type !== "preview") return current;
+        const refreshed = nextItems.find((entry) => entry.id === current.item.id);
+        return refreshed ? { ...current, item: refreshed } : current;
+      });
     } catch (err: any) {
       if (err?.status === 404 || /workspace|sitio|marca/i.test(err?.message || "")) setSetupRequired(true);
       else setError(err?.message || "No se pudo cargar el contenido.");
