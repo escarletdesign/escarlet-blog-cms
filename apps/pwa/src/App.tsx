@@ -26,7 +26,7 @@ import type { Author, BrandSummary, ContentItem, MediaItem, Post, Session } from
 import { itemTitle } from "./content-format";
 import { ContentBatches as ContentPlans } from "./ContentBatches";
 import { DesignSystem } from "./DesignSystem";
-import { Badge, Button, Card, ChannelBadge, Checkbox, ConnectionCard, Drawer, EmptyState as UiEmptyState, Field, Inline, Modal, PageHeader, Select, Stack, StatusBadge, Tabs, TextField, Toast as UiToast } from "./ui";
+import { Badge, Button, Card, ChannelBadge, Checkbox, ConnectionCard, Drawer, EmptyState as UiEmptyState, Field, IconButton, Inline, Modal, PageHeader, Select, Stack, StatusBadge, Tabs, TextField, Toast as UiToast } from "./ui";
 
 type Draft = Partial<Post> & { title: string; slug?: string };
 type WorkflowFlags = { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean; creationUiEnabled: boolean; manualCreationEnabled: boolean };
@@ -3769,18 +3769,20 @@ function SocialPack() {
     showToast(t("social.slideDownloaded"));
   };
   const contentItemId = post?.itemId || itemId;
-  const bufferReady = channels.some((channel) => channel.channel === "video" && channel.enabled && channel.connectionStatus === "connected");
-  const publishReel = async () => {
+  const publishChannels = channels.filter((channel) => ["instagram", "linkedin", "x", "video"].includes(channel.channel) && channel.enabled && channel.connectionStatus === "connected").map((channel) => channel.channel);
+  const bufferReady = publishChannels.length > 0;
+  const publishReel = async (channel = "video") => {
     if (!contentItemId) return;
     setBusy(true);
     setMessage("");
     try {
-      await api.publishContentViaBuffer(contentItemId, ["video"], site);
-      setMessage("Reel programado en Buffer.");
-      showToast("Reel programado en Buffer.");
+      await api.publishContentViaBuffer(contentItemId, [channel], site);
+      const label = channel === "video" ? "Instagram Reel" : channel === "instagram" ? "Instagram" : channel === "linkedin" ? "LinkedIn" : "X";
+      setMessage(`${label} programado en Buffer.`);
+      showToast(`${label} programado en Buffer.`);
     } catch (cause) {
-      setMessage(cause instanceof Error ? cause.message : "No se pudo programar el reel en Buffer.");
-      showToast(cause instanceof Error ? cause.message : "No se pudo programar el reel en Buffer.", "error");
+      setMessage(cause instanceof Error ? cause.message : "No se pudo programar la publicación en Buffer.");
+      showToast(cause instanceof Error ? cause.message : "No se pudo programar la publicación en Buffer.", "error");
     } finally {
       setBusy(false);
     }
@@ -3924,7 +3926,7 @@ function SocialPack() {
             <p className="ui-eyebrow">{t("social.video")}</p>
             <h2>{t("social.recordTitle")}</h2>
             <p className="ui-muted">{t("social.recordHelp")}</p>
-            {!bufferReady && <p className="ui-field-hint">Conecta el canal Vídeo / Reel en Administración para publicar este vídeo en Buffer.</p>}
+            {!bufferReady && <p className="ui-field-hint">Conecta al menos un canal de Buffer en Administración para publicar este vídeo.</p>}
           </div>
           <button className="ui-button ui-button-primary" onClick={() => setShowTeleprompter(true)}>{t("social.record")}</button>
         </section>
@@ -4092,10 +4094,11 @@ function SocialPack() {
           script={teleprompterScript}
           itemId={contentItemId}
           site={site}
-          canPublish={Boolean(contentItemId && bufferReady)}
+          canPublish={Boolean(contentItemId && publishChannels.length)}
+          publishChannels={publishChannels}
           busy={busy}
           onUploaded={() => setMessage("Vídeo subido. Ya puedes programar el reel en Buffer.")}
-          onPublish={() => void publishReel()}
+          onPublish={(channel) => void publishReel(channel)}
           onClose={() => setShowTeleprompter(false)}
         />
       )}
@@ -4108,6 +4111,7 @@ function TeleprompterModal({
   itemId,
   site,
   canPublish,
+  publishChannels = ["video"],
   busy,
   onUploaded,
   onPublish,
@@ -4117,9 +4121,10 @@ function TeleprompterModal({
   itemId?: string;
   site?: string;
   canPublish?: boolean;
+  publishChannels?: string[];
   busy?: boolean;
   onUploaded?: () => void;
-  onPublish?: () => void;
+  onPublish?: (channel: string) => void;
   onClose: () => void;
 }) {
   const { t } = useI18n();
@@ -4135,10 +4140,9 @@ function TeleprompterModal({
     [script],
   );
   const paragraphRefs = useRef<Array<HTMLParagraphElement | null>>([]);
-  const [playing, setPlaying] = useState(false);
+  const [showCamera, setShowCamera] = useState(true);
   const [countdown, setCountdown] = useState(0);
   const [currentParagraph, setCurrentParagraph] = useState(0);
-  const speed = 1;
   const [videoUrl, setVideoUrl] = useState("");
   const [videoBlob, setVideoBlob] = useState<Blob | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -4146,41 +4150,16 @@ function TeleprompterModal({
   const [error, setError] = useState("");
   useEffect(() => {
     setCurrentParagraph(0);
-    setPlaying(false);
     scrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
     return () => {
       if (countdownTimerRef.current) window.clearInterval(countdownTimerRef.current);
     };
   }, [script]);
   useEffect(() => {
-    if (!playing) return;
-    const timer = window.setInterval(
-      () => {
-        const container = scrollRef.current;
-        if (!container) return;
-        if (container.scrollTop >= container.scrollHeight - container.clientHeight - 1) {
-          setPlaying(false);
-          return;
-        }
-        container.scrollBy({ top: speed, behavior: "auto" });
-        const center = container.getBoundingClientRect().top + container.clientHeight / 2;
-        let nearest = currentParagraph;
-        let distance = Number.POSITIVE_INFINITY;
-        paragraphRefs.current.forEach((paragraph, index) => {
-          if (!paragraph) return;
-          const rect = paragraph.getBoundingClientRect();
-          const nextDistance = Math.abs(rect.top + rect.height / 2 - center);
-          if (nextDistance < distance) {
-            distance = nextDistance;
-            nearest = index;
-          }
-        });
-        if (nearest !== currentParagraph) setCurrentParagraph(nearest);
-      },
-      45,
-    );
-    return () => window.clearInterval(timer);
-  }, [currentParagraph, playing, speed]);
+    const handleKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
   useEffect(
     () => () => {
       streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -4188,10 +4167,19 @@ function TeleprompterModal({
     },
     [videoUrl],
   );
+  useEffect(() => {
+    if (!showCamera || videoUrl || !videoRef.current || !streamRef.current) return;
+    videoRef.current.srcObject = streamRef.current;
+    void videoRef.current.play().catch(() => undefined);
+  }, [showCamera, videoUrl]);
   const start = async () => {
     try {
       if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder)
         throw new Error(t("social.cameraError"));
+      if (videoUrl) URL.revokeObjectURL(videoUrl);
+      setVideoUrl("");
+      setVideoBlob(null);
+      setUploaded(false);
       const stream = await navigator.mediaDevices.getUserMedia({
         video: true,
         audio: true,
@@ -4215,7 +4203,6 @@ function TeleprompterModal({
       recorder.start();
       recorderRef.current = recorder;
       setRecording(true);
-      setPlaying(false);
       setCountdown(3);
       let remaining = 3;
       if (countdownTimerRef.current) window.clearInterval(countdownTimerRef.current);
@@ -4225,7 +4212,6 @@ function TeleprompterModal({
           if (countdownTimerRef.current) window.clearInterval(countdownTimerRef.current);
           countdownTimerRef.current = null;
           setCountdown(0);
-          setPlaying(true);
         } else {
           setCountdown(remaining);
         }
@@ -4239,18 +4225,18 @@ function TeleprompterModal({
     if (countdownTimerRef.current) window.clearInterval(countdownTimerRef.current);
     countdownTimerRef.current = null;
     recorderRef.current?.stop();
+    recorderRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     setRecording(false);
     setCountdown(0);
-    setPlaying(false);
   };
-  const nextParagraph = () => {
-    const next = Math.min(currentParagraph + 1, Math.max(paragraphs.length - 1, 0));
+  const moveParagraph = (direction: -1 | 1) => {
+    const next = Math.max(0, Math.min(currentParagraph + direction, paragraphs.length - 1));
+    if (next === currentParagraph) return;
     setCurrentParagraph(next);
     const container = scrollRef.current;
     const paragraph = paragraphRefs.current[next];
     if (container && paragraph) container.scrollTo({ top: Math.max(0, paragraph.offsetTop - container.clientHeight / 2 + paragraph.offsetHeight / 2), behavior: "smooth" });
-    setPlaying(true);
   };
   const upload = async () => {
     if (!videoBlob || !itemId || !site || uploading) return;
@@ -4268,8 +4254,9 @@ function TeleprompterModal({
       setUploading(false);
     }
   };
+  const publishLabel = (channel: string) => channel === "video" ? "Instagram Reel" : channel === "instagram" ? "Instagram" : channel === "linkedin" ? "LinkedIn" : channel === "x" ? "X" : channel;
   return (
-    <div className="ui-modal-backdrop" role="presentation">
+    <div className="ui-modal-backdrop teleprompter-backdrop" role="presentation">
       <section
         className="ui-modal teleprompter-modal"
         role="dialog"
@@ -4289,17 +4276,8 @@ function TeleprompterModal({
           </button>
         </div>
         <div className="teleprompter-layout">
-          <div className="camera-stage">
-            <video ref={videoRef} muted playsInline />
-            <span>{recording ? "●" : "○"}</span>
-            {countdown > 0 && (
-              <div className="teleprompter-countdown" aria-live="assertive">
-                <strong>{countdown}</strong>
-                <small>{t("social.getReady")}</small>
-              </div>
-            )}
-          </div>
-          <div className="teleprompter-script" ref={scrollRef}>
+          <div className="teleprompter-script-wrap">
+            <div className="teleprompter-script" ref={scrollRef}>
             {paragraphs.map((paragraph, index) => (
               <p
                 key={`${index}-${paragraph.slice(0, 18)}`}
@@ -4309,7 +4287,22 @@ function TeleprompterModal({
                 {paragraph}
               </p>
             ))}
+            </div>
+            <div className="teleprompter-line-controls" aria-label="Cambiar de línea">
+              <IconButton className="teleprompter-line-button" label="Línea anterior" onClick={() => moveParagraph(-1)} disabled={!paragraphs.length || currentParagraph === 0}>↑</IconButton>
+              <IconButton className="teleprompter-line-button" label="Línea siguiente" onClick={() => moveParagraph(1)} disabled={!paragraphs.length || currentParagraph >= paragraphs.length - 1}>↓</IconButton>
+            </div>
           </div>
+          {showCamera && <div className="camera-stage">
+            {videoUrl ? <video src={videoUrl} controls playsInline /> : <video ref={videoRef} muted playsInline />}
+            <span>{recording ? "●" : "○"}</span>
+            {countdown > 0 && (
+              <div className="teleprompter-countdown" aria-live="assertive">
+                <strong>{countdown}</strong>
+                <small>{t("social.getReady")}</small>
+              </div>
+            )}
+          </div>}
         </div>
         <div className="teleprompter-controls">
           <button
@@ -4318,21 +4311,7 @@ function TeleprompterModal({
           >
             {recording ? t("social.stop") : t("social.record")}
           </button>
-          <button
-            className="ui-button ui-button-secondary"
-            onClick={() => setPlaying((value) => !value)}
-            disabled={countdown > 0}
-          >
-            {playing ? t("social.pause") : t("social.play")}
-          </button>
-          <button
-            className="teleprompter-next"
-            type="button"
-            onClick={nextParagraph}
-            disabled={!paragraphs.length || currentParagraph >= paragraphs.length - 1}
-          >
-            {t("social.nextParagraph")}
-          </button>
+          <button className="ui-button ui-button-ghost" type="button" onClick={() => setShowCamera((value) => !value)}>{showCamera ? "Ocultar cámara" : "Mostrar cámara"}</button>
           {videoUrl && (
             <a
               className="ui-button ui-button-secondary"
@@ -4347,11 +4326,7 @@ function TeleprompterModal({
               {uploaded ? "Vídeo guardado" : uploading ? "Guardando vídeo…" : "Guardar vídeo"}
             </button>
           )}
-          {uploaded && canPublish && onPublish && (
-            <button className="ui-button ui-button-primary" onClick={onPublish} disabled={Boolean(busy)}>
-              {busy ? "Programando…" : "Publicar reel en Buffer"}
-            </button>
-          )}
+          {uploaded && canPublish && onPublish && publishChannels.map((channel) => <button key={channel} className={`ui-button ${channel === "video" ? "ui-button-primary" : "ui-button-secondary"}`} onClick={() => onPublish(channel)} disabled={Boolean(busy)}>{busy ? "Programando…" : `Publicar en ${publishLabel(channel)}`}</button>)}
         </div>
         {error && <p className="ui-error">{error}</p>}
       </section>

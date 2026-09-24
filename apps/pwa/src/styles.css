@@ -1011,3 +1011,31 @@ button.ui-calendar-item:focus-visible { outline: 2px solid var(--ui-accent); out
   .ui-ds-token-grid { grid-template-columns: 1fr; }
   .ui-ds-hero h1 { font-size: clamp(2.2rem, 14vw, 4rem); }
 }
+
+/* Teleprompter: keep the script close to the camera and make line changes explicit. */
+.teleprompter-backdrop { align-items: start; padding: max(var(--ui-space-3), env(safe-area-inset-top)) var(--ui-space-4) var(--ui-space-4); }
+.teleprompter-modal { width: min(100%, 1080px); max-height: calc(100dvh - var(--ui-space-6)); }
+.teleprompter-layout { display: grid; grid-template-columns: 1fr; gap: var(--ui-space-4); }
+.teleprompter-script-wrap { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--ui-space-3); align-items: stretch; }
+.teleprompter-script { min-height: 300px; max-height: min(52vh, 520px); padding: var(--ui-space-6); color: var(--ui-text); background: var(--ui-surface-code); border: 1px solid var(--ui-border-strong); font-size: clamp(1.2rem, 2.3vw, 1.8rem); }
+.teleprompter-line-controls { display: flex; flex-direction: column; justify-content: center; gap: var(--ui-space-3); }
+.teleprompter-line-button { width: 52px; height: 52px; color: var(--ui-text); border: 1px solid var(--ui-border-strong); background: var(--ui-surface-action); font-size: 1.55rem; }
+.teleprompter-line-button:hover:not(:disabled) { color: var(--ui-accent-ink); background: var(--ui-accent); }
+.camera-stage { width: min(100%, 420px); aspect-ratio: 16 / 9; min-height: 0; justify-self: center; background: var(--ui-surface-code); }
+.camera-stage video { min-height: 0; }
+.teleprompter-controls { gap: var(--ui-space-2); margin-top: var(--ui-space-4); }
+.teleprompter-script p.active { color: var(--ui-accent-ink); background: var(--ui-accent); border-radius: var(--ui-radius-sm); padding: var(--ui-space-2) var(--ui-space-3); box-shadow: var(--ui-focus-ring); }
+.teleprompter-countdown { gap: var(--ui-space-2); color: var(--ui-text); background: var(--ui-overlay); }
+.teleprompter-countdown small { color: var(--ui-muted); }
+.social-blog-text { min-height: 180px; max-height: 260px; overflow-y: auto; resize: vertical; line-height: 1.5; }
+
+@media (max-width: 700px) {
+  .teleprompter-backdrop { align-items: stretch; padding: 0; }
+  .teleprompter-modal { width: 100%; height: 100dvh; max-height: none; margin: 0; border-radius: 0; padding: var(--ui-space-4); }
+  .teleprompter-modal .ui-modal-head { position: sticky; top: 0; z-index: 1; padding-bottom: var(--ui-space-2); background: var(--ui-surface); }
+  .teleprompter-script { min-height: 220px; max-height: 52dvh; padding: var(--ui-space-4); font-size: clamp(1.1rem, 5.2vw, 1.5rem); }
+  .teleprompter-line-button { width: 56px; height: 56px; }
+  .camera-stage { width: min(68vw, 280px); }
+  .teleprompter-controls { align-items: stretch; }
+  .teleprompter-controls .ui-button, .teleprompter-controls > a { flex: 1 1 45%; }
+}
