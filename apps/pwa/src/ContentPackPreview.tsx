@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { api } from "./api";
 import type { ContentChannel, ContentItem, ContentVariant } from "./types";
-import { itemTitle, socialPackPath } from "./content-format";
+import { itemTitle } from "./content-format";
 import { createPortraitCapture } from "./portrait-recorder";
 import type { PortraitCapture } from "./portrait-recorder";
 import { Badge, Button, Card, ChannelBadge, EmptyState, IconButton, Inline, Stack, StatusBadge, Textarea } from "./ui";
@@ -77,7 +76,6 @@ function scriptParagraphs(script: string) {
 }
 
 export function ContentPackPreview({ site, item, busy, autoRecord = false, bufferReady = true, publishChannels = ["video"], onVideoUploaded, onNotify, onClose, onPublish, onPublishAll }: { site: string; item: ContentItem; busy: boolean; autoRecord?: boolean; bufferReady?: boolean; publishChannels?: ContentChannel[]; onVideoUploaded?: (replacedPrevious: boolean) => void; onNotify?: (message: string, kind?: "success" | "error" | "info") => void; onClose: () => void; onPublish: (channel: ContentChannel) => void; onPublishAll?: () => void }) {
-  const navigate = useNavigate();
   const variants = (item.variants || []).filter((variant) => packChannels.includes(variant.channel));
   const blog = variants.find((variant) => variant.channel === "blog");
   const instagram = variants.find((variant) => variant.channel === "instagram");
@@ -91,8 +89,16 @@ export function ContentPackPreview({ site, item, busy, autoRecord = false, buffe
   const videoScript = String(socialPack.videoScript || video?.body?.videoScript || video?.body?.script || video?.body?.text || slides.map((entry: any) => [entry?.headline, entry?.body].filter(Boolean).join("\n")).filter(Boolean).join("\n\n")).trim();
   const [activeSlide, setActiveSlide] = useState(0);
   const [showTeleprompter, setShowTeleprompter] = useState(false);
+  const [siteDomain, setSiteDomain] = useState("");
   const openRecorder = () => { enterRecorderFullscreen(); setShowTeleprompter(true); };
   const closeRecorder = () => { exitRecorderFullscreen(); setShowTeleprompter(false); };
+  useEffect(() => {
+    let active = true;
+    api.onboarding(site).then((result) => {
+      if (active) setSiteDomain(String((result as any)?.site?.domain || "").replace(/\/$/, ""));
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [site]);
   useEffect(() => { if (autoRecord && videoScript) setShowTeleprompter(true); }, [autoRecord, videoScript]);
   const safeSlide = slides.length ? Math.min(activeSlide, slides.length - 1) : 0;
   const slide = slides[safeSlide];
@@ -100,19 +106,21 @@ export function ContentPackPreview({ site, item, busy, autoRecord = false, buffe
   const blogImage = cleanImageUrl(imageFor(blog));
   const storyImage = cleanImageUrl(imageFor(instagramStory) || slides[0]?.imageUrl || slides[0]?.url || slides[0]?.image);
   const savedVideoUrl = cleanMediaUrl(video?.media?.[0]);
+  const blogSlug = String(item.metadata?.slug || blog?.body?.slug || "").trim();
+  const blogUrl = String(item.metadata?.articleUrl || blog?.body?.articleUrl || "").trim() || (blogSlug ? `${siteDomain || window.location.origin}/blog/${encodeURIComponent(blogSlug)}` : "");
   const textVariants = variants.filter((variant) => !["blog", "instagram", "instagram_story", "video"].includes(variant.channel) && textFor(variant));
 
   if (!variants.length) return <EmptyState title="No hay variantes para previsualizar" description="El contenido todavía no tiene un pack de Blog o redes disponible." />;
   return <Stack gap="md">
-    <div className="social-pack-toolbar ui-plan-pack-toolbar"><div><p className="ui-eyebrow">Social Pack</p><strong>{contentTitle}</strong><p className="ui-muted">{item.topic}</p></div><StatusBadge status={item.status} /></div>
+    <div className="social-pack-toolbar ui-plan-pack-toolbar"><div><p className="ui-eyebrow">Vista social</p><strong>{contentTitle}</strong><p className="ui-muted">{item.topic}</p></div><StatusBadge status={item.status} /></div>
     {videoScript && <section className="ui-card teleprompter-launch-card"><div><p className="ui-eyebrow">Vídeo para Reel</p><h2>{savedVideoUrl ? "Vídeo guardado" : "Grabar con teleprompter"}</h2><p className="ui-muted">{savedVideoUrl ? "Este es el vídeo asociado a este contenido. Puedes volver a grabarlo cuando quieras." : "Usa el guion del pack, sube el vídeo y publícalo en Buffer."}</p>{!bufferReady && <p className="ui-field-hint">Conecta al menos un canal de Buffer en Administración para publicar este vídeo.</p>}</div><Inline gap="sm">{savedVideoUrl && <video className="saved-content-video" src={savedVideoUrl} controls playsInline />}{<Button onClick={openRecorder}>{savedVideoUrl ? "Volver a grabar" : "Abrir grabador"}</Button>}{savedVideoUrl && pendingPublishChannels.map((channel) => <Button key={channel} variant="secondary" size="sm" disabled={busy} onClick={() => onPublish(channel)}>Publicar</Button>)}</Inline></section>}
     <div className="social-visual-grid ui-plan-pack-visual-grid">
-      {blog && <article className="ui-card social-cover-card"><div className="social-channel-head"><div><p className="ui-eyebrow">Blog</p><h2>{titleFor(blog, contentTitle)}</h2></div><ChannelBadge channel="blog" /></div>{blogImage ? <img src={blogImage} alt={String(blog.body?.imageAlt || contentTitle)} loading="lazy" /> : <div className="carousel-placeholder">Blog</div>}<Textarea className="social-blog-text" aria-label="Texto del blog" value={textFor(blog)} readOnly rows={8} /><Stack gap="sm"><Inline gap="sm"><Button variant="ghost" size="sm" onClick={() => void copyValue(textFor(blog))}>Copiar</Button><Badge tone="info">Webhook de Coolify</Badge></Inline><p className="ui-field-hint">El Blog se publica mediante el webhook de Coolify configurado en Administración. No se envía a Buffer.</p></Stack></article>}
+      {blog && <article className="ui-card social-cover-card"><div className="social-channel-head"><div><p className="ui-eyebrow">Blog</p><h2>{titleFor(blog, contentTitle)}</h2></div><ChannelBadge channel="blog" /></div>{blogImage ? <img src={blogImage} alt={String(blog.body?.imageAlt || contentTitle)} loading="lazy" /> : <div className="carousel-placeholder">Blog</div>}<Textarea className="social-blog-text" aria-label="Texto del blog" value={textFor(blog)} readOnly rows={8} /><Stack gap="sm"><Inline gap="sm"><Button variant="ghost" size="sm" onClick={() => void copyValue(textFor(blog))}>Copiar texto</Button>{blogUrl && <Button variant="ghost" size="sm" onClick={() => void copyValue(blogUrl)}>Copiar link</Button>}<Badge tone="info">Webhook de Coolify</Badge></Inline></Stack></article>}
       {instagram && <article className="ui-card social-carousel-card"><div className="social-channel-head"><div><p className="ui-eyebrow">Instagram</p><h2>Carousel</h2></div><ChannelBadge channel="instagram" /></div>{slides.length ? <div className="instagram-carousel" role="region" aria-label="Carrusel de Instagram"><div className="instagram-carousel-stage"><IconButton className="carousel-nav carousel-prev" label="Slide anterior" onClick={() => setActiveSlide((safeSlide - 1 + slides.length) % slides.length)}>‹</IconButton><figure>{slideImage ? <img src={slideImage} alt={String(slide?.alt || slide?.headline || `Slide ${safeSlide + 1}`)} /> : <div className="carousel-placeholder">{safeSlide + 1}</div>}<figcaption><span>{String(slide?.headline || slide?.text || `Slide ${safeSlide + 1}`)}</span>{slideImage && <a className="chip" href={slideImage} target="_blank" rel="noreferrer">Abrir</a>}</figcaption></figure><IconButton className="carousel-nav carousel-next" label="Slide siguiente" onClick={() => setActiveSlide((safeSlide + 1) % slides.length)}>›</IconButton></div><div className="carousel-dots" role="tablist" aria-label="Slides de Instagram">{slides.map((entry: any, index: number) => <Button key={entry?.id || index} className={`carousel-dot${index === safeSlide ? " active" : ""}`} variant="ghost" size="sm" role="tab" aria-selected={index === safeSlide} aria-label={`Slide ${index + 1}`} onClick={() => setActiveSlide(index)}>{index + 1}</Button>)}</div></div> : <p className="ui-muted">No hay slides generadas todavía.</p>}<p className="ui-plan-caption">{textFor(instagram)}</p><PackActions variant={instagram} busy={busy} onCopy={() => void copyValue(textFor(instagram))} onPublish={() => onPublish("instagram")} /></article>}
       {instagramStory && <article className="ui-card social-channel-card"><div className="social-channel-head"><div><p className="ui-eyebrow">Instagram</p><h2>Story con enlace</h2></div><ChannelBadge channel="instagram_story" /></div>{storyImage ? <img src={storyImage} alt={String(instagramStory.body?.imageAlt || contentTitle)} loading="lazy" /> : <div className="carousel-placeholder">Story</div>}<p>{textFor(instagramStory)}</p><p className="ui-field-hint">Buffer enviará una notificación para añadir el link sticker en Instagram.</p>{instagramStory.body?.socialPack?.instagramStory?.linkUrl && <a className="text-link" href={instagramStory.body.socialPack.instagramStory.linkUrl} target="_blank" rel="noreferrer">{instagramStory.body.socialPack.instagramStory.linkUrl}</a>}<PackActions variant={instagramStory} busy={busy} onCopy={() => void copyValue(textFor(instagramStory))} onPublish={() => onPublish("instagram_story")} /></article>}
     </div>
     {textVariants.length > 0 && <div className="social-pack-grid">{textVariants.map((variant) => <article className="ui-card social-channel-card" key={variant.id}><div className="social-channel-head"><h2><ChannelBadge channel={variant.channel} /> {label(variant.channel)}</h2>{["linkedin", "x"].includes(variant.channel) ? <PackActions variant={variant} busy={busy} onCopy={() => void copyValue(textFor(variant))} onPublish={() => onPublish(variant.channel)} /> : <Button variant="ghost" size="sm" onClick={() => void copyValue(textFor(variant))}>Copiar</Button>}</div><p>{textFor(variant)}</p></article>)}</div>}
-    <Inline gap="md"><Button variant="ghost" onClick={onClose}>Cerrar</Button>{onPublishAll && <Button variant="primary" disabled={busy || !pendingPublishChannels.length} onClick={onPublishAll}>Publicar pendientes en Buffer</Button>}{onPublishAll && !pendingPublishChannels.length && <span className="ui-field-hint">No hay canales aprobados pendientes de enviar a Buffer.</span>}{(blog || instagram || instagramStory) && <Button variant="secondary" onClick={() => navigate(socialPackPath(item))}>Ver Social Pack</Button>}<span className="ui-field-hint">Instagram, Stories, LinkedIn, X y vídeos se envían por Buffer. El Blog usa el webhook de Coolify.</span></Inline>
+    <Inline gap="md"><Button variant="ghost" onClick={onClose}>Cerrar</Button>{onPublishAll && <Button variant="primary" disabled={busy || !pendingPublishChannels.length} onClick={onPublishAll}>Publicar pendientes en Buffer</Button>}{onPublishAll && !pendingPublishChannels.length && <span className="ui-field-hint">No hay canales aprobados pendientes de enviar a Buffer.</span>}</Inline>
     {showTeleprompter && <TeleprompterModal script={videoScript} itemId={item.id} site={site} canPublish={Boolean(pendingPublishChannels.length)} publishChannels={pendingPublishChannels} busy={busy} onUploaded={onVideoUploaded} onNotify={onNotify} onPublish={onPublish} onClose={closeRecorder} />}
   </Stack>;
 }
