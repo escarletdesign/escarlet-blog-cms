@@ -64,7 +64,7 @@ async function processBlogPublishJob(job) {
   const pool = await getPgPool()
   const variantId = job.payload?.variantId
   if (!pool || !variantId) throw new Error('content.publish_blog requiere variantId.')
-  const due = await pool.query(`SELECT cv.id,cv.item_id,ci.site_id,ci.topic,site.domain AS site_domain,cv.body AS blog_body,cc.credentials_ciphertext AS connection_credentials_ciphertext,cc.config AS connection_config FROM content_variants cv
+  const due = await pool.query(`SELECT cv.id,cv.item_id,ci.site_id,ci.topic,ci.metadata->>'contentTitle' AS content_title,site.domain AS site_domain,cv.body AS blog_body,cc.credentials_ciphertext AS connection_credentials_ciphertext,cc.config AS connection_config FROM content_variants cv
     LEFT JOIN content_items ci ON ci.id=cv.item_id
     LEFT JOIN sites site ON site.id=ci.site_id
     LEFT JOIN LATERAL (SELECT credentials_ciphertext,config FROM channel_connections WHERE workspace_id=cv.workspace_id AND site_id=ci.site_id AND channel='blog' AND status='connected' ORDER BY is_primary DESC,updated_at DESC LIMIT 1) cc ON TRUE
@@ -79,7 +79,7 @@ async function processBlogVerifyJob(job) {
   const pool = await getPgPool()
   const variantId = job.payload?.variantId
   if (!pool || !variantId) throw new Error('content.verify_blog requiere variantId.')
-  const result = await pool.query(`SELECT cv.id,cv.item_id,cv.status,s.status AS schedule_status,ci.topic,site.domain AS site_domain,cv.body AS blog_body
+  const result = await pool.query(`SELECT cv.id,cv.item_id,cv.status,s.status AS schedule_status,ci.topic,ci.metadata->>'contentTitle' AS content_title,site.domain AS site_domain,cv.body AS blog_body
     FROM content_variants cv JOIN content_items ci ON ci.id=cv.item_id JOIN sites site ON site.id=ci.site_id JOIN schedules s ON s.variant_id=cv.id
     WHERE cv.id=$1 AND cv.channel='blog'`, [variantId])
   if (!result.rowCount || result.rows[0].schedule_status === 'published') return { published: Boolean(result.rowCount), variantId }
@@ -97,7 +97,7 @@ async function processExternalPublicationEvent(event) {
   const pool = await getPgPool()
   if (!pool) throw new Error('Postgres no está configurado.')
   const itemId = event.payload?.itemId || event.aggregate_id
-  const variantsResult = await pool.query(`SELECT cv.id,cv.item_id,cv.channel,cv.body,ci.site_id,ci.topic,site.domain AS site_domain,blog.body AS blog_body, s.publication_date,s.timezone,s.provider_post_id,
+  const variantsResult = await pool.query(`SELECT cv.id,cv.item_id,cv.channel,cv.body,ci.site_id,ci.topic,ci.metadata->>'contentTitle' AS content_title,site.domain AS site_domain,blog.body AS blog_body, s.publication_date,s.timezone,s.provider_post_id,
       cc.provider AS connection_provider,cc.status AS connection_status,cc.credentials_ciphertext AS connection_credentials_ciphertext,cc.external_account_id AS connection_external_account_id,cc.config AS connection_config,
       mi.user_token_ciphertext,mi.metricool_user_id,mi.blog_id,mi.timezone AS integration_timezone
     FROM content_variants cv JOIN content_items ci ON ci.id=cv.item_id JOIN sites site ON site.id=ci.site_id LEFT JOIN schedules s ON s.variant_id=cv.id
