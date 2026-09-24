@@ -1011,28 +1011,41 @@ button.ui-calendar-item:focus-visible { outline: 2px solid var(--ui-accent); out
   .ui-ds-hero h1 { font-size: clamp(2.2rem, 14vw, 4rem); }
 }
 
+.home-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--ui-space-3);
+  margin: 0 0 var(--ui-space-5);
+}
+.home-kpi { display: grid; gap: var(--ui-space-1); min-height: 88px; padding: var(--ui-space-4); }
+.home-kpi .ui-eyebrow { margin: 0; }
+.home-kpi strong { color: var(--ui-text); font-size: clamp(1.7rem, 4vw, 2.3rem); line-height: 1; }
+
+@media (max-width: 620px) {
+  .home-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 /* Teleprompter: keep the script close to the camera and make line changes explicit. */
-.teleprompter-backdrop { align-items: start; padding: max(var(--ui-space-3), env(safe-area-inset-top)) var(--ui-space-4) var(--ui-space-4); }
-.teleprompter-modal { width: min(100%, 1080px); max-height: calc(100dvh - var(--ui-space-6)); }
-.teleprompter-layout { display: grid; grid-template-columns: 1fr; gap: var(--ui-space-4); }
+.teleprompter-backdrop { align-items: stretch; padding: 0; }
+.teleprompter-modal { width: 100%; max-width: none; height: 100dvh; max-height: none; margin: 0; border-radius: 0; display: flex; flex-direction: column; overflow: hidden; }
+.teleprompter-layout { display: grid; grid-template-columns: 1fr; gap: var(--ui-space-4); flex: 1 1 auto; min-height: 0; overflow: auto; align-content: start; }
 .teleprompter-script-wrap { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--ui-space-3); align-items: stretch; }
-.teleprompter-script { min-height: 300px; max-height: min(52vh, 520px); padding: var(--ui-space-6); color: var(--ui-text); background: var(--ui-surface-code); border: 1px solid var(--ui-border-strong); font-size: clamp(1.2rem, 2.3vw, 1.8rem); }
+.teleprompter-script { min-height: 300px; height: min(52vh, 520px); max-height: none; padding: var(--ui-space-6); padding-bottom: max(50vh, 300px); color: var(--ui-text); background: var(--ui-surface-code); border: 1px solid var(--ui-border-strong); font-size: clamp(1.2rem, 2.3vw, 1.8rem); scroll-padding-top: var(--ui-space-6); }
 .teleprompter-line-controls { display: flex; flex-direction: column; justify-content: center; gap: var(--ui-space-3); }
 .teleprompter-line-button { width: 52px; height: 52px; color: var(--ui-text); border: 1px solid var(--ui-border-strong); background: var(--ui-surface-action); font-size: 1.55rem; }
 .teleprompter-line-button:hover:not(:disabled) { color: var(--ui-accent-ink); background: var(--ui-accent); }
 .camera-stage { width: min(100%, 420px); aspect-ratio: 16 / 9; min-height: 0; justify-self: center; background: var(--ui-surface-code); }
 .camera-stage video { min-height: 0; }
-.teleprompter-controls { gap: var(--ui-space-2); margin-top: var(--ui-space-4); }
+.teleprompter-controls { flex: 0 0 auto; gap: var(--ui-space-2); margin-top: 0; padding-top: var(--ui-space-3); border-top: 1px solid var(--ui-border); }
+.teleprompter-close { margin-left: auto; }
 .teleprompter-script p.active { color: var(--ui-accent-ink); background: var(--ui-accent); border-radius: var(--ui-radius-sm); padding: var(--ui-space-2) var(--ui-space-3); box-shadow: var(--ui-focus-ring); }
 .teleprompter-countdown { gap: var(--ui-space-2); color: var(--ui-text); background: var(--ui-overlay); }
 .teleprompter-countdown small { color: var(--ui-muted); }
 .social-blog-text { min-height: 180px; max-height: 260px; overflow-y: auto; resize: vertical; line-height: 1.5; }
 
 @media (max-width: 700px) {
-  .teleprompter-backdrop { align-items: stretch; padding: 0; }
-  .teleprompter-modal { width: 100%; height: 100dvh; max-height: none; margin: 0; border-radius: 0; padding: var(--ui-space-4); }
-  .teleprompter-modal .ui-modal-head { position: sticky; top: 0; z-index: 1; padding-bottom: var(--ui-space-2); background: var(--ui-surface); }
-  .teleprompter-script { min-height: 220px; max-height: 52dvh; padding: var(--ui-space-4); font-size: clamp(1.1rem, 5.2vw, 1.5rem); }
+  .teleprompter-modal { padding: var(--ui-space-4); }
+  .teleprompter-script { min-height: 220px; height: 48dvh; padding: var(--ui-space-4); padding-bottom: 52vh; font-size: clamp(1.1rem, 5.2vw, 1.5rem); }
   .teleprompter-line-button { width: 56px; height: 56px; }
   .camera-stage { width: min(68vw, 280px); }
   .teleprompter-controls { align-items: stretch; }

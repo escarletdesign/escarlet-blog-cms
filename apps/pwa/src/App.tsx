@@ -1090,6 +1090,9 @@ function Home() {
   const publishingEnabled = brandCapabilities.content_publishing !== false;
   const presentationEnabled = Boolean(brandCapabilities.presentation_generation);
   const creationEnabled = workflowFlags.creationUiEnabled && publishingEnabled;
+  const hasHomeChoices = creationEnabled
+    ? workflowFlags.assistantEnabled || workflowFlags.blogWizardEnabled
+    : presentationEnabled;
   return (
     <main className="ui-page home">
       <div className="home-intro">
@@ -1097,9 +1100,8 @@ function Home() {
         <h1>{!creationEnabled ? "Tu contenido listo para revisar" : t(socialOnly ? "home.socialOnlyTitle" : "home.title")}</h1>
         <p className="ui-muted">{!creationEnabled ? "Las campañas creadas desde ChatGPT aparecen aquí para aprobar sus publicaciones y programarlas." : t(socialOnly ? "home.socialOnlyDescription" : "home.description")}</p>
       </div>
-      <div className="choice-grid">
+      {hasHomeChoices && <div className="choice-grid">
         {!creationEnabled ? <>
-          <button className="choice-card" onClick={() => nav("/plans")}><span>✓</span><strong>Campañas</strong><small>Revisa, aprueba y agenda el contenido creado desde ChatGPT.</small><b>Abrir campañas →</b></button>
           {presentationEnabled && <button className="choice-card" onClick={() => nav("/brands")}><span>▤</span><strong>Brand kit para presentaciones</strong><small>ChatGPT puede usar la identidad de esta marca en Slides y otras herramientas.</small><b>Ver marcas →</b></button>}
         </> : <>
         {workflowFlags.assistantEnabled && (
@@ -1118,19 +1120,12 @@ function Home() {
             <b>{t("home.wizard.action")}</b>
           </button>
         )}
-        <button className="choice-card" onClick={() => nav("/plans")}>
-          <span>▤</span>
-          <strong>Campaña multicanal</strong>
-          <small>Organiza varios temas y sus variantes por canal en una sola revisión.</small>
-          <b>Ver campañas →</b>
-        </button>
         </>}
-      </div>
+      </div>}
       {publishingEnabled && <section className="home-section">
         <RecentContentWork />
         <div className="section-title">
           <h2>{t("home.continue")}</h2>
-          <NavLink to="/posts">{t("home.seeAll")}</NavLink>
         </div>
         <RecentPosts />
         <div className="quick-actions">
@@ -1156,7 +1151,14 @@ function RecentContentWork() {
       .catch((cause) => setError(cause instanceof Error ? cause.message : "No se pudo cargar el contenido en curso."));
   }, [site]);
   if (error || !items.length) return null;
-  return <section className="home-content-work"><div className="section-title"><h2>{t("home.inProgress")}</h2><NavLink to="/plans">{t("home.openContent")}</NavLink></div><div className="post-list compact">{items.map((item) => <button key={item.id} type="button" className="post-row" onClick={() => nav(`/plans?plan=${encodeURIComponent(item.batch_id || item.batchId || "")}`)}><span><StatusBadge status={item.status} /><h3>{itemTitle(item)}</h3><p>{(item.variants || []).map((variant) => variant.channel).join(" · ") || t("home.noChannel")}</p></span><span className="chevron">›</span></button>)}</div></section>;
+  return <section className="home-content-work"><div className="section-title"><h2>{t("home.inProgress")}</h2><Button size="sm" variant="ghost" onClick={() => nav("/plans")}>{t("home.openContent")}</Button></div><div className="post-list compact">{items.map((item) => {
+    const imageSrc = (item.variants || []).flatMap((variant) => [variant.body?.imageThumbUrl, variant.body?.imageUrl, variant.body?.coverUrl, ...(variant.media || [])]).map(socialImageUrl).find(Boolean);
+    return <button key={item.id} type="button" className="post-row" onClick={() => nav(`/plans?plan=${encodeURIComponent(item.batch_id || item.batchId || "")}`)}>
+      {imageSrc ? <img className="post-thumb" src={imageSrc} alt="" loading="lazy" /> : <span className="post-thumb placeholder-thumb" aria-hidden="true">✦</span>}
+      <span className="post-row-copy"><StatusBadge status={item.status} /><h3>{itemTitle(item)}</h3><p>{(item.variants || []).map((variant) => variant.channel).join(" · ") || t("home.noChannel")}</p></span>
+      <span className="chevron">›</span>
+    </button>;
+  })}</div></section>;
 }
 
 function RecentPosts() {
@@ -1173,7 +1175,7 @@ function RecentPosts() {
             new Date(b.dateModified || b.publishAt || b.datePublished || 0).getTime() -
             new Date(a.dateModified || a.publishAt || a.datePublished || 0).getTime(),
         );
-        setPosts(newest.slice(0, 4));
+        setPosts(newest);
       })
       .catch((e) => setError(e.message));
   }, [site]);
@@ -1184,12 +1186,23 @@ function RecentPosts() {
         {t("posts.empty")}. {t("posts.emptyAction")}.
       </p>
     );
+  const metrics = [
+    { key: "total", label: t("home.kpi.total"), value: posts.length },
+    { key: "draft", label: t("home.kpi.draft"), value: posts.filter((post) => uiStatus(post.status) === "draft").length },
+    { key: "scheduled", label: t("home.kpi.scheduled"), value: posts.filter((post) => uiStatus(post.status) === "scheduled").length },
+    { key: "published", label: t("home.kpi.published"), value: posts.filter((post) => uiStatus(post.status) === "published").length },
+  ];
   return (
-    <div className="post-list compact">
-      {posts.map((post) => (
-        <PostRow key={post.slug} post={post} />
-      ))}
-    </div>
+    <>
+      <div className="home-kpis" aria-label={t("home.kpi.label")}>
+        {metrics.map((metric) => <Card className="home-kpi" key={metric.key}><span className="ui-eyebrow">{metric.label}</span><strong>{metric.value}</strong></Card>)}
+      </div>
+      <div className="post-list compact">
+        {posts.slice(0, 4).map((post) => (
+          <PostRow key={post.slug} post={post} />
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -4162,6 +4175,11 @@ function TeleprompterModal({
     };
   }, [script]);
   useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, []);
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
@@ -4241,7 +4259,10 @@ function TeleprompterModal({
     setCurrentParagraph(next);
     const container = scrollRef.current;
     const paragraph = paragraphRefs.current[next];
-    if (container && paragraph) container.scrollTo({ top: Math.max(0, paragraph.offsetTop - container.clientHeight / 2 + paragraph.offsetHeight / 2), behavior: "smooth" });
+    if (container && paragraph) {
+      const cameraOffset = Math.min(container.clientHeight * 0.2, 120);
+      container.scrollTo({ top: Math.max(0, paragraph.offsetTop - cameraOffset), behavior: "smooth" });
+    }
   };
   const upload = async () => {
     if (!videoBlob || !itemId || !site || uploading) return;
@@ -4261,24 +4282,7 @@ function TeleprompterModal({
   const publishLabel = (channel: string) => channel === "video" ? "Instagram Reel" : channel === "instagram" ? "Instagram" : channel === "linkedin" ? "LinkedIn" : channel === "x" ? "X" : channel;
   return (
     <div className="ui-modal-backdrop teleprompter-backdrop" role="presentation">
-      <section
-        className="ui-modal teleprompter-modal"
-        role="dialog"
-        aria-modal="true"
-      >
-        <div className="ui-modal-head">
-          <div>
-            <p className="ui-eyebrow">{t("social.video")}</p>
-            <h2>{t("social.record")}</h2>
-          </div>
-          <button
-            className="ui-icon-button"
-            onClick={onClose}
-            aria-label={t("editor.close")}
-          >
-            ×
-          </button>
-        </div>
+      <section className="ui-modal teleprompter-modal" role="dialog" aria-modal="true" aria-label={t("social.record")}>
         <div className="teleprompter-layout">
           <div className="teleprompter-script-wrap">
             <div className="teleprompter-script" ref={scrollRef}>
@@ -4334,6 +4338,7 @@ function TeleprompterModal({
             </>
           )}
           {uploaded && onPublish && (canPublish ? publishChannels.map((channel) => <button key={channel} className={`ui-button ${channel === "video" ? "ui-button-primary" : "ui-button-secondary"}`} onClick={() => onPublish(channel)} disabled={Boolean(busy)}>{busy ? "Programando…" : `Publicar en ${publishLabel(channel)}`}</button>) : <><button className="ui-button ui-button-secondary" disabled>Publicar en Buffer</button><span className="ui-field-hint">Conecta y activa un canal de Buffer en Administración para publicar.</span></>)}
+          <Button className="teleprompter-close" size="sm" variant="ghost" onClick={onClose}>{t("editor.close")}</Button>
         </div>
       </section>
     </div>
@@ -4484,7 +4489,7 @@ function PostRow({ post, onDeleted }: { post: Post; onDeleted?: (slug: string) =
   const [deleting, setDeleting] = useState(false);
   const statusKey = uiStatus(post.status);
   const status = t(`status.${statusKey}`, statusKey);
-  const imageSrc = post.imageThumbUrl || post.imageUrl;
+  const imageSrc = post.imageThumbUrl || post.imageUrl || post.imageGallery?.[0]?.thumbUrl || post.imageGallery?.[0]?.url || post.imageGallery?.[0]?.path;
   const postSlug = String(post.slug || (post as any).id || "").trim();
   return (
     <div className="post-row">
