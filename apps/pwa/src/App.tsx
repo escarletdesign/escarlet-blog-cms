@@ -26,6 +26,8 @@ import type { AiConversation, SocialPackJobResult } from "./api";
 import { getInitialLanguage, Language, translate } from "./i18n";
 import type { Author, BrandSummary, ContentItem, MediaItem, Post, Session } from "./types";
 import { itemTitle, socialPackPath } from "./content-format";
+import { createPortraitCapture } from "./portrait-recorder";
+import type { PortraitCapture } from "./portrait-recorder";
 import { ContentBatches as ContentPlans } from "./ContentBatches";
 import { DesignSystem } from "./DesignSystem";
 import { Badge, Button, Card, ChannelBadge, Checkbox, ConnectionCard, Drawer, EmptyState as UiEmptyState, Field, IconButton, Inline, Modal, MultiSelectPills, PageHeader, Select, Stack, StatusBadge, Tabs, TextField, Toast as UiToast } from "./ui";
@@ -4213,6 +4215,7 @@ function TeleprompterModal({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const portraitCaptureRef = useRef<PortraitCapture | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const countdownTimerRef = useRef<number | null>(null);
@@ -4248,6 +4251,8 @@ function TeleprompterModal({
   }, [onClose]);
   useEffect(
     () => () => {
+      portraitCaptureRef.current?.stop();
+      portraitCaptureRef.current = null;
       streamRef.current?.getTracks().forEach((track) => track.stop());
       if (videoUrl) URL.revokeObjectURL(videoUrl);
     },
@@ -4267,7 +4272,7 @@ function TeleprompterModal({
       setVideoBlob(null);
       setUploaded(false);
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
+        video: { width: { ideal: 1080 }, height: { ideal: 1920 }, aspectRatio: { ideal: 9 / 16 }, facingMode: "user" },
         audio: true,
       });
       streamRef.current = stream;
@@ -4276,7 +4281,8 @@ function TeleprompterModal({
         await videoRef.current.play();
       }
       chunksRef.current = [];
-      const recorder = new MediaRecorder(stream);
+      portraitCaptureRef.current = videoRef.current ? createPortraitCapture(videoRef.current, stream) : null;
+      const recorder = new MediaRecorder(portraitCaptureRef.current?.stream || stream);
       recorder.ondataavailable = (event) => {
         if (event.data.size) chunksRef.current.push(event.data);
       };
@@ -4303,6 +4309,10 @@ function TeleprompterModal({
         }
       }, 1000);
     } catch (e) {
+      portraitCaptureRef.current?.stop();
+      portraitCaptureRef.current = null;
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
       onNotify?.(e instanceof Error ? e.message : t("social.cameraError"), "error");
     }
   };
@@ -4311,6 +4321,8 @@ function TeleprompterModal({
     countdownTimerRef.current = null;
     recorderRef.current?.stop();
     recorderRef.current = null;
+    portraitCaptureRef.current?.stop();
+    portraitCaptureRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     setRecording(false);
     setCountdown(0);
@@ -7103,7 +7115,7 @@ function BrandDetailView() {
   useEffect(() => { api.brandV2(brandId).then((result) => setBrand(result.brand)).catch((err) => setError(err?.message || "No se pudo cargar la marca.")); }, [brandId]);
   if (error) return <main className="ui-page"><Card><p className="ui-field-error">{error}</p></Card></main>;
   if (!brand) return <main className="ui-page"><Card><p className="ui-muted">Cargando marca…</p></Card></main>;
-  return <main className="ui-page"><PageHeader eyebrow="Marca" title={brand.name || brand.handle || "Marca"} description={brand.domain || "Configura identidad, capacidades, canales y conexiones."} back={<NavLink to="/brands">← Volver a marcas</NavLink>} actions={<Button variant="ghost" onClick={() => nav("/brands")}>Todas las marcas</Button>} /><div className="ui-brand-detail-grid"><Card><span className="ui-eyebrow">Capacidades</span><h2>Usos de la marca</h2><div className="ui-capability-list">{brand.capabilities && Object.entries(brand.capabilities).filter(([, enabled]) => enabled).map(([key]) => <Badge key={key} tone="info">{key.replace(/_/g, " ")}</Badge>)}</div><div className="ui-card-actions"><Button variant="secondary" onClick={() => nav(`/brands/${brand.id}/identity`)}>Identidad y brand kit</Button></div></Card><Card><span className="ui-eyebrow">Canales</span><h2>Canales activos</h2><div className="ui-channel-list">{(brand.channels || []).filter((channel) => channel.enabled).map((channel) => <ChannelBadge key={channel.channel} channel={channel.channel} />)}</div><div className="ui-card-actions"><Button variant="secondary" onClick={() => nav(`/brands/${brand.id}/channels`)}>Gestionar canales</Button></div></Card><Card><span className="ui-eyebrow">Proveedores</span><h2>Conexiones</h2><p className="ui-muted">{brand.connections?.length || 0} conexiones configuradas.</p><div className="ui-card-actions"><Button variant="secondary" onClick={() => nav(`/brands/${brand.id}/connections`)}>Ver conexiones</Button></div></Card></div></main>;
+  return <main className="ui-page"><PageHeader eyebrow="Marca" title={brand.name || brand.handle || "Marca"} description={brand.domain || "Configura identidad, capacidades y canales."} back={<NavLink to="/brands">← Volver a marcas</NavLink>} actions={<Button variant="ghost" onClick={() => nav("/brands")}>Todas las marcas</Button>} /><div className="ui-brand-detail-grid"><Card><span className="ui-eyebrow">Capacidades</span><h2>Usos de la marca</h2><div className="ui-capability-list">{brand.capabilities && Object.entries(brand.capabilities).filter(([, enabled]) => enabled).map(([key]) => <Badge key={key} tone="info">{key.replace(/_/g, " ")}</Badge>)}</div><div className="ui-card-actions"><Button variant="secondary" onClick={() => nav(`/brands/${brand.id}/identity`)}>Identidad y brand kit</Button></div></Card><Card><span className="ui-eyebrow">Canales</span><h2>Canales activos</h2><div className="ui-channel-list">{(brand.channels || []).filter((channel) => channel.enabled).map((channel) => <ChannelBadge key={channel.channel} channel={channel.channel} />)}</div><div className="ui-card-actions"><Button variant="secondary" onClick={() => nav(`/brands/${brand.id}/channels`)}>Gestionar canales</Button></div></Card></div></main>;
 }
 
 function BrandIdentityView() {

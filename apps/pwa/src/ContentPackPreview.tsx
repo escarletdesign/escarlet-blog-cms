@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { api } from "./api";
 import type { ContentChannel, ContentItem, ContentVariant } from "./types";
 import { itemTitle, socialPackPath } from "./content-format";
+import { createPortraitCapture } from "./portrait-recorder";
+import type { PortraitCapture } from "./portrait-recorder";
 import { Badge, Button, Card, ChannelBadge, EmptyState, IconButton, Inline, Stack, StatusBadge, Textarea } from "./ui";
 
 const packChannels: ContentChannel[] = ["blog", "instagram", "instagram_story", "linkedin", "x", "video"];
@@ -123,6 +125,7 @@ function TeleprompterModal({ script, itemId, site, canPublish, publishChannels, 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const portraitCaptureRef = useRef<PortraitCapture | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const [recording, setRecording] = useState(false);
@@ -142,7 +145,7 @@ function TeleprompterModal({ script, itemId, site, canPublish, publishChannels, 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
-  useEffect(() => () => { if (countdownTimerRef.current) window.clearInterval(countdownTimerRef.current); streamRef.current?.getTracks().forEach((track) => track.stop()); if (videoUrl) URL.revokeObjectURL(videoUrl); }, [videoUrl]);
+  useEffect(() => () => { if (countdownTimerRef.current) window.clearInterval(countdownTimerRef.current); portraitCaptureRef.current?.stop(); portraitCaptureRef.current = null; streamRef.current?.getTracks().forEach((track) => track.stop()); if (videoUrl) URL.revokeObjectURL(videoUrl); }, [videoUrl]);
   useEffect(() => {
     if (!showCamera || videoUrl || !videoRef.current || !streamRef.current) return;
     videoRef.current.srcObject = streamRef.current;
@@ -153,11 +156,12 @@ function TeleprompterModal({ script, itemId, site, canPublish, publishChannels, 
       if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) throw new Error("Tu navegador no permite grabar vídeo.");
       if (videoUrl) URL.revokeObjectURL(videoUrl);
       setVideoUrl(""); setVideoBlob(null); setUploaded(false);
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1080 }, height: { ideal: 1920 }, aspectRatio: { ideal: 9 / 16 }, facingMode: "user" }, audio: true });
       streamRef.current = stream;
       if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
       chunksRef.current = [];
-      const recorder = new MediaRecorder(stream);
+      portraitCaptureRef.current = videoRef.current ? createPortraitCapture(videoRef.current, stream) : null;
+      const recorder = new MediaRecorder(portraitCaptureRef.current?.stream || stream);
       recorder.ondataavailable = (event) => { if (event.data.size) chunksRef.current.push(event.data); };
       recorder.onstop = () => {
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "video/webm" });
@@ -177,9 +181,9 @@ function TeleprompterModal({ script, itemId, site, canPublish, publishChannels, 
           setCountdown(0);
         } else setCountdown(remaining);
       }, 1000);
-    } catch (cause) { onNotify?.(cause instanceof Error ? cause.message : "No se pudo abrir la cámara.", "error"); }
+    } catch (cause) { portraitCaptureRef.current?.stop(); portraitCaptureRef.current = null; streamRef.current?.getTracks().forEach((track) => track.stop()); streamRef.current = null; onNotify?.(cause instanceof Error ? cause.message : "No se pudo abrir la cámara.", "error"); }
   };
-  const stop = () => { if (countdownTimerRef.current) window.clearInterval(countdownTimerRef.current); countdownTimerRef.current = null; recorderRef.current?.stop(); recorderRef.current = null; streamRef.current?.getTracks().forEach((track) => track.stop()); setRecording(false); setCountdown(0); };
+  const stop = () => { if (countdownTimerRef.current) window.clearInterval(countdownTimerRef.current); countdownTimerRef.current = null; recorderRef.current?.stop(); recorderRef.current = null; portraitCaptureRef.current?.stop(); portraitCaptureRef.current = null; streamRef.current?.getTracks().forEach((track) => track.stop()); setRecording(false); setCountdown(0); };
   const moveParagraph = (direction: -1 | 1) => {
     const next = Math.max(0, Math.min(currentParagraph + direction, paragraphs.length - 1));
     if (next === currentParagraph) return;

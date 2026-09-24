@@ -152,6 +152,11 @@
 .teleprompter-launch-card { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 14px; border-color: #5a813f; background: linear-gradient(140deg, #253a25, #18251d); }
 .teleprompter-launch-card h2 { margin-bottom: 7px; }
 .teleprompter-launch-card .ui-muted { max-width: 620px; margin-bottom: 0; }
+.teleprompter-launch-card .ui-inline { flex: 0 0 180px; max-width: 180px; flex-direction: column; align-items: stretch; }
+.teleprompter-launch-card .saved-content-video { width: 100%; height: 320px; max-height: 320px; aspect-ratio: 9 / 16; object-fit: cover; }
+.teleprompter-launch-card .ui-inline > .ui-button { width: 100%; }
+.saved-video-card { display: grid; grid-template-columns: minmax(0, 1fr) minmax(140px, 180px); align-items: center; gap: var(--ui-space-5); }
+.saved-video-card .saved-content-video { justify-self: end; width: min(180px, 100%); height: 320px; max-height: 320px; aspect-ratio: 9 / 16; object-fit: cover; }
 
 @media (min-width: 760px) {
   .admin-page { max-width: none; width: 100%; }
@@ -165,6 +170,10 @@
 @media (max-width: 700px) {
   .social-visual-grid { grid-template-columns: 1fr; }
   .teleprompter-launch-card { align-items: flex-start; flex-direction: column; }
+  .teleprompter-launch-card .ui-inline { width: 100%; max-width: none; flex: 0 0 auto; flex-direction: row; align-items: center; }
+  .teleprompter-launch-card .ui-inline > .ui-button { width: auto; flex: 1 1 auto; }
+  .saved-video-card { grid-template-columns: 1fr; }
+  .saved-video-card .saved-content-video { justify-self: start; }
 }
 
 @media (max-width: 620px) {
@@ -1050,7 +1059,7 @@ button.ui-calendar-item:focus-visible { outline: 2px solid var(--ui-accent); out
 .teleprompter-line-controls { display: flex; flex-direction: column; justify-content: center; gap: var(--ui-space-3); }
 .teleprompter-line-button { width: 52px; height: 52px; color: var(--ui-text); border: 1px solid var(--ui-border-strong); background: var(--ui-surface-action); font-size: 1.55rem; }
 .teleprompter-line-button:hover:not(:disabled) { color: var(--ui-accent-ink); background: var(--ui-accent); }
-.camera-stage { width: 100%; max-width: none; aspect-ratio: 16 / 9; min-height: 0; justify-self: center; background: var(--ui-surface-code); }
+.camera-stage { width: min(100%, 360px); max-width: none; aspect-ratio: 9 / 16; min-height: 0; justify-self: center; background: var(--ui-surface-code); }
 .camera-stage video { min-height: 0; }
 .teleprompter-controls { flex: 0 0 auto; gap: var(--ui-space-2); margin-top: 0; padding-top: var(--ui-space-3); border-top: 1px solid var(--ui-border); }
 .teleprompter-close { margin-left: auto; }
@@ -1069,7 +1078,7 @@ button.ui-calendar-item:focus-visible { outline: 2px solid var(--ui-accent); out
   .teleprompter-script { min-height: 170px; height: 34dvh; padding: var(--ui-space-4); padding-bottom: 30vh; font-size: clamp(.88rem, 3.4vw, 1.05rem); }
   .teleprompter-line-controls { flex-direction: row; justify-content: flex-end; }
   .teleprompter-line-button { width: 56px; height: 56px; }
-  .camera-stage { width: min(68vw, 280px); }
+  .camera-stage { width: min(52vw, 240px); }
   .teleprompter-controls { align-items: stretch; }
   .teleprompter-controls .ui-button, .teleprompter-controls > a { flex: 1 1 45%; }
 }
