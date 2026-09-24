@@ -500,7 +500,7 @@ function App() {
                 </>}
                 <Route path="/calendar" element={<Navigate to="/plans" replace />} />
                 <Route path="/social-pack" element={<Navigate to="/plans" replace />} />
-                {contentMode === "blog" && <Route path="/social-pack/:slug" element={<SocialPack />} />}
+                <Route path="/social-pack/:slug" element={<SocialPack />} />
                 <Route path="/plans" element={<ContentPlans site={site} creationEnabled={workflowFlags.creationUiEnabled && brandCapabilities.content_publishing !== false} activeChannels={channels} />} />
                 <Route path="/review" element={<ReviewRedirect />} />
                 <Route path="/batches" element={<Navigate to="/plans" replace />} />
@@ -3575,7 +3575,7 @@ function PublishSocial() {
 function SocialPack() {
   const { slug = "" } = useParams();
   const location = useLocation();
-  const { site } = useApp();
+  const { site, channels } = useApp();
   const { t } = useI18n();
   const { showToast } = useToast();
   const search = useMemo(() => new URLSearchParams(location.search), [location.search]);
@@ -3780,6 +3780,7 @@ function SocialPack() {
     showToast(t("social.slideDownloaded"));
   };
   const contentItemId = post?.itemId || itemId;
+  const bufferReady = channels.some((channel) => channel.channel === "video" && channel.enabled && channel.connectionStatus === "connected");
   const publishReel = async () => {
     if (!contentItemId) return;
     setBusy(true);
@@ -3928,6 +3929,17 @@ function SocialPack() {
           </button></AiOnly>
         </div>
       )}
+      {post && teleprompterScript && (
+        <section className="ui-card teleprompter-launch-card">
+          <div>
+            <p className="ui-eyebrow">{t("social.video")}</p>
+            <h2>{t("social.recordTitle")}</h2>
+            <p className="ui-muted">{t("social.recordHelp")}</p>
+            {!bufferReady && <p className="ui-field-hint">Conecta el canal Vídeo / Reel en Administración para publicar este vídeo en Buffer.</p>}
+          </div>
+          <button className="ui-button ui-button-primary" onClick={() => setShowTeleprompter(true)}>{t("social.record")}</button>
+        </section>
+      )}
       {post && (
         <section className="social-visual-grid">
           {blogImageSrc && (
@@ -4041,21 +4053,6 @@ function SocialPack() {
           </article>
         </section>
       )}
-      {post && teleprompterScript && (
-        <section className="ui-card teleprompter-launch-card">
-          <div>
-            <p className="ui-eyebrow">{t("social.video")}</p>
-            <h2>{t("social.recordTitle")}</h2>
-            <p className="ui-muted">{t("social.recordHelp")}</p>
-          </div>
-          <button
-            className="ui-button ui-button-primary"
-            onClick={() => setShowTeleprompter(true)}
-          >
-            {t("social.record")}
-          </button>
-        </section>
-      )}
       {post && Object.keys(socialPack).length ? (
         <div className="social-pack-grid">
           {fields.map(
@@ -4106,7 +4103,7 @@ function SocialPack() {
           script={teleprompterScript}
           itemId={contentItemId}
           site={site}
-          canPublish={Boolean(contentItemId)}
+          canPublish={Boolean(contentItemId && bufferReady)}
           busy={busy}
           onUploaded={() => setMessage("Vídeo subido. Ya puedes programar el reel en Buffer.")}
           onPublish={() => void publishReel()}
@@ -4358,7 +4355,7 @@ function TeleprompterModal({
           )}
           {videoBlob && itemId && site && (
             <button className="ui-button ui-button-secondary" onClick={() => void upload()} disabled={uploading || uploaded}>
-              {uploaded ? "Vídeo subido" : uploading ? "Subiendo vídeo…" : "Subir vídeo a Buffer"}
+              {uploaded ? "Vídeo guardado" : uploading ? "Guardando vídeo…" : "Guardar vídeo"}
             </button>
           )}
           {uploaded && canPublish && onPublish && (

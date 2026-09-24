@@ -743,6 +743,8 @@
 .ui-channel-schedule .ui-input { width: auto; min-width: 220px; }
 .ui-channel-schedule .ui-field-hint, .ui-channel-schedule .ui-field-error { flex: 1 1 100%; margin: 0; }
 .ui-review-item-title h3 { font-size: clamp(1rem, 1.55vw, 1.35rem); line-height: 1.18; }
+.ui-card-icon-action { flex: 0 0 auto; }
+.ui-card-icon-action.danger { color: var(--ui-danger); }
 .ui-plan-overview { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 22px; margin: 20px 0 18px; padding: 14px 16px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); background: rgba(21,28,28,.75); }
 .ui-plan-overview > div { display: grid; gap: 3px; min-width: 110px; }
 .ui-plan-overview strong { font-size: 1.2rem; }

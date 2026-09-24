@@ -18,6 +18,11 @@ export function itemTitle(item: ContentItem) {
   return contentTitle(item.metadata?.contentTitle, contentTitle(item.topic));
 }
 
+export function socialPackPath(item: ContentItem) {
+  const slug = itemTitle(item).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return "/social-pack/" + encodeURIComponent(slug || "social-pack") + "?itemId=" + encodeURIComponent(item.id) + "&batchId=" + encodeURIComponent(String(item.batchId || item.batch_id || ""));
+}
+
 export const statusLabels: Record<string, string> = {
   draft: "Borrador",
   generated: "Generado",
