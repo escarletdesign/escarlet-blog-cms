@@ -1980,18 +1980,23 @@ const server = createServer(async (req, res) => {
           const organizationId = body.organizationId || body.config?.organizationId || body.config?.organization_id
           const channelId = body.channelId || body.externalAccountId || body.config?.channelId || body.config?.channel_id
           if (!organizationId) throw Object.assign(new Error('organizationId es obligatorio para Buffer.'), { status: 400 })
-          if (!channelId) throw Object.assign(new Error('channelId es obligatorio para Buffer.'), { status: 400 })
+          const sourceChannelIds = body.channelIds || body.config?.channelIds || body.config?.channel_ids || {}
+          const channelIds = sourceChannelIds && typeof sourceChannelIds === 'object' && !Array.isArray(sourceChannelIds)
+            ? Object.fromEntries(Object.entries(sourceChannelIds).map(([key, value]) => [String(key).toLowerCase(), String(value || '').trim()]).filter(([key, value]) => ['instagram', 'instagram_story', 'linkedin', 'x', 'video'].includes(key) && value))
+            : {}
+          if (channelId && !Object.keys(channelIds).length) channelIds[channel] = String(channelId).trim()
+          if (!Object.keys(channelIds).length) throw Object.assign(new Error('Selecciona al menos un canal de Buffer.'), { status: 400 })
           const encrypted = encryptSecret(token)
           legacy = await upsertBrandConnection({
             workspaceId: scope.workspaceId,
             siteId: scope.siteId,
             userId: scope.auth.userId,
             role: scope.context.role,
-            channel,
+            channel: channel === 'buffer' ? 'buffer' : channel,
             provider,
-            externalAccountId: channelId,
+            externalAccountId: channel === 'buffer' ? organizationId : channelId,
             credentialsCiphertext: encrypted,
-            config: { ...(body.config || {}), organizationId, channelId, timezone: body.timezone || body.config?.timezone || 'UTC' },
+            config: { ...(body.config || {}), organizationId, ...(channel === 'buffer' ? { channelIds } : { channelId }), timezone: body.timezone || body.config?.timezone || 'UTC' },
             capabilities: body.capabilities || { drafts: true, scheduling: true, media: true, channels: true },
             status: body.status || 'connected'
           })
@@ -2025,7 +2030,8 @@ const server = createServer(async (req, res) => {
           result = await testPostizConnection(credentials)
         } else if (row.provider === 'buffer') {
           if (!credentials.apiToken) throw Object.assign(new Error('No se puede descifrar la credencial.'), { status: 503, code: 'credential_unavailable' })
-          result = await testBufferConnection({ ...credentials, organizationId: credentials.organizationId || row.config?.organizationId, channelId: credentials.channelId || row.config?.channelId })
+          const channelIds = row.config?.channelIds || row.config?.channel_ids || {}
+          result = await testBufferConnection({ ...credentials, organizationId: credentials.organizationId || row.config?.organizationId, channelId: credentials.channelId || row.config?.channelId || channelIds.instagram || Object.values(channelIds)[0] })
         } else result = { ok: true, provider: row.provider, message: 'Conexión configurada correctamente.' }
         const pool = await getPgPool()
         if (result.ok) await pool.query('UPDATE channel_connections SET status=\'connected\',last_tested_at=NOW(),last_error=NULL,updated_at=NOW() WHERE id=$1 AND workspace_id=$2 AND site_id=$3', [connectionId, scope.workspaceId, scope.siteId])

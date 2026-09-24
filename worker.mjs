@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { getPgPool, runCoreMigrations, closePgPool } from './lib/pg.mjs'
-import { claimJobs, finishJob, claimOutbox, finishOutbox, recordUsage, enqueueJob } from './lib/workspace-domain.mjs'
+import { claimJobs, finishJob, claimOutbox, finishOutbox, recordUsage, enqueueJob, resolveBufferChannelId } from './lib/workspace-domain.mjs'
 import { decryptSecret } from './lib/secret-crypto.mjs'
 import { scheduleMetricoolPost, syncMetricoolPost } from './lib/metricool.mjs'
 import { schedulePlanablePost, syncPlanablePost, planableStatus } from './lib/planable.mjs'
@@ -85,7 +85,7 @@ async function processExternalPublicationEvent(event) {
       mi.user_token_ciphertext,mi.metricool_user_id,mi.blog_id,mi.timezone AS integration_timezone
     FROM content_variants cv JOIN content_items ci ON ci.id=cv.item_id JOIN sites site ON site.id=ci.site_id LEFT JOIN schedules s ON s.variant_id=cv.id
     LEFT JOIN LATERAL (SELECT body FROM content_variants WHERE item_id=ci.id AND channel='blog' LIMIT 1) blog ON TRUE
-    LEFT JOIN LATERAL (SELECT provider,status,credentials_ciphertext,external_account_id,config FROM channel_connections WHERE workspace_id=cv.workspace_id AND site_id=ci.site_id AND channel=CASE WHEN cv.channel='instagram_story' THEN 'instagram' ELSE cv.channel END AND status='connected' ORDER BY is_primary DESC,updated_at DESC LIMIT 1) cc ON TRUE
+    LEFT JOIN LATERAL (SELECT provider,status,credentials_ciphertext,external_account_id,config FROM channel_connections WHERE workspace_id=cv.workspace_id AND site_id=ci.site_id AND status='connected' AND is_primary=TRUE AND (channel=CASE WHEN cv.channel='instagram_story' THEN 'instagram' ELSE cv.channel END OR (provider='buffer' AND channel='buffer')) ORDER BY CASE WHEN channel=CASE WHEN cv.channel='instagram_story' THEN 'instagram' ELSE cv.channel END THEN 0 ELSE 1 END,updated_at DESC LIMIT 1) cc ON TRUE
     LEFT JOIN LATERAL (SELECT user_token_ciphertext,metricool_user_id,blog_id,timezone FROM metricool_integrations WHERE workspace_id=cv.workspace_id AND (site_id=ci.site_id OR site_id IS NULL) AND enabled=TRUE ORDER BY CASE WHEN site_id=ci.site_id THEN 0 ELSE 1 END LIMIT 1) mi ON TRUE
     WHERE ci.id=$1 AND ci.workspace_id=$2 AND cv.status<>'canceled'`, [itemId, event.workspace_id])
   const requestedChannels = new Set(Array.isArray(event.payload?.channels) ? event.payload.channels.map((channel) => String(channel).toLowerCase()) : [])
@@ -180,7 +180,8 @@ async function processExternalPublicationEvent(event) {
         : await schedulePostizPost({ apiToken: token, integrationId, publicationDate: variant.publication_date || new Date().toISOString(), timezone: variant.timezone || connectionConfig.timezone || 'UTC', text, channel: variant.channel, providerType: connectionConfig.providerType || connectionConfig.provider_type || postizProviderForChannel(variant.channel), providerSettings: connectionConfig.providerSettings || connectionConfig.provider_settings || {}, media: mediaRows.rows.filter((asset) => asset.url), idempotencyKey: `postiz:${variant.id}:${variant.publication_date || 'draft'}`, apiBaseUrl: connectionConfig.apiBaseUrl || connectionConfig.api_base_url, postType })
     } else if (provider === 'buffer') {
       const organizationId = connectionConfig.organizationId || connectionConfig.organization_id
-      const channelId = connectionConfig.channelId || connectionConfig.channel_id || variant.connection_external_account_id
+      const channelId = resolveBufferChannelId(connectionConfig, variant.channel, variant.connection_external_account_id)
+      if (!channelId) throw new Error(`No hay un canal de Buffer configurado para ${variant.channel}.`)
       const postType = variant.publication_date ? 'schedule' : 'draft'
       response = movingBuffer
         ? await updateBufferPostDueAt({ apiToken: token, providerPostId: variant.provider_post_id, publicationDate: variant.publication_date, idempotencyKey: `buffer-move:${variant.id}:${event.id}` })
@@ -328,7 +329,7 @@ async function processBufferSyncJob(job) {
   const rows = await pool.query(`SELECT cv.id,cv.item_id,cv.channel,ci.site_id,s.provider_post_id,cc.credentials_ciphertext,cc.config
     FROM content_variants cv JOIN content_items ci ON ci.id=cv.item_id
     JOIN schedules s ON s.variant_id=cv.id
-    JOIN LATERAL (SELECT credentials_ciphertext,config FROM channel_connections WHERE workspace_id=cv.workspace_id AND site_id=ci.site_id AND channel=CASE WHEN cv.channel='instagram_story' THEN 'instagram' ELSE cv.channel END AND provider='buffer' AND status='connected' ORDER BY is_primary DESC,updated_at DESC LIMIT 1) cc ON TRUE
+    JOIN LATERAL (SELECT credentials_ciphertext,config FROM channel_connections WHERE workspace_id=cv.workspace_id AND site_id=ci.site_id AND provider='buffer' AND status='connected' AND is_primary=TRUE AND (channel=CASE WHEN cv.channel='instagram_story' THEN 'instagram' ELSE cv.channel END OR channel='buffer') ORDER BY CASE WHEN channel=CASE WHEN cv.channel='instagram_story' THEN 'instagram' ELSE cv.channel END THEN 0 ELSE 1 END,updated_at DESC LIMIT 1) cc ON TRUE
     WHERE cv.workspace_id=$1 AND s.provider='buffer' AND s.provider_post_id IS NOT NULL AND s.status IN ('scheduled','syncing') ${siteClause}
     ORDER BY s.updated_at ASC LIMIT 100`, params)
   let synced = 0
