@@ -1909,11 +1909,13 @@ const server = createServer(async (req, res) => {
         assertWorkspaceRole(scope.context.role, ['owner', 'admin'])
         const token = body.apiToken || body.token || body.userToken || body.credentials?.apiToken || body.credentials?.token
         if (!token) throw Object.assign(new Error('apiToken es obligatorio para consultar Buffer.'), { status: 400 })
-        const organizations = await listBufferOrganizations({ apiToken: token, apiBaseUrl: body.apiBaseUrl || body.config?.apiBaseUrl || body.config?.api_base_url })
         const requestedOrganizationId = String(body.organizationId || body.config?.organizationId || body.config?.organization_id || '').trim()
+        const organizations = requestedOrganizationId
+          ? []
+          : await listBufferOrganizations({ apiToken: token, apiBaseUrl: body.apiBaseUrl || body.config?.apiBaseUrl || body.config?.api_base_url })
         const selectedOrganization = requestedOrganizationId ? organizations.find((organization) => String(organization.id) === requestedOrganizationId) : organizations[0]
-        const channels = selectedOrganization
-          ? await listBufferChannels({ apiToken: token, organizationId: selectedOrganization.id, apiBaseUrl: body.apiBaseUrl || body.config?.apiBaseUrl || body.config?.api_base_url })
+        const channels = requestedOrganizationId || selectedOrganization
+          ? await listBufferChannels({ apiToken: token, organizationId: requestedOrganizationId || selectedOrganization.id, apiBaseUrl: body.apiBaseUrl || body.config?.apiBaseUrl || body.config?.api_base_url })
           : []
         json(res, 200, { organizations: organizations.map((organization) => ({ id: organization.id, name: organization.name, channelCount: organization.channelCount })), organizationId: selectedOrganization?.id || requestedOrganizationId || null, channels: channels.map((channel) => ({ id: channel.id, name: channel.name, displayName: channel.displayName, descriptor: channel.descriptor, service: channel.service, externalLink: channel.externalLink, organizationId: channel.organizationId, isDisconnected: Boolean(channel.isDisconnected), isLocked: Boolean(channel.isLocked) })) })
         return
