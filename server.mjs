@@ -163,6 +163,7 @@ import { archiveConversation, conversationOwner, deleteConversation, getConversa
 import { getWorkflowFlags, setWorkflowFlags } from './lib/workflow-flags.mjs'
 import { generateThumbBuffer } from './lib/media-optimize.mjs'
 import { parseMultipart, isMultipartRequest } from './lib/multipart.mjs'
+import { blogPublicationSlug } from './lib/blog-publication.mjs'
 import { withPostLinks } from './lib/preview-url.mjs'
 import { escapeHtml } from './lib/content-render.mjs'
 import { handleMcpHttp, sendMcpCors } from './mcp/http-handler.mjs'
@@ -696,7 +697,7 @@ async function readV2PublicBlogPosts(siteHandle) {
     const pool = await getPgPool()
     if (!pool) return null
     await coreMigrationPromise
-    const result = await pool.query(`SELECT ci.id AS item_id,ci.topic,ci.status,cv.body,ci.created_at,cover.url AS cover_url FROM content_items ci JOIN content_variants cv ON cv.item_id=ci.id JOIN sites s ON s.id=ci.site_id LEFT JOIN LATERAL (SELECT ma.public_url AS url FROM content_variant_media cvm JOIN media_assets ma ON ma.id=cvm.media_asset_id WHERE cvm.variant_id=cv.id ORDER BY cvm.sort_order ASC LIMIT 1) cover ON TRUE WHERE s.handle=$1 AND cv.channel='blog' AND cv.status='published' ORDER BY COALESCE(NULLIF(cv.body->>'datePublished','')::date,ci.created_at::date) DESC`, [siteHandle])
+    const result = await pool.query(`SELECT ci.id AS item_id,ci.topic,ci.status,cv.body,ci.created_at,cover.url AS cover_url FROM content_items ci JOIN content_variants cv ON cv.item_id=ci.id JOIN sites s ON s.id=ci.site_id LEFT JOIN LATERAL (SELECT ma.public_url AS url FROM content_variant_media cvm JOIN media_assets ma ON ma.id=cvm.media_asset_id WHERE cvm.variant_id=cv.id ORDER BY cvm.sort_order ASC LIMIT 1) cover ON TRUE WHERE s.handle=$1 AND cv.channel='blog' AND cv.status IN ('syncing','published') ORDER BY COALESCE(NULLIF(cv.body->>'datePublished','')::date,ci.created_at::date) DESC`, [siteHandle])
     // A Postgres deployment may be running before the one-time JSON import. In
     // that window an empty canonical feed must not hide the legacy public feed.
     if (!result.rows.length) return null
@@ -732,7 +733,7 @@ async function readV2PublicBlogPosts(siteHandle) {
         }
       }
       return {
-        slug: String(body.slug || row.topic || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
+        slug: blogPublicationSlug({ topic: row.topic, blog_body: body }),
         site: siteHandle,
         title: body.title || row.topic,
         status: 'published',

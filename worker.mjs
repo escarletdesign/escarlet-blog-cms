@@ -47,11 +47,17 @@ async function triggerBlogRebuild(variant) {
 async function beginBlogPublication({ pool, workspaceId, variant, sourceId }) {
   const publicationUrl = blogPublicationUrl(variant)
   if (!publicationUrl) throw new Error('El Blog necesita un dominio público y un slug antes de publicarse.')
-  await triggerBlogRebuild(variant)
   await recordUsage({ workspaceId, siteId: variant.site_id, kind: 'publications', quantity: 1, idempotencyKey: `publication:${sourceId}:${variant.id}`, metadata: { itemId: variant.item_id, channel: 'blog', provider: 'cms' } })
-  await pool.query("UPDATE content_variants SET status='published',updated_at=NOW() WHERE id=$1", [variant.id])
+  await pool.query("UPDATE content_variants SET status='syncing',updated_at=NOW() WHERE id=$1", [variant.id])
   await pool.query("UPDATE schedules SET status='syncing',last_error=NULL,updated_at=NOW() WHERE variant_id=$1", [variant.id])
-  await enqueueJob({ workspaceId, type: 'content.verify_blog', payload: { variantId: variant.id, publicationUrl }, idempotencyKey: `blog-verify:${variant.id}:${sourceId}`, availableAt: new Date(Date.now() + blogVerifyDelayMs) })
+  try {
+    await triggerBlogRebuild(variant)
+    await enqueueJob({ workspaceId, type: 'content.verify_blog', payload: { variantId: variant.id, publicationUrl }, idempotencyKey: `blog-verify:${variant.id}:${sourceId}`, availableAt: new Date(Date.now() + blogVerifyDelayMs) })
+  } catch (error) {
+    await pool.query("UPDATE content_variants SET status='scheduled',updated_at=NOW() WHERE id=$1 AND status='syncing'", [variant.id])
+    await pool.query("UPDATE schedules SET status='scheduled',last_error=$2,updated_at=NOW() WHERE variant_id=$1 AND status='syncing'", [variant.id, String(error.message || error).slice(0, 2000)])
+    throw error
+  }
 }
 
 async function processBlogPublishJob(job) {
@@ -81,6 +87,7 @@ async function processBlogVerifyJob(job) {
   if (!await blogPublicationIsLive(publicationUrl)) {
     throw Object.assign(new Error(`El despliegue terminó de solicitarse, pero ${publicationUrl || 'la URL del artículo'} todavía no está visible.`), { retryAt: new Date(Date.now() + blogVerifyDelayMs).toISOString() })
   }
+  await pool.query("UPDATE content_variants SET status='published',updated_at=NOW() WHERE id=$1", [variantId])
   await pool.query("UPDATE schedules SET status='published',last_error=NULL,updated_at=NOW() WHERE variant_id=$1", [variantId])
   await pool.query(`UPDATE content_items ci SET status=CASE WHEN NOT EXISTS (SELECT 1 FROM content_variants cv LEFT JOIN schedules s ON s.variant_id=cv.id WHERE cv.item_id=ci.id AND (cv.status NOT IN ('published','canceled') OR COALESCE(s.status,cv.status) NOT IN ('published','canceled'))) THEN 'published' ELSE ci.status END,error=NULL,updated_at=NOW() WHERE ci.id=$1`, [result.rows[0].item_id])
   return { published: true, variantId, publicationUrl }
