@@ -321,6 +321,11 @@ const baseApi = {
       `/api/v2/content/items/${encodeURIComponent(itemId)}/cancel`,
       { method: "POST", body: JSON.stringify({ site }) },
     ),
+  cancelContentChannel: (itemId: string, channel: string, site?: string) =>
+    request<{ itemId: string; channel: string; status: string; itemStatus: string }>(
+      `/api/v2/content/items/${encodeURIComponent(itemId)}/cancel-channel`,
+      { method: "POST", body: JSON.stringify({ site, channel }) },
+    ),
   usageV2: (workspaceId?: string) =>
     request<Record<string, any>>(`/api/v2/usage${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`),
   brandKitV2: (site?: string) =>
