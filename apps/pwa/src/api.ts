@@ -311,7 +311,7 @@ const baseApi = {
     body.append("filename", file.name || "escarlet-reel.webm");
     body.append("mimeType", file.type || "video/webm");
     body.append("file", file, file.name || "escarlet-reel.webm");
-    return request<{ itemId: string; media: Record<string, any> }>(
+    return request<{ itemId: string; media: Record<string, any>; replacedPrevious: boolean }>(
       `/api/v2/content/items/${encodeURIComponent(itemId)}/video`,
       { method: "POST", body },
     );

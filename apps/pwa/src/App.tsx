@@ -308,6 +308,11 @@ function ToastProvider({ children }: { children: ReactNode }) {
   );
 }
 
+function ContentPlansRoute({ site, creationEnabled, activeChannels }: { site: string; creationEnabled: boolean; activeChannels: AppState["channels"] }) {
+  const { showToast } = useToast();
+  return <ContentPlans site={site} creationEnabled={creationEnabled} activeChannels={activeChannels} onNotify={showToast} />;
+}
+
 function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -490,7 +495,7 @@ function App() {
                 <Route path="/calendar" element={<Navigate to="/plans" replace />} />
                 <Route path="/social-pack" element={<Navigate to="/plans" replace />} />
                 <Route path="/social-pack/:slug" element={<SocialPack />} />
-                <Route path="/plans" element={<ContentPlans site={site} creationEnabled={workflowFlags.creationUiEnabled && brandCapabilities.content_publishing !== false} activeChannels={channels} />} />
+                <Route path="/plans" element={<ContentPlansRoute site={site} creationEnabled={workflowFlags.creationUiEnabled && brandCapabilities.content_publishing !== false} activeChannels={channels} />} />
                 <Route path="/review" element={<ReviewRedirect />} />
                 <Route path="/batches" element={<Navigate to="/plans" replace />} />
                 <Route path="/brands" element={<BrandsView />} />
@@ -3641,11 +3646,12 @@ function SocialPack() {
         ).replace(/\/$/, "");
         setArticleUrl(`${domain}/blog/${postData.post.slug}`);
       })
-      .catch(
-        (e) =>
-          active &&
-          setMessage(e instanceof Error ? e.message : t("common.error")),
-      );
+      .catch((e) => {
+        if (!active) return;
+        const message = e instanceof Error ? e.message : t("common.error");
+        setMessage(message);
+        showToast(message, "error");
+      });
     return () => {
       active = false;
     };
@@ -4087,7 +4093,6 @@ function SocialPack() {
           </button></AiOnly>
         </section>
       ) : null}
-      {message && <p className="ui-success">{message}</p>}
       {showTeleprompter && (
         <TeleprompterModal
           script={teleprompterScript}
@@ -4096,7 +4101,8 @@ function SocialPack() {
           canPublish={Boolean(contentItemId && publishChannels.length)}
           publishChannels={publishChannels}
           busy={busy}
-          onUploaded={() => setMessage("Vídeo subido. Ya puedes programar el reel en Buffer.")}
+          onUploaded={(replacedPrevious) => showToast(replacedPrevious ? "Vídeo guardado. El anterior se eliminó." : "Vídeo guardado.")}
+          onNotify={showToast}
           onPublish={(channel) => void publishReel(channel)}
           onClose={() => setShowTeleprompter(false)}
         />
@@ -4113,6 +4119,7 @@ function TeleprompterModal({
   publishChannels = ["video"],
   busy,
   onUploaded,
+  onNotify,
   onPublish,
   onClose,
 }: {
@@ -4122,7 +4129,8 @@ function TeleprompterModal({
   canPublish?: boolean;
   publishChannels?: string[];
   busy?: boolean;
-  onUploaded?: () => void;
+  onUploaded?: (replacedPrevious: boolean) => void;
+  onNotify?: (message: string, kind?: ToastKind) => void;
   onPublish?: (channel: string) => void;
   onClose: () => void;
 }) {
@@ -4146,7 +4154,6 @@ function TeleprompterModal({
   const [videoBlob, setVideoBlob] = useState<Blob | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploaded, setUploaded] = useState(false);
-  const [error, setError] = useState("");
   useEffect(() => {
     setCurrentParagraph(0);
     scrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
@@ -4215,9 +4222,8 @@ function TeleprompterModal({
           setCountdown(remaining);
         }
       }, 1000);
-      setError("");
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("social.cameraError"));
+      onNotify?.(e instanceof Error ? e.message : t("social.cameraError"), "error");
     }
   };
   const stop = () => {
@@ -4240,15 +4246,14 @@ function TeleprompterModal({
   const upload = async () => {
     if (!videoBlob || !itemId || !site || uploading) return;
     setUploading(true);
-    setError("");
     try {
       const extension = videoBlob.type.includes("mp4") ? "mp4" : videoBlob.type.includes("quicktime") ? "mov" : "webm";
       const file = new File([videoBlob], `escarlet-reel.${extension}`, { type: videoBlob.type || "video/webm" });
-      await api.uploadContentVideo(itemId, file, site);
+      const result = await api.uploadContentVideo(itemId, file, site);
       setUploaded(true);
-      onUploaded?.();
+      onUploaded?.(result.replacedPrevious);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "No se pudo subir el vídeo.");
+      onNotify?.(cause instanceof Error ? cause.message : "No se pudo subir el vídeo.", "error");
     } finally {
       setUploading(false);
     }
@@ -4321,13 +4326,15 @@ function TeleprompterModal({
             </a>
           )}
           {videoBlob && itemId && site && (
-            <button className="ui-button ui-button-secondary" onClick={() => void upload()} disabled={uploading || uploaded}>
-              {uploaded ? "Vídeo guardado" : uploading ? "Guardando vídeo…" : "Guardar vídeo"}
-            </button>
+            <>
+              <button className="ui-button ui-button-secondary" onClick={() => void upload()} disabled={uploading || uploaded}>
+                {uploaded ? "Vídeo guardado" : uploading ? "Guardando vídeo…" : "Guardar vídeo"}
+              </button>
+              {!uploaded && <span className="ui-field-hint">Al guardar, el vídeo anterior de este contenido se elimina.</span>}
+            </>
           )}
           {uploaded && onPublish && (canPublish ? publishChannels.map((channel) => <button key={channel} className={`ui-button ${channel === "video" ? "ui-button-primary" : "ui-button-secondary"}`} onClick={() => onPublish(channel)} disabled={Boolean(busy)}>{busy ? "Programando…" : `Publicar en ${publishLabel(channel)}`}</button>) : <><button className="ui-button ui-button-secondary" disabled>Publicar en Buffer</button><span className="ui-field-hint">Conecta y activa un canal de Buffer en Administración para publicar.</span></>)}
         </div>
-        {error && <p className="ui-error">{error}</p>}
       </section>
     </div>
   );

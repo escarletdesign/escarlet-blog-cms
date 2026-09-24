@@ -2282,7 +2282,7 @@ const server = createServer(async (req, res) => {
           role: scope.context.role,
           media: video
         })
-        await attachContentMedia({
+        const attachment = await attachContentMedia({
           workspaceId: scope.workspaceId,
           siteId: scope.siteId,
           itemId,
@@ -2291,9 +2291,17 @@ const server = createServer(async (req, res) => {
           mediaAssetId: asset.id,
           channels: ['video'],
           assetIndex: 0,
-          createMissingVariants: ['video']
+          createMissingVariants: ['video'],
+          removeReplacedAssets: true
         })
-        json(res, 201, { itemId, media: { ...asset, url: asset.publicUrl || video.url, path: asset.storageKey || video.path } })
+        for (const previous of attachment.removedMedia || []) {
+          try {
+            await cmsDeleteMedia(siteHandle, previous.id, previous.publicUrl || `/${previous.storageKey}`, { membershipUserId: scope.auth.userId || '' })
+          } catch (error) {
+            console.warn('[video] no se pudo borrar el archivo reemplazado', previous.id, error.message)
+          }
+        }
+        json(res, 201, { itemId, media: { ...asset, url: asset.publicUrl || video.url, path: asset.storageKey || video.path }, replacedPrevious: Boolean(attachment.removedMedia?.length) })
         return
       }
       if (req.method === 'PATCH' && itemMatch) {
