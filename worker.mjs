@@ -142,11 +142,12 @@ async function processExternalPublicationEvent(event) {
     const body = variant.body && typeof variant.body === 'object' ? variant.body : {}
     const socialPack = body.socialPack && typeof body.socialPack === 'object' ? body.socialPack : {}
     const story = variant.channel === 'instagram_story'
-    const text = story
+    const publishCopy = typeof body.publishCopy === 'string' ? body.publishCopy.trim() : ''
+    const text = publishCopy || (story
       ? socialPack.instagramStory?.text || body.text || body.caption || body.title || body.topic || variant.topic || ''
       : variant.channel === 'video'
         ? socialPack.videoScript || body.videoScript || body.script || body.text || body.title || body.topic || variant.topic || ''
-      : socialPack.instagramCaption || socialPack.caption || body.text || body.caption || body.body || body.bodyHtml || body.title || body.topic || ''
+      : socialPack.instagramCaption || socialPack.caption || body.text || body.caption || body.body || body.bodyHtml || body.title || body.topic || '')
     let mediaRows = await pool.query('SELECT ma.public_url AS "url",ma.content_type AS "mimeType",ma.metadata FROM content_variant_media cvm JOIN media_assets ma ON ma.id=cvm.media_asset_id WHERE cvm.variant_id=$1 ORDER BY cvm.sort_order', [variant.id])
     if (story && !mediaRows.rowCount) {
       mediaRows = await pool.query(`SELECT ma.public_url AS "url",ma.content_type AS "mimeType",ma.metadata

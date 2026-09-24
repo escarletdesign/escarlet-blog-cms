@@ -2356,7 +2356,7 @@ const server = createServer(async (req, res) => {
           return
         }
         if (action === 'publish-buffer') {
-          json(res, 202, await publishContentItemViaBuffer({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role, channels: body.channels }))
+          json(res, 202, await publishContentItemViaBuffer({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role, channels: body.channels, copy: body.copy }))
           return
         }
         json(res, 200, await scheduleContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role, channels: body.channels, publicationDate: body.publicationDate, timezone: body.timezone }))
@@ -2675,6 +2675,9 @@ const server = createServer(async (req, res) => {
           cmsAiEnabled,
           assistantEnabled: cmsAiEnabled && workflow.assistantEnabled,
           blogWizardEnabled: cmsAiEnabled && workflow.blogWizardEnabled,
+          legacyPreviewEnabled: workflow.legacyPreviewEnabled,
+          legacySocialPackEnabled: workflow.legacySocialPackEnabled,
+          authorInviteEnabled: workflow.authorInviteEnabled,
           creation_ui_enabled: Boolean(productFlags.creation_ui_enabled),
           manual_creation_enabled: Boolean(productFlags.manual_creation_enabled),
           updatedAt: workflow.updatedAt
@@ -3170,6 +3173,9 @@ const server = createServer(async (req, res) => {
             db,
             assistantEnabled: body.assistantEnabled,
             blogWizardEnabled: body.blogWizardEnabled,
+            legacyPreviewEnabled: body.legacyPreviewEnabled,
+            legacySocialPackEnabled: body.legacySocialPackEnabled,
+            authorInviteEnabled: body.authorInviteEnabled,
             actorId: auth.userId || auth.role
           })
           writeDb(db)

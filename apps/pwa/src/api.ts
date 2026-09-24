@@ -300,10 +300,10 @@ const baseApi = {
       `/api/v2/content/items/${encodeURIComponent(itemId)}/reopen-unsent-channel`,
       { method: "POST", body: JSON.stringify({ site, channel }) },
     ),
-  publishContentViaBuffer: (itemId: string, channels: string[], site?: string) =>
+  publishContentViaBuffer: (itemId: string, channels: string[], site?: string, copy?: string) =>
     request<{ itemId: string; status: string; channels: string[]; provider: string; publicationDate: string }>(
       `/api/v2/content/items/${encodeURIComponent(itemId)}/publish-buffer`,
-      { method: "POST", body: JSON.stringify({ site, channels }) },
+      { method: "POST", body: JSON.stringify({ site, channels, copy }) },
     ),
   uploadContentVideo: (itemId: string, file: File, site?: string, format: "portrait" | "landscape" = "portrait") => {
     const body = new FormData();
@@ -545,6 +545,9 @@ const baseApi = {
         creditCheckoutWithoutStripe: boolean;
         assistantEnabled: boolean;
         blogWizardEnabled: boolean;
+        legacyPreviewEnabled: boolean;
+        legacySocialPackEnabled: boolean;
+        authorInviteEnabled: boolean;
         updatedAt?: string | null;
       };
     }>('/api/admin/feature-flags'),
@@ -553,6 +556,9 @@ const baseApi = {
     creditCheckoutWithoutStripe?: boolean;
     assistantEnabled?: boolean;
     blogWizardEnabled?: boolean;
+    legacyPreviewEnabled?: boolean;
+    legacySocialPackEnabled?: boolean;
+    authorInviteEnabled?: boolean;
   }) =>
     request<{
       ok: boolean;
@@ -561,6 +567,9 @@ const baseApi = {
         creditCheckoutWithoutStripe: boolean;
         assistantEnabled: boolean;
         blogWizardEnabled: boolean;
+        legacyPreviewEnabled: boolean;
+        legacySocialPackEnabled: boolean;
+        authorInviteEnabled: boolean;
         updatedAt?: string | null;
       };
     }>('/api/admin/feature-flags', {
@@ -569,7 +578,7 @@ const baseApi = {
     }),
   workflowFlags: (site?: string) =>
     request<{
-      flags: { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean; creation_ui_enabled?: boolean; manual_creation_enabled?: boolean; updatedAt?: string | null };
+      flags: { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean; legacyPreviewEnabled: boolean; legacySocialPackEnabled: boolean; authorInviteEnabled: boolean; creation_ui_enabled?: boolean; manual_creation_enabled?: boolean; updatedAt?: string | null };
     }>(`/api/app/feature-flags${site ? `?site=${encodeURIComponent(site)}` : ""}`),
   creditPacks: () =>
     request<{

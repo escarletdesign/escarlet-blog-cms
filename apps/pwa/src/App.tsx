@@ -33,7 +33,7 @@ import { DesignSystem } from "./DesignSystem";
 import { Badge, Button, Card, ChannelBadge, Checkbox, ConnectionCard, Drawer, EmptyState as UiEmptyState, Field, IconButton, Inline, Modal, MultiSelectPills, PageHeader, Select, Stack, StatusBadge, Tabs, TextField, Toast as UiToast } from "./ui";
 
 type Draft = Partial<Post> & { title: string; slug?: string };
-type WorkflowFlags = { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean; creationUiEnabled: boolean; manualCreationEnabled: boolean };
+type WorkflowFlags = { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean; legacyPreviewEnabled: boolean; legacySocialPackEnabled: boolean; authorInviteEnabled: boolean; creationUiEnabled: boolean; manualCreationEnabled: boolean };
 type SocialPackChannels = {
   substack: boolean;
   linkedin: boolean;
@@ -334,7 +334,7 @@ function ContentPlansRoute({ site, creationEnabled, activeChannels }: { site: st
 function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [workflowFlags, setWorkflowFlags] = useState<WorkflowFlags>({ cmsAiEnabled: true, assistantEnabled: false, blogWizardEnabled: false, creationUiEnabled: false, manualCreationEnabled: false });
+  const [workflowFlags, setWorkflowFlags] = useState<WorkflowFlags>({ cmsAiEnabled: true, assistantEnabled: false, blogWizardEnabled: false, legacyPreviewEnabled: true, legacySocialPackEnabled: true, authorInviteEnabled: true, creationUiEnabled: false, manualCreationEnabled: false });
   const [channels, setChannels] = useState<Array<{ channel: string; enabled: boolean; connectionStatus?: string }>>([]);
   const [brandCapabilities, setBrandCapabilities] = useState<Record<string, boolean>>({});
   const [productContext, setProductContext] = useState<AppState["productContext"]>();
@@ -359,6 +359,9 @@ function App() {
           cmsAiEnabled,
           assistantEnabled: cmsAiEnabled && nextFlags.flags?.assistantEnabled !== false,
           blogWizardEnabled: cmsAiEnabled && nextFlags.flags?.blogWizardEnabled !== false,
+          legacyPreviewEnabled: nextFlags.flags?.legacyPreviewEnabled !== false,
+          legacySocialPackEnabled: nextFlags.flags?.legacySocialPackEnabled !== false,
+          authorInviteEnabled: nextFlags.flags?.authorInviteEnabled !== false,
           creationUiEnabled: false,
           manualCreationEnabled: false,
         });
@@ -375,7 +378,7 @@ function App() {
           setWorkflowFlags((current) => ({ ...current, creationUiEnabled: Boolean(context.featureFlags?.creation_ui_enabled), manualCreationEnabled: Boolean(context.featureFlags?.manual_creation_enabled), assistantEnabled: current.assistantEnabled && Boolean(context.featureFlags?.creation_ui_enabled), blogWizardEnabled: current.blogWizardEnabled && Boolean(context.featureFlags?.manual_creation_enabled) }));
         } catch { setChannels([]); setBrandCapabilities({}); setProductContext(undefined); }
       } catch {
-        setWorkflowFlags({ cmsAiEnabled: true, assistantEnabled: false, blogWizardEnabled: false, creationUiEnabled: false, manualCreationEnabled: false });
+        setWorkflowFlags({ cmsAiEnabled: true, assistantEnabled: false, blogWizardEnabled: false, legacyPreviewEnabled: true, legacySocialPackEnabled: true, authorInviteEnabled: true, creationUiEnabled: false, manualCreationEnabled: false });
       }
     } catch {
       setSession(null);
@@ -506,14 +509,14 @@ function App() {
                 {workflowFlags.manualCreationEnabled && workflowFlags.blogWizardEnabled && brandCapabilities.content_publishing !== false && <Route path="/quick-create" element={<QuickCreate />} />}
                 {workflowFlags.manualCreationEnabled && brandCapabilities.content_publishing !== false && <>
                   <Route path="/manual/:slug?" element={<ManualPost />} />
-                  <Route path="/preview/:slug" element={<Preview />} />
+                  {workflowFlags.legacyPreviewEnabled && <Route path="/preview/:slug" element={<Preview />} />}
                   <Route path="/schedule/:slug" element={<Schedule />} />
                   <Route path="/publish/:slug" element={<PublishSocial />} />
                   <Route path="/posts" element={<Posts />} />
                 </>}
                 <Route path="/calendar" element={<Navigate to="/plans" replace />} />
                 <Route path="/social-pack" element={<Navigate to="/plans" replace />} />
-                <Route path="/social-pack/:slug" element={<SocialPackRoute />} />
+                {workflowFlags.legacySocialPackEnabled && <Route path="/social-pack/:slug" element={<SocialPackRoute />} />}
                 <Route path="/plans" element={<ContentPlansRoute site={site} creationEnabled={workflowFlags.creationUiEnabled && brandCapabilities.content_publishing !== false} activeChannels={channels} />} />
                 <Route path="/review" element={<ReviewRedirect />} />
                 <Route path="/batches" element={<Navigate to="/plans" replace />} />
@@ -527,7 +530,7 @@ function App() {
                 <Route path="/team" element={<AdminTabRedirect tab="team"><TeamView /></AdminTabRedirect>} />
                 <Route path="/team/invite" element={<AdminTabRedirect tab="team" invite><TeamView /></AdminTabRedirect>} />
                 <Route path="/settings" element={<Settings />} />
-                <Route path="/author-invite" element={<AuthorInvite />} />
+                {workflowFlags.authorInviteEnabled && <Route path="/author-invite" element={<AuthorInvite />} />}
                 {workflowFlags.cmsAiEnabled && <Route path="/billing" element={<AdminTabRedirect tab="billing"><Billing /></AdminTabRedirect>} />}
                 <Route path="/admin" element={<AdminGate />} />
                   <Route path="*" element={<Navigate to="/plans" replace />} />
@@ -3219,14 +3222,14 @@ function Preview() {
         <section className="ui-card preview-social-link">
           <div>
             <p className="ui-eyebrow">{t("social.eyebrow")}</p>
-            <h2>{t("preview.socialPack")}</h2>
+            <h2>{t("preview.socialView")}</h2>
             <p className="ui-muted">{t("social.description")}</p>
           </div>
           <button
             className="ui-button ui-button-secondary"
             onClick={() => nav(`/social-pack/${encodeURIComponent(post.slug)}`)}
           >
-            {t("preview.socialPack")}
+            {t("preview.socialView")}
           </button>
         </section>
       )}
@@ -3242,7 +3245,7 @@ function Preview() {
             className="ui-button ui-button-secondary"
             onClick={() => nav(`/social-pack/${encodeURIComponent(post.slug)}`)}
           >
-            {t("preview.socialPack")}
+            {t("preview.socialView")}
           </button>
         )}
         {post.status !== "published" && post.status !== "scheduled" && post.status !== "pending_schedule" && (
@@ -3607,7 +3610,7 @@ function PublishSocial() {
                 nav(`/social-pack/${encodeURIComponent(post.slug)}`)
               }
             >
-              {t("preview.socialPack")}
+              {t("preview.socialView")}
             </button>
           )}
         </section>
@@ -4609,8 +4612,8 @@ function PostRow({ post, onDeleted }: { post: Post; onDeleted?: (slug: string) =
           className="post-pack-button"
           type="button"
           onClick={() => postSlug && nav(`/social-pack/${encodeURIComponent(postSlug)}`)}
-          aria-label={t("preview.socialPack")}
-          title={t("preview.socialPack")}
+          aria-label={t("preview.socialView")}
+          title={t("preview.socialView")}
         >
           <MobileSocialIcon />
         </button>
@@ -5571,6 +5574,9 @@ function Admin() {
   const [cmsAiSaving, setCmsAiSaving] = useState(false);
   const [assistantEnabled, setAssistantEnabled] = useState(true);
   const [blogWizardEnabled, setBlogWizardEnabled] = useState(true);
+  const [legacyPreviewEnabled, setLegacyPreviewEnabled] = useState(true);
+  const [legacySocialPackEnabled, setLegacySocialPackEnabled] = useState(true);
+  const [authorInviteEnabled, setAuthorInviteEnabled] = useState(true);
   const [creationUiEnabled, setCreationUiEnabled] = useState(false);
   const [manualCreationEnabled, setManualCreationEnabled] = useState(false);
   const [workflowSaving, setWorkflowSaving] = useState(false);
@@ -5639,6 +5645,9 @@ function Admin() {
       setBillingTestMode(Boolean(featureFlagData.flags?.creditCheckoutWithoutStripe));
       setAssistantEnabled(enabled && featureFlagData.flags?.assistantEnabled !== false);
       setBlogWizardEnabled(enabled && featureFlagData.flags?.blogWizardEnabled !== false);
+      setLegacyPreviewEnabled(featureFlagData.flags?.legacyPreviewEnabled !== false);
+      setLegacySocialPackEnabled(featureFlagData.flags?.legacySocialPackEnabled !== false);
+      setAuthorInviteEnabled(featureFlagData.flags?.authorInviteEnabled !== false);
       try {
         const productContext = await api.context(site);
         setCreationUiEnabled(Boolean(productContext.featureFlags?.creation_ui_enabled));
@@ -6056,10 +6065,13 @@ function Admin() {
   const saveWorkflowFlags = async () => {
     setWorkflowSaving(true);
     try {
-      const result = await api.saveFeatureFlags({ assistantEnabled, blogWizardEnabled });
+      const result = await api.saveFeatureFlags({ assistantEnabled, blogWizardEnabled, legacyPreviewEnabled, legacySocialPackEnabled, authorInviteEnabled });
       await api.updateFeatureFlags({ creation_ui_enabled: creationUiEnabled, manual_creation_enabled: manualCreationEnabled }, site);
       setAssistantEnabled(result.flags?.assistantEnabled !== false);
       setBlogWizardEnabled(result.flags?.blogWizardEnabled !== false);
+      setLegacyPreviewEnabled(result.flags?.legacyPreviewEnabled !== false);
+      setLegacySocialPackEnabled(result.flags?.legacySocialPackEnabled !== false);
+      setAuthorInviteEnabled(result.flags?.authorInviteEnabled !== false);
       report(t("admin.savedWorkflowFlags"));
       await refresh();
     } catch (err) {
@@ -6698,6 +6710,7 @@ function Admin() {
               </button>
             </div>
           </section>
+          </>}
           <section className="ui-card temporary-flag-card workflow-flags-card">
             <p className="ui-eyebrow">{t("admin.workflowFlagsEyebrow")}</p>
             <h2>{t("admin.workflowFlagsTitle")}</h2>
@@ -6715,6 +6728,27 @@ function Admin() {
                 <small>{blogWizardEnabled ? t("admin.workflowFlagOn") : t("admin.workflowFlagOff")}</small>
               </span>
               <input type="checkbox" checked={blogWizardEnabled} onChange={(event) => setBlogWizardEnabled(event.target.checked)} />
+            </label>
+            <label className="switch-row">
+              <span>
+                <b>{t("admin.legacyPreviewFlag")}</b>
+                <small>{legacyPreviewEnabled ? t("admin.screenFlagHelp") : t("admin.screenFlagHidden")}</small>
+              </span>
+              <input type="checkbox" checked={legacyPreviewEnabled} onChange={(event) => setLegacyPreviewEnabled(event.target.checked)} />
+            </label>
+            <label className="switch-row">
+              <span>
+                <b>{t("admin.legacySocialPackFlag")}</b>
+                <small>{legacySocialPackEnabled ? t("admin.screenFlagHelp") : t("admin.screenFlagHidden")}</small>
+              </span>
+              <input type="checkbox" checked={legacySocialPackEnabled} onChange={(event) => setLegacySocialPackEnabled(event.target.checked)} />
+            </label>
+            <label className="switch-row">
+              <span>
+                <b>{t("admin.authorInviteFlag")}</b>
+                <small>{authorInviteEnabled ? t("admin.screenFlagHelp") : t("admin.screenFlagHidden")}</small>
+              </span>
+              <input type="checkbox" checked={authorInviteEnabled} onChange={(event) => setAuthorInviteEnabled(event.target.checked)} />
             </label>
             <label className="switch-row">
               <span>
@@ -6736,7 +6770,6 @@ function Admin() {
               </button>
             </div>
           </section>
-          </>}
         </section>
       ) : (
         <section className="ui-card">
