@@ -1199,7 +1199,7 @@ function RecentContentWork() {
     const blogVariant = (item.variants || []).find((variant) => variant.channel === "blog");
     const previewSlug = String(item.metadata?.slug || blogVariant?.body?.slug || "").trim();
     const batchId = String(item.batch_id || item.batchId || "");
-    const destination = previewSlug ? `/preview/${encodeURIComponent(previewSlug)}` : batchId ? socialPackPath(item) : `/plans?plan=${encodeURIComponent(batchId)}`;
+    const destination = item.id ? socialPackPath(item) : previewSlug ? `/preview/${encodeURIComponent(previewSlug)}` : `/plans?plan=${encodeURIComponent(batchId)}`;
     return <button key={item.id} type="button" className="post-row" onClick={() => nav(destination)}>
       {imageSrc ? <img className="post-thumb" src={imageSrc} alt="" loading="lazy" /> : <span className="post-thumb placeholder-thumb" aria-hidden="true">✦</span>}
       <span className="post-row-copy"><StatusBadge status={item.status} /><h3>{itemTitle(item)}</h3><p>{(item.variants || []).map((variant) => variant.channel).join(" · ") || t("home.noChannel")}</p></span>
