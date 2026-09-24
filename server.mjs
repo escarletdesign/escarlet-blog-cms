@@ -923,6 +923,22 @@ async function publicSessionForAuth(auth) {
 // leaving the browser waiting on a long fetch.
 const socialPackJobs = new Map()
 const SOCIAL_PACK_JOB_TTL_MS = 15 * 60 * 1000
+const connectionDiscoveryCache = new Map()
+const CONNECTION_DISCOVERY_TTL_MS = 30 * 1000
+
+function connectionDiscoveryKey(provider, token, apiBaseUrl = '', organizationId = '') {
+  return createHash('sha256').update([provider, token, apiBaseUrl, organizationId].join('\0')).digest('hex')
+}
+
+async function cachedConnectionDiscovery(key, loader) {
+  const now = Date.now()
+  const cached = connectionDiscoveryCache.get(key)
+  if (cached?.expiresAt > now) return cached.value
+  const value = await loader()
+  connectionDiscoveryCache.set(key, { value, expiresAt: now + CONNECTION_DISCOVERY_TTL_MS })
+  for (const [entryKey, entry] of connectionDiscoveryCache) if (entry.expiresAt <= now) connectionDiscoveryCache.delete(entryKey)
+  return value
+}
 
 function pruneSocialPackJobs(now = Date.now()) {
   for (const [id, job] of socialPackJobs) {
@@ -1899,7 +1915,8 @@ const server = createServer(async (req, res) => {
         assertWorkspaceRole(scope.context.role, ['owner', 'admin'])
         const token = body.apiToken || body.token || body.userToken || body.credentials?.apiToken || body.credentials?.token
         if (!token) throw Object.assign(new Error('apiToken es obligatorio para consultar Postiz.'), { status: 400 })
-        const integrations = await listPostizIntegrations({ apiToken: token, apiBaseUrl: body.apiBaseUrl || body.config?.apiBaseUrl || body.config?.api_base_url })
+        const apiBaseUrl = body.apiBaseUrl || body.config?.apiBaseUrl || body.config?.api_base_url || ''
+        const integrations = await cachedConnectionDiscovery(connectionDiscoveryKey('postiz', token, apiBaseUrl), () => listPostizIntegrations({ apiToken: token, apiBaseUrl }))
         json(res, 200, { integrations: integrations.map((integration) => ({ id: integration.id, name: integration.name, identifier: integration.identifier, profile: integration.profile, picture: integration.picture, disabled: Boolean(integration.disabled) })) })
         return
       }
@@ -1909,15 +1926,17 @@ const server = createServer(async (req, res) => {
         assertWorkspaceRole(scope.context.role, ['owner', 'admin'])
         const token = body.apiToken || body.token || body.userToken || body.credentials?.apiToken || body.credentials?.token
         if (!token) throw Object.assign(new Error('apiToken es obligatorio para consultar Buffer.'), { status: 400 })
+        const apiBaseUrl = body.apiBaseUrl || body.config?.apiBaseUrl || body.config?.api_base_url || ''
         const requestedOrganizationId = String(body.organizationId || body.config?.organizationId || body.config?.organization_id || '').trim()
-        const organizations = requestedOrganizationId
-          ? []
-          : await listBufferOrganizations({ apiToken: token, apiBaseUrl: body.apiBaseUrl || body.config?.apiBaseUrl || body.config?.api_base_url })
-        const selectedOrganization = requestedOrganizationId ? organizations.find((organization) => String(organization.id) === requestedOrganizationId) : organizations[0]
-        const channels = requestedOrganizationId || selectedOrganization
-          ? await listBufferChannels({ apiToken: token, organizationId: requestedOrganizationId || selectedOrganization.id, apiBaseUrl: body.apiBaseUrl || body.config?.apiBaseUrl || body.config?.api_base_url })
-          : []
-        json(res, 200, { organizations: organizations.map((organization) => ({ id: organization.id, name: organization.name, channelCount: organization.channelCount })), organizationId: selectedOrganization?.id || requestedOrganizationId || null, channels: channels.map((channel) => ({ id: channel.id, name: channel.name, displayName: channel.displayName, descriptor: channel.descriptor, service: channel.service, externalLink: channel.externalLink, organizationId: channel.organizationId, isDisconnected: Boolean(channel.isDisconnected), isLocked: Boolean(channel.isLocked) })) })
+        const discovery = await cachedConnectionDiscovery(connectionDiscoveryKey('buffer', token, apiBaseUrl, requestedOrganizationId), async () => {
+          const organizations = requestedOrganizationId ? [] : await listBufferOrganizations({ apiToken: token, apiBaseUrl })
+          const selectedOrganization = requestedOrganizationId ? null : organizations[0]
+          const channels = requestedOrganizationId || selectedOrganization
+            ? await listBufferChannels({ apiToken: token, organizationId: requestedOrganizationId || selectedOrganization.id, apiBaseUrl })
+            : []
+          return { organizations, organizationId: selectedOrganization?.id || requestedOrganizationId || null, channels }
+        })
+        json(res, 200, { organizations: discovery.organizations.map((organization) => ({ id: organization.id, name: organization.name, channelCount: organization.channelCount })), organizationId: discovery.organizationId, channels: discovery.channels.map((channel) => ({ id: channel.id, name: channel.name, displayName: channel.displayName, descriptor: channel.descriptor, service: channel.service, externalLink: channel.externalLink, organizationId: channel.organizationId, isDisconnected: Boolean(channel.isDisconnected), isLocked: Boolean(channel.isLocked) })) })
         return
       }
       if (req.method === 'POST' && brandConnectionsMatch) {
