@@ -4288,7 +4288,7 @@ function TeleprompterModal({
               </p>
             ))}
             </div>
-            <div className="teleprompter-line-controls" aria-label="Cambiar de línea">
+            <div className="teleprompter-line-controls" role="group" aria-label="Cambiar de línea">
               <IconButton className="teleprompter-line-button" label="Línea anterior" onClick={() => moveParagraph(-1)} disabled={!paragraphs.length || currentParagraph === 0}>↑</IconButton>
               <IconButton className="teleprompter-line-button" label="Línea siguiente" onClick={() => moveParagraph(1)} disabled={!paragraphs.length || currentParagraph >= paragraphs.length - 1}>↓</IconButton>
             </div>
