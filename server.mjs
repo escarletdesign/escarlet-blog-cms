@@ -2404,7 +2404,12 @@ const server = createServer(async (req, res) => {
       }
       json(res, 404, { message: 'Contrato v2 no encontrado.' })
     } catch (error) {
-      json(res, error.status || 400, { message: error.message, code: error.code })
+      json(res, error.status || 400, {
+        message: error.message,
+        code: error.code,
+        ...(error.retryAfterSeconds !== undefined ? { retryAfterSeconds: error.retryAfterSeconds } : {}),
+        ...(Array.isArray(error.rateLimits) ? { rateLimits: error.rateLimits } : {})
+      })
     }
     return
   }

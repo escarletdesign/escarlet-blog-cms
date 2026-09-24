@@ -7378,6 +7378,13 @@ const bufferServiceForTarget = (service: string, target: string) => {
   if (target === "video") return ["youtube", "instagram"].includes(normalized);
   return normalized === target;
 };
+const bufferWaitLabel = (value: unknown) => {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds < 0) return "unos segundos";
+  if (seconds < 60) return `${Math.ceil(seconds)} segundos`;
+  const minutes = Math.ceil(seconds / 60);
+  return `${minutes} minuto${minutes === 1 ? "" : "s"}`;
+};
 
 function ConnectionsView({ brandId, backTo, embedded = false }: { brandId?: string; backTo?: string; embedded?: boolean }) {
   const Root = embedded ? "section" : "main";
@@ -7394,6 +7401,7 @@ function ConnectionsView({ brandId, backTo, embedded = false }: { brandId?: stri
   const [bufferOrganizations, setBufferOrganizations] = useState<Array<Record<string, any>>>([]);
   const [bufferChannels, setBufferChannels] = useState<Array<Record<string, any>>>([]);
   const [loadingBufferChannels, setLoadingBufferChannels] = useState(false);
+  const [bufferRetryAt, setBufferRetryAt] = useState(0);
   const [busy, setBusy] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [mcpInfo, setMcpInfo] = useState<Record<string, any> | null>(null);
@@ -7464,6 +7472,10 @@ function ConnectionsView({ brandId, backTo, embedded = false }: { brandId?: stri
 
   const loadBufferChannels = async (organizationId = form.organizationId) => {
     if (!form.userToken) { notify("Pega primero la API key de Buffer.", "error"); return; }
+    if (bufferRetryAt > Date.now()) {
+      notify(`Buffer está limitando solicitudes. Vuelve a intentarlo en ${bufferWaitLabel((bufferRetryAt - Date.now()) / 1000)}.`, "error");
+      return;
+    }
     setLoadingBufferChannels(true);
     try {
       const result = await api.bufferChannels(selectedBrandId, { apiToken: form.userToken, organizationId: organizationId || undefined });
@@ -7482,7 +7494,12 @@ function ConnectionsView({ brandId, backTo, embedded = false }: { brandId?: stri
       setForm((current) => ({ ...current, organizationId: selectedOrganizationId, channelId: "", channelIds: suggested }));
       notify(channels.length ? "Canales de Buffer cargados." : "Buffer no devolvió canales para esa organización.", channels.length ? "success" : "info");
     } catch (err: any) {
-      const message = err?.status === 429 ? "Buffer está limitando solicitudes. Espera unos segundos y vuelve a cargar los canales." : err?.message || "No se pudieron cargar los canales de Buffer.";
+      const retryAfterSeconds = Number(err?.details?.retryAfterSeconds);
+      const retrySeconds = Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : 30;
+      if (err?.status === 429) setBufferRetryAt(Date.now() + retrySeconds * 1000);
+      const message = err?.status === 429
+        ? `Buffer está limitando solicitudes. Vuelve a intentarlo en ${bufferWaitLabel(retrySeconds)}.`
+        : err?.message || "No se pudieron cargar los canales de Buffer.";
       notify(message, "error");
     } finally { setLoadingBufferChannels(false); }
   };
