@@ -25,7 +25,7 @@ import { api } from "./api";
 import type { AiConversation, SocialPackJobResult } from "./api";
 import { getInitialLanguage, Language, translate } from "./i18n";
 import type { Author, BrandSummary, ContentItem, MediaItem, Post, Session } from "./types";
-import { itemTitle } from "./content-format";
+import { itemTitle, socialPackPath } from "./content-format";
 import { ContentBatches as ContentPlans } from "./ContentBatches";
 import { DesignSystem } from "./DesignSystem";
 import { Badge, Button, Card, ChannelBadge, Checkbox, ConnectionCard, Drawer, EmptyState as UiEmptyState, Field, IconButton, Inline, Modal, MultiSelectPills, PageHeader, Select, Stack, StatusBadge, Tabs, TextField, Toast as UiToast } from "./ui";
@@ -220,6 +220,20 @@ function ChoicePills({
       ))}
     </div>
   );
+}
+
+function enterRecorderFullscreen() {
+  if (!document.fullscreenElement) {
+    const request = document.documentElement.requestFullscreen?.();
+    if (request) void request.catch(() => undefined);
+  }
+}
+
+function exitRecorderFullscreen() {
+  if (document.fullscreenElement) {
+    const exit = document.exitFullscreen?.();
+    if (exit) void exit.catch(() => undefined);
+  }
 }
 
 function ModelPicker({
@@ -1180,7 +1194,11 @@ function RecentContentWork() {
   if (error || !items.length) return null;
   return <section className="home-content-work"><div className="section-title"><h2>{t("home.inProgress")}</h2><Button size="sm" variant="ghost" onClick={() => nav("/plans")}>{t("home.openContent")}</Button></div><div className="post-list compact">{items.map((item) => {
     const imageSrc = (item.variants || []).flatMap((variant) => [variant.body?.imageThumbUrl, variant.body?.imageUrl, variant.body?.coverUrl, ...(variant.media || [])]).map(socialImageUrl).find(Boolean);
-    return <button key={item.id} type="button" className="post-row" onClick={() => nav(`/plans?plan=${encodeURIComponent(item.batch_id || item.batchId || "")}`)}>
+    const blogVariant = (item.variants || []).find((variant) => variant.channel === "blog");
+    const previewSlug = String(item.metadata?.slug || blogVariant?.body?.slug || "").trim();
+    const batchId = String(item.batch_id || item.batchId || "");
+    const destination = previewSlug ? `/preview/${encodeURIComponent(previewSlug)}` : batchId ? socialPackPath(item) : `/plans?plan=${encodeURIComponent(batchId)}`;
+    return <button key={item.id} type="button" className="post-row" onClick={() => nav(destination)}>
       {imageSrc ? <img className="post-thumb" src={imageSrc} alt="" loading="lazy" /> : <span className="post-thumb placeholder-thumb" aria-hidden="true">✦</span>}
       <span className="post-row-copy"><StatusBadge status={item.status} /><h3>{itemTitle(item)}</h3><p>{(item.variants || []).map((variant) => variant.channel).join(" · ") || t("home.noChannel")}</p></span>
       <span className="chevron">›</span>
@@ -3990,7 +4008,7 @@ function SocialPack() {
             <p className="ui-muted">{t("social.recordHelp")}</p>
             {!bufferReady && <p className="ui-field-hint">Conecta al menos un canal de Buffer en Administración para publicar este vídeo.</p>}
           </div>
-          <button className="ui-button ui-button-primary" onClick={() => setShowTeleprompter(true)}>{t("social.record")}</button>
+          <button className="ui-button ui-button-primary" onClick={() => { enterRecorderFullscreen(); setShowTeleprompter(true); }}>{t("social.record")}</button>
         </section>
       )}
       {post && (
@@ -4224,9 +4242,9 @@ function TeleprompterModal({
     return () => { document.body.style.overflow = previousOverflow; };
   }, []);
   useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    const handleKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") { exitRecorderFullscreen(); onClose(); } };
     document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
+    return () => { document.removeEventListener("keydown", handleKeyDown); exitRecorderFullscreen(); };
   }, [onClose]);
   useEffect(
     () => () => {
@@ -4330,7 +4348,7 @@ function TeleprompterModal({
         <div className="teleprompter-layout">
           <div className="teleprompter-script-wrap">
             <div className="teleprompter-script" ref={scrollRef}>
-            {paragraphs.map((paragraph, index) => (
+            {paragraphs.map((paragraph, index) => index < currentParagraph || index > currentParagraph + 1 ? null : (
               <p
                 key={`${index}-${paragraph.slice(0, 18)}`}
                 ref={(element) => { paragraphRefs.current[index] = element; }}
@@ -4382,7 +4400,7 @@ function TeleprompterModal({
             </>
           )}
           {uploaded && onPublish && (canPublish ? publishChannels.map((channel) => <button key={channel} className={`ui-button ${channel === "video" ? "ui-button-primary" : "ui-button-secondary"}`} onClick={() => onPublish(channel)} disabled={Boolean(busy)}>{busy ? "Programando…" : `Publicar en ${publishLabel(channel)}`}</button>) : <><button className="ui-button ui-button-secondary" disabled>Publicar en Buffer</button><span className="ui-field-hint">Conecta y activa un canal de Buffer en Administración para publicar.</span></>)}
-          <Button className="teleprompter-close" size="sm" variant="ghost" onClick={onClose}>{t("editor.close")}</Button>
+          <Button className="teleprompter-close" size="sm" variant="ghost" onClick={() => { exitRecorderFullscreen(); onClose(); }}>{t("editor.close")}</Button>
         </div>
       </section>
     </div>
@@ -4578,7 +4596,7 @@ function PostRow({ post, onDeleted }: { post: Post; onDeleted?: (slug: string) =
         <button
           className="post-pack-button"
           type="button"
-          onClick={() => postSlug && nav(`/social-pack/${encodeURIComponent(postSlug)}?record=1`)}
+          onClick={() => { if (!postSlug) return; enterRecorderFullscreen(); nav(`/social-pack/${encodeURIComponent(postSlug)}?record=1`); }}
           aria-label={t("social.record")}
           title={t("social.record")}
         >
