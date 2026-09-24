@@ -107,7 +107,8 @@ export function ContentPackPreview({ site, item, busy, autoRecord = false, buffe
   const storyImage = cleanImageUrl(imageFor(instagramStory) || slides[0]?.imageUrl || slides[0]?.url || slides[0]?.image);
   const savedVideoUrl = cleanMediaUrl(video?.media?.[0]);
   const blogSlug = String(item.metadata?.slug || blog?.body?.slug || "").trim();
-  const blogUrl = String(item.metadata?.articleUrl || blog?.body?.articleUrl || "").trim() || (blogSlug ? `${siteDomain || window.location.origin}/blog/${encodeURIComponent(blogSlug)}` : "");
+  const fallbackBlogSlug = contentTitle.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const blogUrl = String(item.metadata?.articleUrl || blog?.body?.articleUrl || "").trim() || `${siteDomain || window.location.origin}/blog/${encodeURIComponent(blogSlug || fallbackBlogSlug)}`;
   const textVariants = variants.filter((variant) => !["blog", "instagram", "instagram_story", "video"].includes(variant.channel) && textFor(variant));
 
   if (!variants.length) return <EmptyState title="No hay variantes para previsualizar" description="El contenido todavía no tiene un pack de Blog o redes disponible." />;
