@@ -7,6 +7,7 @@ import { scheduleMetricoolPost, syncMetricoolPost } from './lib/metricool.mjs'
 import { schedulePlanablePost, syncPlanablePost, planableStatus } from './lib/planable.mjs'
 import { schedulePostizPost, syncPostizPost, postizPostId, postizProviderForChannel, postizStatus } from './lib/postiz.mjs'
 import { scheduleBufferPost, syncBufferPost, updateBufferPostDueAt, bufferPostId, bufferStatus } from './lib/buffer.mjs'
+import { blogPublicationIsLive, blogPublicationUrl } from './lib/blog-publication.mjs'
 
 function loadEnv() {
   const path = new URL('./.env', import.meta.url)
@@ -23,25 +24,11 @@ const workerId = `worker-${process.pid}-${randomUUID()}`
 const pollMs = Math.max(Number(process.env.WORKER_POLL_MS || 5000), 500)
 const maxAttempts = Math.max(Number(process.env.WORKER_MAX_ATTEMPTS || 5), 1)
 const metricoolPollMs = Math.min(Math.max(Number(process.env.METRICOOL_POLL_MS || 300000), 60000), 86400000)
+const blogVerifyDelayMs = Math.max(Number(process.env.BLOG_VERIFY_DELAY_MS || 20000), 1000)
+const blogVerifyAttempts = Math.max(Number(process.env.BLOG_VERIFY_ATTEMPTS || 12), maxAttempts)
 let stopping = false
 
 const retryAt = (attempts) => new Date(Date.now() + Math.min(60 * 60 * 1000, 1000 * 2 ** Math.max(0, attempts - 1))).toISOString()
-
-function slugify(value) {
-  return String(value || '')
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-}
-
-function canonicalArticleUrl(variant) {
-  const domain = String(variant.site_domain || '').trim().replace(/\/$/, '')
-  const blogBody = variant.blog_body && typeof variant.blog_body === 'object' ? variant.blog_body : {}
-  const slug = String(blogBody.slug || blogBody.slug_es || '').trim() || slugify(blogBody.title || variant.topic)
-  return domain && slug ? `${domain}/blog/${slug}` : ''
-}
 
 async function triggerBlogRebuild(variant) {
   const config = variant.connection_config && typeof variant.connection_config === 'object' ? variant.connection_config : {}
@@ -57,30 +44,53 @@ async function triggerBlogRebuild(variant) {
   if (!response.ok) throw new Error(`Webhook de Coolify falló con HTTP ${response.status}.`)
 }
 
+async function beginBlogPublication({ pool, workspaceId, variant, sourceId }) {
+  const publicationUrl = blogPublicationUrl(variant)
+  if (!publicationUrl) throw new Error('El Blog necesita un dominio público y un slug antes de publicarse.')
+  await triggerBlogRebuild(variant)
+  await recordUsage({ workspaceId, siteId: variant.site_id, kind: 'publications', quantity: 1, idempotencyKey: `publication:${sourceId}:${variant.id}`, metadata: { itemId: variant.item_id, channel: 'blog', provider: 'cms' } })
+  await pool.query("UPDATE content_variants SET status='published',updated_at=NOW() WHERE id=$1", [variant.id])
+  await pool.query("UPDATE schedules SET status='syncing',last_error=NULL,updated_at=NOW() WHERE variant_id=$1", [variant.id])
+  await enqueueJob({ workspaceId, type: 'content.verify_blog', payload: { variantId: variant.id, publicationUrl }, idempotencyKey: `blog-verify:${variant.id}:${sourceId}`, availableAt: new Date(Date.now() + blogVerifyDelayMs) })
+}
+
 async function processBlogPublishJob(job) {
   const pool = await getPgPool()
   const variantId = job.payload?.variantId
   if (!pool || !variantId) throw new Error('content.publish_blog requiere variantId.')
-  const due = await pool.query(`SELECT cv.id,cv.item_id,cc.credentials_ciphertext AS connection_credentials_ciphertext,cc.config AS connection_config FROM content_variants cv
+  const due = await pool.query(`SELECT cv.id,cv.item_id,ci.site_id,ci.topic,site.domain AS site_domain,cv.body AS blog_body,cc.credentials_ciphertext AS connection_credentials_ciphertext,cc.config AS connection_config FROM content_variants cv
     LEFT JOIN content_items ci ON ci.id=cv.item_id
+    LEFT JOIN sites site ON site.id=ci.site_id
     LEFT JOIN LATERAL (SELECT credentials_ciphertext,config FROM channel_connections WHERE workspace_id=cv.workspace_id AND site_id=ci.site_id AND channel='blog' AND status='connected' ORDER BY is_primary DESC,updated_at DESC LIMIT 1) cc ON TRUE
     WHERE cv.id=$1 AND cv.channel='blog' AND cv.status='scheduled'
       AND EXISTS (SELECT 1 FROM schedules s WHERE s.variant_id=cv.id AND s.publication_date<=NOW())`, [variantId])
   if (!due.rowCount) return { published: false, variantId }
-  await triggerBlogRebuild(due.rows[0])
-  await recordUsage({ workspaceId: job.workspace_id, kind: 'publications', quantity: 1, idempotencyKey: `publication:${job.id}:${variantId}`, metadata: { variantId, channel: 'blog', provider: 'cms' } })
-  const result = await pool.query(`UPDATE content_variants SET status='published',updated_at=NOW() WHERE id=$1 AND status='scheduled' RETURNING id,item_id`, [variantId])
-  if (!result.rowCount) return { published: false, variantId }
+  await beginBlogPublication({ pool, workspaceId: job.workspace_id, variant: due.rows[0], sourceId: job.id })
+  return { published: false, syncing: true, variantId }
+}
+
+async function processBlogVerifyJob(job) {
+  const pool = await getPgPool()
+  const variantId = job.payload?.variantId
+  if (!pool || !variantId) throw new Error('content.verify_blog requiere variantId.')
+  const result = await pool.query(`SELECT cv.id,cv.item_id,cv.status,s.status AS schedule_status,ci.topic,site.domain AS site_domain,cv.body AS blog_body
+    FROM content_variants cv JOIN content_items ci ON ci.id=cv.item_id JOIN sites site ON site.id=ci.site_id JOIN schedules s ON s.variant_id=cv.id
+    WHERE cv.id=$1 AND cv.channel='blog'`, [variantId])
+  if (!result.rowCount || result.rows[0].schedule_status === 'published') return { published: Boolean(result.rowCount), variantId }
+  const publicationUrl = job.payload?.publicationUrl || blogPublicationUrl(result.rows[0])
+  if (!await blogPublicationIsLive(publicationUrl)) {
+    throw Object.assign(new Error(`El despliegue terminó de solicitarse, pero ${publicationUrl || 'la URL del artículo'} todavía no está visible.`), { retryAt: new Date(Date.now() + blogVerifyDelayMs).toISOString() })
+  }
   await pool.query("UPDATE schedules SET status='published',last_error=NULL,updated_at=NOW() WHERE variant_id=$1", [variantId])
-  await pool.query(`UPDATE content_items ci SET status=CASE WHEN NOT EXISTS (SELECT 1 FROM content_variants cv WHERE cv.item_id=ci.id AND cv.status NOT IN ('published','canceled')) THEN 'published' ELSE ci.status END,error=NULL,updated_at=NOW() WHERE ci.id=$1`, [result.rows[0].item_id])
-  return { published: true, variantId }
+  await pool.query(`UPDATE content_items ci SET status=CASE WHEN NOT EXISTS (SELECT 1 FROM content_variants cv LEFT JOIN schedules s ON s.variant_id=cv.id WHERE cv.item_id=ci.id AND (cv.status NOT IN ('published','canceled') OR COALESCE(s.status,cv.status) NOT IN ('published','canceled'))) THEN 'published' ELSE ci.status END,error=NULL,updated_at=NOW() WHERE ci.id=$1`, [result.rows[0].item_id])
+  return { published: true, variantId, publicationUrl }
 }
 
 async function processExternalPublicationEvent(event) {
   const pool = await getPgPool()
   if (!pool) throw new Error('Postgres no está configurado.')
   const itemId = event.payload?.itemId || event.aggregate_id
-  const variantsResult = await pool.query(`SELECT cv.id,cv.channel,cv.body,ci.site_id,ci.topic,site.domain AS site_domain,blog.body AS blog_body, s.publication_date,s.timezone,s.provider_post_id,
+  const variantsResult = await pool.query(`SELECT cv.id,cv.item_id,cv.channel,cv.body,ci.site_id,ci.topic,site.domain AS site_domain,blog.body AS blog_body, s.publication_date,s.timezone,s.provider_post_id,
       cc.provider AS connection_provider,cc.status AS connection_status,cc.credentials_ciphertext AS connection_credentials_ciphertext,cc.external_account_id AS connection_external_account_id,cc.config AS connection_config,
       mi.user_token_ciphertext,mi.metricool_user_id,mi.blog_id,mi.timezone AS integration_timezone
     FROM content_variants cv JOIN content_items ci ON ci.id=cv.item_id JOIN sites site ON site.id=ci.site_id LEFT JOIN schedules s ON s.variant_id=cv.id
@@ -108,10 +118,7 @@ async function processExternalPublicationEvent(event) {
       if (publicationDate && publicationDate.getTime() > Date.now()) {
         await enqueueJob({ workspaceId: event.workspace_id, type: 'content.publish_blog', payload: { variantId: variant.id }, idempotencyKey: `blog-publish:${variant.id}:${publicationDate.toISOString()}`, availableAt: publicationDate })
       } else {
-        await triggerBlogRebuild(variant)
-        await recordUsage({ workspaceId: event.workspace_id, siteId: variant.site_id, kind: 'publications', quantity: 1, idempotencyKey: `publication:${event.id}:${variant.id}`, metadata: { itemId, channel: 'blog', provider: 'cms' } })
-        await pool.query(`UPDATE content_variants SET status='published',updated_at=NOW() WHERE id=$1`, [variant.id])
-        await pool.query(`UPDATE schedules SET status='published',last_error=NULL,updated_at=NOW() WHERE variant_id=$1`, [variant.id])
+        await beginBlogPublication({ pool, workspaceId: event.workspace_id, variant, sourceId: event.id })
       }
       continue
     }
@@ -187,7 +194,7 @@ async function processExternalPublicationEvent(event) {
         ? await updateBufferPostDueAt({ apiToken: token, providerPostId: variant.provider_post_id, publicationDate: variant.publication_date, idempotencyKey: `buffer-move:${variant.id}:${event.id}` })
         : variant.provider_post_id
           ? await syncBufferPost({ apiToken: token, providerPostId: variant.provider_post_id })
-          : await scheduleBufferPost({ apiToken: token, organizationId, channelId, publicationDate: variant.publication_date || null, text, media: mediaRows.rows.filter((asset) => asset.url), idempotencyKey: `buffer:${variant.id}:${variant.publication_date || 'draft'}:${event.id}`, postType, service: variant.channel, linkUrl: story ? (socialPack.instagramStory?.linkUrl || canonicalArticleUrl(variant)) : '' })
+          : await scheduleBufferPost({ apiToken: token, organizationId, channelId, publicationDate: variant.publication_date || null, text, media: mediaRows.rows.filter((asset) => asset.url), idempotencyKey: `buffer:${variant.id}:${variant.publication_date || 'draft'}:${event.id}`, postType, service: variant.channel, linkUrl: story ? (socialPack.instagramStory?.linkUrl || blogPublicationUrl(variant)) : '' })
     } else throw new Error(`El proveedor ${provider} aún no tiene un adaptador de publicación.`)
     const providerPostId = provider === 'postiz' ? (postizPostId(response) || variant.provider_post_id || null) : provider === 'buffer' ? (bufferPostId(response) || variant.provider_post_id || null) : (response?.id || response?.postId || response?.data?.id || response?.posts?.[0]?.id || variant.provider_post_id || null)
     const remoteStatus = provider === 'planable' ? planableStatus(response) : provider === 'postiz' ? postizStatus(response) : provider === 'buffer' ? bufferStatus(response) : String(response?.status || response?.data?.status || '').toLowerCase()
@@ -362,6 +369,7 @@ async function processBufferSyncJob(job) {
 
 async function processJob(job) {
   if (job.type === 'content.publish_blog') return processBlogPublishJob(job)
+  if (job.type === 'content.verify_blog') return processBlogVerifyJob(job)
   if (job.type === 'metricool.sync') return processMetricoolSyncJob(job)
   if (job.type === 'planable.sync') return processPlanableSyncJob(job)
   if (job.type === 'postiz.sync') return processPostizSyncJob(job)
@@ -376,14 +384,20 @@ async function drainOnce() {
       await processJob(job)
       await finishJob(job.id, { ok: true })
     } catch (error) {
-      const deadLetter = job.attempts >= maxAttempts
-      await finishJob(job.id, { ok: false, error: error.message, retryAt: deadLetter ? null : retryAt(job.attempts), deadLetter })
-      if (deadLetter && job.type === 'content.publish_blog' && job.payload?.variantId) {
+      const deadLetter = job.attempts >= (job.type === 'content.verify_blog' ? blogVerifyAttempts : maxAttempts)
+      await finishJob(job.id, { ok: false, error: error.message, retryAt: deadLetter ? null : (error.retryAt || retryAt(job.attempts)), deadLetter })
+      if (deadLetter && ['content.publish_blog', 'content.verify_blog'].includes(job.type) && job.payload?.variantId) {
         const pool = await getPgPool()
         const message = String(error.message || 'No se pudo publicar el blog en Coolify.').slice(0, 2000)
         if (pool) {
-          await pool.query(`UPDATE content_variants SET status='failed',updated_at=NOW() WHERE id=$1 AND status='scheduled'`, [job.payload.variantId])
-          await pool.query(`UPDATE schedules SET status='failed',last_error=$2,updated_at=NOW() WHERE variant_id=$1 AND status NOT IN ('published','canceled')`, [job.payload.variantId, message])
+          if (job.type === 'content.verify_blog') {
+            await pool.query(`UPDATE schedules SET status='action_required',last_error=$2,updated_at=NOW() WHERE variant_id=$1 AND status='syncing'`, [job.payload.variantId, message])
+            await pool.query(`UPDATE content_items SET status='action_required',error=$2,updated_at=NOW() WHERE id=(SELECT item_id FROM content_variants WHERE id=$1)`, [job.payload.variantId, message])
+          } else {
+            await pool.query(`UPDATE content_variants SET status='failed',updated_at=NOW() WHERE id=$1 AND status='scheduled'`, [job.payload.variantId])
+            await pool.query(`UPDATE schedules SET status='failed',last_error=$2,updated_at=NOW() WHERE variant_id=$1 AND status NOT IN ('published','canceled')`, [job.payload.variantId, message])
+            await pool.query(`UPDATE content_items SET status='failed',error=$2,updated_at=NOW() WHERE id=(SELECT item_id FROM content_variants WHERE id=$1)`, [job.payload.variantId, message])
+          }
         }
       }
     }

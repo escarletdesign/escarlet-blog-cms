@@ -300,6 +300,11 @@ const baseApi = {
       `/api/v2/content/items/${encodeURIComponent(itemId)}/mark-published`,
       { method: "POST", body: JSON.stringify({ site, channel }) },
     ),
+  reopenUnsentChannel: (itemId: string, channel: string, site?: string) =>
+    request<{ itemId: string; status: string; channel: string }>(
+      `/api/v2/content/items/${encodeURIComponent(itemId)}/reopen-unsent-channel`,
+      { method: "POST", body: JSON.stringify({ site, channel }) },
+    ),
   publishContentViaBuffer: (itemId: string, channels: string[], site?: string) =>
     request<{ itemId: string; status: string; channels: string[]; provider: string; publicationDate: string }>(
       `/api/v2/content/items/${encodeURIComponent(itemId)}/publish-buffer`,

@@ -113,6 +113,7 @@ export function ContentBatches({ site, creationEnabled = false, activeChannels, 
   const publishBuffer = (item: ContentItem, channel: ContentChannel) => { if (channel === "blog") { notifyError("El Blog se publica mediante el webhook de Coolify configurado en Administración."); return; } return run(() => api.publishContentViaBuffer(item.id, [channel], site)); };
   const publishBufferAll = (item: ContentItem) => { const targetChannels = (item.variants || []).filter((variant) => (variant.scheduleStatus || variant.status) === "approved" && publishChannels.includes(variant.channel)).map((variant) => variant.channel).filter((channel): channel is ContentChannel => ["instagram", "instagram_story", "linkedin", "x", "video"].includes(channel)); if (!targetChannels.length) { notifyError("Este contenido no tiene canales aprobados conectados a Buffer."); return; } return run(() => api.publishContentViaBuffer(item.id, targetChannels, site)); };
   const publishBlog = (item: ContentItem) => run(() => api.scheduleContent(item.id, new Date().toISOString(), "UTC", site, ["blog"]));
+  const reopenBlog = (item: ContentItem) => run(async () => { await api.reopenUnsentChannel(item.id, "blog", site); onNotify?.("Blog reabierto. Ya puedes publicarlo de nuevo."); });
   const skipChannel = (item: ContentItem, channel: ContentChannel) => run(() => api.cancelContentChannel(item.id, channel, site));
   const openPreview = (item: ContentItem, autoRecord = false) => setDialog({ type: "preview", item, autoRecord });
   const openSchedule = (item: ContentItem) => { setDialog({ type: "schedule", item }); setModalValue(""); setScheduleChannels((item.variants || []).filter((variant) => (variant.scheduleStatus || variant.status) === "approved").map((variant) => variant.channel)); };
@@ -165,8 +166,10 @@ export function ContentBatches({ site, creationEnabled = false, activeChannels, 
             {editableDate && <Inline gap="sm"><TextField type="datetime-local" aria-label={"Fecha de " + channelLabel(variant.channel)} value={draftDate} onChange={(event) => setDates((current) => ({ ...current, [key]: event.target.value }))} /><Button size="sm" disabled={busy || !draftDate || draftDate === serverDate} onClick={() => void saveChannelDate(detailItem, variant)}>Guardar fecha</Button></Inline>}
             {variant.lastError && <p className="ui-field-error">{variant.lastError}</p>}
             {currentStatus === "published" && <p className="ui-field-hint">Este canal ya fue publicado. No se volverá a enviar.</p>}
+            {variant.channel === "blog" && currentStatus === "syncing" && <p className="ui-field-hint">Coolify está desplegando el artículo. Se marcará como publicado cuando la URL esté visible.</p>}
             {currentStatus === "canceled" && <p className="ui-field-hint">Este canal quedó marcado como “No publicar”.</p>}
             {variant.channel === "blog" && currentStatus === "approved" && <Button size="sm" disabled={busy} onClick={() => void publishBlog(detailItem)}>Publicar Blog ahora</Button>}
+            {variant.channel === "blog" && variant.status === "published" && ["published", "action_required"].includes(currentStatus) && <Button size="sm" variant="ghost" disabled={busy} onClick={() => void reopenBlog(detailItem)}>No aparece en el Blog</Button>}
             {canPublishSocial && <Button size="sm" disabled={busy} onClick={() => void publishBuffer(detailItem, variant.channel)}>Publicar ahora</Button>}
             {missingConnection && <p className="ui-field-hint">Este canal no tiene una conexión activa. Puedes conectarlo o marcarlo como “No publicar”.</p>}
             {canSkip && <Button size="sm" variant="ghost" disabled={busy} onClick={() => void skipChannel(detailItem, variant.channel)}>No publicar</Button>}
