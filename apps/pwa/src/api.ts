@@ -305,9 +305,10 @@ const baseApi = {
       `/api/v2/content/items/${encodeURIComponent(itemId)}/publish-buffer`,
       { method: "POST", body: JSON.stringify({ site, channels }) },
     ),
-  uploadContentVideo: (itemId: string, file: File, site?: string) => {
+  uploadContentVideo: (itemId: string, file: File, site?: string, format: "portrait" | "landscape" = "portrait") => {
     const body = new FormData();
     body.append("site", site || "");
+    body.append("format", format);
     body.append("filename", file.name || "escarlet-reel.webm");
     body.append("mimeType", file.type || "video/webm");
     body.append("file", file, file.name || "escarlet-reel.webm");

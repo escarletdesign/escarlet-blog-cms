@@ -26,8 +26,8 @@ import type { AiConversation, SocialPackJobResult } from "./api";
 import { getInitialLanguage, Language, translate } from "./i18n";
 import type { Author, BrandSummary, ContentItem, MediaItem, Post, Session } from "./types";
 import { itemTitle, socialPackPath } from "./content-format";
-import { createPortraitCapture } from "./portrait-recorder";
-import type { PortraitCapture } from "./portrait-recorder";
+import { createVideoCapture } from "./portrait-recorder";
+import type { VideoCapture, VideoFormat } from "./portrait-recorder";
 import { ContentBatches as ContentPlans } from "./ContentBatches";
 import { DesignSystem } from "./DesignSystem";
 import { Badge, Button, Card, ChannelBadge, Checkbox, ConnectionCard, Drawer, EmptyState as UiEmptyState, Field, IconButton, Inline, Modal, MultiSelectPills, PageHeader, Select, Stack, StatusBadge, Tabs, TextField, Toast as UiToast } from "./ui";
@@ -3658,7 +3658,7 @@ function SocialPack() {
   const [message, setMessage] = useState("");
   const [showTeleprompter, setShowTeleprompter] = useState(false);
   const [activeSlide, setActiveSlide] = useState(0);
-  const [savedVideoUrl, setSavedVideoUrl] = useState("");
+  const [savedVideoMedia, setSavedVideoMedia] = useState<Array<{ url: string; format: VideoFormat }>>([]);
   const recordRequested = search.get("record") === "1";
   useEffect(() => {
     if (standalone) {
@@ -3694,7 +3694,7 @@ function SocialPack() {
           }
           const video = item.variants?.find((variant) => variant.channel === "video");
           return {
-            videoUrl: video?.media?.[0]?.url || video?.media?.[0]?.path || "",
+            videoMedia: video?.media || [],
             post: {
               itemId: item.id,
               slug,
@@ -3714,7 +3714,10 @@ function SocialPack() {
       .then(([postData, onboarding]) => {
         if (!active) return;
         setPost(postData.post);
-        setSavedVideoUrl(String((postData as any).videoUrl || ""));
+        setSavedVideoMedia(((postData as any).videoMedia || []).map((media: any) => ({
+          url: String(media?.url || media?.path || ""),
+          format: media?.metadata?.format === "landscape" ? "landscape" : "portrait",
+        })).filter((media: { url: string }) => media.url));
         setSocialPack(postData.post.socialPack || {});
         if (recordRequested && postData.post.socialPack?.videoScript) setShowTeleprompter(true);
         const domain = String(
@@ -3915,7 +3918,7 @@ function SocialPack() {
         description={t("social.description")}
         back
       />
-      {savedVideoUrl && <section className="ui-card saved-video-card"><div><p className="ui-eyebrow">Vídeo guardado</p><p className="ui-muted">Este vídeo ya está asociado al contenido. Desde aquí puedes revisarlo y abrir el flujo de publicación.</p></div><video className="saved-content-video" src={savedVideoUrl} controls playsInline /></section>}
+      {savedVideoMedia.length > 0 && <section className="ui-card saved-video-card"><div><p className="ui-eyebrow">Vídeos guardados</p><p className="ui-muted">Puedes conservar una versión vertical y otra horizontal del mismo contenido.</p></div><div className="saved-content-videos">{savedVideoMedia.map((media) => <figure className="saved-content-video-item" key={media.format}><video className={`saved-content-video saved-content-video-${media.format}`} src={media.url} controls playsInline /><figcaption>{media.format === "portrait" ? "Vertical 9:16" : "Horizontal 16:9"}</figcaption></figure>)}</div></section>}
       {standalone && !post && (
         <section className="ui-card ui-stack ui-stack-md social-standalone-composer">
           <p className="ui-eyebrow">{t("social.standaloneEyebrow")}</p>
@@ -4178,7 +4181,7 @@ function SocialPack() {
           canPublish={Boolean(contentItemId && publishChannels.length)}
           publishChannels={publishChannels}
           busy={busy}
-          onUploaded={(replacedPrevious, mediaUrl) => { setSavedVideoUrl(mediaUrl || savedVideoUrl); showToast(replacedPrevious ? "Vídeo guardado. El anterior se eliminó." : "Vídeo guardado."); }}
+          onUploaded={(replacedPrevious, mediaUrl, format) => { if (mediaUrl && format) setSavedVideoMedia((current) => [...current.filter((media) => media.format !== format), { url: mediaUrl, format }]); showToast(replacedPrevious ? "Vídeo guardado. Se reemplazó el anterior del mismo formato." : "Vídeo guardado."); }}
           onNotify={showToast}
           onPublish={(channel) => void publishReel(channel)}
           onClose={() => setShowTeleprompter(false)}
@@ -4206,7 +4209,7 @@ function TeleprompterModal({
   canPublish?: boolean;
   publishChannels?: string[];
   busy?: boolean;
-  onUploaded?: (replacedPrevious: boolean, mediaUrl?: string) => void;
+  onUploaded?: (replacedPrevious: boolean, mediaUrl?: string, format?: VideoFormat) => void;
   onNotify?: (message: string, kind?: ToastKind) => void;
   onPublish?: (channel: string) => void;
   onClose: () => void;
@@ -4215,7 +4218,7 @@ function TeleprompterModal({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const portraitCaptureRef = useRef<PortraitCapture | null>(null);
+  const portraitCaptureRef = useRef<VideoCapture | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const countdownTimerRef = useRef<number | null>(null);
@@ -4230,6 +4233,7 @@ function TeleprompterModal({
   const [currentParagraph, setCurrentParagraph] = useState(0);
   const [videoUrl, setVideoUrl] = useState("");
   const [videoBlob, setVideoBlob] = useState<Blob | null>(null);
+  const [format, setFormat] = useState<VideoFormat>("portrait");
   const [uploading, setUploading] = useState(false);
   const [uploaded, setUploaded] = useState(false);
   useEffect(() => {
@@ -4271,8 +4275,11 @@ function TeleprompterModal({
       setVideoUrl("");
       setVideoBlob(null);
       setUploaded(false);
+      const videoConstraints = format === "portrait"
+        ? { width: { ideal: 1080 }, height: { ideal: 1920 }, aspectRatio: { ideal: 9 / 16 }, facingMode: "user" }
+        : { width: { ideal: 1920 }, height: { ideal: 1080 }, aspectRatio: { ideal: 16 / 9 }, facingMode: "user" };
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1080 }, height: { ideal: 1920 }, aspectRatio: { ideal: 9 / 16 }, facingMode: "user" },
+        video: videoConstraints,
         audio: true,
       });
       streamRef.current = stream;
@@ -4281,7 +4288,7 @@ function TeleprompterModal({
         await videoRef.current.play();
       }
       chunksRef.current = [];
-      portraitCaptureRef.current = videoRef.current ? createPortraitCapture(videoRef.current, stream) : null;
+      portraitCaptureRef.current = videoRef.current ? createVideoCapture(videoRef.current, stream, format) : null;
       const recorder = new MediaRecorder(portraitCaptureRef.current?.stream || stream);
       recorder.ondataavailable = (event) => {
         if (event.data.size) chunksRef.current.push(event.data);
@@ -4343,10 +4350,10 @@ function TeleprompterModal({
     setUploading(true);
     try {
       const extension = videoBlob.type.includes("mp4") ? "mp4" : videoBlob.type.includes("quicktime") ? "mov" : "webm";
-      const file = new File([videoBlob], `escarlet-reel.${extension}`, { type: videoBlob.type || "video/webm" });
-      const result = await api.uploadContentVideo(itemId, file, site);
+      const file = new File([videoBlob], `escarlet-reel-${format}.${extension}`, { type: videoBlob.type || "video/webm" });
+      const result = await api.uploadContentVideo(itemId, file, site, format);
       setUploaded(true);
-      onUploaded?.(result.replacedPrevious, String(result.media?.url || result.media?.path || ""));
+      onUploaded?.(result.replacedPrevious, String(result.media?.url || result.media?.path || ""), format);
     } catch (cause) {
       onNotify?.(cause instanceof Error ? cause.message : "No se pudo subir el vídeo.", "error");
     } finally {
@@ -4375,7 +4382,7 @@ function TeleprompterModal({
               <IconButton className="teleprompter-line-button" label="Línea siguiente" onClick={() => moveParagraph(1)} disabled={!paragraphs.length || currentParagraph >= paragraphs.length - 1}>↓</IconButton>
             </div>
           </div>
-          {showCamera && <div className="camera-stage">
+          {showCamera && <div className={`camera-stage camera-stage-${format}`}>
             {videoUrl ? <video src={videoUrl} controls playsInline /> : <video ref={videoRef} muted playsInline />}
             <span>{recording ? "●" : "○"}</span>
             {countdown > 0 && (
@@ -4387,6 +4394,10 @@ function TeleprompterModal({
           </div>}
         </div>
         <div className="teleprompter-controls">
+          <div className="teleprompter-format-picker" role="group" aria-label="Formato del vídeo">
+            <button className={`ui-button ui-button-${format === "portrait" ? "secondary" : "ghost"}`} type="button" disabled={recording} onClick={() => setFormat("portrait")}>Vertical 9:16</button>
+            <button className={`ui-button ui-button-${format === "landscape" ? "secondary" : "ghost"}`} type="button" disabled={recording} onClick={() => setFormat("landscape")}>Horizontal 16:9</button>
+          </div>
           <button
             className={recording ? "ui-button ui-button-danger" : "ui-button ui-button-primary"}
             onClick={recording ? stop : start}
@@ -4398,7 +4409,7 @@ function TeleprompterModal({
             <a
               className="ui-button ui-button-secondary"
               href={videoUrl}
-              download="escarlet-video.webm"
+              download={`escarlet-video-${format}.webm`}
             >
               {t("social.downloadVideo")}
             </a>
@@ -4408,7 +4419,7 @@ function TeleprompterModal({
               <button className="ui-button ui-button-secondary" onClick={() => void upload()} disabled={uploading || uploaded}>
                 {uploaded ? "Vídeo guardado" : uploading ? "Guardando vídeo…" : "Guardar vídeo"}
               </button>
-              {!uploaded && <span className="ui-field-hint">Al guardar, el vídeo anterior de este contenido se elimina.</span>}
+              {!uploaded && <span className="ui-field-hint">Se reemplaza solo el vídeo del formato elegido.</span>}
             </>
           )}
           {uploaded && onPublish && (canPublish ? publishChannels.map((channel) => <button key={channel} className={`ui-button ${channel === "video" ? "ui-button-primary" : "ui-button-secondary"}`} onClick={() => onPublish(channel)} disabled={Boolean(busy)}>{busy ? "Programando…" : `Publicar en ${publishLabel(channel)}`}</button>) : <><button className="ui-button ui-button-secondary" disabled>Publicar en Buffer</button><span className="ui-field-hint">Conecta y activa un canal de Buffer en Administración para publicar.</span></>)}

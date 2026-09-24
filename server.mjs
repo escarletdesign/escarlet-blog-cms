@@ -2270,11 +2270,13 @@ const server = createServer(async (req, res) => {
         assertWorkspaceRole(scope.context.role, ['owner', 'admin', 'editor', 'author'])
         const itemId = decodeURIComponent(videoUploadMatch[1])
         const siteHandle = scope.context.siteHandle || scope.siteId
+        const format = body.format === 'landscape' ? 'landscape' : 'portrait'
         const video = await saveUploadedVideoMedia({
           site: siteHandle,
           filename: body.filename,
           buffer: body.buffer,
-          mimeType: body.mimeType || 'video/webm'
+          mimeType: body.mimeType || 'video/webm',
+          format
         })
         const asset = await registerContentMedia({
           workspaceId: scope.workspaceId,
@@ -2291,7 +2293,7 @@ const server = createServer(async (req, res) => {
           role: scope.context.role,
           mediaAssetId: asset.id,
           channels: ['video'],
-          assetIndex: 0,
+          assetIndex: format === 'landscape' ? 1 : 0,
           createMissingVariants: ['video'],
           removeReplacedAssets: true
         })
@@ -2302,7 +2304,7 @@ const server = createServer(async (req, res) => {
             console.warn('[video] no se pudo borrar el archivo reemplazado', previous.id, error.message)
           }
         }
-        json(res, 201, { itemId, media: { ...asset, url: asset.publicUrl || video.url, path: asset.storageKey || video.path }, replacedPrevious: Boolean(attachment.removedMedia?.length) })
+        json(res, 201, { itemId, format, media: { ...asset, url: asset.publicUrl || video.url, path: asset.storageKey || video.path }, replacedPrevious: Boolean(attachment.removedMedia?.length) })
         return
       }
       if (req.method === 'PATCH' && itemMatch) {

@@ -1,12 +1,14 @@
-export type PortraitCapture = {
+export type VideoCapture = {
   stream: MediaStream;
   stop: () => void;
 };
 
-export function createPortraitCapture(video: HTMLVideoElement, source: MediaStream): PortraitCapture | null {
+export type VideoFormat = "portrait" | "landscape";
+
+export function createVideoCapture(video: HTMLVideoElement, source: MediaStream, format: VideoFormat): VideoCapture | null {
   const canvas = document.createElement("canvas");
-  canvas.width = 1080;
-  canvas.height = 1920;
+  canvas.width = format === "portrait" ? 1080 : 1920;
+  canvas.height = format === "portrait" ? 1920 : 1080;
   const context = canvas.getContext("2d");
   const stream = canvas.captureStream?.(30);
   if (!context || !stream) return null;
