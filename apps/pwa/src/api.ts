@@ -280,11 +280,6 @@ const baseApi = {
       `/api/v2/content/items/${encodeURIComponent(itemId)}/approve`,
       { method: "POST", body: JSON.stringify({ site }) },
     ),
-  rejectContent: (itemId: string, comment: string, site?: string) =>
-    request<{ itemId: string; status: string }>(
-      `/api/v2/content/items/${encodeURIComponent(itemId)}/reject`,
-      { method: "POST", body: JSON.stringify({ site, comment }) },
-    ),
   scheduleContent: (itemId: string, publicationDate: string, timezone: string, site?: string, channels?: string[]) =>
     request<{ itemId: string; status: string }>(
       `/api/v2/content/items/${encodeURIComponent(itemId)}/schedule`,

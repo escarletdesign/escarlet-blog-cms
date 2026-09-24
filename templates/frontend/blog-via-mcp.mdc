@@ -7,13 +7,13 @@ alwaysApply: false
 # Contenido v2 vía MCP
 
 Contenido editorial multicanal. Usa el MCP **escarlet-blog** con `site: {{handle}}`.
-Los planes y publicaciones viven en Postgres y la app v2 los revisa y agenda.
+Las campañas y publicaciones viven en Postgres y la app v2 las revisa y agenda.
 
 ## Headless. No confundas CMS con diseño
 
-- El CMS guarda planes, publicaciones, variantes por canal y media asociada.
+- El CMS guarda campañas, publicaciones, variantes por canal y media asociada.
 - El **look** de `/blog` y `/blog/{slug}` se define en **esta landing** (vista SPA, o `generate-blog-pages.mjs` + CSS si es HTML estático).
-- La revisión humana vive en la app v2, dentro de Planes de contenido y Calendario.
+- La revisión humana vive en la app v2, dentro de Campañas y Calendario.
 
 Si el humano pide cambiar cómo se ve la ficha del post. edita el generador/vista y el CSS de esta landing, luego rebuild. No edites el CMS para eso.
 Detalle. skill global `escarlet-blog-integrate` (sección Headless).
@@ -30,13 +30,13 @@ Env `BLOG_ENABLED=false` en local fuerza apagado. El interruptor del CMS manda e
 2. `brand_get_context` con `site: {{handle}}`
 3. Lee resources `brand://{{handle}}/voice`, `keywords`, `agent`, `image-guide`
 
-## Crear plan
+## Crear campaña
 
-1. Genera contenido e imágenes en ChatGPT y crea el plan con `content_create_batch` usando `topics` y `channels`.
+1. Genera contenido e imágenes en ChatGPT y consulta `content_list_plans`. Si hay campañas activas, pregunta si se reutiliza una o se crea otra. Usa `content_create_batch` con el `batchId` elegido o con `createNewCampaign: true`.
 2. Sigue la generación con `content_list_plans`, `content_list_items` o `content_get_batch`.
 3. `content_update_item` para corregir una publicación antes de revisar.
 
-4. Espera la revisión humana en Planes de contenido y usa `content_approve` o `content_reject`.
+4. Espera la revisión humana en Campañas y usa `content_approve`.
 5. Usa `content_schedule` para agenda y `content_cancel` para detener una publicación aún no publicada.
 
 ## Editar publicación
@@ -65,7 +65,7 @@ Portada. `kind` `post`. Carrusel. `kind` `social`, filename `{slug}-ig-01.jpg` �
 
 ## Canales
 
-Cada plan puede contener Blog, Instagram, LinkedIn, X, Video o Substack. El
+Cada campaña puede contener Blog, Instagram, LinkedIn, X, Video o Substack. El
 contenido y la agenda se gestionan con las tools `content_*` y la conexión
 configurada para cada marca.
 

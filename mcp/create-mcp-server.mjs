@@ -36,11 +36,9 @@ import {
   getContentBatch,
   updateContentItem,
   approveContentItem,
-  rejectContentItem,
   scheduleContentItem,
   cancelContentItem,
   approveContentBatch,
-  rejectContentBatch,
   scheduleContentBatch,
   cancelContentBatch,
   createBrandKitVersion,
@@ -68,7 +66,6 @@ const V2_CONTENT_TOOLS = new Set([
   'content_upload_media',
   'content_update_item',
   'content_approve',
-  'content_reject',
   'content_schedule',
   'content_cancel'
 ])
@@ -108,7 +105,7 @@ const LEGACY_CONTENT_REPLACEMENTS = Object.freeze({
   blog_create_draft: 'content_create_batch',
   blog_update_post: 'content_update_item',
   blog_publish: 'content_approve',
-  blog_request_changes: 'content_reject',
+  blog_request_changes: 'content_update_item',
   blog_schedule_post: 'content_schedule',
   blog_cancel_schedule: 'content_cancel',
   blog_list_calendar: 'content_list_calendar'
@@ -174,7 +171,6 @@ const MUTATING_SITE_TOOLS = new Set([
   'content_upload_media',
   'content_update_item',
   'content_approve',
-  'content_reject',
   'content_schedule',
   'content_cancel'
 ])
@@ -1245,16 +1241,15 @@ export function buildToolList(auth) {
         'openai/toolInvocation/invoked': 'Imagen v2 guardada'
       }
     },
-    { name: 'content_list_plans', description: 'Lista los planes de contenido v2 de una marca, con progreso, canales y contadores de revisión.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, status: { type: 'string' }, channel: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] }, query: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 200 } } }, annotations: { readOnlyHint: true } },
+    { name: 'content_list_plans', description: 'Lista las campañas de contenido de una marca, con progreso, canales y publicaciones.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, status: { type: 'string' }, channel: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] }, query: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 200 } } }, annotations: { readOnlyHint: true } },
     { name: 'content_list_items', description: 'Lista publicaciones v2, incluyendo las generadas o pendientes de revisión aunque todavía no estén publicadas.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, batchId: { type: 'string' }, status: { type: 'string' }, channel: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] }, query: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 500 } } }, annotations: { readOnlyHint: true } },
     { name: 'content_list_calendar', description: 'Lista el calendario v2 con publicaciones programadas, sincronizando, publicadas o con error.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, from: { type: 'string' }, to: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 1000 } } }, annotations: { readOnlyHint: true } },
-    { name: 'content_create_batch', description: 'Crea un contenedor draft y guarda literalmente las variantes completas generadas por ChatGPT. No encola jobs ni completa campos.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, title: { type: 'string' }, items: { type: 'array', minItems: 1, items: { type: 'object', properties: { title: { type: 'string', maxLength: 120 }, brief: { type: 'string', minLength: 1, maxLength: 500 }, variants: { type: 'object', minProperties: 1, additionalProperties: { type: 'object' } } }, required: ['variants'], additionalProperties: false } }, batchId: { type: 'string' }, createNewPlan: { type: 'boolean' }, channels: { type: 'array', items: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] } }, brandKitVersionId: { type: 'string' }, metadata: { type: 'object' } }, required: ['items'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
-    { name: 'content_get_batch', description: 'Obtiene el progreso, items y variantes de un batch.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, batchId: { type: 'string' } }, required: ['batchId'] }, annotations: { readOnlyHint: true } },
+    { name: 'content_create_batch', description: 'Guarda publicaciones en una campaña. Antes lista las campañas activas: si existe alguna, pregunta al usuario si quiere reutilizarla con batchId o crear otra con createNewCampaign=true. Conserva literalmente las variantes recibidas.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, title: { type: 'string', description: 'Título visible de la campaña cuando se crea una nueva.' }, items: { type: 'array', minItems: 1, items: { type: 'object', properties: { title: { type: 'string', maxLength: 120 }, brief: { type: 'string', minLength: 1, maxLength: 500 }, variants: { type: 'object', minProperties: 1, additionalProperties: { type: 'object' } } }, required: ['variants'], additionalProperties: false } }, batchId: { type: 'string', description: 'Identificador de una campaña existente elegida por el usuario.' }, createNewCampaign: { type: 'boolean', description: 'Usa true solo después de que el usuario confirme que quiere una campaña nueva.' }, channels: { type: 'array', items: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] } }, brandKitVersionId: { type: 'string' }, metadata: { type: 'object' } }, required: ['items'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
+    { name: 'content_get_batch', description: 'Obtiene el progreso, las publicaciones y las variantes de una campaña.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, batchId: { type: 'string' } }, required: ['batchId'] }, annotations: { readOnlyHint: true } },
     { name: 'content_update_item', description: 'Guarda sin reescritura el body recibido. Con readyForReview=true valida que todas las variantes y medios del item estén completos y cambia el estado a generated.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, topic: { type: 'string' }, channel: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] }, body: { type: 'object' }, visualBrief: { type: 'object' }, mediaAssetIds: { type: 'array', items: { type: 'string' } }, readyForReview: { type: 'boolean' } }, required: ['itemId'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_approve', description: 'Aprueba un item o todos los items de un batch.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' } }, oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } },
-    { name: 'content_reject', description: 'Rechaza un item o todos los items de un batch y deja comentario.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' }, comment: { type: 'string' } }, oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_schedule', description: 'Programa variantes aprobadas por canal. Blog publica mediante Coolify; Instagram, LinkedIn y Story usan la conexión Buffer configurada.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' }, channels: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] } }, publicationDate: { type: 'string' }, timezone: { type: 'string' } }, required: ['channels', 'publicationDate'], oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } },
-    { name: 'content_cancel', description: 'Cancela un item o plan v2 que todavía no se publicó.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' } }, oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } }
+    { name: 'content_cancel', description: 'Cancela una publicación o campaña que todavía no se publicó.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' } }, oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } }
   )
 
   return tools
@@ -1548,11 +1543,11 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
         }
         case 'content_create_batch': {
           const scope = await resolveContentScope(auth, args)
-          if (!args.batchId && args.createNewPlan !== true) {
-            const activePlans = await listContentPlans({ workspaceId: scope.workspaceId, siteId: scope.siteId, status: ['draft', 'generated', 'needs_review', 'approved', 'scheduled'], limit: 20 })
-            if (activePlans.length) throw Object.assign(new Error('Ya existen planes activos para esta marca. Elige uno o confirma la creación de un plan nuevo.'), { status: 409, code: 'CONTENT_PLAN_SELECTION_REQUIRED', extra: { plans: activePlans, askUser: '¿Quieres guardar estas publicaciones en un plan existente o crear un plan nuevo?' } })
+          if (!args.batchId && args.createNewCampaign !== true) {
+            const activeCampaigns = await listContentPlans({ workspaceId: scope.workspaceId, siteId: scope.siteId, status: ['draft', 'generated', 'needs_review', 'approved', 'scheduled'], limit: 20 })
+            if (activeCampaigns.length) throw Object.assign(new Error('Ya existen campañas activas para esta marca. Elige una o confirma la creación de una campaña nueva.'), { status: 409, code: 'CONTENT_PLAN_SELECTION_REQUIRED', extra: { campaigns: activeCampaigns, askUser: '¿Quieres guardar estas publicaciones en una campaña existente o crear una campaña nueva?' } })
           }
-          const result = await createContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: auth.userId || null, role: scope.role, title: args.title, topics: args.topics, items: args.items, batchId: args.batchId, createNewPlan: args.createNewPlan, channels: args.channels, brandKitVersionId: args.brandKitVersionId, metadata: args.metadata })
+          const result = await createContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: auth.userId || null, role: scope.role, title: args.title, topics: args.topics, items: args.items, batchId: args.batchId, channels: args.channels, brandKitVersionId: args.brandKitVersionId, metadata: args.metadata })
           return textResult(result)
         }
         case 'content_list_plans': {
@@ -1589,12 +1584,6 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           return textResult(args.batchId
             ? await approveContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId, batchId: args.batchId, userId: auth.userId, role: scope.role })
             : await approveContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId: args.itemId, userId: auth.userId, role: scope.role }))
-        }
-        case 'content_reject': {
-          const scope = await resolveContentScope(auth, args)
-          return textResult(args.batchId
-            ? await rejectContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId, batchId: args.batchId, userId: auth.userId, role: scope.role, comment: args.comment })
-            : await rejectContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId: args.itemId, userId: auth.userId, role: scope.role, comment: args.comment }))
         }
         case 'content_schedule': {
           const scope = await resolveContentScope(auth, args)

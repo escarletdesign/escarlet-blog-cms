@@ -25,14 +25,14 @@ Un post, un enfoque principal. Si mezcla temas, elige autor por el objetivo del 
 
 1. Si hay varias marcas, llama `brand_list` y pregunta cuál quiere usar. Nunca elijas una por defecto.
 2. Consulta `brand_get_context` y genera título, contenido, metadatos e imágenes en ChatGPT. Antes de cada imagen llama `brand_prepare_image_generation`, entrega exactamente sus `ImageContent`, certifica el resultado con `brand_complete_image_generation` y conserva `generationReceiptId`.
-3. Crea el plan con `content_create_batch`, indicando `topics` y `channels`. La generación es asíncrona.
+3. Llama `content_list_plans`. Si hay campañas activas, pregunta si se reutiliza una o se crea otra. Después usa `content_create_batch` con el `batchId` elegido o con `createNewCampaign: true`.
 4. Sigue el estado con `content_list_plans`, `content_list_items` o `content_get_batch`. Aplica correcciones con `content_update_item`.
-5. Tras la revisión humana, usa `content_approve` o `content_reject`. Para una fecha futura usa `content_schedule`.
+5. Tras la revisión humana, usa `content_approve`. Para una fecha futura usa `content_schedule`.
 
 ## Flujo MCP (editar)
 
 1. `content_list_items` o `content_get_batch` para localizar la publicación v2.
-2. **Nunca** crees otro plan para editar. Usa `content_update_item` con el `itemId` existente.
+2. **Nunca** crees otra campaña para editar. Usa `content_update_item` con el `itemId` existente.
 3. Revisa el resultado en la app v2 y espera la confirmación del usuario.
 
 ## Despublicar y eliminar
@@ -95,4 +95,4 @@ Recomendado (aviso, no bloquea):
 ## Publicación
 
 - El flujo nuevo publica desde el CMS y mantiene la experiencia humana en `/app`.
-- La revisión y la agenda se gestionan en Planes de contenido y Calendario dentro de la app v2.
+- La aprobación y la agenda se gestionan en Campañas y Calendario dentro de la app v2.

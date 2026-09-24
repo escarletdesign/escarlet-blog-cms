@@ -86,9 +86,9 @@ Luego completa el brand kit en `/app/admin` → Brand kit.
 
 4. `.gitignore` → `src/data/blog.generated.js` y `.escarlet-blog-runtime/`
 5. Monta rutas `/blog` y `/blog/:slug` leyendo `getBlogIndex` / `getPostBySlug` (como en escarlet002)
-6. **Contenido v2**. La app sincroniza publicaciones por canal desde los planes
+6. **Contenido v2**. La app sincroniza publicaciones por canal desde las campañas
    de contenido. ChatGPT genera el copy y los fondos, `content_create_batch`
-   crea el plan y `content_list_items` permite seguir la revisión. No se usan
+   crea o reutiliza la campaña y `content_list_items` permite seguir la revisión. No se usan
    posts ni Social Packs del modelo anterior.
 7. **Interruptor**. CMS `/app/admin` → Sitio → Blog en la web pública. Encendido publica `/blog`. Apagado lo quita en el siguiente rebuild. Los posts siguen en el CMS.
 
@@ -193,11 +193,11 @@ Claude. Customize → Connectors → Add custom connector → URL `https://cms.e
 | Acción | Tools |
 |--------|-------|
 | Crear | ChatGPT genera textos e imágenes → `content_create_batch` → generación asíncrona |
-| Revisar | `content_list_plans` / `content_list_items` → `content_update_item` → `content_approve` o `content_reject` |
+| Revisar | `content_list_plans` / `content_list_items` → `content_update_item` → `content_approve` |
 | Programar | `content_schedule` con `publicationDate` y `timezone` |
 | Cancelar | `content_cancel` antes de la publicación |
 | Calendario | App → Calendario, o `content_list_calendar` |
-| Detalle | `content_get_batch` devuelve el plan, items y variantes |
+| Detalle | `content_get_batch` devuelve la campaña, publicaciones y variantes |
 | Marcas | `brand_list` → elegir una marca → `brand_get_context` |
 
 **Acceso MCP.** OAuth y los PAT personales comparten la identidad del usuario. El contexto normalizado de la marca incluye voz, keywords, paleta, tipografías, composición, arquetipos, templates y referencias aprobadas. Los archivos fuente privados no se solicitan ni se entregan al MCP.
@@ -230,7 +230,7 @@ Prohibido. Commitear posts al git del frontend. Usar `create_draft` para editar.
 - [ ] Webhook + secreto del proveedor en tab Sitio (probado)
 - [ ] Interruptor Blog en la web pública encendido
 - [ ] MCP `/mcp` + selección explícita de marca con `brand_list`
-- [ ] Crear un plan de prueba con `content_create_batch` y aprobarlo desde la app v2
+- [ ] Crear una campaña de prueba con `content_create_batch` y aprobar sus publicaciones desde la app v2
 
 ---
 

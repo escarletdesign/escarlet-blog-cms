@@ -75,12 +75,12 @@ Deploy producción. [docs/DEPLOY.md](docs/DEPLOY.md).
 | `brand_list` | Marcas v2 accesibles para el token; si hay varias, el asistente debe preguntar |
 | `brand_get_context` | Contexto normalizado canónico de la marca por membresía |
 | `brand_prepare_image_generation` | Política determinista y referencias permitidas para generar imágenes |
-| `content_list_plans` | Planes de contenido v2, progreso y contadores de revisión |
+| `content_list_plans` | Campañas, progreso, canales y publicaciones |
 | `content_list_items` | Publicaciones v2, incluidas las generadas y pendientes de revisión |
-| `content_get_batch` | Detalle de un plan, items y variantes |
-| `content_create_batch` | Crear un plan de temas y canales; devuelve `batchId`, `itemIds`, `jobId` |
+| `content_get_batch` | Detalle de una campaña, publicaciones y variantes |
+| `content_create_batch` | Añadir publicaciones a una campaña existente o crear una nueva tras confirmación |
 | `content_update_item` | Editar tema, variante y media enlazada |
-| `content_approve` / `content_reject` | Revisión individual o masiva |
+| `content_approve` | Aprobación de publicaciones |
 | `content_schedule` / `content_cancel` | Agendar o cancelar publicaciones v2 |
 | `content_list_calendar` | Calendario v2 por rango de fechas |
 | `content_upload_media` | Almacenamiento canónico v2 para PNG/JPG en `contentBase64` o `blob` (2–3 MB valen). `kind` `post`, `social` o `reference`. Si recorta, `uploadId` a trozos |

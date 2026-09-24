@@ -4,7 +4,7 @@ La interfaz usa cuatro conceptos visibles:
 
 - **Espacio**: membresía, equipo, uso y facturación.
 - **Marca**: identidad, canales y conexiones de un cliente. Internamente sigue siendo `sites` para conservar compatibilidad.
-- **Plan de contenidos**: agrupación creada desde ChatGPT/MCP. Internamente sigue siendo `content_batches`.
+- **Campaña**: agrupación de publicaciones relacionadas creada desde ChatGPT/MCP. Internamente sigue siendo `content_batches`.
 - **Publicación**: un tema independiente con una variante por canal.
 
 ## Flujo de revisión
@@ -25,7 +25,7 @@ La PWA no muestra creación por defecto. `creation_ui_enabled` y `manual_creatio
 - `POST /api/v2/brands/:id/connections/postiz/integrations` consulta las cuentas conectadas sin persistir el token y permite elegir el `Integration ID` desde la PWA.
 - `POST /api/v2/brands/:id/connections/buffer/channels` consulta organizaciones y canales Buffer sin persistir la API key y permite elegir el `organizationId` y `channelId` desde la PWA.
 
-El MCP v2 usa Postgres como única fuente de contenido. `content_batches` y `/batches` son nombres técnicos internos del mismo modelo que la app presenta como planes. No se exponen tools de posts ni Social Packs del modelo anterior.
+El MCP v2 usa Postgres como única fuente de contenido. `content_batches`, `/batches` y los nombres históricos de algunas tools son identificadores técnicos internos del modelo que la app presenta como campañas. No se exponen tools de posts ni Social Packs del modelo anterior.
 
 ## Planable
 
