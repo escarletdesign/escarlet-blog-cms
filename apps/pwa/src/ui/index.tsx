@@ -19,6 +19,9 @@ export function TextField({ className = "", ...props }: InputHTMLAttributes<HTML
 export function Textarea({ className = "", ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) { return <textarea className={`ui-input ui-textarea ${className}`.trim()} {...props} />; }
 export function Select({ children, className = "", ...props }: SelectHTMLAttributes<HTMLSelectElement>) { return <select className={`ui-input ui-select ${className}`.trim()} {...props}>{children}</select>; }
 export function Checkbox({ label, className = "", ...props }: InputHTMLAttributes<HTMLInputElement> & { label?: ReactNode }) { return <label className="ui-checkbox"><input type="checkbox" className={className} {...props} /><span>{label}</span></label>; }
+export function MultiSelectPills({ options, value, onChange, ariaLabel }: { options: Array<{ id: string; label: string }>; value: string[]; onChange: (value: string[]) => void; ariaLabel: string }) {
+  return <div className="ui-multi-select-pills" role="group" aria-label={ariaLabel}>{options.map((option) => { const selected = value.includes(option.id); return <button key={option.id} type="button" className={`ui-multi-select-pill${selected ? " active" : ""}`} aria-pressed={selected} onClick={() => onChange(selected ? value.filter((id) => id !== option.id) : [...value, option.id])}>{option.label}</button>; })}</div>;
+}
 
 export function Card({ children, className = "", ...props }: { children: ReactNode; className?: string } & React.HTMLAttributes<HTMLElement>) { return <section className={`ui-card ${className}`.trim()} {...props}>{children}</section>; }
 export function Stack({ children, gap = "md", className = "" }: { children: ReactNode; gap?: "sm" | "md" | "lg"; className?: string }) { return <div className={`ui-stack ui-stack-${gap} ${className}`}>{children}</div>; }
