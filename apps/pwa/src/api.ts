@@ -567,7 +567,6 @@ const baseApi = {
         legacyPreviewEnabled: boolean;
         legacySocialPackEnabled: boolean;
         authorInviteEnabled: boolean;
-        assistantBrandKitToolsEnabled?: boolean;
         updatedAt?: string | null;
       };
     }>('/api/admin/feature-flags'),
@@ -579,7 +578,6 @@ const baseApi = {
     legacyPreviewEnabled?: boolean;
     legacySocialPackEnabled?: boolean;
     authorInviteEnabled?: boolean;
-    assistantBrandKitToolsEnabled?: boolean;
   }) =>
     request<{
       ok: boolean;
@@ -591,7 +589,6 @@ const baseApi = {
         legacyPreviewEnabled: boolean;
         legacySocialPackEnabled: boolean;
         authorInviteEnabled: boolean;
-        assistantBrandKitToolsEnabled?: boolean;
         updatedAt?: string | null;
       };
     }>('/api/admin/feature-flags', {
@@ -600,7 +597,7 @@ const baseApi = {
     }),
   workflowFlags: (site?: string) =>
     request<{
-      flags: { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean; legacyPreviewEnabled: boolean; legacySocialPackEnabled: boolean; authorInviteEnabled: boolean; assistantBrandKitToolsEnabled?: boolean; creation_ui_enabled?: boolean; manual_creation_enabled?: boolean; updatedAt?: string | null };
+      flags: { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean; legacyPreviewEnabled: boolean; legacySocialPackEnabled: boolean; authorInviteEnabled: boolean; creation_ui_enabled?: boolean; manual_creation_enabled?: boolean; updatedAt?: string | null };
     }>(`/api/app/feature-flags${site ? `?site=${encodeURIComponent(site)}` : ""}`),
   creditPacks: () =>
     request<{

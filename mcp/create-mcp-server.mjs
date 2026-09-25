@@ -1361,10 +1361,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
       // mutation restriction is enabled only for app/chat bridges; the
       // authenticated external MCP transport keeps its explicit workflow.
       assertSafeToolArguments(name, args, { source })
-      if (restrictMutations) {
-        const workflow = getWorkflowFlags(readDb())
-        assertChatToolAllowed(name, args, { assistantBrandKitToolsEnabled: workflow.assistantBrandKitToolsEnabled })
-      }
+      if (restrictMutations) assertChatToolAllowed(name, args)
       const tool = buildToolList(auth).find((t) => t.name === name)
       if (!tool) throw Object.assign(new Error('Herramienta no disponible para este acceso.'), { status: 403 })
       if (MUTATING_SITE_TOOLS.has(name) && auth?.role === 'viewer') {

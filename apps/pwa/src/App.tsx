@@ -33,7 +33,7 @@ import { DesignSystem } from "./DesignSystem";
 import { Badge, Button, Card, ChannelBadge, Checkbox, ConnectionCard, Drawer, EmptyState as UiEmptyState, Field, IconButton, Inline, Modal, MultiSelectPills, PageHeader, Select, Stack, StatusBadge, Tabs, TeleprompterLineControls, TextField, Toast as UiToast } from "./ui";
 
 type Draft = Partial<Post> & { title: string; slug?: string };
-type WorkflowFlags = { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean; legacyPreviewEnabled: boolean; legacySocialPackEnabled: boolean; authorInviteEnabled: boolean; assistantBrandKitToolsEnabled: boolean; creationUiEnabled: boolean; manualCreationEnabled: boolean };
+type WorkflowFlags = { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean; legacyPreviewEnabled: boolean; legacySocialPackEnabled: boolean; authorInviteEnabled: boolean; creationUiEnabled: boolean; manualCreationEnabled: boolean };
 type SocialPackChannels = {
   substack: boolean;
   linkedin: boolean;
@@ -336,7 +336,7 @@ function ContentPlansRoute({ site, creationEnabled, activeChannels }: { site: st
 function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [workflowFlags, setWorkflowFlags] = useState<WorkflowFlags>({ cmsAiEnabled: true, assistantEnabled: false, blogWizardEnabled: false, legacyPreviewEnabled: true, legacySocialPackEnabled: true, authorInviteEnabled: true, assistantBrandKitToolsEnabled: false, creationUiEnabled: false, manualCreationEnabled: false });
+  const [workflowFlags, setWorkflowFlags] = useState<WorkflowFlags>({ cmsAiEnabled: true, assistantEnabled: false, blogWizardEnabled: false, legacyPreviewEnabled: true, legacySocialPackEnabled: true, authorInviteEnabled: true, creationUiEnabled: false, manualCreationEnabled: false });
   const [channels, setChannels] = useState<Array<{ channel: string; enabled: boolean; connectionStatus?: string }>>([]);
   const [brandCapabilities, setBrandCapabilities] = useState<Record<string, boolean>>({});
   const [productContext, setProductContext] = useState<AppState["productContext"]>();
@@ -364,7 +364,6 @@ function App() {
           legacyPreviewEnabled: nextFlags.flags?.legacyPreviewEnabled !== false,
           legacySocialPackEnabled: nextFlags.flags?.legacySocialPackEnabled !== false,
           authorInviteEnabled: nextFlags.flags?.authorInviteEnabled !== false,
-          assistantBrandKitToolsEnabled: nextFlags.flags?.assistantBrandKitToolsEnabled === true,
           creationUiEnabled: false,
           manualCreationEnabled: false,
         });
@@ -381,7 +380,7 @@ function App() {
           setWorkflowFlags((current) => ({ ...current, creationUiEnabled: Boolean(context.featureFlags?.creation_ui_enabled), manualCreationEnabled: Boolean(context.featureFlags?.manual_creation_enabled), assistantEnabled: current.assistantEnabled && Boolean(context.featureFlags?.creation_ui_enabled), blogWizardEnabled: current.blogWizardEnabled && Boolean(context.featureFlags?.manual_creation_enabled) }));
         } catch { setChannels([]); setBrandCapabilities({}); setProductContext(undefined); }
       } catch {
-        setWorkflowFlags({ cmsAiEnabled: true, assistantEnabled: false, blogWizardEnabled: false, legacyPreviewEnabled: true, legacySocialPackEnabled: true, authorInviteEnabled: true, assistantBrandKitToolsEnabled: false, creationUiEnabled: false, manualCreationEnabled: false });
+        setWorkflowFlags({ cmsAiEnabled: true, assistantEnabled: false, blogWizardEnabled: false, legacyPreviewEnabled: true, legacySocialPackEnabled: true, authorInviteEnabled: true, creationUiEnabled: false, manualCreationEnabled: false });
       }
     } catch {
       setSession(null);
@@ -5026,11 +5025,9 @@ function Settings() {
   const [tokenAction, setTokenAction] = useState<"regenerate" | "revoke" | null>(null);
   const [delegates, setDelegates] = useState<Array<Record<string, any>>>([]);
   const [delegateBusy, setDelegateBusy] = useState("");
-  const [assistantBrandKitToolsEnabled, setAssistantBrandKitToolsEnabled] = useState(workflowFlags.assistantBrandKitToolsEnabled);
-  const [assistantBrandKitSaving, setAssistantBrandKitSaving] = useState(false);
-  useEffect(() => {
-    setAssistantBrandKitToolsEnabled(workflowFlags.assistantBrandKitToolsEnabled);
-  }, [workflowFlags.assistantBrandKitToolsEnabled]);
+  const assistantEnabled = workflowFlags.assistantEnabled;
+  const [assistantToggleTarget, setAssistantToggleTarget] = useState<boolean | null>(null);
+  const [assistantFlagBusy, setAssistantFlagBusy] = useState(false);
   useEffect(() => {
     if (!workflowFlags.cmsAiEnabled) {
       setModelOptions([{ value: "auto", label: t("settings.modelAuto") }]);
@@ -5150,16 +5147,18 @@ function Settings() {
       setPersonalTokenBusy(false);
     }
   };
-  const saveAssistantBrandKitFlag = async () => {
-    setAssistantBrandKitSaving(true);
+  const confirmAssistantToggle = async () => {
+    if (assistantToggleTarget === null) return;
+    setAssistantFlagBusy(true);
     try {
-      await api.saveFeatureFlags({ assistantBrandKitToolsEnabled });
+      await api.saveFeatureFlags({ assistantEnabled: assistantToggleTarget });
       await refresh();
-      showToast(t("settings.assistantBrandKitSaved"));
+      showToast(t("settings.assistantSaved"));
+      setAssistantToggleTarget(null);
     } catch (err) {
       showToast(err instanceof Error ? err.message : t("common.error"), "error");
     } finally {
-      setAssistantBrandKitSaving(false);
+      setAssistantFlagBusy(false);
     }
   };
   const toggleDelegate = async (delegate: Record<string, any>) => {
@@ -5267,22 +5266,32 @@ function Settings() {
       {isSuperAdmin && (
         <section className="ui-card ui-settings-card">
           <p className="ui-eyebrow">{t("settings.superAdminEyebrow")}</p>
-          <h2>{t("settings.assistantBrandKitTitle")}</h2>
-          <p className="ui-muted">{t("settings.assistantBrandKitHelp")}</p>
+          <h2>{t("settings.assistantInternalTitle")}</h2>
+          <p className="ui-muted">{t("settings.assistantInternalHelp")}</p>
           <label className="switch-row">
             <span>
-              <b>{t("settings.assistantBrandKitToggle")}</b>
-              <small>{assistantBrandKitToolsEnabled ? t("settings.assistantBrandKitOn") : t("settings.assistantBrandKitOff")}</small>
+              <b>{t("settings.assistantInternalToggle")}</b>
+              <small>{assistantEnabled ? t("settings.assistantInternalOn") : t("settings.assistantInternalOff")}</small>
             </span>
             <input
               type="checkbox"
-              checked={assistantBrandKitToolsEnabled}
-              onChange={(event) => setAssistantBrandKitToolsEnabled(event.target.checked)}
+              checked={assistantEnabled}
+              onChange={(event) => {
+                const next = event.target.checked;
+                if (next !== assistantEnabled) setAssistantToggleTarget(next);
+              }}
             />
           </label>
-          <button className="ui-button ui-button-secondary" type="button" disabled={assistantBrandKitSaving} onClick={() => void saveAssistantBrandKitFlag()}>
-            {assistantBrandKitSaving ? "…" : t("settings.assistantBrandKitSave")}
-          </button>
+          {assistantToggleTarget !== null && (
+            <ConfirmModal
+              title={assistantToggleTarget ? t("settings.assistantConfirmOnTitle") : t("settings.assistantConfirmOffTitle")}
+              description={assistantToggleTarget ? t("settings.assistantConfirmOnDescription") : t("settings.assistantConfirmOffDescription")}
+              confirmLabel={t("common.confirm")}
+              busy={assistantFlagBusy}
+              onClose={() => !assistantFlagBusy && setAssistantToggleTarget(null)}
+              onConfirm={() => void confirmAssistantToggle()}
+            />
+          )}
         </section>
       )}
       <section className="ui-card ui-settings-card">
@@ -5621,7 +5630,6 @@ function Admin() {
   const [legacyPreviewEnabled, setLegacyPreviewEnabled] = useState(true);
   const [legacySocialPackEnabled, setLegacySocialPackEnabled] = useState(true);
   const [authorInviteEnabled, setAuthorInviteEnabled] = useState(true);
-  const [assistantBrandKitToolsEnabled, setAssistantBrandKitToolsEnabled] = useState(false);
   const [creationUiEnabled, setCreationUiEnabled] = useState(false);
   const [manualCreationEnabled, setManualCreationEnabled] = useState(false);
   const [workflowSaving, setWorkflowSaving] = useState(false);
@@ -5693,7 +5701,6 @@ function Admin() {
       setLegacyPreviewEnabled(featureFlagData.flags?.legacyPreviewEnabled !== false);
       setLegacySocialPackEnabled(featureFlagData.flags?.legacySocialPackEnabled !== false);
       setAuthorInviteEnabled(featureFlagData.flags?.authorInviteEnabled !== false);
-      setAssistantBrandKitToolsEnabled(featureFlagData.flags?.assistantBrandKitToolsEnabled === true);
       try {
         const productContext = await api.context(site);
         setCreationUiEnabled(Boolean(productContext.featureFlags?.creation_ui_enabled));
@@ -6111,14 +6118,13 @@ function Admin() {
   const saveWorkflowFlags = async () => {
     setWorkflowSaving(true);
     try {
-      const result = await api.saveFeatureFlags({ assistantEnabled, blogWizardEnabled, legacyPreviewEnabled, legacySocialPackEnabled, authorInviteEnabled, assistantBrandKitToolsEnabled });
+      const result = await api.saveFeatureFlags({ assistantEnabled, blogWizardEnabled, legacyPreviewEnabled, legacySocialPackEnabled, authorInviteEnabled });
       await api.updateFeatureFlags({ creation_ui_enabled: creationUiEnabled, manual_creation_enabled: manualCreationEnabled }, site);
       setAssistantEnabled(result.flags?.assistantEnabled !== false);
       setBlogWizardEnabled(result.flags?.blogWizardEnabled !== false);
       setLegacyPreviewEnabled(result.flags?.legacyPreviewEnabled !== false);
       setLegacySocialPackEnabled(result.flags?.legacySocialPackEnabled !== false);
       setAuthorInviteEnabled(result.flags?.authorInviteEnabled !== false);
-      setAssistantBrandKitToolsEnabled(result.flags?.assistantBrandKitToolsEnabled === true);
       report(t("admin.savedWorkflowFlags"));
       await refresh();
     } catch (err) {
@@ -6796,13 +6802,6 @@ function Admin() {
                 <small>{authorInviteEnabled ? t("admin.screenFlagHelp") : t("admin.screenFlagHidden")}</small>
               </span>
               <input type="checkbox" checked={authorInviteEnabled} onChange={(event) => setAuthorInviteEnabled(event.target.checked)} />
-            </label>
-            <label className="switch-row">
-              <span>
-                <b>{t("admin.assistantBrandKitFlag")}</b>
-                <small>{assistantBrandKitToolsEnabled ? t("settings.assistantBrandKitOn") : t("settings.assistantBrandKitOff")}</small>
-              </span>
-              <input type="checkbox" checked={assistantBrandKitToolsEnabled} onChange={(event) => setAssistantBrandKitToolsEnabled(event.target.checked)} />
             </label>
             <label className="switch-row">
               <span>

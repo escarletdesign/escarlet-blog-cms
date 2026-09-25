@@ -160,7 +160,7 @@ import { canReadPost, canEditPost, safePostFields, assertPostAccess } from './li
 import { assertMembershipActive } from './lib/plans.mjs'
 import { generateSocialPackImages } from './lib/ai-workflows.mjs'
 import { archiveConversation, conversationOwner, deleteConversation, getConversation, listConversations, saveConversation } from './lib/ai-conversations.mjs'
-import { getWorkflowFlags, setWorkflowFlags } from './lib/workflow-flags.mjs'
+import { assertInAppAssistantEnabled, getWorkflowFlags, setWorkflowFlags } from './lib/workflow-flags.mjs'
 import { generateThumbBuffer } from './lib/media-optimize.mjs'
 import { parseMultipart, isMultipartRequest } from './lib/multipart.mjs'
 import { blogPublicationSlug, blogPublicationTitle } from './lib/blog-publication.mjs'
@@ -2671,6 +2671,7 @@ async function handleRequest(req, res) {
       assertSiteAccess(auth, site)
       assertAiRateLimit(aiRateLimitKey(auth, site, requestIp(req)), { limit: 120 })
       const db = readDb()
+      assertInAppAssistantEnabled({ cmsAiEnabled: isCmsAiEnabled({ db }), workflow: getWorkflowFlags(db) })
       const ownerId = conversationOwner(auth)
       if (req.method === 'GET' && conversationMatch) {
         const conversation = getConversation({ db, site, ownerId, id: decodeURIComponent(conversationMatch[1]) })
@@ -2736,7 +2737,6 @@ async function handleRequest(req, res) {
           legacyPreviewEnabled: workflow.legacyPreviewEnabled,
           legacySocialPackEnabled: workflow.legacySocialPackEnabled,
           authorInviteEnabled: workflow.authorInviteEnabled,
-          assistantBrandKitToolsEnabled: workflow.assistantBrandKitToolsEnabled === true,
           creation_ui_enabled: Boolean(productFlags.creation_ui_enabled),
           manual_creation_enabled: Boolean(productFlags.manual_creation_enabled),
           updatedAt: workflow.updatedAt
@@ -2757,11 +2757,11 @@ async function handleRequest(req, res) {
       const appHiddenTools = new Set(['blog_get_brand_context', 'blog_update_brand_file', 'blog_import_brand_zip'])
       const db = readDb()
       const workflow = getWorkflowFlags(db)
-      const chatToolPolicy = { assistantBrandKitToolsEnabled: workflow.assistantBrandKitToolsEnabled }
+      assertInAppAssistantEnabled({ cmsAiEnabled: isCmsAiEnabled({ db }), workflow })
       if (path === '/api/ai/tools' && req.method === 'GET') {
         assertAiRateLimit(aiRateLimitKey(auth, url.searchParams.get('site') || DEFAULT_SITE, requestIp(req)), { limit: 60 })
         const tools = buildToolList(auth)
-          .filter((tool) => isChatToolAllowedName(tool.name, chatToolPolicy))
+          .filter((tool) => isChatToolAllowedName(tool.name))
           .filter((tool) => isSuperAdmin(auth) || !appHiddenTools.has(tool.name))
         json(res, 200, { protocol: 'mcp', version: MCP_SERVER_VERSION, tools })
         return
@@ -2772,11 +2772,8 @@ async function handleRequest(req, res) {
         const site = body.arguments?.site || DEFAULT_SITE
         assertAiRateLimit(aiRateLimitKey(auth, site, requestIp(req)), { limit: 45 })
         if (!isSuperAdmin(auth) && appHiddenTools.has(body.name)) throw Object.assign(new Error('Esta tool está reservada al espacio/agencia.'), { status: 403 })
-        if (!isChatToolAllowedName(body.name, chatToolPolicy)) {
-          const blocked = body.name === 'brand_update_file'
-            ? 'La edición del brand kit desde el chat está desactivada. Actívala en Ajustes (super-admin) o edita desde Identidad en la app.'
-            : 'Esta acción no está disponible desde el asistente.'
-          throw Object.assign(new Error(blocked), { status: 403, extra: { code: 'AI_CHAT_TOOL_BLOCKED' } })
+        if (!isChatToolAllowedName(body.name)) {
+          throw Object.assign(new Error('Esta acción no está disponible desde el asistente.'), { status: 403, extra: { code: 'AI_CHAT_TOOL_BLOCKED' } })
         }
         const result = await invokeMcpTool(body.name, body.arguments || {}, auth, { restrictMutations: true, source: 'app' })
         json(res, 200, { protocol: 'mcp', version: MCP_SERVER_VERSION, ...result })
@@ -3101,6 +3098,10 @@ async function handleRequest(req, res) {
         if (creationUiGlobalKillSwitch() || !flags.creation_ui_enabled) throw Object.assign(new Error('La creación desde la aplicación está desactivada.'), { status: 403, code: 'creation_ui_disabled' })
       }
       assertAiRateLimit(aiRateLimitKey(auth, site, requestIp(req)), { limit: 30 })
+      if (path === '/api/ai/chat') {
+        const chatDb = readDb()
+        assertInAppAssistantEnabled({ cmsAiEnabled: isCmsAiEnabled({ db: chatDb }), workflow: getWorkflowFlags(chatDb) })
+      }
 
       // Structured chat requests can create a persistent multi-channel batch in
       // one turn. Free-form chat keeps the existing SSE contract below.
@@ -3261,7 +3262,6 @@ async function handleRequest(req, res) {
             legacyPreviewEnabled: body.legacyPreviewEnabled,
             legacySocialPackEnabled: body.legacySocialPackEnabled,
             authorInviteEnabled: body.authorInviteEnabled,
-            assistantBrandKitToolsEnabled: body.assistantBrandKitToolsEnabled,
             actorId: auth.userId || auth.role
           })
           writeDb(db)

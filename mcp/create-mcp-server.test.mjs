@@ -213,14 +213,14 @@ test('owner y admin pueden editar el brand kit; un editor recibe el motivo', asy
     assert.deepEqual(deniedValue.requiredRoles, ['owner', 'admin'])
     assert.match(deniedValue.message, /owner o admin/)
 
-    const chatBlocked = await invokeMcpTool(
+    const chatEditorDenied = await invokeMcpTool(
       'brand_update_file',
       { site: 'escarlet', file: 'voice.md', content: '# no' },
-      { role: 'admin' },
+      { role: 'editor', site: 'escarlet' },
       { restrictMutations: true, source: 'chat' }
     )
-    assert.equal(chatBlocked.isError, true)
-    assert.match(chatBlocked.content?.[0]?.text || '', /AI_CHAT_TOOL_BLOCKED/)
+    assert.equal(chatEditorDenied.isError, true)
+    assert.equal(payload(chatEditorDenied).code, 'brand_kit_write_forbidden')
 
     const marker = `voz-mcp-${Date.now()}`
     const saved = await invokeMcpTool(
