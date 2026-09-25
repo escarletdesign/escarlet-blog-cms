@@ -383,6 +383,8 @@ const baseApi = {
     request<Record<string, any>>(`/api/v2/usage${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`),
   brandKitV2: (site?: string) =>
     request<Record<string, any>>(`/api/v2/brand-kits${site ? `?site=${encodeURIComponent(site)}` : ""}`),
+  updateBrandKitAsset: (brandId: string, assetId: string, input: { alt?: string; usage?: string }) =>
+    request<{ asset: Record<string, any> }>(`/api/v2/brands/${encodeURIComponent(brandId)}/brand-kit/assets/${encodeURIComponent(assetId)}`, { method: "PATCH", body: JSON.stringify(input) }),
   createBrandKitVersion: (input: { site?: string; manifest: Record<string, any>; status?: "draft" | "published" }) =>
     request<Record<string, any>>("/api/v2/brand-kits/versions", { method: "POST", body: JSON.stringify(input) }),
   createSite: (input: {

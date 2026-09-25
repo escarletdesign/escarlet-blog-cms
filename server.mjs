@@ -262,6 +262,7 @@ import {
   getMetricoolIntegration,
   createBrandKitVersion,
   getActiveBrandKit,
+  updateBrandAsset,
   enqueueJob,
   enqueueRemotePublicationStatusSync,
   assertWorkspaceRole,
@@ -1913,6 +1914,7 @@ async function handleRequest(req, res) {
     const brandMatch = path.match(/^\/api\/v2\/brands\/([^/]+)$/)
     const brandKitImportMatch = path.match(/^\/api\/v2\/brands\/([^/]+)\/brand-kit\/import$/)
     const brandKitLegacyCleanupMatch = path.match(/^\/api\/v2\/brands\/([^/]+)\/brand-kit\/cleanup-legacy-media$/)
+    const brandAssetMatch = path.match(/^\/api\/v2\/brands\/([^/]+)\/brand-kit\/assets\/([^/]+)$/)
     const brandChannelsMatch = path.match(/^\/api\/v2\/brands\/([^/]+)\/channels$/)
     const brandCapabilitiesMatch = path.match(/^\/api\/v2\/brands\/([^/]+)\/capabilities$/)
     const brandConnectionsMatch = path.match(/^\/api\/v2\/brands\/([^/]+)\/connections$/)
@@ -2139,6 +2141,12 @@ async function handleRequest(req, res) {
         const scope = await requireV2Context(req, url, res)
         if (!scope) return
         json(res, 200, sanitizeV2BrandKit(await getActiveBrandKit({ workspaceId: scope.workspaceId, siteId: scope.siteId }), scope.auth))
+        return
+      }
+      if (req.method === 'PATCH' && brandAssetMatch) {
+        const scope = await requireV2Context(req, url, res, { ...body, siteId: decodeURIComponent(brandAssetMatch[1]) })
+        if (!scope) return
+        json(res, 200, { asset: await updateBrandAsset({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: scope.auth.userId, role: scope.context.role, assetId: decodeURIComponent(brandAssetMatch[2]), alt: body.alt, usage: body.usage }) })
         return
       }
       if (req.method === 'POST' && brandKitImportMatch) {

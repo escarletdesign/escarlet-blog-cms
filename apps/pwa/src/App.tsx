@@ -2212,12 +2212,16 @@ function ReferenceMediaModal({
   onClose,
   onSave,
   onDelete,
+  canDelete = true,
+  readOnlyFilename = false,
 }: {
   media: MediaItem;
   busy: boolean;
   onClose: () => void;
   onSave: (details: { filename: string; alt: string; usage: string }) => void;
   onDelete: () => void;
+  canDelete?: boolean;
+  readOnlyFilename?: boolean;
 }) {
   const { t } = useI18n();
   const [filename, setFilename] = useState(media.filename || "");
@@ -2251,7 +2255,7 @@ function ReferenceMediaModal({
         <div className="reference-modal-fields">
           <label className="modal-field">
             Nombre del archivo
-            <input value={filename} onChange={(event) => setFilename(event.target.value)} autoFocus />
+            <input value={filename} onChange={(event) => setFilename(event.target.value)} autoFocus readOnly={readOnlyFilename} />
           </label>
           <label className="modal-field">
             Uso de la imagen
@@ -2270,7 +2274,7 @@ function ReferenceMediaModal({
           </label>
         </div>
         <div className="ui-actions">
-          <button className="ui-danger-link" type="button" onClick={onDelete} disabled={busy}>{t("admin.delete")}</button>
+          {canDelete && <button className="ui-danger-link" type="button" onClick={onDelete} disabled={busy}>{t("admin.delete")}</button>}
           <button className="ui-button ui-button-ghost" type="button" onClick={onClose} disabled={busy}>{t("editor.close")}</button>
           <button className="ui-button ui-button-primary" type="button" onClick={() => onSave({ filename: filename.trim(), alt: alt.trim(), usage })} disabled={busy || !filename.trim()}>
             {busy ? t("admin.saving") : t("admin.save")}
@@ -7417,9 +7421,17 @@ function BrandIdentityView() {
     if (!media.id || !brand?.handle) return;
     setReferenceBusy(true);
     try {
-      const result = await api.updateMedia({ site: brand.handle, id: media.id, ...details });
-      setReferenceMedia((current) => current.map((item) => item.id === media.id ? result.media : item));
-      setSelectedReference(result.media);
+      if (media.metadata?.source === "brand-kit") {
+        const result = await api.updateBrandKitAsset(brandId, media.id, { alt: details.alt, usage: details.usage });
+        const metadata = { ...(media.metadata || {}), ...(result.asset.metadata || {}) };
+        const updated = { ...media, alt: metadata.alt || details.alt, metadata };
+        setReferenceMedia((current) => current.map((item) => item.id === media.id ? updated : item));
+        setSelectedReference(updated);
+      } else {
+        const result = await api.updateMedia({ site: brand.handle, id: media.id, ...details });
+        setReferenceMedia((current) => current.map((item) => item.id === media.id ? result.media : item));
+        setSelectedReference(result.media);
+      }
       showToast("Referencia actualizada.");
     } catch (err: any) {
       showToast(err?.message || "No se pudo actualizar la referencia.", "error");
@@ -7506,13 +7518,13 @@ function BrandIdentityView() {
           </div>
           <div className="reference-library ui-brand-reference-library">
             <div className="ui-reference-toolbar"><div><span className="ui-eyebrow">Referencias visuales</span><h3>Biblioteca de imágenes</h3><p className="ui-field-hint">Abre una imagen para verla en alta calidad y clasificar su uso.</p></div><Inline gap="sm"><Field label="Columnas"><Select value={referenceColumns} onChange={(event) => setReferenceColumns(event.target.value)}><option value="2">2</option><option value="3">3</option><option value="4">4</option></Select></Field>{canEdit && <label className="ui-button ui-button-secondary ui-button-sm ui-file-upload-button">{referenceBusy ? "Cargando…" : "Añadir imágenes"}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden disabled={referenceBusy} onChange={(event) => { Array.from(event.target.files || []).forEach((file) => void uploadReference(file)); event.currentTarget.value = ""; }} /></label>}</Inline></div>
-            {referenceMedia.length ? <div className={`reference-grid ui-reference-grid ui-reference-grid-${referenceColumns}`}>{referenceMedia.map((media) => { const canEditMedia = Boolean(media.id && media.metadata?.source !== "brand-kit"); const usage = String(media.metadata?.usage || "reference"); return <article className="reference-card" key={media.id || media.path || media.url}><button className="reference-image-button" type="button" onClick={() => canEditMedia && setSelectedReference(media)} disabled={!canEditMedia} aria-label={`Ver ${media.filename || "referencia visual"}`}><img src={media.thumbUrl || media.url || media.path} alt={media.alt || media.filename || "Referencia visual"} loading="lazy" /><span className="reference-edit-icon" aria-hidden="true">⌕</span></button><div className="reference-card-actions"><div className="reference-meta"><strong title={media.filename}>{media.filename || "Referencia"}</strong><Badge tone="neutral">{referenceUsageLabels[usage] || usage}</Badge></div>{canEditMedia && <Badge tone="info">Editar</Badge>}</div></article>; })}</div> : <UiEmptyState title="Aún no hay referencias visuales" description="Importa un ZIP o añade imágenes para construir la biblioteca de la marca." />}
+            {referenceMedia.length ? <div className={`reference-grid ui-reference-grid ui-reference-grid-${referenceColumns}`}>{referenceMedia.map((media) => { const canEditMedia = canEdit && Boolean(media.id); const usage = String(media.metadata?.usage || "reference"); return <article className="reference-card" key={media.id || media.path || media.url}><button className="reference-image-button" type="button" onClick={() => canEditMedia && setSelectedReference(media)} disabled={!canEditMedia} aria-label={`Ver ${media.filename || "referencia visual"}`}><img src={media.thumbUrl || media.url || media.path} alt={media.alt || media.filename || "Referencia visual"} loading="lazy" /><span className="reference-edit-icon" aria-hidden="true">⌕</span></button><div className="reference-card-actions"><div className="reference-meta"><strong title={media.filename}>{media.filename || "Referencia"}</strong><Badge tone="neutral">{referenceUsageLabels[usage] || usage}</Badge></div>{canEditMedia && <Badge tone="info">Editar</Badge>}</div></article>; })}</div> : <UiEmptyState title="Aún no hay referencias visuales" description="Importa un ZIP o añade imágenes para construir la biblioteca de la marca." />}
           </div>
           <p className="ui-muted">Las referencias privadas solo se muestran según el rol y la capacidad de acceso.</p>
         </Card>
         <Card><span className="ui-eyebrow">Datos de la marca</span><h2>Identidad pública</h2>{canEdit ? <form className="ui-stack ui-stack-md" onSubmit={(event) => void save(event)}><Field label="Nombre" required><TextField value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></Field><Field label="Dominio web opcional"><TextField type="url" value={form.domain} onChange={(event) => setForm({ ...form, domain: event.target.value })} placeholder="https://marca.com" /></Field><Button type="submit" loading={busy}>Guardar identidad</Button></form> : <p className="ui-muted">{brand?.domain || "Sin dominio configurado"}</p>}</Card>
       </div>}
-      {selectedReference && <ReferenceMediaModal media={selectedReference} busy={referenceBusy} onClose={() => setSelectedReference(null)} onSave={(details) => void saveReference(selectedReference, details)} onDelete={() => void deleteReference(selectedReference)} />}
+      {selectedReference && <ReferenceMediaModal media={selectedReference} busy={referenceBusy} onClose={() => setSelectedReference(null)} onSave={(details) => void saveReference(selectedReference, details)} onDelete={() => void deleteReference(selectedReference)} canDelete={selectedReference.metadata?.source !== "brand-kit"} readOnlyFilename={selectedReference.metadata?.source === "brand-kit"} />}
     </main>
   );
 }
