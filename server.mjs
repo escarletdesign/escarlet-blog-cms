@@ -2146,7 +2146,8 @@ async function handleRequest(req, res) {
         if (!body.contentBase64 && !body.zipUrl && !body.buffer) {
           throw Object.assign(new Error('Falta el ZIP del brand kit.'), { status: 400 })
         }
-        const imported = await importBrandKitZip(scope.siteHandle, {
+        const siteHandle = scope.context.siteHandle || scope.siteId
+        const imported = await importBrandKitZip(siteHandle, {
           contentBase64: body.contentBase64,
           zipUrl: body.zipUrl,
           buffer: body.buffer
@@ -2162,8 +2163,8 @@ async function handleRequest(req, res) {
         const origin = absoluteCmsOrigin(req)
         const assets = (imported.importedImages || []).map((name) => ({
           name,
-          storageKey: `media/${scope.siteHandle}/reference/${name}`,
-          publicUrl: `${origin}/media/${scope.siteHandle}/reference/${encodeURIComponent(name)}`,
+          storageKey: `media/${siteHandle}/reference/${name}`,
+          publicUrl: `${origin}/media/${siteHandle}/reference/${encodeURIComponent(name)}`,
           visibility: 'role_limited'
         }))
         await registerBrandAssets({
