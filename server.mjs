@@ -2223,13 +2223,15 @@ async function handleRequest(req, res) {
           .filter((asset) => asset.metadata?.source === 'brand-kit')
           .map((asset) => asset.name)
           .filter(Boolean))
+        const requestedKeepNames = new Set((Array.isArray(body.keepNames) ? body.keepNames : []).map((name) => String(name || '').trim()).filter(Boolean))
+        const protectedNames = requestedKeepNames.size ? requestedKeepNames : taggedNames
         const nonContentNames = new Set(activeAssets.map((asset) => asset).filter((asset) => !contentStorageKeys.has(asset.storageKey)).map((asset) => asset.name).filter(Boolean))
         const allowedNames = new Set([...canonicalNames, ...nonContentNames])
         const seenNames = new Set()
         const staleAssets = activeAssets.filter((asset) => {
           const name = String(asset.name || '')
-          if (taggedNames.size) {
-            if (asset.metadata?.source !== 'brand-kit' || seenNames.has(name)) return true
+          if (protectedNames.size) {
+            if (!protectedNames.has(name) || seenNames.has(name)) return true
             seenNames.add(name)
             return false
           }

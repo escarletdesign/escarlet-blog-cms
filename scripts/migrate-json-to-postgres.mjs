@@ -176,8 +176,10 @@ export async function repairBrandAssets({ siteHandle = '' } = {}) {
         .filter((asset) => asset.metadata && typeof asset.metadata === 'object' && asset.metadata.source === 'brand-kit')
         .map((asset) => asset.name)
         .filter(Boolean))
+      const knownNames = new Set(existingAssets.rows.map((asset) => asset.name).filter(Boolean))
+      const allowedNames = canonicalNames.size ? canonicalNames : knownNames
       for (const assetPath of brandAssetFiles(site.handle)) {
-        if (canonicalNames.size && !canonicalNames.has(assetPath.split('/').pop())) continue
+        if (allowedNames.size && !allowedNames.has(assetPath.split('/').pop())) continue
         const stat = statSync(assetPath)
         await client.query(
           'INSERT INTO brand_assets (id,brand_kit_version_id,name,storage_key,size_bytes,sha256,visibility) VALUES ($1,$2,$3,$4,$5,$6,\'private\') ON CONFLICT (id) DO UPDATE SET brand_kit_version_id=EXCLUDED.brand_kit_version_id,name=EXCLUDED.name,storage_key=EXCLUDED.storage_key,size_bytes=EXCLUDED.size_bytes,sha256=EXCLUDED.sha256',
