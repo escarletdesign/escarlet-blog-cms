@@ -93,6 +93,16 @@ export function ContentPackPreview({ site, item, busy, autoRecord = false, buffe
   const [siteDomain, setSiteDomain] = useState("");
   const [videoCopy, setVideoCopy] = useState(initialVideoCopy);
   const [videoPublishChannel, setVideoPublishChannel] = useState<ContentChannel>("video");
+  const [videoJob, setVideoJob] = useState<Record<string, any> | null>(null);
+  const [videoJobBusy, setVideoJobBusy] = useState(false);
+  const loadVideoJob = async () => {
+    try {
+      const result = await api.getVideoJobForContentItem(item.id, site);
+      setVideoJob(result.job || null);
+    } catch {
+      setVideoJob(null);
+    }
+  };
   const openRecorder = () => { enterRecorderFullscreen(); setShowTeleprompter(true); };
   const closeRecorder = () => { exitRecorderFullscreen(); setShowTeleprompter(false); };
   useEffect(() => { setVideoCopy(initialVideoCopy); }, [initialVideoCopy]);
@@ -107,6 +117,45 @@ export function ContentPackPreview({ site, item, busy, autoRecord = false, buffe
     return () => { active = false; };
   }, [site]);
   useEffect(() => { if (autoRecord && videoScript) { enterRecorderFullscreen(); setShowTeleprompter(true); } }, [autoRecord, videoScript]);
+  useEffect(() => { void loadVideoJob(); }, [item.id, site]);
+  const chatGptPrompt = useMemo(() => {
+    if (!videoJob) return "";
+    return [
+      "Edita este vídeo en Descript (u otra herramienta) y vuelve a subir el export final al CMS Escarlet.",
+      `Video job: ${videoJob.videoJobId || ""}`,
+      `Marca: ${videoJob.brand || site}`,
+      `Speaker: ${videoJob.speaker || "sin definir"}`,
+      `Canal/formato: ${videoJob.channel || "instagram"} / ${videoJob.format || "reel"}`,
+      `URL del RAW: ${videoJob.sourceUrl || ""}`,
+      "Cuando termines, usa video_import_external_media con la URL HTTPS pública del export final.",
+    ].join("\n");
+  }, [videoJob, site]);
+  const editWithChatGpt = async () => {
+    if (!chatGptPrompt.trim()) {
+      onNotify?.("Guarda un vídeo antes de abrir ChatGPT.", "info");
+      return;
+    }
+    await copyValue(chatGptPrompt);
+    window.open("https://chatgpt.com", "_blank", "noopener,noreferrer");
+    onNotify?.("Prompt copiado. Pega el contexto en ChatGPT para editar el vídeo.", "success");
+  };
+  const publishWithoutEdit = async () => {
+    const jobId = String(videoJob?.videoJobId || "");
+    if (!jobId) {
+      onNotify?.("No hay un job de vídeo asociado todavía.", "error");
+      return;
+    }
+    setVideoJobBusy(true);
+    try {
+      await api.updateVideoJob(jobId, { skipEdit: true, caption: videoCopy.trim() }, site);
+      await loadVideoJob();
+      onNotify?.("Vídeo listo para revisión sin edición externa.", "success");
+    } catch (cause) {
+      onNotify?.(cause instanceof Error ? cause.message : "No se pudo preparar el vídeo.", "error");
+    } finally {
+      setVideoJobBusy(false);
+    }
+  };
   const safeSlide = slides.length ? Math.min(activeSlide, slides.length - 1) : 0;
   const slide = slides[safeSlide];
   const slideImage = cleanImageUrl(slide?.imageUrl || slide?.url || slide?.image);
@@ -125,7 +174,7 @@ export function ContentPackPreview({ site, item, busy, autoRecord = false, buffe
   if (!variants.length) return <EmptyState title="No hay variantes para previsualizar" description="El contenido todavía no tiene un pack de Blog o redes disponible." />;
   return <Stack gap="md">
     <div className="social-pack-toolbar ui-plan-pack-toolbar"><div><p className="ui-eyebrow">Vista social</p><strong>{contentTitle}</strong><p className="ui-muted">{item.topic}</p></div><StatusBadge status={item.status} /></div>
-    {videoScript && <section className="ui-card teleprompter-launch-card"><div><p className="ui-eyebrow">Vídeo para Reel</p><h2>{hasSavedVideo ? "Vídeos guardados" : "Grabar con teleprompter"}</h2><p className="ui-muted">{hasSavedVideo ? "Puedes conservar una versión vertical y otra horizontal del mismo contenido." : "Usa el guion del pack, sube el vídeo y publícalo en Buffer."}</p>{!bufferReady && <p className="ui-field-hint">Conecta al menos un canal de Buffer en Administración para publicar este vídeo.</p>}</div>{hasSavedVideo && <div className="saved-content-videos">{savedVideos.map((savedVideo) => <figure className="saved-content-video-item" key={savedVideo.format}><video className={`saved-content-video saved-content-video-${savedVideo.format}`} src={savedVideo.url} controls playsInline /><figcaption>{savedVideo.format === "portrait" ? "Vertical 9:16" : "Horizontal 16:9"}</figcaption></figure>)}</div>}{hasSavedVideo && pendingPublishChannels.length > 0 && <div className="saved-video-publish"><Field label="Canal para publicar"><Select value={videoPublishChannel} onChange={(event) => setVideoPublishChannel(event.target.value as ContentChannel)} disabled={busy}>{pendingPublishChannels.map((channel) => <option key={channel} value={channel}>{channel === "video" ? "Instagram Reel" : label(channel)}</option>)}</Select></Field><Field label="Copy para publicar"><Textarea value={videoCopy} onChange={(event) => setVideoCopy(event.target.value)} rows={4} disabled={busy} /></Field><Button variant="primary" disabled={busy || !videoCopy.trim()} onClick={() => onPublish(videoPublishChannel, videoCopy.trim())}>Publicar</Button></div>}<Inline className="teleprompter-launch-actions" gap="sm"><Button onClick={openRecorder}>{hasSavedVideo ? "Volver a grabar" : "Abrir grabador"}</Button></Inline></section>}
+    {videoScript && <section className="ui-card teleprompter-launch-card"><div><p className="ui-eyebrow">Vídeo para Reel</p><h2>{hasSavedVideo ? "Vídeos guardados" : "Grabar con teleprompter"}</h2><p className="ui-muted">{hasSavedVideo ? "Puedes conservar una versión vertical y otra horizontal del mismo contenido." : "Usa el guion del pack, sube el vídeo y publícalo en Buffer."}</p>{videoJob?.status && <p className="ui-field-hint">Job de vídeo: <StatusBadge status={String(videoJob.status)} /></p>}{!bufferReady && <p className="ui-field-hint">Conecta al menos un canal de Buffer en Administración para publicar este vídeo.</p>}</div>{hasSavedVideo && <div className="saved-content-videos">{savedVideos.map((savedVideo) => <figure className="saved-content-video-item" key={savedVideo.format}><video className={`saved-content-video saved-content-video-${savedVideo.format}`} src={savedVideo.url} controls playsInline /><figcaption>{savedVideo.format === "portrait" ? "Vertical 9:16" : "Horizontal 16:9"}</figcaption></figure>)}</div>}{videoJob?.finalUrl && videoJob?.sourceUrl && videoJob.finalUrl !== videoJob.sourceUrl && <Card><p className="ui-eyebrow">Revisión de edición</p><div className="saved-content-videos"><figure className="saved-content-video-item"><video className="saved-content-video saved-content-video-portrait" src={String(videoJob.sourceUrl)} controls playsInline /><figcaption>Original</figcaption></figure><figure className="saved-content-video-item"><video className="saved-content-video saved-content-video-portrait" src={String(videoJob.finalUrl)} controls playsInline /><figcaption>Editado</figcaption></figure></div></Card>}{hasSavedVideo && pendingPublishChannels.length > 0 && <div className="saved-video-publish"><Field label="Canal para publicar"><Select value={videoPublishChannel} onChange={(event) => setVideoPublishChannel(event.target.value as ContentChannel)} disabled={busy}>{pendingPublishChannels.map((channel) => <option key={channel} value={channel}>{channel === "video" ? "Instagram Reel" : label(channel)}</option>)}</Select></Field><Field label="Copy para publicar"><Textarea value={videoCopy} onChange={(event) => setVideoCopy(event.target.value)} rows={4} disabled={busy} /></Field><Button variant="primary" disabled={busy || !videoCopy.trim()} onClick={() => onPublish(videoPublishChannel, videoCopy.trim())}>Publicar</Button></div>}<Inline className="teleprompter-launch-actions" gap="sm"><Button onClick={openRecorder}>{hasSavedVideo ? "Volver a grabar" : "Abrir grabador"}</Button>{hasSavedVideo && <Button variant="secondary" disabled={videoJobBusy || busy} onClick={() => void editWithChatGpt()}>Editar con ChatGPT</Button>}{hasSavedVideo && <Button variant="ghost" disabled={videoJobBusy || busy} onClick={() => void publishWithoutEdit()}>Publicar sin editar</Button>}</Inline></section>}
     <div className="social-visual-grid ui-plan-pack-visual-grid">
       {blog && <article className="ui-card social-cover-card"><div className="social-channel-head"><div><p className="ui-eyebrow">Blog</p><h2>{titleFor(blog, contentTitle)}</h2></div><ChannelBadge channel="blog" /></div>{blogImage ? <img src={blogImage} alt={String(blog.body?.imageAlt || contentTitle)} loading="lazy" /> : <div className="carousel-placeholder">Blog</div>}<Textarea className="social-blog-text" aria-label="Texto del blog" value={textFor(blog)} readOnly rows={8} /><Stack gap="sm"><Inline gap="sm">{onEditBlog && (blog.scheduleStatus || blog.status) === "published" && <Button variant="secondary" size="sm" onClick={onEditBlog}>Editar publicación</Button>}<Button variant="ghost" size="sm" onClick={() => void copyValue(textFor(blog))}>Copiar texto</Button>{blogUrl && <Button variant="ghost" size="sm" onClick={() => void copyValue(blogUrl)}>Copiar link</Button>}<Badge tone="info">Webhook de Coolify</Badge></Inline></Stack></article>}
       {instagram && <article className="ui-card social-carousel-card"><div className="social-channel-head"><div><p className="ui-eyebrow">Instagram</p><h2>Carousel</h2></div><ChannelBadge channel="instagram" /></div>{slides.length ? <div className="instagram-carousel" role="region" aria-label="Carrusel de Instagram"><div className="instagram-carousel-stage"><IconButton className="carousel-nav carousel-prev" label="Slide anterior" onClick={() => setActiveSlide((safeSlide - 1 + slides.length) % slides.length)}>‹</IconButton><figure>{slideImage ? <img src={slideImage} alt={String(slide?.alt || slide?.headline || `Slide ${safeSlide + 1}`)} /> : <div className="carousel-placeholder">{safeSlide + 1}</div>}<figcaption><span>{String(slide?.headline || slide?.text || `Slide ${safeSlide + 1}`)}</span>{slideImage && <a className="chip" href={slideImage} target="_blank" rel="noreferrer">Abrir</a>}</figcaption></figure><IconButton className="carousel-nav carousel-next" label="Slide siguiente" onClick={() => setActiveSlide((safeSlide + 1) % slides.length)}>›</IconButton></div><div className="carousel-dots" role="tablist" aria-label="Slides de Instagram">{slides.map((entry: any, index: number) => <Button key={entry?.id || index} className={`carousel-dot${index === safeSlide ? " active" : ""}`} variant="ghost" size="sm" role="tab" aria-selected={index === safeSlide} aria-label={`Slide ${index + 1}`} onClick={() => setActiveSlide(index)}>{index + 1}</Button>)}</div></div> : <p className="ui-muted">No hay slides generadas todavía.</p>}<p className="ui-plan-caption">{textFor(instagram)}</p><PackActions variant={instagram} busy={busy} onCopy={() => void copyValue(textFor(instagram))} onPublish={() => onPublish("instagram")} /></article>}
@@ -133,7 +182,7 @@ export function ContentPackPreview({ site, item, busy, autoRecord = false, buffe
     </div>
     {textVariants.length > 0 && <div className="social-pack-grid">{textVariants.map((variant) => <article className="ui-card social-channel-card" key={variant.id}><div className="social-channel-head"><h2><ChannelBadge channel={variant.channel} /> {label(variant.channel)}</h2>{["linkedin", "x"].includes(variant.channel) ? <PackActions variant={variant} busy={busy} onCopy={() => void copyValue(textFor(variant))} onPublish={() => onPublish(variant.channel)} /> : <Button variant="ghost" size="sm" onClick={() => void copyValue(textFor(variant))}>Copiar</Button>}</div><p>{textFor(variant)}</p></article>)}</div>}
     <Inline gap="md"><Button variant="ghost" onClick={onClose}>Cerrar</Button>{onPublishAll && <Button variant="primary" disabled={busy || !pendingPublishChannels.length} onClick={onPublishAll}>Publicar pendientes en Buffer</Button>}{onPublishAll && !pendingPublishChannels.length && <span className="ui-field-hint">No hay canales aprobados pendientes de enviar a Buffer.</span>}</Inline>
-    {showTeleprompter && <TeleprompterModal script={videoScript} itemId={item.id} site={site} canPublish={Boolean(pendingPublishChannels.length)} publishChannels={pendingPublishChannels} busy={busy} onUploaded={onVideoUploaded} onNotify={onNotify} onPublish={onPublish} onClose={closeRecorder} />}
+    {showTeleprompter && <TeleprompterModal script={videoScript} itemId={item.id} site={site} canPublish={Boolean(pendingPublishChannels.length)} publishChannels={pendingPublishChannels} busy={busy} onUploaded={(replaced) => { onVideoUploaded?.(replaced); void loadVideoJob(); }} onNotify={onNotify} onPublish={onPublish} onClose={closeRecorder} />}
   </Stack>;
 }
 

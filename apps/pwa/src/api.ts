@@ -15,22 +15,22 @@ export class ApiError extends Error {
 export type ApiRequestOptions = RequestInit & { timeoutMs?: number };
 
 export async function request<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
-  const { timeoutMs = 30_000, signal: upstreamSignal, ...fetchOptions } = options;
+  const { timeoutMs = 30_000, signal: upstreamSignal, headers: upstreamHeaders, ...fetchOptions } = options;
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(new DOMException("Tiempo de espera agotado", "TimeoutError")), timeoutMs);
+  const timer = setTimeout(() => controller.abort(new DOMException("Tiempo de espera agotado", "TimeoutError")), timeoutMs);
   const abort = () => controller.abort(upstreamSignal?.reason);
   if (upstreamSignal) {
     if (upstreamSignal.aborted) abort();
     else upstreamSignal.addEventListener("abort", abort, { once: true });
   }
   const headers = options.body instanceof FormData
-    ? options.headers
-    : { "Content-Type": "application/json", ...(options.headers || {}) };
+    ? upstreamHeaders
+    : { "Content-Type": "application/json", ...(upstreamHeaders || {}) };
   try {
     const response = await fetch(path, {
       credentials: "include",
-      headers,
       ...fetchOptions,
+      headers,
       signal: controller.signal,
     });
     const data = await response.json().catch(() => ({}));
@@ -42,7 +42,7 @@ export async function request<T>(path: string, options: ApiRequestOptions = {}):
     if (controller.signal.aborted) throw new ApiError("La operación fue cancelada o agotó el tiempo de espera.", 0, {}, controller.signal.reason?.name === "TimeoutError" ? "timeout" : "aborted");
     throw error;
   } finally {
-    window.clearTimeout(timer);
+    clearTimeout(timer);
     upstreamSignal?.removeEventListener("abort", abort);
   }
 }
@@ -220,7 +220,7 @@ const baseApi = {
       `/api/v2/content/plans${site ? `?site=${encodeURIComponent(site)}` : ""}`,
       { signal },
     ),
-  context: (site?: string) =>
+  context: (site?: string, signal?: AbortSignal) =>
     request<{
       workspace: { id: string; name?: string };
       activeBrand?: { id: string; handle?: string; name?: string; role?: string } | null;
@@ -232,25 +232,25 @@ const baseApi = {
       channels: Array<{ channel: string; enabled: boolean; connectionStatus: string }>;
       connections: Array<Record<string, any>>;
       usage?: Record<string, any>;
-    }>(`/api/v2/context${site ? `?site=${encodeURIComponent(site)}` : ""}`),
+    }>(`/api/v2/context${site ? `?site=${encodeURIComponent(site)}` : ""}`, { signal }),
   brands: () =>
     request<{ brands: BrandSummary[] }>("/api/v2/brands"),
   createBrand: (input: { handle: string; name: string; domain?: string }) =>
     request<{ brand: BrandSummary }>("/api/v2/brands", { method: "POST", body: JSON.stringify(input) }),
-  brandV2: (brandId: string) =>
-    request<{ brand: BrandSummary }>(`/api/v2/brands/${encodeURIComponent(brandId)}`),
+  brandV2: (brandId: string, signal?: AbortSignal) =>
+    request<{ brand: BrandSummary }>(`/api/v2/brands/${encodeURIComponent(brandId)}`, { signal }),
   updateBrandV2: (brandId: string, input: { name?: string; domain?: string }) =>
     request<{ brand: BrandSummary }>(`/api/v2/brands/${encodeURIComponent(brandId)}`, { method: "PATCH", body: JSON.stringify(input) }),
-  brandChannels: (brandId: string) =>
-    request<{ channels: BrandChannel[]; catalog: Array<Record<string, any>> }>(`/api/v2/brands/${encodeURIComponent(brandId)}/channels`),
+  brandChannels: (brandId: string, signal?: AbortSignal) =>
+    request<{ channels: BrandChannel[]; catalog: Array<Record<string, any>> }>(`/api/v2/brands/${encodeURIComponent(brandId)}/channels`, { signal }),
   updateBrandChannels: (brandId: string, channels: Record<string, boolean>) =>
     request<{ channels: BrandChannel[] }>(`/api/v2/brands/${encodeURIComponent(brandId)}/channels`, { method: "PATCH", body: JSON.stringify({ channels }) }),
-  brandCapabilities: (brandId: string) =>
-    request<{ capabilities: Record<string, boolean>; catalog: BrandCapability[] }>(`/api/v2/brands/${encodeURIComponent(brandId)}/capabilities`),
+  brandCapabilities: (brandId: string, signal?: AbortSignal) =>
+    request<{ capabilities: Record<string, boolean>; catalog: BrandCapability[] }>(`/api/v2/brands/${encodeURIComponent(brandId)}/capabilities`, { signal }),
   updateBrandCapabilities: (brandId: string, capabilities: Record<string, boolean>) =>
     request<{ capabilities: Record<string, boolean> }>(`/api/v2/brands/${encodeURIComponent(brandId)}/capabilities`, { method: "PATCH", body: JSON.stringify({ capabilities }) }),
-  brandConnections: (brandId: string) =>
-    request<{ connections: Array<Record<string, any>> }>(`/api/v2/brands/${encodeURIComponent(brandId)}/connections`),
+  brandConnections: (brandId: string, signal?: AbortSignal) =>
+    request<{ connections: Array<Record<string, any>> }>(`/api/v2/brands/${encodeURIComponent(brandId)}/connections`, { signal }),
   saveBrandConnection: (brandId: string, input: Record<string, any>) =>
     request<{ connection: Record<string, any> }>(`/api/v2/brands/${encodeURIComponent(brandId)}/connections`, { method: "POST", body: JSON.stringify(input) }),
   postizIntegrations: (brandId: string, input: { apiToken: string; apiBaseUrl?: string }) =>
@@ -304,15 +304,15 @@ const baseApi = {
       `/api/v2/content/items/${encodeURIComponent(itemId)}/approve`,
       { method: "POST", body: JSON.stringify({ site }) },
     ),
-  scheduleContent: (itemId: string, publicationDate: string, timezone: string, site?: string, channels?: string[]) =>
+  scheduleContent: (itemId: string, publicationDate: string, timezone: string, site?: string, channels?: string[], options?: { publishNow?: boolean }) =>
     request<{ itemId: string; status: string }>(
       `/api/v2/content/items/${encodeURIComponent(itemId)}/schedule`,
-      { method: "POST", body: JSON.stringify({ site, channels, publicationDate, timezone }) },
+      { method: "POST", body: JSON.stringify({ site, channels, publicationDate, timezone, publishNow: options?.publishNow === true }) },
     ),
-  rescheduleContent: (itemId: string, publicationDate: string, timezone: string, site?: string, channels?: string[]) =>
+  rescheduleContent: (itemId: string, publicationDate: string, timezone: string, site?: string, channels?: string[], options?: { publishNow?: boolean }) =>
     request<{ itemId: string; status: string; channels: string[] }>(
       `/api/v2/content/items/${encodeURIComponent(itemId)}/reschedule`,
-      { method: "POST", body: JSON.stringify({ site, channels, publicationDate, timezone }) },
+      { method: "POST", body: JSON.stringify({ site, channels, publicationDate, timezone, publishNow: options?.publishNow === true }) },
     ),
   markChannelPublished: (itemId: string, channel: string, site?: string) =>
     request<{ itemId: string; status: string; channel: string }>(
@@ -328,6 +328,34 @@ const baseApi = {
     request<{ itemId: string; status: string; channels: string[]; provider: string; publicationDate: string }>(
       `/api/v2/content/items/${encodeURIComponent(itemId)}/publish-buffer`,
       { method: "POST", body: JSON.stringify({ site, channels, copy }) },
+    ),
+  listVideoJobs: (site?: string, contentItemId?: string, status?: string) => {
+    const params = new URLSearchParams();
+    if (site) params.set("site", site);
+    if (contentItemId) params.set("contentItemId", contentItemId);
+    if (status) params.set("status", status);
+    const query = params.toString();
+    return request<{ jobs: Array<Record<string, unknown>> }>(`/api/v2/video/jobs${query ? `?${query}` : ""}`);
+  },
+  getVideoJob: (videoJobId: string, site?: string) =>
+    request<{ job: Record<string, unknown> }>(
+      `/api/v2/video/jobs/${encodeURIComponent(videoJobId)}${site ? `?site=${encodeURIComponent(site)}` : ""}`,
+    ),
+  getVideoJobForContentItem: async (contentItemId: string, site?: string) => {
+    const listed = await api.listVideoJobs(site, contentItemId);
+    const job = listed.jobs?.[0] as { id?: string } | undefined;
+    if (!job?.id) return { job: null as Record<string, unknown> | null };
+    const detail = await api.getVideoJob(job.id, site);
+    return detail;
+  },
+  updateVideoJob: (
+    videoJobId: string,
+    input: Record<string, unknown>,
+    site?: string,
+  ) =>
+    request<{ job: Record<string, unknown> }>(
+      `/api/v2/video/jobs/${encodeURIComponent(videoJobId)}`,
+      { method: "PATCH", body: JSON.stringify({ ...input, site }) },
     ),
   uploadContentVideo: (itemId: string, file: File, site?: string, format: "portrait" | "landscape" = "portrait") => {
     const body = new FormData();
@@ -414,9 +442,10 @@ const baseApi = {
       `/api/admin/site-config/${encodeURIComponent(site)}/test-rebuild`,
       { method: "POST" },
     ),
-  mcpConnection: (site: string) =>
+  mcpConnection: (site: string, signal?: AbortSignal) =>
     request<{ mcpUrl: string; mcpChatGptUrl?: string; mcpClaudeUrl?: string; mcpAuthHint?: string; mcpClaudeHint?: string; agentIcon?: Record<string, any> }>(
       `/api/admin/site-config/${encodeURIComponent(site)}/agent-icon`,
+      { signal },
     ),
   users: (site: string, all = false) =>
     request<{ users: Array<Record<string, any>>; site: string }>(
@@ -702,7 +731,7 @@ async function aiChat(
   options: { signal?: AbortSignal; timeoutMs?: number } = {},
 ) {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(new DOMException("Tiempo de espera agotado", "TimeoutError")), options.timeoutMs ?? 60_000);
+  const timeout = setTimeout(() => controller.abort(new DOMException("Tiempo de espera agotado", "TimeoutError")), options.timeoutMs ?? 60_000);
   const abort = () => controller.abort(options.signal?.reason);
   if (options.signal) {
     if (options.signal.aborted) abort();
@@ -718,14 +747,14 @@ async function aiChat(
       signal: controller.signal,
     });
   } catch (error) {
-    window.clearTimeout(timeout);
+    clearTimeout(timeout);
     options.signal?.removeEventListener("abort", abort);
     if (controller.signal.aborted) throw new ApiError("El chat fue cancelado o agotó el tiempo de espera.", 0, {}, controller.signal.reason?.name === "TimeoutError" ? "timeout" : "aborted");
     throw error;
   }
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
-    window.clearTimeout(timeout);
+    clearTimeout(timeout);
     options.signal?.removeEventListener("abort", abort);
     throw new ApiError(data.message || "El asistente no está disponible.", response.status, data, data.code, response.headers.get("x-request-id") || data.requestId);
   }
@@ -751,23 +780,29 @@ async function aiChat(
           }
         } catch (error) {
           if (error instanceof ApiError) throw error;
-          // A partial JSON frame remains buffered by the caller.
+          if (event === "error") throw new ApiError(line.slice(5).trim() || "El asistente devolvió un error.", 502, {}, "sse_error");
+          // A malformed frame is ignored only when it is not an error event.
         }
       }
     }
-    while (true) {
-      const { done, value } = await reader.read();
-      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
-      const frames = buffer.split("\n\n");
-      buffer = frames.pop() || "";
-      frames.forEach(consume);
-      if (done) break;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+        const frames = buffer.split("\n\n");
+        buffer = frames.pop() || "";
+        frames.forEach(consume);
+        if (done) break;
+      }
+      if (buffer) consume(buffer);
+      if (!sawDone && !controller.signal.aborted) throw new ApiError("La conexión del asistente terminó antes de completar la respuesta.", 502, {}, "sse_incomplete");
+      return content;
+    } catch (error) {
+      if (controller.signal.aborted) throw new ApiError("El chat fue cancelado o agotó el tiempo de espera.", 0, {}, controller.signal.reason?.name === "TimeoutError" ? "timeout" : "aborted");
+      throw error;
     }
-    if (buffer) consume(buffer);
-    if (!sawDone && !controller.signal.aborted) throw new ApiError("La conexión del asistente terminó antes de completar la respuesta.", 502, {}, "sse_incomplete");
-    return content;
   } finally {
-    window.clearTimeout(timeout);
+    clearTimeout(timeout);
     options.signal?.removeEventListener("abort", abort);
   }
 }

@@ -268,6 +268,13 @@ import {
   registerContentMedia,
   attachContentMedia
 } from './lib/workspace-domain.mjs'
+import {
+  createVideoJob,
+  ensureVideoJobForContentItem,
+  getVideoJob,
+  listVideoJobs,
+  updateVideoJob
+} from './lib/video-jobs.mjs'
 import { isPostgresConfigured, getPgPool, runCoreMigrations } from './lib/pg.mjs'
 import { encryptSecret, decryptSecret } from './lib/secret-crypto.mjs'
 import { testMetricoolConnection, scheduleMetricoolPost, syncMetricoolPost } from './lib/metricool.mjs'
@@ -451,6 +458,7 @@ function readRawBuffer(req, maxBytes = MAX_BODY_BYTES) {
       req.off('end', onEnd)
       req.off('error', onError)
       req.off('aborted', onAborted)
+      req.off('close', onClose)
     }
     const fail = (error) => {
       if (settled) return
@@ -476,6 +484,7 @@ function readRawBuffer(req, maxBytes = MAX_BODY_BYTES) {
     }
     const onError = (error) => fail(error)
     const onAborted = () => fail(Object.assign(new Error('El cliente cerró la conexión.'), { status: 499, code: 'client_disconnected' }))
+    const onClose = () => { if (!req.complete) onAborted() }
     const declared = Number(req.headers['content-length'] || 0)
     if (Number.isFinite(declared) && declared > maxBytes) {
       fail(Object.assign(new Error(`La subida supera ${Math.round(maxBytes / 1024 / 1024)} MB`), { status: 413, code: 'body_too_large' }))
@@ -485,6 +494,7 @@ function readRawBuffer(req, maxBytes = MAX_BODY_BYTES) {
     req.on('end', onEnd)
     req.on('error', onError)
     req.on('aborted', onAborted)
+    req.on('close', onClose)
   })
 }
 
@@ -1894,6 +1904,7 @@ async function handleRequest(req, res) {
     const batchMatch = path.match(/^\/api\/v2\/content\/batches\/([^/]+)$/)
     const itemMatch = path.match(/^\/api\/v2\/content\/items\/([^/]+)$/)
     const videoUploadMatch = path.match(/^\/api\/v2\/content\/items\/([^/]+)\/video$/)
+    const videoJobMatch = path.match(/^\/api\/v2\/video\/jobs\/([^/]+)$/)
     const itemActionMatch = path.match(/^\/api\/v2\/content\/items\/([^/]+)\/(approve|reject|schedule|reschedule|publish-buffer|cancel|cancel-channel|mark-published|reconcile-scheduled|clear-published-errors|reopen-unsent-channel)$/)
     const batchActionMatch = path.match(/^\/api\/v2\/content\/batches\/([^/]+)\/(schedule|cancel)$/)
     const batchReviewMatch = path.match(/^\/api\/v2\/content\/batches\/([^/]+)\/(approve|reject)$/)
@@ -2332,7 +2343,8 @@ async function handleRequest(req, res) {
           filename: body.filename,
           buffer: body.buffer,
           mimeType: body.mimeType || 'video/webm',
-          format
+          format,
+          skipLegacyDb: true
         })
         const asset = await registerContentMedia({
           workspaceId: scope.workspaceId,
@@ -2360,7 +2372,103 @@ async function handleRequest(req, res) {
             console.warn('[video] no se pudo borrar el archivo reemplazado', previous.id, error.message)
           }
         }
-        json(res, 201, { itemId, format, media: { ...asset, url: asset.publicUrl || video.url, path: asset.storageKey || video.path }, replacedPrevious: Boolean(attachment.removedMedia?.length) })
+        const videoJob = await ensureVideoJobForContentItem({
+          workspaceId: scope.workspaceId,
+          siteId: scope.siteId,
+          siteHandle,
+          userId: scope.auth.userId,
+          role: scope.context.role,
+          contentItemId: itemId,
+          sourceMediaId: asset.id,
+          format: format === 'landscape' ? 'landscape' : 'reel'
+        })
+        json(res, 201, {
+          itemId,
+          format,
+          media: { ...asset, url: asset.publicUrl || video.url, path: asset.storageKey || video.path },
+          replacedPrevious: Boolean(attachment.removedMedia?.length),
+          videoJobId: videoJob.job?.id || null
+        })
+        return
+      }
+      if (path === '/api/v2/video/jobs' && req.method === 'GET') {
+        const scope = await requireV2Context(req, url, res)
+        if (!scope) return
+        const jobs = await listVideoJobs({
+          workspaceId: scope.workspaceId,
+          siteId: scope.siteId,
+          status: url.searchParams.get('status') || undefined,
+          limit: url.searchParams.get('limit') || undefined
+        })
+        const contentItemId = url.searchParams.get('contentItemId')
+        json(res, 200, {
+          jobs: contentItemId ? jobs.filter((job) => job.contentItemId === contentItemId) : jobs
+        })
+        return
+      }
+      if (path === '/api/v2/video/jobs' && req.method === 'POST') {
+        const scope = await requireV2Context(req, url, res, body)
+        if (!scope) return
+        assertWorkspaceRole(scope.context.role, ['owner', 'admin', 'editor', 'author'])
+        const siteHandle = scope.context.siteHandle || scope.siteId
+        const result = await createVideoJob({
+          workspaceId: scope.workspaceId,
+          siteId: scope.siteId,
+          siteHandle,
+          userId: scope.auth.userId,
+          role: scope.context.role,
+          contentItemId: body.contentItemId,
+          sourceMediaId: body.sourceMediaId,
+          provider: body.provider,
+          speaker: body.speaker,
+          channel: body.channel,
+          format: body.format,
+          objective: body.objective,
+          topic: body.topic,
+          metadata: body.metadata,
+          idempotencyKey: body.idempotencyKey,
+          createContentIfMissing: body.createContentIfMissing === true
+        })
+        json(res, 201, result)
+        return
+      }
+      if (videoJobMatch && req.method === 'GET') {
+        const scope = await requireV2Context(req, url, res)
+        if (!scope) return
+        const job = await getVideoJob({
+          workspaceId: scope.workspaceId,
+          siteId: scope.siteId,
+          siteHandle: scope.context.siteHandle,
+          videoJobId: decodeURIComponent(videoJobMatch[1])
+        })
+        json(res, 200, { job })
+        return
+      }
+      if (videoJobMatch && req.method === 'PATCH') {
+        const scope = await requireV2Context(req, url, res, body)
+        if (!scope) return
+        assertWorkspaceRole(scope.context.role, ['owner', 'admin', 'editor', 'author'])
+        const result = await updateVideoJob({
+          workspaceId: scope.workspaceId,
+          siteId: scope.siteId,
+          videoJobId: decodeURIComponent(videoJobMatch[1]),
+          userId: scope.auth.userId,
+          role: scope.context.role,
+          status: body.status,
+          provider: body.provider,
+          providerProjectId: body.providerProjectId,
+          providerCompositionId: body.providerCompositionId,
+          speaker: body.speaker,
+          channel: body.channel,
+          format: body.format,
+          objective: body.objective,
+          topic: body.topic,
+          metadata: body.metadata,
+          caption: body.caption,
+          readyForReview: body.readyForReview === true,
+          skipEdit: body.skipEdit === true
+        })
+        json(res, 200, result)
         return
       }
       if (req.method === 'PATCH' && itemMatch) {
@@ -2392,7 +2500,7 @@ async function handleRequest(req, res) {
           return
         }
         if (action === 'reschedule') {
-          json(res, 200, await rescheduleContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role, channels: body.channels, publicationDate: body.publicationDate, timezone: body.timezone }))
+          json(res, 200, await rescheduleContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role, channels: body.channels, publicationDate: body.publicationDate, timezone: body.timezone, publishNow: body.publishNow === true }))
           return
         }
         if (action === 'mark-published') {
@@ -2415,7 +2523,7 @@ async function handleRequest(req, res) {
           json(res, 202, await publishContentItemViaBuffer({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role, channels: body.channels, copy: body.copy }))
           return
         }
-        json(res, 200, await scheduleContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role, channels: body.channels, publicationDate: body.publicationDate, timezone: body.timezone }))
+        json(res, 200, await scheduleContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role, channels: body.channels, publicationDate: body.publicationDate, timezone: body.timezone, publishNow: body.publishNow === true }))
         return
       }
       if (req.method === 'POST' && batchActionMatch) {
@@ -3235,7 +3343,13 @@ async function handleRequest(req, res) {
     const legacyContentWrite = isPostgresConfigured() && req.method !== 'GET' && (
       path.startsWith('/api/admin/posts') ||
       path.startsWith('/api/admin/media') ||
-      path === '/api/admin/validate-seo'
+      path === '/api/admin/validate-seo' ||
+      path.startsWith('/api/admin/brand-kit') ||
+      path.startsWith('/api/admin/site-config') ||
+      path === '/api/admin/sites' ||
+      path === '/api/admin/feature-flags' ||
+      path === '/api/admin/ai/providers' ||
+      path.startsWith('/api/admin/billing/credit-packs')
     )
     if (legacyContentWrite) {
       json(res, 409, {

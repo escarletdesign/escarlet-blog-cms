@@ -54,7 +54,10 @@ test('el contrato MCP expone media y contenido v2, sin operaciones de posts lega
   const publicContract = JSON.stringify(tools)
   assert.doesNotMatch(publicContract, /generationReceiptId|brand_complete_image_generation|brand_register_generation|content-system\/instagram-renderer/)
   assert.equal(buildToolList({ role: 'editor' }).some((tool) => tool.name === 'brand_update_file'), true)
-  assert.equal(MCP_SERVER_VERSION, '3.3.0')
+  assert.equal(MCP_SERVER_VERSION, '3.4.0')
+  for (const name of ['video_create_job', 'video_get_job', 'video_update_job', 'video_upload_media', 'video_import_external_media', 'video_list_jobs']) {
+    assert.ok(tools.some((tool) => tool.name === name), name)
+  }
 })
 
 test('el registro tools/list publica un único upload y no expone aliases legacy', async () => {
@@ -84,7 +87,8 @@ test('createMcpServer anuncia el contrato v2 y la selección explícita de marca
   assert.match(MCP_INSTRUCTIONS, /content_upload_media/)
   assert.match(MCP_INSTRUCTIONS, /exactamente una imagen/i)
   assert.match(MCP_INSTRUCTIONS, /preparationId, channels y assetIndex/i)
-  assert.match(MCP_INSTRUCTIONS, /versión 3\.3\.0/)
+  assert.match(MCP_INSTRUCTIONS, /versión 3\.4\.0/)
+  assert.match(MCP_INSTRUCTIONS, /video_upload_media/)
 })
 
 test('LinkedIn usa la portada del blog salvo petición explícita de otra pieza', () => {
@@ -159,7 +163,7 @@ test('las respuestas de preparación exponen la versión MCP activa', async () =
   const result = await invokeMcpTool('brand_prepare_image_generation', { site: 'escarlet', assetType: 'generic', title: 'versión MCP' }, { role: 'admin' })
   const value = payload(result)
   assert.equal(value.mcpServer.name, 'escarlet-cms-v2')
-  assert.equal(value.mcpServer.version, '3.3.0')
+  assert.equal(value.mcpServer.version, '3.4.0')
   assert.equal(value.mcpServer.contract, 'v2')
 })
 

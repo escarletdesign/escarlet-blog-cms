@@ -53,6 +53,14 @@ import {
 } from '../lib/workspace-domain.mjs'
 import { isPostgresConfigured, runCoreMigrations } from '../lib/pg.mjs'
 import {
+  createVideoJob,
+  getVideoJob,
+  updateVideoJob,
+  listVideoJobs,
+  ingestVideoUpload,
+  importExternalVideoMedia
+} from '../lib/video-jobs.mjs'
+import {
   getImagePreparation,
   persistImagePreparation
 } from '../lib/generation-provenance.mjs'
@@ -71,6 +79,15 @@ const V2_CONTENT_TOOLS = new Set([
   'content_cancel'
 ])
 const V2_READ_ONLY_TOOLS = new Set(['content_list_plans', 'content_list_items', 'content_list_calendar', 'content_get_batch'])
+const V2_VIDEO_TOOLS = new Set([
+  'video_create_job',
+  'video_get_job',
+  'video_update_job',
+  'video_upload_media',
+  'video_import_external_media',
+  'video_list_jobs'
+])
+const V2_VIDEO_READ_ONLY_TOOLS = new Set(['video_get_job', 'video_list_jobs'])
 const LEGACY_CONTENT_TOOLS = new Set([
   'blog_list_authors',
   'social_save_pack',
@@ -173,7 +190,11 @@ const MUTATING_SITE_TOOLS = new Set([
   'content_update_item',
   'content_approve',
   'content_schedule',
-  'content_cancel'
+  'content_cancel',
+  'video_create_job',
+  'video_update_job',
+  'video_upload_media',
+  'video_import_external_media'
 ])
 
 export const RESOURCE_MAP = {
@@ -1260,7 +1281,13 @@ export function buildToolList(auth) {
     { name: 'content_update_item', description: 'Guarda sin reescritura el body recibido. Con readyForReview=true valida que todas las variantes y medios del item estén completos y cambia el estado a generated.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, topic: { type: 'string' }, channel: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] }, body: { type: 'object' }, visualBrief: { type: 'object' }, mediaAssetIds: { type: 'array', items: { type: 'string' } }, readyForReview: { type: 'boolean' } }, required: ['itemId'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_approve', description: 'Aprueba un item o todos los items de un batch.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' } }, oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_schedule', description: 'Programa variantes aprobadas por canal. Blog publica mediante Coolify; Instagram, LinkedIn y Story usan la conexión Buffer configurada.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' }, channels: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] } }, publicationDate: { type: 'string' }, timezone: { type: 'string' } }, required: ['channels', 'publicationDate'], oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } },
-    { name: 'content_cancel', description: 'Cancela una publicación o campaña que todavía no se publicó.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' } }, oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } }
+    { name: 'content_cancel', description: 'Cancela una publicación o campaña que todavía no se publicó.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' } }, oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } },
+    { name: 'video_create_job', description: 'Crea un VideoJob para edición externa (Descript, etc.). Opcionalmente asocia un content item o crea uno mínimo con createContentIfMissing.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, contentItemId: { type: 'string' }, sourceMediaId: { type: 'string' }, provider: { type: 'string', enum: ['descript', 'heygen', 'higgsfield', 'runway', 'manual', 'unknown'] }, speaker: { type: 'string' }, channel: { type: 'string' }, format: { type: 'string' }, objective: { type: 'string' }, topic: { type: 'string' }, metadata: { type: 'object' }, idempotencyKey: { type: 'string', maxLength: 300 }, createContentIfMissing: { type: 'boolean' } } }, annotations: { readOnlyHint: false, destructiveHint: false } },
+    { name: 'video_get_job', description: 'Devuelve el contexto del job de vídeo: sourceUrl, marca, speaker, formato, estado y IDs de proveedor.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, videoJobId: { type: 'string' }, contentItemId: { type: 'string' } }, oneOf: [{ required: ['videoJobId'] }, { required: ['contentItemId'] }] }, annotations: { readOnlyHint: true } },
+    { name: 'video_update_job', description: 'Actualiza estado, metadata, IDs de proveedor o caption del canal video. skipEdit=true publica sin editar (final=source).', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, videoJobId: { type: 'string' }, status: { type: 'string' }, provider: { type: 'string' }, providerProjectId: { type: 'string' }, providerCompositionId: { type: 'string' }, speaker: { type: 'string' }, channel: { type: 'string' }, format: { type: 'string' }, objective: { type: 'string' }, topic: { type: 'string' }, metadata: { type: 'object' }, caption: { type: 'string' }, readyForReview: { type: 'boolean' }, skipEdit: { type: 'boolean' } }, required: ['videoJobId'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
+    { name: 'video_upload_media', description: 'Sube vídeo RAW (.mov/.mp4/.webm) con file, contentBase64 o trozos uploadId. No usa content_upload_media.', inputSchema: { type: 'object', $defs: openaiFileDefs(), properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, filename: { type: 'string' }, mimeType: { type: 'string' }, format: { type: 'string', enum: ['portrait', 'landscape'] }, file: { $ref: '#/$defs/OpenAIFile' }, contentBase64: { type: 'string' }, blob: { type: 'string' }, uploadId: { type: 'string' }, chunkIndex: { type: 'string' }, chunkCount: { type: 'string' }, contentItemId: { type: 'string' }, videoJobId: { type: 'string' }, idempotencyKey: { type: 'string', maxLength: 300 } }, required: ['site', 'filename'] }, annotations: { readOnlyHint: false, destructiveHint: false }, _meta: { ...connectorFileMeta(), 'openai/toolInvocation/invoking': 'Subiendo vídeo RAW', 'openai/toolInvocation/invoked': 'Vídeo RAW guardado' } },
+    { name: 'video_import_external_media', description: 'Descarga una URL HTTPS pública del export final y la registra como final_video; pasa el job a ready_for_review.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, videoJobId: { type: 'string' }, sourceUrl: { type: 'string' }, idempotencyKey: { type: 'string', maxLength: 300 } }, required: ['videoJobId', 'sourceUrl'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
+    { name: 'video_list_jobs', description: 'Lista jobs de vídeo por marca y estado.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, status: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 200 } } }, annotations: { readOnlyHint: true } }
   )
 
   return tools
@@ -1381,11 +1408,12 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
         }
         if (scope.role === 'viewer') throw Object.assign(new Error('El rol viewer solo puede consultar contenido.'), { status: 403 })
       }
-      if (V2_CONTENT_TOOLS.has(name)) {
+      if (V2_CONTENT_TOOLS.has(name) || V2_VIDEO_TOOLS.has(name)) {
         const explicitSite = String(args.siteId || args.site || '').trim()
         const knownSites = availableToolSites(auth)
         if (!explicitSite && knownSites.length > 1) throw brandSelectionRequired(auth, knownSites)
-        if (!V2_READ_ONLY_TOOLS.has(name) && auth?.role === 'viewer') {
+        const readOnlyTool = V2_READ_ONLY_TOOLS.has(name) || V2_VIDEO_READ_ONLY_TOOLS.has(name)
+        if (!readOnlyTool && auth?.role === 'viewer') {
           throw Object.assign(new Error('El rol viewer solo puede consultar contenido.'), { status: 403 })
         }
         if (isPostgresConfigured()) {
@@ -1399,7 +1427,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             workspaceRole: scope.workspaceRole,
             brandRole: scope.brandRole
           }
-          if (!V2_READ_ONLY_TOOLS.has(name) && scope.role === 'viewer') {
+          if (!readOnlyTool && scope.role === 'viewer') {
             throw Object.assign(new Error('El rol viewer solo puede consultar contenido.'), { status: 403 })
           }
         }
@@ -1638,6 +1666,97 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           return textResult(args.batchId
             ? await cancelContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId, batchId: args.batchId, userId: auth.userId, role: scope.role })
             : await cancelContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId: args.itemId, userId: auth.userId, role: scope.role }))
+        }
+        case 'video_create_job': {
+          const scope = await resolveContentScope(auth, args)
+          return textResult(await createVideoJob({
+            workspaceId: scope.workspaceId,
+            siteId: scope.siteId,
+            siteHandle: scope.siteHandle,
+            userId: auth.userId,
+            role: scope.role,
+            contentItemId: args.contentItemId,
+            sourceMediaId: args.sourceMediaId,
+            provider: args.provider,
+            speaker: args.speaker,
+            channel: args.channel,
+            format: args.format,
+            objective: args.objective,
+            topic: args.topic,
+            metadata: args.metadata,
+            idempotencyKey: args.idempotencyKey,
+            createContentIfMissing: args.createContentIfMissing === true
+          }))
+        }
+        case 'video_get_job': {
+          const scope = await resolveContentScope(auth, args)
+          return textResult(await getVideoJob({
+            workspaceId: scope.workspaceId,
+            siteId: scope.siteId,
+            siteHandle: scope.siteHandle,
+            videoJobId: args.videoJobId,
+            contentItemId: args.contentItemId
+          }))
+        }
+        case 'video_update_job': {
+          const scope = await resolveContentScope(auth, args)
+          return textResult(await updateVideoJob({
+            workspaceId: scope.workspaceId,
+            siteId: scope.siteId,
+            videoJobId: args.videoJobId,
+            userId: auth.userId,
+            role: scope.role,
+            status: args.status,
+            provider: args.provider,
+            providerProjectId: args.providerProjectId,
+            providerCompositionId: args.providerCompositionId,
+            speaker: args.speaker,
+            channel: args.channel,
+            format: args.format,
+            objective: args.objective,
+            topic: args.topic,
+            metadata: args.metadata,
+            caption: args.caption,
+            readyForReview: args.readyForReview === true,
+            skipEdit: args.skipEdit === true
+          }))
+        }
+        case 'video_upload_media': {
+          const scope = await resolveContentScope(auth, args)
+          const uploaded = await ingestVideoUpload({
+            workspaceId: scope.workspaceId,
+            siteId: scope.siteId,
+            siteHandle: scope.siteHandle,
+            userId: auth.userId,
+            role: scope.role,
+            payload: args,
+            format: args.format === 'landscape' ? 'landscape' : 'portrait',
+            contentItemId: args.contentItemId,
+            videoJobId: args.videoJobId,
+            attachToItem: Boolean(args.contentItemId)
+          })
+          if (uploaded.awaitingChunks) return textResult(uploaded)
+          return textResult(uploaded)
+        }
+        case 'video_import_external_media': {
+          const scope = await resolveContentScope(auth, args)
+          return textResult(await importExternalVideoMedia({
+            workspaceId: scope.workspaceId,
+            siteId: scope.siteId,
+            siteHandle: scope.siteHandle,
+            userId: auth.userId,
+            role: scope.role,
+            videoJobId: args.videoJobId,
+            sourceUrl: args.sourceUrl,
+            idempotencyKey: args.idempotencyKey
+          }))
+        }
+        case 'video_list_jobs': {
+          const scope = await resolveContentScope(auth, args)
+          return textResult({
+            site: { id: scope.siteId, handle: scope.siteHandle },
+            jobs: await listVideoJobs({ workspaceId: scope.workspaceId, siteId: scope.siteId, status: args.status, limit: args.limit })
+          })
         }
         case 'blog_list_authors': {
           const site = resolveToolSite(auth, args)

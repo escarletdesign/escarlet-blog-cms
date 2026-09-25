@@ -359,6 +359,8 @@ function App() {
   const [site, setSiteState] = useState("");
   const [contentMode, setContentMode] = useState<"blog" | "socialmedia">("blog");
   const [contentModeReady, setContentModeReady] = useState(false);
+  const siteContextSequence = useRef(0);
+  const siteContextAbort = useRef<AbortController | null>(null);
   const setLanguage = (next: Language) => {
     setLanguageState(next);
     window.localStorage.setItem("escarlet_language", next);
@@ -454,7 +456,12 @@ function App() {
     setSiteState(next);
     window.localStorage.setItem("escarlet_site", next);
     if (!session) return;
-    void api.context(next).then((context) => {
+    const sequence = ++siteContextSequence.current;
+    siteContextAbort.current?.abort();
+    const controller = new AbortController();
+    siteContextAbort.current = controller;
+    void api.context(next, controller.signal).then((context) => {
+      if (sequence !== siteContextSequence.current) return;
       setSession((current) => current ? { ...current, role: current.systemAdmin ? current.role : context.activeBrand?.role || current.role } : current);
       setProductContext(context);
       setChannels(context.channels || []);
@@ -466,7 +473,7 @@ function App() {
         assistantEnabled: current.cmsAiEnabled && current.assistantEnabled,
         blogWizardEnabled: current.cmsAiEnabled && current.blogWizardEnabled && Boolean(context.featureFlags?.manual_creation_enabled)
       }));
-    }).catch(() => undefined);
+    }).catch((error) => { if (!controller.signal.aborted && sequence === siteContextSequence.current) { setProductContext(undefined); setChannels([]); setBrandCapabilities({}); console.warn("[pwa] no se pudo cargar el contexto de la marca", error); } });
   };
   const basename =
     window.location.pathname === "/app" ||
@@ -1132,7 +1139,7 @@ function CreditIndicator({ site }: { site: string }) {
   if (!workflowFlags.cmsAiEnabled) return null;
   const available = Number(snapshot?.ai?.tokenCredits?.available);
   const hasCredits = Number.isFinite(available);
-  const displayCredits = hasCredits ? available.toLocaleString(language === "en" ? "en-GB" : "es-ES") : loading ? "…" : "—";
+  const displayCredits = hasCredits ? available.toLocaleString(language === "en" ? "en-GB" : "es-ES") : loading ? "…" : "-";
   if (!workflowFlags.cmsAiEnabled) return null;
   return (
     <NavLink className="credit-indicator" to="/billing" title={t("billing.available")}>
@@ -7516,6 +7523,8 @@ function BrandChannelsView() {
   useEffect(() => { let active = true; setLoading(true); setError(""); Promise.all([api.brandV2(brandId), api.brandChannels(brandId), api.brandConnections(brandId), api.brandCapabilities(brandId)]).then(([brandResult, channelResult, connectionResult, capResult]) => { if (!active) return; setBrand(brandResult.brand); setChannels(channelResult.channels || []); setCaps(capResult.capabilities || {}); const connection = (connectionResult.connections || []).find((item) => item.channel === "blog" && item.provider === "web"); setWeb({ domain: String(connection?.config?.domain || brandResult.brand.domain || ""), rebuildWebhookUrl: String(connection?.config?.rebuildWebhookUrl || ""), token: "" }); }).catch((err) => { if (active) setError(err?.message || "No se pudo cargar la configuración de canales."); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, [brandId]);
   const save = async () => { setBusy(true); try { const channelMap = Object.fromEntries(channels.map((channel) => [channel.channel, channel.enabled])); await api.updateBrandChannels(brandId, channelMap); await api.updateBrandCapabilities(brandId, { ...caps, content_publishing: Object.values(channelMap).some(Boolean), blog_publishing: Boolean(channelMap.blog) }); if (channelMap.blog && (web.domain || web.rebuildWebhookUrl || web.token)) { await api.updateBrandV2(brandId, { domain: web.domain || undefined }); await api.saveBrandConnection(brandId, { provider: "web", channel: "blog", token: web.token || undefined, config: { domain: web.domain, rebuildWebhookUrl: web.rebuildWebhookUrl } }); } showToast("Canales y capacidades guardados."); } catch (err: any) { showToast(err?.message || "No se pudo guardar la configuración.", "error"); } finally { setBusy(false); } };
   const blogEnabled = channels.some((channel) => channel.channel === "blog" && channel.enabled);
+  if (loading) return <main className="ui-page"><p className="ui-muted">Cargando configuración de canales...</p></main>;
+  if (error) return <main className="ui-page"><UiEmptyState title="No se pudo cargar la configuración" description={error} action={<Button onClick={() => window.location.reload()}>Reintentar</Button>} /></main>;
   return <main className="ui-page"><PageHeader eyebrow="Marca · Canales" title={brand?.name || "Canales activos"} description="Activa solo los canales que esta marca utiliza. Cada uno puede tener su propia conexión primaria." back={<NavLink to={`/brands/${encodeURIComponent(brandId)}`}>← Volver a la marca</NavLink>} actions={canManage ? <Button onClick={() => void save()} loading={busy}>Guardar cambios</Button> : undefined} /><div className="ui-channel-settings-grid"><Card><span className="ui-eyebrow">Canales</span><h2>Publicación multicanal</h2><Stack gap="sm">{channels.map((channel) => <label className="ui-toggle-row" key={channel.channel}><span><b>{channel.channel === "x" ? "X" : channel.channel.charAt(0).toUpperCase() + channel.channel.slice(1)}</b><small>{channel.enabled ? "Activo" : "Inactivo"}</small></span><input type="checkbox" disabled={!canManage} checked={Boolean(channel.enabled)} onChange={(event) => setChannels((current) => current.map((item) => item.channel === channel.channel ? { ...item, enabled: event.target.checked } : item))} /></label>)}</Stack></Card><Card><span className="ui-eyebrow">Usos de marca</span><h2>Capacidades</h2><Stack gap="sm"><label className="ui-toggle-row"><span><b>Presentaciones</b><small>Permite usar el brand kit desde ChatGPT/MCP.</small></span><input type="checkbox" disabled={!canManage} checked={Boolean(caps.presentation_generation)} onChange={(event) => setCaps((current) => ({ ...current, presentation_generation: event.target.checked }))} /></label><label className="ui-toggle-row"><span><b>Publicaciones</b><small>Se activa automáticamente al encender un canal.</small></span><input type="checkbox" checked={Boolean(caps.content_publishing)} readOnly /></label></Stack></Card>{blogEnabled && <Card className="ui-blog-connection-card"><div className="ui-card-head"><div><span className="ui-eyebrow">{t("admin.blogPublishRouteEyebrow", "Publicación del Blog")}</span><h2>{t("admin.blogPublishRouteTitle", "Webhook de Coolify")}</h2></div><Badge tone={web.rebuildWebhookUrl ? "success" : "warning"}>{web.rebuildWebhookUrl ? t("admin.blogPublishRouteConfigured", "Coolify conectado") : t("admin.blogPublishRouteMissing", "Webhook pendiente")}</Badge></div><p className="ui-muted">{t("admin.blogPublishRouteHelp", "El Blog se publica mediante este webhook. Buffer se reserva para Instagram y los demás canales sociales.")}</p><Stack gap="md"><Field label="Dominio público"><TextField type="url" value={web.domain} onChange={(event) => setWeb({ ...web, domain: event.target.value })} placeholder="https://marca.com" /></Field><Field label="Webhook de rebuild"><TextField value={web.rebuildWebhookUrl} onChange={(event) => setWeb({ ...web, rebuildWebhookUrl: event.target.value })} placeholder="https://…" /></Field><Field label="Token de la conexión" hint="Se cifra y no vuelve a mostrarse."><TextField type="password" value={web.token} onChange={(event) => setWeb({ ...web, token: event.target.value })} placeholder="Pega un token nuevo para reemplazarlo" /></Field></Stack></Card>}</div></main>;
 }
 
@@ -7575,6 +7584,9 @@ function ConnectionsView({ brandId, backTo, embedded = false }: { brandId?: stri
   const [availableChannels, setAvailableChannels] = useState(configuredChannels);
   const [connections, setConnections] = useState<Array<Record<string, any>>>([]);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const loadSequence = useRef(0);
+  const loadAbort = useRef<AbortController | null>(null);
   const [form, setForm] = useState({ provider: "buffer", channel: "buffer", userToken: "", userId: "", blogId: "", workspaceId: "", pageId: "", apiBaseUrl: "", integrationId: "", providerType: "", organizationId: "", channelId: "", channelIds: {} as Record<string, string>, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" });
   const [postizIntegrations, setPostizIntegrations] = useState<Array<Record<string, any>>>([]);
   const [loadingPostizIntegrations, setLoadingPostizIntegrations] = useState(false);
@@ -7585,12 +7597,30 @@ function ConnectionsView({ brandId, backTo, embedded = false }: { brandId?: stri
   const [busy, setBusy] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [mcpInfo, setMcpInfo] = useState<Record<string, any> | null>(null);
+  const mcpLoadSequence = useRef(0);
+  const mcpLoadAbort = useRef<AbortController | null>(null);
   const notify = (nextMessage: string, kind: ToastKind = "success") => showToast(nextMessage, kind);
 
   useEffect(() => { setSelectedBrandId(brandId || productContext?.activeBrand?.id || site); }, [brandId, productContext?.activeBrand?.id, site]);
   useEffect(() => {
-    api.brandConnections(selectedBrandId).then((result) => setConnections(result.connections || [])).catch((err) => setError(err?.message || "No se pudieron cargar las conexiones."));
-    api.brandChannels(selectedBrandId).then((result) => setAvailableChannels(result.channels || [])).catch(() => setAvailableChannels(configuredChannels));
+    const sequence = ++loadSequence.current;
+    loadAbort.current?.abort();
+    const controller = new AbortController();
+    loadAbort.current = controller;
+    setLoading(true);
+    setError("");
+    Promise.all([api.brandConnections(selectedBrandId, controller.signal), api.brandChannels(selectedBrandId, controller.signal)])
+      .then(([connectionResult, channelResult]) => {
+        if (sequence !== loadSequence.current || controller.signal.aborted) return;
+        setConnections(connectionResult.connections || []);
+        setAvailableChannels(channelResult.channels || configuredChannels);
+      })
+      .catch((err) => {
+        if (controller.signal.aborted || sequence !== loadSequence.current) return;
+        setError(err?.message || "No se pudieron cargar las conexiones.");
+      })
+      .finally(() => { if (sequence === loadSequence.current) setLoading(false); });
+    return () => controller.abort();
   }, [selectedBrandId]);
 
   const connect = async (event: FormEvent) => {
@@ -7689,8 +7719,13 @@ function ConnectionsView({ brandId, backTo, embedded = false }: { brandId?: stri
   const selectedBrandHandle = brandOptions.find((brand) => brand.id === selectedBrandId)?.handle || selectedBrandId;
   useEffect(() => {
     if (!selectedBrandHandle) return;
+    const sequence = ++mcpLoadSequence.current;
+    mcpLoadAbort.current?.abort();
+    const controller = new AbortController();
     setMcpInfo(null);
-    api.mcpConnection(selectedBrandHandle).then(setMcpInfo).catch(() => setMcpInfo(null));
+    mcpLoadAbort.current = controller;
+    api.mcpConnection(selectedBrandHandle, controller.signal).then((result) => { if (sequence === mcpLoadSequence.current) setMcpInfo(result); }).catch((err) => { if (!controller.signal.aborted && sequence === mcpLoadSequence.current) setError(err?.message || "No se pudo cargar la conexión MCP."); });
+    return () => controller.abort();
   }, [selectedBrandHandle]);
   const copyMcpUrl = async () => {
     if (!mcpInfo?.mcpUrl) return;
@@ -7699,6 +7734,8 @@ function ConnectionsView({ brandId, backTo, embedded = false }: { brandId?: stri
   };
   const tokenLabel = form.provider === "postiz" ? "API key / OAuth token" : form.provider === "planable" ? "API token" : form.provider === "buffer" ? "API key de Buffer" : "Token";
   const enabledBufferTargets = (availableChannels.length ? BUFFER_TARGET_CHANNELS.filter((target) => availableChannels.some((channel) => channel.channel === target && channel.enabled) || (target === "instagram" && availableChannels.some((channel) => channel.channel === "instagram_story" && channel.enabled))) : BUFFER_TARGET_CHANNELS);
+  if (loading) return <Root className={embedded ? "ui-admin-section" : "ui-page"}><p className="ui-muted">Cargando conexiones...</p></Root>;
+  if (error && !connections.length) return <Root className={embedded ? "ui-admin-section" : "ui-page"}><UiEmptyState title="No se pudieron cargar las conexiones" description={error} action={<Button onClick={() => window.location.reload()}>Reintentar</Button>} /></Root>;
   return <Root className={embedded ? "ui-admin-section" : "ui-page"}>
     <PageHeader eyebrow={`Marca · ${brandOptions.find((brand) => brand.id === selectedBrandId)?.name || brandOptions.find((brand) => brand.id === selectedBrandId)?.handle || selectedBrandId}`} title="Conexiones" description={t("admin.connectionsDescription", "El Blog publica mediante el webhook de Coolify. Las conexiones sociales se gestionan aquí.")} back={backTo ? <NavLink to={backTo}>← Volver a la marca</NavLink> : undefined} actions={canManage ? <Button onClick={() => setFormOpen(true)}>{t("admin.addConnection")}</Button> : undefined} />
     {error && <Card><p className="ui-field-error">{error}</p></Card>}
