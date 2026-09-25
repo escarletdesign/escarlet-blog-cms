@@ -113,6 +113,20 @@ function AiOnly({ children }: { children: ReactNode }) {
   const { session, workflowFlags } = useApp();
   return !workflowFlags.cmsAiEnabled ? null : <>{children}</>;
 }
+const ROLE_RANK: Record<string, number> = { owner: 4, admin: 3, editor: 2, author: 1, viewer: 0 };
+const rankedRole = (roles: Array<string | undefined>, fallback = "viewer") =>
+  roles.reduce((best, role) => {
+    const value = String(role || "").toLowerCase();
+    return (ROLE_RANK[value] || 0) > (ROLE_RANK[best] || 0) ? value : best;
+  }, fallback);
+const memberDisplayRole = (member: Record<string, any>, site?: string, activeBrand?: { id?: string; handle?: string } | null) => {
+  const workspaceRole = String(member.role || "viewer").toLowerCase();
+  if (workspaceRole === "owner" || workspaceRole === "admin") return workspaceRole;
+  const brands = Array.isArray(member.brands) ? member.brands : [];
+  const active = brands.find((brand: any) => brand.id === activeBrand?.id || brand.handle === activeBrand?.handle || brand.handle === site || brand.id === site);
+  if (active?.role) return String(active.role).toLowerCase();
+  return rankedRole(brands.map((brand: any) => brand.role), workspaceRole);
+};
 const roleLabel = (role: string | undefined, t: (key: string, fallback?: string) => string) => {
   const value = String(role || "viewer").trim().toLowerCase();
   return t(`role.${value}`, value.replace(/_/g, " "));
@@ -7076,6 +7090,7 @@ function TeamView({ embedded = false, autoInvite = false }: { embedded?: boolean
   const { session, site, productContext } = useApp();
   const nav = useNavigate();
   const { t } = useI18n();
+  const { showToast } = useToast();
   const [members, setMembers] = useState<Array<Record<string, any>>>([]);
   const [canManage, setCanManage] = useState(false);
   const [canonicalTeam, setCanonicalTeam] = useState(false);
@@ -7083,20 +7098,40 @@ function TeamView({ embedded = false, autoInvite = false }: { embedded?: boolean
   const [inviteOpen, setInviteOpen] = useState(false);
   const [form, setForm] = useState({ email: "", role: "viewer", brandIds: [] as string[], brandRoles: {} as Record<string, string> });
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
   const [userForm, setUserForm] = useState<{ id: string; email: string; role: string; sites: string[]; brandRoles: Record<string, string>; allowPublishingAs: boolean } | null>(null);
   const [userBusy, setUserBusy] = useState(false);
   const canAdminUsers = isWorkspaceAdmin(session);
   const inviteBrands = productContext?.brands || (session.sites || []).map((handle) => ({ id: handle, handle, name: handle }));
   const canSeeSuperAdmin = session.role === "owner" || session.workspaceRole === "owner";
   const visibleMembers = (rows: Array<Record<string, any>>) => canSeeSuperAdmin ? rows : rows.filter((member) => String(member.role || "").toLowerCase() !== "owner");
-  const load = () => api.teamV2().then((result) => { setMembers(visibleMembers(result.members || [])); setCanManage(Boolean(result.canManage)); setCanonicalTeam(true); }).catch(async () => {
+  const load = () => api.teamV2(site).then((result) => { setMembers(visibleMembers(result.members || [])); setCanManage(Boolean(result.canManage)); setCanonicalTeam(true); }).catch(async () => {
     try { const legacy = await api.users("", session.role === "admin"); setMembers(visibleMembers(legacy.users || [])); setCanManage(isWorkspaceAdmin(session)); setCanonicalTeam(false); } catch (err: any) { setError(err?.message || "No se pudo cargar el equipo."); }
   });
-  useEffect(() => { void load(); }, [session.role, session.workspaceRole]);
+  useEffect(() => { void load(); }, [session.role, session.workspaceRole, site]);
   useEffect(() => { if (autoInvite && canManage) setInviteOpen(true); }, [autoInvite, canManage]);
   useEffect(() => { if (!form.brandIds.length && inviteBrands.length) setForm((current) => ({ ...current, brandIds: inviteBrands.map((brand) => brand.id), brandRoles: Object.fromEntries(inviteBrands.map((brand) => [brand.id, current.role])) })); }, [inviteBrands, form.brandIds.length]);
-  const invite = async (event: FormEvent) => { event.preventDefault(); if (!form.brandIds.length) { setMessage("Selecciona al menos una marca."); return; } setBusy(true); setMessage(""); try { const role = form.brandRoles[form.brandIds[0]] || form.role; const result = await api.inviteTeamMember({ email: form.email, role, brandIds: form.brandIds, brandRoles: form.brandRoles }); setMessage(result.invite?.link ? `Invitación creada: ${result.invite.link}` : "Invitación enviada."); setForm({ email: "", role: "viewer", brandIds: inviteBrands.map((brand) => brand.id), brandRoles: Object.fromEntries(inviteBrands.map((brand) => [brand.id, "viewer"])) }); setInviteOpen(false); await load(); } catch (err: any) { setMessage(err?.message || "No se pudo invitar al miembro."); } finally { setBusy(false); } };
+  const invite = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!form.brandIds.length) { showToast("Selecciona al menos una marca.", "error"); return; }
+    setBusy(true);
+    try {
+      const role = rankedRole(form.brandIds.map((id) => form.brandRoles[id]), form.role);
+      const result = await api.inviteTeamMember({ email: form.email, role, brandIds: form.brandIds, brandRoles: form.brandRoles });
+      if (result.invite?.link) {
+        await navigator.clipboard?.writeText(result.invite.link).catch(() => {});
+        showToast("Invitación creada. El enlace se copió.");
+      } else {
+        showToast("Invitación enviada.");
+      }
+      setForm({ email: "", role: "viewer", brandIds: inviteBrands.map((brand) => brand.id), brandRoles: Object.fromEntries(inviteBrands.map((brand) => [brand.id, "viewer"])) });
+      setInviteOpen(false);
+      await load();
+    } catch (err: any) {
+      showToast(err?.message || "No se pudo invitar al miembro.", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
   const userId = (member: Record<string, any>) => String(member.userId || member.id || "");
   const sitesForMember = (member: Record<string, any>) => uniqueSiteHandles([
     ...(Array.isArray(member.sites) ? member.sites : []),
@@ -7112,7 +7147,7 @@ function TeamView({ embedded = false, autoInvite = false }: { embedded?: boolean
     setUserForm({
       id,
       email: String(member.email || ""),
-      role: String(member.role || "viewer"),
+      role: memberDisplayRole(member, site, productContext?.activeBrand),
       sites: sitesForMember(member).length ? sitesForMember(member) : [site],
       brandRoles: Object.fromEntries((Array.isArray(member.brands) ? member.brands : []).flatMap((brand: any) => {
         const value = String(brand.role || member.role || "viewer");
@@ -7129,10 +7164,10 @@ function TeamView({ embedded = false, autoInvite = false }: { embedded?: boolean
       await api.updateUser(userForm);
       if (canonicalTeam) await api.updateTeamMember(userForm.id, { role: userForm.role, brandIds: userForm.sites, brandRoles: userForm.brandRoles });
       setUserForm(null);
-      setMessage(t("admin.userSaved"));
+      showToast(t("admin.userSaved"));
       await load();
     } catch (err: any) {
-      setMessage(err?.message || "No se pudo guardar el usuario.");
+      showToast(err?.message || "No se pudo guardar el usuario.", "error");
     } finally {
       setUserBusy(false);
     }
@@ -7145,15 +7180,15 @@ function TeamView({ embedded = false, autoInvite = false }: { embedded?: boolean
       if (member.hasLoginToken) {
         await api.revokeUserToken(id);
         setMembers((current) => current.map((row) => userId(row) === id ? { ...row, hasLoginToken: false } : row));
-        setMessage(t("admin.userTokenRevoked"));
+        showToast(t("admin.userTokenRevoked"));
       } else {
         const result = await api.issueUserToken(id);
         await navigator.clipboard?.writeText(result.token).catch(() => {});
         setMembers((current) => current.map((row) => userId(row) === id ? { ...row, hasLoginToken: true } : row));
-        setMessage(`${t("admin.userTokenReady")} ${result.token}`);
+        showToast(t("admin.userTokenReady"));
       }
     } catch (err: any) {
-      setMessage(err?.message || "No se pudo actualizar el token.");
+      showToast(err?.message || "No se pudo actualizar el token.", "error");
     } finally {
       setUserBusy(false);
     }
@@ -7166,17 +7201,17 @@ function TeamView({ embedded = false, autoInvite = false }: { embedded?: boolean
       const result = await api.sendMagicLink({ email, site, role: member.role === "agency_admin" ? "agency_admin" : "client" });
       if (result.link) {
         await navigator.clipboard?.writeText(result.link).catch(() => {});
-        setMessage(`${t("admin.magicLinkReady")} ${result.link}`);
+        showToast(t("admin.magicLinkReady"));
       } else {
-        setMessage(t("admin.magicLinkSent"));
+        showToast(t("admin.magicLinkSent"));
       }
     } catch (err: any) {
-      setMessage(err?.message || "No se pudo enviar el enlace.");
+      showToast(err?.message || "No se pudo enviar el enlace.", "error");
     } finally {
       setUserBusy(false);
     }
   };
-  return <main className="ui-page"><PageHeader eyebrow="Espacio" title="Equipo y acceso" description="Roles y permisos de las personas que pueden revisar este contenido." actions={<Inline gap="sm">{canAdminUsers && <Button variant="ghost" onClick={() => nav("/admin?tab=team")}>{t("admin.users")}</Button>}{canManage && <Button onClick={() => setInviteOpen(true)}>Invitar miembro</Button>}</Inline>} />{error && <Card><p className="ui-field-error">{error}</p></Card>}{members.length ? <div className="ui-member-list">{members.map((member) => { const memberName = member.displayName || member.name || member.email || (member.userId === "system" ? "Escarlet" : member.userId) || "Miembro"; const id = userId(member); const canAct = canAdminUsers && Boolean(id) && id !== "system" && Boolean(member.email); return <Card key={member.id || member.userId || member.email}><div className="ui-card-head"><div className="ui-team-member"><UserAvatar src={member.avatarUrl} name={memberName} size="sm" /><div><h3>{memberName}</h3><p className="ui-muted">{member.email || (member.brands || []).map((brand: any) => brand.name || brand.handle).join(", ")}</p></div></div><Badge tone="info">{roleLabel(member.role, t)}</Badge></div>{canAct && <div className="ui-card-actions ui-team-actions"><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => openUserEditor(member)} aria-label={t("admin.editUser")} title={t("admin.editUser")}><AdminActionIcon kind="edit" /></button><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => void issueOrRevokeUserToken(member)} aria-label={member.hasLoginToken ? t("admin.revokeToken") : t("admin.issueToken")} title={member.hasLoginToken ? t("admin.revokeToken") : t("admin.issueToken")}><AdminActionIcon kind="key" /></button><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => void sendUserMagicLink(member)} aria-label={t("admin.magicLink")} title={t("admin.magicLink")}><AdminActionIcon kind="mail" /></button></div>}</Card>; })}</div> : !error && <UiEmptyState title="Todavía no hay miembros" description={canManage ? "Invita a la primera persona para empezar a trabajar en equipo." : "Un administrador debe invitar a los miembros de este espacio."} action={canManage ? <Button onClick={() => setInviteOpen(true)}>Invitar miembro</Button> : undefined} />}{message && <p className="ui-success ui-team-message">{message}</p>}<Modal open={inviteOpen} title="Invitar miembro" onClose={() => setInviteOpen(false)}><form className="ui-stack ui-stack-md" onSubmit={(event) => void invite(event)}><Field label="Correo electrónico" required><TextField type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required autoFocus /></Field><Field label="Marcas asignadas"><MultiSelectPills options={inviteBrands.map((brand) => ({ id: brand.id, label: brand.name || brand.handle || brand.id }))} value={form.brandIds} onChange={(brandIds) => setForm((current) => ({ ...current, brandIds }))} ariaLabel="Marcas asignadas" /></Field>{form.brandIds.map((brandId) => { const brand = inviteBrands.find((item) => item.id === brandId); return <Field key={brandId} label={`Rol en ${brand?.name || brand?.handle || brandId}`}><Select value={form.brandRoles[brandId] || "viewer"} onChange={(event) => setForm({ ...form, brandRoles: { ...form.brandRoles, [brandId]: event.target.value } })}><option value="owner">{roleLabel("owner", t)}</option><option value="admin">{roleLabel("admin", t)}</option><option value="editor">{roleLabel("editor", t)}</option><option value="author">{roleLabel("author", t)}</option><option value="viewer">{roleLabel("viewer", t)}</option></Select></Field>; })}<Inline gap="md"><Button type="button" variant="ghost" onClick={() => setInviteOpen(false)}>Cancelar</Button><Button type="submit" loading={busy}>Enviar invitación</Button></Inline></form></Modal><Modal open={Boolean(userForm)} title={t("admin.editUser")} onClose={() => setUserForm(null)}>{userForm && <form className="ui-stack ui-stack-md" onSubmit={(event) => void saveUser(event)}><Field label={t("admin.userEmail")} required><TextField type="email" required value={userForm.email} onChange={(event) => setUserForm({ ...userForm, email: event.target.value })} /></Field><Field label={t("admin.userRole")} required><Select value={userForm.role} onChange={(event) => setUserForm({ ...userForm, role: event.target.value })}>{["owner", "admin", "editor", "author", "viewer"].map((role) => <option key={role} value={role}>{roleLabel(role, t)}</option>)}</Select></Field><fieldset className="ui-site-checks"><legend>{t("admin.userSites")}</legend><MultiSelectPills options={availableSiteHandles.map((handle) => ({ id: handle, label: handle }))} value={userForm.sites} onChange={(sites) => setUserForm({ ...userForm, sites })} ariaLabel={t("admin.userSites")} />{userForm.sites.map((handle) => { const brandRole = userForm.brandRoles[handle] || userForm.role; return <div key={handle} className="ui-team-brand-row"><span>{handle}</span><Select aria-label={`Rol en ${handle}`} value={brandRole} onChange={(event) => setUserForm({ ...userForm, brandRoles: { ...userForm.brandRoles, [handle]: event.target.value } })}><option value="owner">{roleLabel("owner", t)}</option><option value="admin">{roleLabel("admin", t)}</option><option value="editor">{roleLabel("editor", t)}</option><option value="author">{roleLabel("author", t)}</option><option value="viewer">{roleLabel("viewer", t)}</option></Select></div> })}</fieldset><label className="ui-toggle-row"><span><b>{t("settings.authorPermission")}</b><small>{t("settings.authorPermissionHelp")}</small></span><input type="checkbox" checked={userForm.allowPublishingAs} onChange={(event) => setUserForm({ ...userForm, allowPublishingAs: event.target.checked })} /></label><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setUserForm(null)}>{t("editor.close")}</Button><Button type="submit" disabled={!userForm.sites.length} loading={userBusy}>{t("admin.save")}</Button></Inline></form>}</Modal></main>;
+  return <main className="ui-page"><PageHeader eyebrow="Espacio" title="Equipo y acceso" description="Roles y permisos de las personas que pueden revisar este contenido." actions={<Inline gap="sm">{canAdminUsers && <Button variant="ghost" onClick={() => nav("/admin?tab=team")}>{t("admin.users")}</Button>}{canManage && <Button onClick={() => setInviteOpen(true)}>Invitar miembro</Button>}</Inline>} />{error && <Card><p className="ui-field-error">{error}</p></Card>}{members.length ? <div className="ui-member-list">{members.map((member) => { const memberName = member.displayName || member.name || member.email || (member.userId === "system" ? "Escarlet" : member.userId) || "Miembro"; const id = userId(member); const canAct = canAdminUsers && Boolean(id) && id !== "system" && Boolean(member.email); return <Card key={member.id || member.userId || member.email}><div className="ui-card-head"><div className="ui-team-member"><UserAvatar src={member.avatarUrl} name={memberName} size="sm" /><div><h3>{memberName}</h3><p className="ui-muted">{member.email || (member.brands || []).map((brand: any) => brand.name || brand.handle).join(", ")}</p></div></div><Badge tone="info">{roleLabel(memberDisplayRole(member, site, productContext?.activeBrand), t)}</Badge></div>{canAct && <div className="ui-card-actions ui-team-actions"><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => openUserEditor(member)} aria-label={t("admin.editUser")} title={t("admin.editUser")}><AdminActionIcon kind="edit" /></button><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => void issueOrRevokeUserToken(member)} aria-label={member.hasLoginToken ? t("admin.revokeToken") : t("admin.issueToken")} title={member.hasLoginToken ? t("admin.revokeToken") : t("admin.issueToken")}><AdminActionIcon kind="key" /></button><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => void sendUserMagicLink(member)} aria-label={t("admin.magicLink")} title={t("admin.magicLink")}><AdminActionIcon kind="mail" /></button></div>}</Card>; })}</div> : !error && <UiEmptyState title="Todavía no hay miembros" description={canManage ? "Invita a la primera persona para empezar a trabajar en equipo." : "Un administrador debe invitar a los miembros de este espacio."} action={canManage ? <Button onClick={() => setInviteOpen(true)}>Invitar miembro</Button> : undefined} />}<Modal open={inviteOpen} title="Invitar miembro" onClose={() => setInviteOpen(false)}><form className="ui-stack ui-stack-md" onSubmit={(event) => void invite(event)}><Field label="Correo electrónico" required><TextField type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required autoFocus /></Field><Field label="Marcas asignadas"><MultiSelectPills options={inviteBrands.map((brand) => ({ id: brand.id, label: brand.name || brand.handle || brand.id }))} value={form.brandIds} onChange={(brandIds) => setForm((current) => ({ ...current, brandIds, brandRoles: Object.fromEntries(brandIds.map((id) => [id, current.brandRoles[id] || current.role])) }))} ariaLabel="Marcas asignadas" /></Field>{form.brandIds.map((brandId) => { const brand = inviteBrands.find((item) => item.id === brandId); return <Field key={brandId} label={`Rol en ${brand?.name || brand?.handle || brandId}`}><Select value={form.brandRoles[brandId] || "viewer"} onChange={(event) => setForm({ ...form, brandRoles: { ...form.brandRoles, [brandId]: event.target.value } })}><option value="owner">{roleLabel("owner", t)}</option><option value="admin">{roleLabel("admin", t)}</option><option value="editor">{roleLabel("editor", t)}</option><option value="author">{roleLabel("author", t)}</option><option value="viewer">{roleLabel("viewer", t)}</option></Select></Field>; })}<Inline gap="md"><Button type="button" variant="ghost" onClick={() => setInviteOpen(false)}>Cancelar</Button><Button type="submit" loading={busy}>Enviar invitación</Button></Inline></form></Modal><Modal open={Boolean(userForm)} title={t("admin.editUser")} onClose={() => setUserForm(null)}>{userForm && <form className="ui-stack ui-stack-md" onSubmit={(event) => void saveUser(event)}><Field label={t("admin.userEmail")} required><TextField type="email" required value={userForm.email} onChange={(event) => setUserForm({ ...userForm, email: event.target.value })} /></Field><Field label={t("admin.userRole")} required><Select value={userForm.role} onChange={(event) => setUserForm({ ...userForm, role: event.target.value })}>{["owner", "admin", "editor", "author", "viewer"].map((role) => <option key={role} value={role}>{roleLabel(role, t)}</option>)}</Select></Field><fieldset className="ui-site-checks"><legend>{t("admin.userSites")}</legend><MultiSelectPills options={availableSiteHandles.map((handle) => ({ id: handle, label: handle }))} value={userForm.sites} onChange={(sites) => setUserForm({ ...userForm, sites })} ariaLabel={t("admin.userSites")} />{userForm.sites.map((handle) => { const brandRole = userForm.brandRoles[handle] || userForm.role; return <div key={handle} className="ui-team-brand-row"><span>{handle}</span><Select aria-label={`Rol en ${handle}`} value={brandRole} onChange={(event) => setUserForm({ ...userForm, brandRoles: { ...userForm.brandRoles, [handle]: event.target.value } })}><option value="owner">{roleLabel("owner", t)}</option><option value="admin">{roleLabel("admin", t)}</option><option value="editor">{roleLabel("editor", t)}</option><option value="author">{roleLabel("author", t)}</option><option value="viewer">{roleLabel("viewer", t)}</option></Select></div> })}</fieldset><label className="ui-toggle-row"><span><b>{t("settings.authorPermission")}</b><small>{t("settings.authorPermissionHelp")}</small></span><input type="checkbox" checked={userForm.allowPublishingAs} onChange={(event) => setUserForm({ ...userForm, allowPublishingAs: event.target.checked })} /></label><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setUserForm(null)}>{t("editor.close")}</Button><Button type="submit" disabled={!userForm.sites.length} loading={userBusy}>{t("admin.save")}</Button></Inline></form>}</Modal></main>;
 }
 
 function parseBrandDocument(value: unknown): Record<string, any> {

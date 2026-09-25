@@ -230,6 +230,7 @@ import {
   upsertBrandConnection,
   disconnectBrandConnection,
   listWorkspaceMembers,
+  visibleMemberRole,
   addWorkspaceMember,
   updateWorkspaceMember,
   listScheduledContent,
@@ -2241,6 +2242,8 @@ async function handleRequest(req, res) {
           const email = String(profile?.email || '').trim()
           return {
             ...member,
+            workspaceRole: member.role,
+            role: visibleMemberRole(member, { siteId: scope.siteId, siteHandle: scope.context.siteHandle }),
             email,
             displayName,
             name: displayName || email || (member.userId === 'system' ? 'Escarlet' : member.userId),

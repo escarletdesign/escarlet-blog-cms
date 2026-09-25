@@ -270,8 +270,8 @@ const baseApi = {
     }),
   calendarV2: (site?: string) =>
     request<{ entries: Array<Record<string, any>> }>(`/api/v2/calendar${site ? `?site=${encodeURIComponent(site)}` : ""}`),
-  teamV2: () =>
-    request<{ members: Array<Record<string, any>>; canManage: boolean }>("/api/v2/team"),
+  teamV2: (site?: string) =>
+    request<{ members: Array<Record<string, any>>; canManage: boolean }>(`/api/v2/team${site ? `?site=${encodeURIComponent(site)}` : ""}`),
   updateTeamMember: (userId: string, input: { role: string; brandIds?: string[]; brandRoles?: Record<string, string> }) =>
     request<{ member: Record<string, any> }>(`/api/v2/team/members/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify(input) }),
   inviteTeamMember: (input: { email: string; role: string; brandIds?: string[]; brandRoles?: Record<string, string>; site?: string }) =>
