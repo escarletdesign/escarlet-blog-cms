@@ -261,6 +261,7 @@ import {
   createBrandKitVersion,
   getActiveBrandKit,
   enqueueJob,
+  enqueueRemotePublicationStatusSync,
   assertWorkspaceRole,
   registerContentMedia,
   attachContentMedia
@@ -2468,6 +2469,12 @@ async function handleRequest(req, res) {
         const { credentials } = await metricoolCredentialsFor(scope)
         if (body.providerPostId) json(res, 200, await syncMetricoolPost({ ...credentials, providerPostId: body.providerPostId }))
         else json(res, 202, await enqueueJob({ workspaceId: scope.workspaceId, type: 'metricool.sync', payload: { siteId: scope.siteId }, idempotencyKey: `metricool:sync:${scope.workspaceId}:${scope.siteId || 'workspace'}:${new Date().toISOString().slice(0, 13)}` }))
+        return
+      }
+      if (req.method === 'POST' && path === '/api/v2/content/sync-remote-status') {
+        const scope = await requireV2Context(req, url, res, body)
+        if (!scope) return
+        json(res, 202, await enqueueRemotePublicationStatusSync({ workspaceId: scope.workspaceId, siteId: scope.siteId || null }))
         return
       }
       json(res, 404, { message: 'Contrato v2 no encontrado.' })

@@ -1,5 +1,5 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "./api";
 import type { ContentChannel, ContentItem, ContentPlanSummary, ContentVariant } from "./types";
 import { aggregateStatus, CONTENT_TITLE_MAX, itemTitle, statusLabel } from "./content-format";
@@ -17,11 +17,28 @@ const dateKey = (itemId: string, channel: string) => itemId + ":" + channel;
 const formatDate = (value?: string) => value ? new Intl.DateTimeFormat("es-ES", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Sin fecha";
 const normalizeVariant = (raw: any): ContentVariant => ({ ...raw, channel: raw.channel, status: raw.status || "draft", body: raw.body || {}, publicationDate: raw.publicationDate || raw.publication_date || "", scheduleTimezone: raw.scheduleTimezone || raw.schedule_timezone || "", scheduleStatus: raw.scheduleStatus || raw.schedule_status || undefined, lastError: raw.lastError || raw.last_error || null });
 const normalizeItem = (raw: any): ContentItem => ({ ...raw, batchId: raw.batchId || raw.batch_id, planTitle: raw.planTitle || raw.plan_title, planStatus: raw.planStatus || raw.plan_status, metadata: raw.metadata || {}, variants: Array.isArray(raw.variants) ? raw.variants.map(normalizeVariant) : [] });
+const BUFFER_PUBLISH_CHANNELS: ContentChannel[] = ["instagram", "linkedin", "x", "video"];
+const bufferPublishableChannels = (rows: Array<{ channel: string; enabled?: boolean; connectionStatus?: string }> = []) => {
+  const ready: ContentChannel[] = [];
+  for (const target of BUFFER_PUBLISH_CHANNELS) {
+    const row = rows.find((item) => item.channel === target);
+    if (!row?.enabled) continue;
+    if (String(row.connectionStatus || "").toLowerCase() === "connected") {
+      ready.push(target);
+      continue;
+    }
+    if (target === "video") {
+      const instagram = rows.find((item) => item.channel === "instagram");
+      if (instagram?.enabled && String(instagram.connectionStatus || "").toLowerCase() === "connected") ready.push("video");
+    }
+  }
+  return ready;
+};
 
-type Props = { site: string; creationEnabled?: boolean; activeChannels?: Array<{ channel: string; enabled: boolean; connectionStatus?: string }>; onNotify?: (message: string, kind?: "success" | "error" | "info") => void };
+type Props = { site: string; brandId?: string; creationEnabled?: boolean; activeChannels?: Array<{ channel: string; enabled: boolean; connectionStatus?: string }>; onNotify?: (message: string, kind?: "success" | "error" | "info") => void };
 type Dialog = { type: "edit" | "schedule" | "blog-edit"; item: ContentItem } | { type: "preview"; item: ContentItem; autoRecord?: boolean } | { type: "details"; item: ContentItem } | null;
 
-export function ContentBatches({ site, creationEnabled = false, activeChannels, onNotify }: Props) {
+export function ContentBatches({ site, brandId, creationEnabled = false, activeChannels, onNotify }: Props) {
   const [plans, setPlans] = useState<ContentPlanSummary[]>([]);
   const [items, setItems] = useState<ContentItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -44,17 +61,25 @@ export function ContentBatches({ site, creationEnabled = false, activeChannels, 
   const [topics, setTopics] = useState("");
   const [view, setView] = useState<"list" | "calendar">("list");
   const [calendarCursor, setCalendarCursor] = useState(() => new Date());
+  const loadSequence = useRef(0);
+  const loadAbort = useRef<AbortController | null>(null);
   const [searchParams] = useSearchParams();
   const channels = (activeChannels?.filter((channel) => channel.enabled).map((channel) => channel.channel).filter((channel): channel is ContentChannel => ALL_CHANNELS.includes(channel as ContentChannel)) || ALL_CHANNELS).slice(0, 7);
-  const publishChannels = activeChannels?.filter((channel) => ["instagram", "linkedin", "x", "video"].includes(channel.channel) && channel.enabled && String(channel.connectionStatus || "").toLowerCase() === "connected").map((channel) => channel.channel as ContentChannel) || ["video"];
+  const publishChannels = useMemo(() => bufferPublishableChannels(activeChannels || []), [activeChannels]);
+  const connectionsPath = brandId ? `/brands/${encodeURIComponent(brandId)}/connections` : "/connections";
   const previewItem = dialog?.type === "preview" ? dialog.item : null;
   const detailItem = dialog?.type === "details" ? dialog.item : null;
   const bufferReady = publishChannels.length > 0;
 
   const load = async () => {
+    const sequence = ++loadSequence.current;
+    loadAbort.current?.abort();
+    const controller = new AbortController();
+    loadAbort.current = controller;
     setLoading(true); setError(""); setSetupRequired(false);
     try {
-      const [planResponse, reviewResponse] = await Promise.all([api.contentPlans(site), api.reviewItems(site)]);
+      const [planResponse, reviewResponse] = await Promise.all([api.contentPlans(site, controller.signal), api.reviewItems(site, controller.signal)]);
+      if (sequence !== loadSequence.current || controller.signal.aborted) return;
       setPlans((planResponse.plans || []) as ContentPlanSummary[]);
       const nextItems = (reviewResponse.items || []).map(normalizeItem);
       setItems(nextItems);
@@ -63,16 +88,19 @@ export function ContentBatches({ site, creationEnabled = false, activeChannels, 
         const refreshed = nextItems.find((entry) => entry.id === current.item.id);
         return refreshed ? { ...current, item: refreshed } : current;
       });
+      return true;
     } catch (err: any) {
+      if (controller.signal.aborted || sequence !== loadSequence.current) return;
       if (err?.status === 404 || /workspace|sitio|marca/i.test(err?.message || "")) setSetupRequired(true);
       else {
         const message = err?.message || "No se pudo cargar el contenido.";
         setError(message);
         onNotify?.(message, "error");
       }
-    } finally { setLoading(false); }
+      return false;
+    } finally { if (sequence === loadSequence.current) setLoading(false); }
   };
-  useEffect(() => { void load(); }, [site]);
+  useEffect(() => { void load(); return () => { loadAbort.current?.abort(); }; }, [site]);
   useEffect(() => { setFilterPlan(searchParams.get("plan") || "all"); setFilterStatus(searchParams.get("status") || "all"); }, [searchParams]);
 
   const visibleItems = useMemo(() => {
@@ -90,9 +118,14 @@ export function ContentBatches({ site, creationEnabled = false, activeChannels, 
   }, [items, filterQuery, filterPlan, filterStatus, filterChannel, filterDate]);
 
   const run = async (action: () => Promise<unknown>) => {
+    if (busy) return false;
     setBusy(true); setError(""); let failure = "";
     try { await action(); } catch (err: any) { failure = err?.message || "No se pudo completar la operación."; }
-    await load().catch(() => undefined); if (failure) notifyError(failure); setBusy(false); return !failure;
+    const reloaded = await load();
+    if (reloaded === false && !failure) failure = "No se pudo recargar el contenido.";
+    if (failure) notifyError(failure);
+    setBusy(false);
+    return !failure;
   };
   const create = async (event: FormEvent) => { event.preventDefault(); const cleanTopics = topics.split(/\r?\n|,/).map((topic) => topic.trim()).filter(Boolean); if (!cleanTopics.length) { notifyError("Añade al menos un tema."); return; } await run(async () => { await api.createContentBatch({ site, title: title.trim() || "Campaña " + new Date().toLocaleDateString(), topics: cleanTopics, channels }); setTitle(""); setTopics(""); setCreateOpen(false); }); };
   const approve = (id: string) => run(() => api.approveContent(id, site));
@@ -107,6 +140,11 @@ export function ContentBatches({ site, creationEnabled = false, activeChannels, 
   };
   const publishBuffer = (item: ContentItem, channel: ContentChannel, copy?: string) => { if (channel === "blog") { notifyError("El Blog se publica mediante el webhook de Coolify configurado en Administración."); return; } return run(() => api.publishContentViaBuffer(item.id, [channel], site, copy)); };
   const publishBufferAll = (item: ContentItem) => { const targetChannels = (item.variants || []).filter((variant) => (variant.scheduleStatus || variant.status) === "approved" && publishChannels.includes(variant.channel)).map((variant) => variant.channel).filter((channel): channel is ContentChannel => ["instagram", "instagram_story", "linkedin", "x", "video"].includes(channel)); if (!targetChannels.length) { notifyError("Este contenido no tiene canales aprobados conectados a Buffer."); return; } return run(() => api.publishContentViaBuffer(item.id, targetChannels, site)); };
+  const syncRemoteStatuses = () => run(async () => {
+    const result = await api.syncContentRemoteStatus(site);
+    onNotify?.(`Sincronización con proveedores encolada (${result.queued} tareas).`, "info");
+    await new Promise((resolve) => window.setTimeout(resolve, 2500));
+  });
   const publishBlog = (item: ContentItem, variant: ContentVariant) => run(() => {
     const publicationDate = new Date().toISOString();
     return (variant.scheduleStatus || variant.status) === "approved"
@@ -135,7 +173,7 @@ export function ContentBatches({ site, creationEnabled = false, activeChannels, 
   const itemsForDay = (date: Date) => scheduledItems.filter((item) => (item.variants || []).some((variant) => variant.publicationDate && calendarDayKey(new Date(variant.publicationDate)) === calendarDayKey(date)));
 
   return <main className="ui-page ui-plans-page">
-    <PageHeader eyebrow="Espacio editorial" title="Contenido" description="Revisa, filtra y ejecuta todos los contenidos de la marca desde una sola bandeja." actions={<Inline gap="sm"><Button variant={view === "list" ? "secondary" : "ghost"} onClick={() => setView("list")}>Lista</Button><Button variant={view === "calendar" ? "secondary" : "ghost"} onClick={() => setView("calendar")}>Calendario</Button>{creationEnabled && <Button onClick={() => setCreateOpen(true)}>Nueva campaña</Button>}</Inline>} />
+    <PageHeader eyebrow="Espacio editorial" title="Contenido" description="Revisa, filtra y ejecuta todos los contenidos de la marca desde una sola bandeja." actions={<Inline gap="sm"><Button variant="ghost" disabled={busy || loading} onClick={() => void syncRemoteStatuses()}>Sincronizar estados</Button><Button variant={view === "list" ? "secondary" : "ghost"} onClick={() => setView("list")}>Lista</Button><Button variant={view === "calendar" ? "secondary" : "ghost"} onClick={() => setView("calendar")}>Calendario</Button>{creationEnabled && <Button onClick={() => setCreateOpen(true)}>Nueva campaña</Button>}</Inline>} />
     {error && !items.length && <EmptyState title="No se pudo cargar el contenido" description={error} action={<Button variant="ghost" size="sm" onClick={() => void load()}>Reintentar</Button>} />}
     {!loading && setupRequired && <EmptyState title="Configura tu marca para comenzar" description="Un administrador debe inicializar el espacio y asignarte una marca antes de mostrar publicaciones." />}
     {!loading && !setupRequired && !items.length && !error && <EmptyState title="Todavía no hay contenido" description="Crea una campaña aquí o desde ChatGPT. Cuando esté lista, aparecerá en esta bandeja." />}
@@ -179,8 +217,10 @@ export function ContentBatches({ site, creationEnabled = false, activeChannels, 
             {variant.channel === "blog" && ["approved", "scheduled", "failed", "action_required"].includes(currentStatus) && <Button size="sm" disabled={busy} onClick={() => void publishBlog(detailItem, variant)}>Publicar Blog ahora</Button>}
             {variant.channel === "blog" && currentStatus === "published" && <Button size="sm" variant="secondary" disabled={busy} onClick={() => openBlogEditor(detailItem)}>Editar publicación</Button>}
             {variant.channel === "blog" && variant.status === "published" && ["published", "action_required"].includes(currentStatus) && <Button size="sm" variant="ghost" disabled={busy} onClick={() => void reopenBlog(detailItem)}>No aparece en el Blog</Button>}
-            {canPublishSocial && <Button size="sm" disabled={busy} onClick={() => void publishBuffer(detailItem, variant.channel)}>Publicar ahora</Button>}
-            {missingConnection && <p className="ui-field-hint">Este canal no tiene una conexión activa. Puedes conectarlo o marcarlo como “No publicar”.</p>}
+            {canPublishSocial && variant.channel === "video" && <Button size="sm" variant="secondary" disabled={busy} onClick={() => openPreview(detailItem, true)}>Grabar o subir vídeo</Button>}
+            {canPublishSocial && <Button size="sm" disabled={busy} onClick={() => void publishBuffer(detailItem, variant.channel)}>{variant.channel === "video" ? "Publicar Reel en Buffer" : "Publicar ahora"}</Button>}
+            {missingConnection && variant.channel === "video" && <p className="ui-field-hint">Asigna la cuenta de Reel en Buffer (campo «Vídeo / Reel» o Instagram) en <Link className="text-link" to={connectionsPath}>Conexiones</Link> y vuelve aquí para publicar.</p>}
+            {missingConnection && variant.channel !== "video" && <p className="ui-field-hint">Este canal no tiene una conexión activa. Configúralo en <Link className="text-link" to={connectionsPath}>Conexiones</Link> o márcalo como «No publicar».</p>}
             {canSkip && <Button size="sm" variant="ghost" disabled={busy} onClick={() => void skipChannel(detailItem, variant.channel)}>No publicar</Button>}
           </Card>;
         })}
@@ -193,7 +233,6 @@ export function ContentBatches({ site, creationEnabled = false, activeChannels, 
             {!detailItem.variants.every((variant) => ["published", "canceled"].includes(variant.scheduleStatus || variant.status)) && <Button size="sm" variant="ghost" disabled={busy} onClick={() => { setDialog({ type: "edit", item: detailItem }); setModalValue(detailItem.topic); }}>Editar brief original</Button>}
           </Inline>
         </Card>
-        <Button size="sm" variant="ghost" onClick={() => void load()}>Actualizar estados</Button>
       </Stack>}
     </Drawer>
     <Modal open={dialog?.type === "edit" || dialog?.type === "schedule"} title={dialog?.type === "edit" ? "Editar brief original" : "Agendar publicación"} onClose={() => setDialog(null)}>{dialog?.type === "edit" && <form className="ui-stack ui-stack-md" onSubmit={(event) => { event.preventDefault(); if (modalValue.trim()) void update(dialog.item.id, modalValue.trim()).then(() => setDialog(null)); }}><Field label="Brief original" hint="Cambia la consigna editorial del item. No modifica automáticamente los textos ya generados para cada canal." required><Textarea value={modalValue} onChange={(event) => setModalValue(event.target.value)} rows={6} autoFocus required /></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setDialog(null)}>Cancelar</Button><Button type="submit" loading={busy}>Guardar brief</Button></Inline></form>}{dialog?.type === "schedule" && <form className="ui-stack ui-stack-md" onSubmit={(event) => { event.preventDefault(); if (!modalValue || !scheduleChannels.length) { notifyError("Selecciona al menos un canal para agendar."); return; } void schedule(dialog.item.id, new Date(modalValue).toISOString(), scheduleChannels).then(() => setDialog(null)); }}><Field label="Fecha y hora" hint="Se usará tu zona horaria local." required><TextField type="datetime-local" value={modalValue} onChange={(event) => setModalValue(event.target.value)} autoFocus required /></Field><fieldset className="ui-field"><legend className="ui-field-label">Canales a agendar</legend><div className="ui-channel-select" role="group" aria-label="Canales a agendar">{dialog.item.variants.filter((variant) => (variant.scheduleStatus || variant.status) === "approved").map((variant) => <Checkbox key={variant.id} label={channelLabel(variant.channel)} checked={scheduleChannels.includes(variant.channel)} onChange={(event) => setScheduleChannels((current) => event.target.checked ? [...new Set([...current, variant.channel])] : current.filter((channel) => channel !== variant.channel))} />)}</div><small className="ui-field-hint">Solo aparecen canales aprobados y todavía pendientes de publicación.</small></fieldset><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setDialog(null)}>Cancelar</Button><Button type="submit" loading={busy} disabled={!scheduleChannels.length}>Agendar canales</Button></Inline></form>}</Modal>

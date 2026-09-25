@@ -263,6 +263,11 @@ const baseApi = {
     request<{ connection: Record<string, any> }>(`/api/v2/connections/${encodeURIComponent(connectionId)}/disconnect${site ? `?site=${encodeURIComponent(site)}` : ""}`, { method: "POST", body: JSON.stringify({ site }) }),
   reviewItems: (site?: string, signal?: AbortSignal) =>
     request<{ items: ContentItem[] }>(`/api/v2/content/review${site ? `?site=${encodeURIComponent(site)}` : ""}`, { signal }),
+  syncContentRemoteStatus: (site?: string) =>
+    request<{ queued: number; bucket: string; types: string[] }>("/api/v2/content/sync-remote-status", {
+      method: "POST",
+      body: JSON.stringify(site ? { site } : {}),
+    }),
   calendarV2: (site?: string) =>
     request<{ entries: Array<Record<string, any>> }>(`/api/v2/calendar${site ? `?site=${encodeURIComponent(site)}` : ""}`),
   teamV2: () =>

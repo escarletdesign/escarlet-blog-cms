@@ -330,7 +330,8 @@ function ToastProvider({ children }: { children: ReactNode }) {
 
 function ContentPlansRoute({ site, creationEnabled, activeChannels }: { site: string; creationEnabled: boolean; activeChannels: AppState["channels"] }) {
   const { showToast } = useToast();
-  return <ContentPlans site={site} creationEnabled={creationEnabled} activeChannels={activeChannels} onNotify={showToast} />;
+  const { productContext } = useApp();
+  return <ContentPlans site={site} brandId={productContext?.activeBrand?.id} creationEnabled={creationEnabled} activeChannels={activeChannels} onNotify={showToast} />;
 }
 
 function App() {
@@ -377,7 +378,7 @@ function App() {
           setProductContext(context);
           setChannels(context.channels || []);
           setBrandCapabilities(context.brandCapabilities || {});
-          setWorkflowFlags((current) => ({ ...current, creationUiEnabled: Boolean(context.featureFlags?.creation_ui_enabled), manualCreationEnabled: Boolean(context.featureFlags?.manual_creation_enabled), assistantEnabled: current.assistantEnabled && Boolean(context.featureFlags?.creation_ui_enabled), blogWizardEnabled: current.blogWizardEnabled && Boolean(context.featureFlags?.manual_creation_enabled) }));
+          setWorkflowFlags((current) => ({ ...current, creationUiEnabled: Boolean(context.featureFlags?.creation_ui_enabled), manualCreationEnabled: Boolean(context.featureFlags?.manual_creation_enabled), blogWizardEnabled: current.blogWizardEnabled && Boolean(context.featureFlags?.manual_creation_enabled) }));
         } catch { setChannels([]); setBrandCapabilities({}); setProductContext(undefined); }
       } catch {
         setWorkflowFlags({ cmsAiEnabled: true, assistantEnabled: false, blogWizardEnabled: false, legacyPreviewEnabled: true, legacySocialPackEnabled: true, authorInviteEnabled: true, creationUiEnabled: false, manualCreationEnabled: false });
@@ -448,7 +449,7 @@ function App() {
         ...current,
         creationUiEnabled: Boolean(context.featureFlags?.creation_ui_enabled),
         manualCreationEnabled: Boolean(context.featureFlags?.manual_creation_enabled),
-        assistantEnabled: current.cmsAiEnabled && current.assistantEnabled && Boolean(context.featureFlags?.creation_ui_enabled),
+        assistantEnabled: current.cmsAiEnabled && current.assistantEnabled,
         blogWizardEnabled: current.cmsAiEnabled && current.blogWizardEnabled && Boolean(context.featureFlags?.manual_creation_enabled)
       }));
     }).catch(() => undefined);
@@ -507,7 +508,7 @@ function App() {
                 </>
               ) : <Route element={<Shell />}>
                 <Route path="/" element={<Home />} />
-                {workflowFlags.creationUiEnabled && workflowFlags.assistantEnabled && brandCapabilities.content_publishing !== false && <Route path="/chat" element={<Chat />} />}
+                {workflowFlags.assistantEnabled && brandCapabilities.content_publishing !== false && <Route path="/chat" element={<Chat />} />}
                 {workflowFlags.manualCreationEnabled && workflowFlags.blogWizardEnabled && brandCapabilities.content_publishing !== false && <Route path="/quick-create" element={<QuickCreate />} />}
                 {workflowFlags.manualCreationEnabled && brandCapabilities.content_publishing !== false && <>
                   <Route path="/manual/:slug?" element={<ManualPost />} />
@@ -856,7 +857,7 @@ function Shell() {
       { to: "/team", label: t("nav.team", "Equipo y acceso"), icon: "team" },
       ...(workflowFlags.cmsAiEnabled ? [{ to: "/billing", label: t("nav.planUsage", "Plan y uso"), icon: "billing" }] : []),
     ] : []),
-    ...(workflowFlags.creationUiEnabled && workflowFlags.assistantEnabled && publishingEnabled ? [{ to: "/chat", label: t("nav.assistant"), icon: "assistant" }] : []),
+    ...(workflowFlags.assistantEnabled && publishingEnabled ? [{ to: "/chat", label: t("nav.assistant"), icon: "assistant" }] : []),
   ];
   return (
     <div className="app-shell">
@@ -887,7 +888,7 @@ function Shell() {
           )}
         </div>
         <CreditIndicator site={displaySite} />
-        {workflowFlags.creationUiEnabled && workflowFlags.assistantEnabled && publishingEnabled && (
+        {workflowFlags.assistantEnabled && publishingEnabled && (
           <button className="new-chat" onClick={() => nav("/chat")}>
             {t("nav.newChat")}
           </button>
@@ -7519,7 +7520,7 @@ const bufferTargetLabel = (channel: string) => channel === "x" ? "X" : channel =
 const bufferServiceForTarget = (service: string, target: string) => {
   const normalized = service.toLowerCase();
   if (target === "x") return ["x", "twitter"].includes(normalized);
-  if (target === "video") return ["youtube", "instagram"].includes(normalized);
+  if (target === "video") return ["youtube", "instagram", "tiktok", "threads"].includes(normalized);
   return normalized === target;
 };
 const bufferWaitLabel = (value: unknown) => {
