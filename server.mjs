@@ -1897,7 +1897,8 @@ async function handleRequest(req, res) {
   if (path.startsWith('/api/v2/')) {
     let body = {}
     const videoUploadRequest = req.method === 'POST' && /^\/api\/v2\/content\/items\/[^/]+\/video$/.test(path)
-    try { if (req.method !== 'GET') body = await parseBody(req, videoUploadRequest ? 60 * 1024 * 1024 : MAX_BODY_BYTES) } catch (error) {
+    const brandKitImportRequest = req.method === 'POST' && /^\/api\/v2\/brands\/[^/]+\/brand-kit\/import$/.test(path)
+    try { if (req.method !== 'GET') body = await parseBody(req, videoUploadRequest || brandKitImportRequest ? 60 * 1024 * 1024 : MAX_BODY_BYTES) } catch (error) {
       json(res, error.status || 400, { message: error.message })
       return
     }
@@ -1909,6 +1910,7 @@ async function handleRequest(req, res) {
     const batchActionMatch = path.match(/^\/api\/v2\/content\/batches\/([^/]+)\/(schedule|cancel)$/)
     const batchReviewMatch = path.match(/^\/api\/v2\/content\/batches\/([^/]+)\/(approve|reject)$/)
     const brandMatch = path.match(/^\/api\/v2\/brands\/([^/]+)$/)
+    const brandKitImportMatch = path.match(/^\/api\/v2\/brands\/([^/]+)\/brand-kit\/import$/)
     const brandChannelsMatch = path.match(/^\/api\/v2\/brands\/([^/]+)\/channels$/)
     const brandCapabilitiesMatch = path.match(/^\/api\/v2\/brands\/([^/]+)\/capabilities$/)
     const brandConnectionsMatch = path.match(/^\/api\/v2\/brands\/([^/]+)\/connections$/)
@@ -2135,6 +2137,44 @@ async function handleRequest(req, res) {
         const scope = await requireV2Context(req, url, res)
         if (!scope) return
         json(res, 200, sanitizeV2BrandKit(await getActiveBrandKit({ workspaceId: scope.workspaceId, siteId: scope.siteId }), scope.auth))
+        return
+      }
+      if (req.method === 'POST' && brandKitImportMatch) {
+        const scope = await requireV2Context(req, url, res, { ...body, siteId: decodeURIComponent(brandKitImportMatch[1]) })
+        if (!scope) return
+        assertWorkspaceRole(scope.context.role, ['owner', 'admin'])
+        if (!body.contentBase64 && !body.zipUrl && !body.buffer) {
+          throw Object.assign(new Error('Falta el ZIP del brand kit.'), { status: 400 })
+        }
+        const imported = await importBrandKitZip(scope.siteHandle, {
+          contentBase64: body.contentBase64,
+          zipUrl: body.zipUrl,
+          buffer: body.buffer
+        })
+        const version = await createBrandKitVersion({
+          workspaceId: scope.workspaceId,
+          siteId: scope.siteId,
+          userId: scope.auth.userId,
+          role: scope.context.role,
+          manifest: imported.brand?.files || {},
+          status: 'published'
+        })
+        const origin = absoluteCmsOrigin(req)
+        const assets = (imported.importedImages || []).map((name) => ({
+          name,
+          storageKey: `media/${scope.siteHandle}/reference/${name}`,
+          publicUrl: `${origin}/media/${scope.siteHandle}/reference/${encodeURIComponent(name)}`,
+          visibility: 'role_limited'
+        }))
+        await registerBrandAssets({
+          workspaceId: scope.workspaceId,
+          siteId: scope.siteId,
+          brandKitVersionId: version.id,
+          userId: scope.auth.userId,
+          role: scope.context.role,
+          assets
+        })
+        json(res, 200, { ...imported, canonicalBrandKitVersionId: version.id, canonicalAssets: assets.length })
         return
       }
       if (req.method === 'GET' && path === '/api/v2/context') {
