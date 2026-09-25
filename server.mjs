@@ -265,6 +265,7 @@ import {
   enqueueJob,
   enqueueRemotePublicationStatusSync,
   assertWorkspaceRole,
+  registerBrandAssets,
   registerContentMedia,
   attachContentMedia
 } from './lib/workspace-domain.mjs'
