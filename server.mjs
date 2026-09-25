@@ -938,7 +938,9 @@ function sanitizeV2BrandKit(kit, auth) {
         sizeBytes: asset.sizeBytes || null,
         sha256: asset.sha256 || null,
         visibility: asset.visibility || 'private',
-        metadata: asset.metadata && typeof asset.metadata === 'object' ? { alt: String(asset.metadata.alt || '') } : {}
+        metadata: asset.metadata && typeof asset.metadata === 'object'
+          ? { alt: String(asset.metadata.alt || ''), ...(asset.metadata.usage ? { usage: String(asset.metadata.usage) } : {}) }
+          : {}
       }))
     : []
   return { ...kit, manifest, assets }
