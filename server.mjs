@@ -2219,11 +2219,20 @@ async function handleRequest(req, res) {
           WHERE ci.workspace_id=$1 AND ci.site_id=$2
         `, [scope.workspaceId, scope.siteId])
         const contentStorageKeys = new Set(contentMedia.rows.map((row) => row.storageKey).filter(Boolean))
+        const taggedNames = new Set(activeAssets
+          .filter((asset) => asset.metadata?.source === 'brand-kit')
+          .map((asset) => asset.name)
+          .filter(Boolean))
         const nonContentNames = new Set(activeAssets.map((asset) => asset).filter((asset) => !contentStorageKeys.has(asset.storageKey)).map((asset) => asset.name).filter(Boolean))
         const allowedNames = new Set([...canonicalNames, ...nonContentNames])
         const seenNames = new Set()
         const staleAssets = activeAssets.filter((asset) => {
           const name = String(asset.name || '')
+          if (taggedNames.size) {
+            if (asset.metadata?.source !== 'brand-kit' || seenNames.has(name)) return true
+            seenNames.add(name)
+            return false
+          }
           const isCanonicalAsset = asset.metadata?.source === 'brand-kit' || canonicalNames.has(name)
           if (!isCanonicalAsset && contentStorageKeys.has(asset.storageKey)) return true
           if (allowedNames.size && !allowedNames.has(name)) return true
