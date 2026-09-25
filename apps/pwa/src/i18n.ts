@@ -2,6 +2,7 @@ export type Language = "es" | "en";
 
 const dictionaries: Record<Language, Record<string, string>> = {
   es: {
+    "role.system_admin": "Superadministrador",
     "role.owner": "Superadministrador",
     "role.admin": "Administrador de marca",
     "role.editor": "Editor",
@@ -30,7 +31,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "admin.sitePlanHelp": "El plan MCP requiere una membresía activa para editar y publicar.",
     "common.save": "Guardar",
     "app.loading": "Abriendo escarlet…",
-    "app.beta": "Beta 0.2.165",
+    "app.beta": "Beta 0.2.166",
     "nav.home": "Inicio",
     "nav.plans": "Contenido",
     "nav.brands": "Marcas",
@@ -801,6 +802,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "common.closeToast": "Cerrar aviso",
   },
   en: {
+    "role.system_admin": "Super administrator",
     "role.owner": "Super administrator",
     "role.admin": "Brand administrator",
     "role.editor": "Editor",
@@ -829,7 +831,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
     "admin.sitePlanHelp": "The MCP plan requires an active membership to edit and publish.",
     "common.save": "Save",
     "app.loading": "Opening escarlet…",
-    "app.beta": "Beta 0.2.165",
+    "app.beta": "Beta 0.2.166",
     "nav.home": "Home",
     "nav.plans": "Content",
     "nav.brands": "Brands",

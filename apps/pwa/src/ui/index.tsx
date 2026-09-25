@@ -1,5 +1,5 @@
-import { useEffect, useId } from "react";
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import type { ButtonHTMLAttributes, InputHTMLAttributes, PointerEvent as ReactPointerEvent, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 
 export type Tone = "neutral" | "info" | "success" | "warning" | "danger" | "review" | "published";
 
@@ -9,6 +9,70 @@ export function Button({ variant = "primary", size = "md", loading = false, chil
 
 export function IconButton({ label, children, className = "", type = "button", ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
   return <button type={type} className={`ui-icon-button ${className}`.trim()} aria-label={label} {...props}>{children}</button>;
+}
+
+const TELEPROMPTER_CONTROLS_POSITION = "escarlet_teleprompter_controls_position";
+
+export function TeleprompterLineControls({ onPrevious, onNext, previousDisabled, nextDisabled }: { onPrevious: () => void; onNext: () => void; previousDisabled?: boolean; nextDisabled?: boolean }) {
+  const controlsRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{ pointerId: number; offsetX: number; offsetY: number } | null>(null);
+  const positionRef = useRef({ x: 12, y: 12 });
+  const [position, setPosition] = useState(() => {
+    if (typeof window === "undefined") return positionRef.current;
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(TELEPROMPTER_CONTROLS_POSITION) || "null");
+      if (Number.isFinite(saved?.x) && Number.isFinite(saved?.y)) return { x: saved.x, y: saved.y };
+    } catch { /* Ignore an invalid local preference. */ }
+    return { x: Math.max(12, window.innerWidth - 76), y: Math.max(12, Math.round(window.innerHeight / 2) - 80) };
+  });
+  positionRef.current = position;
+  const save = (next: { x: number; y: number }) => {
+    try { window.localStorage.setItem(TELEPROMPTER_CONTROLS_POSITION, JSON.stringify(next)); } catch { /* Local preferences are optional. */ }
+  };
+  const clamp = (x: number, y: number) => {
+    const rect = controlsRef.current?.getBoundingClientRect();
+    const width = rect?.width || 64;
+    const height = rect?.height || 168;
+    return {
+      x: Math.max(12, Math.min(x, window.innerWidth - width - 12)),
+      y: Math.max(12, Math.min(y, window.innerHeight - height - 12)),
+    };
+  };
+  const move = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const next = clamp(event.clientX - drag.offsetX, event.clientY - drag.offsetY);
+    positionRef.current = next;
+    setPosition(next);
+  };
+  const finish = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (dragRef.current?.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    save(positionRef.current);
+  };
+  const nudge = (x: number, y: number) => {
+    const next = clamp(positionRef.current.x + x, positionRef.current.y + y);
+    positionRef.current = next;
+    setPosition(next);
+    save(next);
+  };
+  useEffect(() => {
+    const keepVisible = () => {
+      const next = clamp(positionRef.current.x, positionRef.current.y);
+      positionRef.current = next;
+      setPosition(next);
+      save(next);
+    };
+    keepVisible();
+    window.addEventListener("resize", keepVisible);
+    return () => window.removeEventListener("resize", keepVisible);
+  }, []);
+  return <div ref={controlsRef} className="teleprompter-line-controls" role="group" aria-label="Cambiar de línea" style={{ left: position.x, top: position.y }}>
+    <button className="teleprompter-drag-handle" type="button" aria-label="Mover controles de línea" onPointerDown={(event) => { const rect = controlsRef.current?.getBoundingClientRect(); dragRef.current = { pointerId: event.pointerId, offsetX: event.clientX - (rect?.left || 0), offsetY: event.clientY - (rect?.top || 0) }; event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={move} onPointerUp={finish} onPointerCancel={finish} onKeyDown={(event) => { const distance = event.shiftKey ? 30 : 10; if (event.key === "ArrowLeft") { event.preventDefault(); nudge(-distance, 0); } if (event.key === "ArrowRight") { event.preventDefault(); nudge(distance, 0); } if (event.key === "ArrowUp") { event.preventDefault(); nudge(0, -distance); } if (event.key === "ArrowDown") { event.preventDefault(); nudge(0, distance); } }}>⠿</button>
+    <IconButton className="teleprompter-line-button" label="Línea anterior" onClick={onPrevious} disabled={previousDisabled}>↑</IconButton>
+    <IconButton className="teleprompter-line-button" label="Línea siguiente" onClick={onNext} disabled={nextDisabled}>↓</IconButton>
+  </div>;
 }
 
 export function Field({ label, hint, error, children, required = false }: { label?: string; hint?: string; error?: string; required?: boolean; children: ReactNode }) {

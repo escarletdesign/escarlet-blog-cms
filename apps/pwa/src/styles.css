@@ -1062,21 +1062,20 @@ button.ui-calendar-item:focus-visible { outline: 2px solid var(--ui-accent); out
 .teleprompter-backdrop { align-items: stretch; padding: 0; }
 .teleprompter-modal { width: 100%; max-width: none; height: 100dvh; max-height: none; margin: 0; border-radius: 0; display: flex; flex-direction: column; overflow: hidden; }
 .teleprompter-layout { display: flex; flex-direction: column; align-items: center; gap: var(--ui-space-4); flex: 1 1 auto; min-height: 0; overflow: auto; align-content: start; }
-.teleprompter-script-wrap { display: grid; grid-template-columns: minmax(0, 1fr) auto; width: min(100%, 760px); gap: var(--ui-space-3); align-items: end; }
+.teleprompter-script-wrap { width: min(100%, 760px); }
 .teleprompter-script { min-height: 0; height: auto; max-height: min(28dvh, 190px); overflow: hidden; padding: var(--ui-space-4); color: var(--ui-text); background: var(--ui-surface-code); border: 1px solid var(--ui-border-strong); font-size: clamp(.82rem, 1vw, 1rem); line-height: 1.35; text-align: center; scroll-padding-top: var(--ui-space-4); }
-.teleprompter-line-controls { display: flex; flex-direction: column; justify-content: flex-end; gap: var(--ui-space-3); }
+.teleprompter-line-controls { position: fixed; z-index: 120; display: flex; flex-direction: column; gap: var(--ui-space-2); padding: var(--ui-space-2); border: 1px solid var(--ui-border-strong); border-radius: var(--ui-radius-lg); background: var(--ui-surface-raised); box-shadow: var(--ui-shadow); user-select: none; }
+.teleprompter-drag-handle { width: 52px; min-height: 28px; padding: 0; color: var(--ui-muted); background: transparent; border: 0; border-radius: var(--ui-radius-sm); cursor: grab; touch-action: none; font-size: 1.2rem; line-height: 1; }
+.teleprompter-drag-handle:active { cursor: grabbing; color: var(--ui-text); background: var(--ui-surface-action); }
 .teleprompter-line-button { width: 52px; height: 52px; color: var(--ui-text); border: 1px solid var(--ui-border-strong); background: var(--ui-surface-action); font-size: 1.55rem; }
 .teleprompter-line-button:hover:not(:disabled) { color: var(--ui-accent-ink); background: var(--ui-accent); }
 .camera-stage { width: min(100%, 360px); max-width: none; aspect-ratio: 9 / 16; min-height: 0; justify-self: center; background: var(--ui-surface-code); }
 .camera-stage-landscape { width: min(100%, 640px); aspect-ratio: 16 / 9; }
 .camera-stage video { min-height: 0; }
-.teleprompter-format-picker { display: flex; flex-wrap: wrap; gap: var(--ui-space-2); width: 100%; }
-.teleprompter-controls { flex: 0 0 auto; gap: var(--ui-space-2); margin-top: 0; padding-top: var(--ui-space-3); border-top: 1px solid var(--ui-border); }
-.teleprompter-close { margin-left: auto; }
-.teleprompter-modal > .ui-modal-head { order: 3; justify-content: flex-end; margin: var(--ui-space-3) 0 0; padding-top: var(--ui-space-3); border-top: 1px solid var(--ui-border); }
-.teleprompter-modal > .ui-modal-head > div { display: block; flex: 1; }
-.teleprompter-modal > .ui-modal-head h2 { margin: 0; font-size: 1rem; }
-.teleprompter-modal > .ui-modal-head .ui-button { margin-left: auto; }
+.teleprompter-format-picker { display: flex; flex: 0 0 auto; flex-wrap: nowrap; gap: var(--ui-space-2); }
+.teleprompter-controls { display: flex; flex: 0 0 auto; flex-wrap: nowrap; align-items: center; justify-content: safe flex-end; gap: var(--ui-space-2); margin-top: 0; padding-top: var(--ui-space-3); border-top: 1px solid var(--ui-border); overflow-x: auto; }
+.teleprompter-controls .ui-button, .teleprompter-controls > a { flex: 0 0 auto; white-space: nowrap; }
+.teleprompter-control-hint { margin: var(--ui-space-2) 0 0; text-align: right; }
 .teleprompter-script p.active { color: var(--ui-accent-ink); background: var(--ui-accent); border-radius: var(--ui-radius-sm); padding: var(--ui-space-2) var(--ui-space-3); box-shadow: var(--ui-focus-ring); }
 .teleprompter-countdown { gap: var(--ui-space-2); color: var(--ui-text); background: var(--ui-overlay); }
 .teleprompter-countdown small { color: var(--ui-muted); }
@@ -1084,15 +1083,10 @@ button.ui-calendar-item:focus-visible { outline: 2px solid var(--ui-accent); out
 
 @media (max-width: 700px) {
   .teleprompter-modal { padding: var(--ui-space-4); }
-  .teleprompter-script-wrap { grid-template-columns: 1fr; width: 100%; }
+  .teleprompter-script-wrap { width: 100%; }
   .teleprompter-script { max-height: 28dvh; padding: var(--ui-space-3); font-size: clamp(.82rem, 3.1vw, 1rem); }
-  .teleprompter-line-controls { flex-direction: row; justify-content: flex-end; }
   .teleprompter-line-button { width: 56px; height: 56px; }
+  .teleprompter-drag-handle { width: 56px; }
   .camera-stage { width: min(52vw, 240px); }
   .camera-stage-landscape { width: min(88vw, 640px); }
-  .teleprompter-controls { align-items: stretch; }
-  .teleprompter-controls .ui-button, .teleprompter-controls > a { flex: 1 1 45%; }
-}
-@media (min-width: 701px) {
-  .teleprompter-line-controls { flex-direction: row; justify-content: flex-end; }
 }

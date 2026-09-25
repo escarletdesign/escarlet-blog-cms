@@ -4,7 +4,7 @@ import type { ContentChannel, ContentItem, ContentVariant } from "./types";
 import { itemTitle } from "./content-format";
 import { createVideoCapture } from "./portrait-recorder";
 import type { VideoCapture, VideoFormat } from "./portrait-recorder";
-import { Badge, Button, Card, ChannelBadge, EmptyState, Field, IconButton, Inline, Select, Stack, StatusBadge, Textarea } from "./ui";
+import { Badge, Button, Card, ChannelBadge, EmptyState, Field, IconButton, Inline, Select, Stack, StatusBadge, TeleprompterLineControls, Textarea } from "./ui";
 
 const packChannels: ContentChannel[] = ["blog", "instagram", "instagram_story", "linkedin", "x", "video"];
 const label = (channel: string) => channel === "x" ? "X" : channel === "video" ? "Vídeo" : channel === "instagram_story" ? "Instagram Story" : channel.charAt(0).toUpperCase() + channel.slice(1);
@@ -232,5 +232,30 @@ function TeleprompterModal({ script, itemId, site, canPublish, publishChannels, 
     }
   };
   const publishLabel = (channel: ContentChannel) => channel === "video" ? "Instagram Reel" : channel === "instagram" ? "Instagram" : channel === "linkedin" ? "LinkedIn" : channel === "x" ? "X" : label(channel);
-  return <div className="ui-modal-backdrop teleprompter-backdrop" role="presentation"><section className="ui-modal teleprompter-modal" role="dialog" aria-modal="true" aria-label="Grabador con teleprompter"><div className="ui-modal-head"><div><p className="ui-eyebrow">Vídeo para Reel</p><h2>Grabador con teleprompter</h2></div><Button variant="ghost" onClick={onClose}>Cerrar</Button></div><div className="teleprompter-layout"><div className="teleprompter-script-wrap"><div className="teleprompter-script" ref={scrollRef}>{paragraphs.map((paragraph, index) => (index < currentParagraph || index > currentParagraph + 1 ? null : <p key={`${index}-${paragraph.slice(0, 18)}`} ref={(element) => { paragraphRefs.current[index] = element; }} className={index === currentParagraph ? "active" : ""}>{paragraph}</p>))}</div><div className="teleprompter-line-controls" role="group" aria-label="Cambiar de línea"><IconButton className="teleprompter-line-button" label="Línea anterior" onClick={() => moveParagraph(-1)} disabled={!paragraphs.length || currentParagraph === 0}>↑</IconButton><IconButton className="teleprompter-line-button" label="Línea siguiente" onClick={() => moveParagraph(1)} disabled={!paragraphs.length || currentParagraph >= paragraphs.length - 1}>↓</IconButton></div></div>{showCamera && <div className={`camera-stage camera-stage-${format}`}>{videoUrl ? <video src={videoUrl} controls playsInline /> : <video ref={videoRef} muted playsInline /> }<span>{recording ? "●" : "○"}</span>{countdown > 0 && <div className="teleprompter-countdown" aria-live="assertive"><strong>{countdown}</strong><small>Prepárate</small></div>}</div>}</div><div className="teleprompter-controls"><div className="teleprompter-format-picker" role="group" aria-label="Formato del vídeo"><Button size="sm" variant={format === "portrait" ? "secondary" : "ghost"} disabled={recording} onClick={() => setFormat("portrait")}>Vertical 9:16</Button><Button size="sm" variant={format === "landscape" ? "secondary" : "ghost"} disabled={recording} onClick={() => setFormat("landscape")}>Horizontal 16:9</Button></div><Button variant={recording ? "danger" : "primary"} onClick={recording ? stop : start}>{recording ? "Detener" : "Grabar"}</Button><Button variant="ghost" onClick={() => setShowCamera((value) => !value)}>{showCamera ? "Ocultar cámara" : "Mostrar cámara"}</Button>{videoUrl && <a className="ui-button ui-button-secondary" href={videoUrl} download={`escarlet-video-${format}.webm`}>Descargar vídeo</a>}{videoBlob && itemId && <><Button variant="secondary" loading={uploading} disabled={uploading || uploaded} onClick={() => void upload()}>{uploaded ? "Vídeo guardado" : "Guardar vídeo"}</Button>{!uploaded && <span className="ui-field-hint">Se reemplaza solo el vídeo del formato elegido.</span>}</>}{uploaded && (canPublish ? publishChannels.map((channel) => <Button key={channel} variant={channel === "video" ? "primary" : "secondary"} loading={busy} disabled={busy} onClick={() => onPublish(channel)}>Publicar en {publishLabel(channel)}</Button>) : <><Button variant="secondary" disabled>Publicar en Buffer</Button><span className="ui-field-hint">Conecta y activa un canal de Buffer en Administración para publicar.</span></>)}</div></section></div>;
+  const controlHint = videoBlob && itemId && !uploaded
+    ? "Se reemplaza solo el vídeo del formato elegido."
+    : uploaded && !canPublish
+      ? "Conecta y activa un canal de Buffer en Administración para publicar."
+      : "";
+  return <div className="ui-modal-backdrop teleprompter-backdrop" role="presentation">
+    <section className="ui-modal teleprompter-modal" role="dialog" aria-modal="true" aria-label="Grabador con teleprompter">
+      <div className="teleprompter-layout">
+        <div className="teleprompter-script-wrap">
+          <div className="teleprompter-script" ref={scrollRef}>{paragraphs.map((paragraph, index) => (index < currentParagraph || index > currentParagraph + 1 ? null : <p key={`${index}-${paragraph.slice(0, 18)}`} ref={(element) => { paragraphRefs.current[index] = element; }} className={index === currentParagraph ? "active" : ""}>{paragraph}</p>))}</div>
+        </div>
+        {showCamera && <div className={`camera-stage camera-stage-${format}`}>{videoUrl ? <video src={videoUrl} controls playsInline /> : <video ref={videoRef} muted playsInline />}<span>{recording ? "●" : "○"}</span>{countdown > 0 && <div className="teleprompter-countdown" aria-live="assertive"><strong>{countdown}</strong><small>Prepárate</small></div>}</div>}
+      </div>
+      <TeleprompterLineControls onPrevious={() => moveParagraph(-1)} onNext={() => moveParagraph(1)} previousDisabled={!paragraphs.length || currentParagraph === 0} nextDisabled={!paragraphs.length || currentParagraph >= paragraphs.length - 1} />
+      {controlHint && <p className="ui-field-hint teleprompter-control-hint">{controlHint}</p>}
+      <div className="teleprompter-controls">
+        <div className="teleprompter-format-picker" role="group" aria-label="Formato del vídeo"><Button size="sm" variant={format === "portrait" ? "secondary" : "ghost"} disabled={recording} onClick={() => setFormat("portrait")}>Vertical 9:16</Button><Button size="sm" variant={format === "landscape" ? "secondary" : "ghost"} disabled={recording} onClick={() => setFormat("landscape")}>Horizontal 16:9</Button></div>
+        <Button variant={recording ? "danger" : "primary"} onClick={recording ? stop : start}>{recording ? "Detener" : "Grabar"}</Button>
+        <Button variant="ghost" onClick={() => setShowCamera((value) => !value)}>{showCamera ? "Ocultar cámara" : "Mostrar cámara"}</Button>
+        {videoUrl && <a className="ui-button ui-button-secondary" href={videoUrl} download={`escarlet-video-${format}.webm`}>Descargar vídeo</a>}
+        {videoBlob && itemId && <Button variant="secondary" loading={uploading} disabled={uploading || uploaded} onClick={() => void upload()}>{uploaded ? "Vídeo guardado" : "Guardar vídeo"}</Button>}
+        {uploaded && (canPublish ? publishChannels.map((channel) => <Button key={channel} variant={channel === "video" ? "primary" : "secondary"} loading={busy} disabled={busy} onClick={() => onPublish(channel)}>Publicar en {publishLabel(channel)}</Button>) : <Button variant="secondary" disabled>Publicar en Buffer</Button>)}
+        <Button className="teleprompter-close" variant="ghost" onClick={onClose}>Cerrar</Button>
+      </div>
+    </section>
+  </div>;
 }

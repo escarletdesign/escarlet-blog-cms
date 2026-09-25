@@ -3,8 +3,11 @@ export type BrandCapability = "content_publishing" | "blog_publishing" | "presen
 
 export interface Session {
   role: Role;
+  systemAdmin?: boolean;
   site?: string;
   sites?: string[];
+  canCreateSites?: boolean;
+  canManageAllSites?: boolean;
   userId?: string;
   capabilities?: string[];
   email?: string;

@@ -30,7 +30,7 @@ import { createVideoCapture } from "./portrait-recorder";
 import type { VideoCapture, VideoFormat } from "./portrait-recorder";
 import { ContentBatches as ContentPlans } from "./ContentBatches";
 import { DesignSystem } from "./DesignSystem";
-import { Badge, Button, Card, ChannelBadge, Checkbox, ConnectionCard, Drawer, EmptyState as UiEmptyState, Field, IconButton, Inline, Modal, MultiSelectPills, PageHeader, Select, Stack, StatusBadge, Tabs, TextField, Toast as UiToast } from "./ui";
+import { Badge, Button, Card, ChannelBadge, Checkbox, ConnectionCard, Drawer, EmptyState as UiEmptyState, Field, IconButton, Inline, Modal, MultiSelectPills, PageHeader, Select, Stack, StatusBadge, Tabs, TeleprompterLineControls, TextField, Toast as UiToast } from "./ui";
 
 type Draft = Partial<Post> & { title: string; slug?: string };
 type WorkflowFlags = { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean; legacyPreviewEnabled: boolean; legacySocialPackEnabled: boolean; authorInviteEnabled: boolean; creationUiEnabled: boolean; manualCreationEnabled: boolean };
@@ -117,6 +117,8 @@ const roleLabel = (role: string | undefined, t: (key: string, fallback?: string)
   const value = String(role || "viewer").trim().toLowerCase();
   return t(`role.${value}`, value.replace(/_/g, " "));
 };
+const sessionRoleLabel = (session: Session, t: (key: string, fallback?: string) => string) =>
+  session.systemAdmin ? t("role.system_admin") : roleLabel(session.role, t);
 const uiStatus = (status?: string) => {
   if (status === "pending_schedule") return "scheduled";
   if (status === "review" || status === "changes_requested") return "draft";
@@ -371,7 +373,7 @@ function App() {
             ? savedBrand
             : nextSession.site || nextSession.sites?.[0];
           const context = await api.context(preferredBrand);
-          setSession((current) => current ? { ...current, role: context.activeBrand?.role || current.role, workspaceRole: nextSession.workspaceRole || current.workspaceRole } : current);
+          setSession((current) => current ? { ...current, role: current.systemAdmin ? current.role : context.activeBrand?.role || current.role, workspaceRole: nextSession.workspaceRole || current.workspaceRole } : current);
           setProductContext(context);
           setChannels(context.channels || []);
           setBrandCapabilities(context.brandCapabilities || {});
@@ -438,7 +440,7 @@ function App() {
     window.localStorage.setItem("escarlet_site", next);
     if (!session) return;
     void api.context(next).then((context) => {
-      setSession((current) => current ? { ...current, role: context.activeBrand?.role || current.role } : current);
+      setSession((current) => current ? { ...current, role: current.systemAdmin ? current.role : context.activeBrand?.role || current.role } : current);
       setProductContext(context);
       setChannels(context.channels || []);
       setBrandCapabilities(context.brandCapabilities || {});
@@ -917,7 +919,7 @@ function Shell() {
             <span>
               <b>{session.displayName || session.email || t("settings.workspace")}</b>
               <small>
-                {t("settings.role")}: {roleLabel(session.role, t)}
+                {t("settings.role")}: {sessionRoleLabel(session, t)}
               </small>
             </span>
             <span>···</span>
@@ -4364,6 +4366,11 @@ function TeleprompterModal({
     }
   };
   const publishLabel = (channel: string) => channel === "video" ? "Instagram Reel" : channel === "instagram" ? "Instagram" : channel === "linkedin" ? "LinkedIn" : channel === "x" ? "X" : channel;
+  const controlHint = videoBlob && itemId && site && !uploaded
+    ? "Se reemplaza solo el vídeo del formato elegido."
+    : uploaded && onPublish && !canPublish
+      ? "Conecta y activa un canal de Buffer en Administración para publicar."
+      : "";
   return (
     <div className="ui-modal-backdrop teleprompter-backdrop" role="presentation">
       <section className="ui-modal teleprompter-modal" role="dialog" aria-modal="true" aria-label={t("social.record")}>
@@ -4380,10 +4387,6 @@ function TeleprompterModal({
               </p>
             ))}
             </div>
-            <div className="teleprompter-line-controls" role="group" aria-label="Cambiar de línea">
-              <IconButton className="teleprompter-line-button" label="Línea anterior" onClick={() => moveParagraph(-1)} disabled={!paragraphs.length || currentParagraph === 0}>↑</IconButton>
-              <IconButton className="teleprompter-line-button" label="Línea siguiente" onClick={() => moveParagraph(1)} disabled={!paragraphs.length || currentParagraph >= paragraphs.length - 1}>↓</IconButton>
-            </div>
           </div>
           {showCamera && <div className={`camera-stage camera-stage-${format}`}>
             {videoUrl ? <video src={videoUrl} controls playsInline /> : <video ref={videoRef} muted playsInline />}
@@ -4396,6 +4399,8 @@ function TeleprompterModal({
             )}
           </div>}
         </div>
+        <TeleprompterLineControls onPrevious={() => moveParagraph(-1)} onNext={() => moveParagraph(1)} previousDisabled={!paragraphs.length || currentParagraph === 0} nextDisabled={!paragraphs.length || currentParagraph >= paragraphs.length - 1} />
+        {controlHint && <p className="ui-field-hint teleprompter-control-hint">{controlHint}</p>}
         <div className="teleprompter-controls">
           <div className="teleprompter-format-picker" role="group" aria-label="Formato del vídeo">
             <button className={`ui-button ui-button-${format === "portrait" ? "secondary" : "ghost"}`} type="button" disabled={recording} onClick={() => setFormat("portrait")}>Vertical 9:16</button>
@@ -4422,10 +4427,9 @@ function TeleprompterModal({
               <button className="ui-button ui-button-secondary" onClick={() => void upload()} disabled={uploading || uploaded}>
                 {uploaded ? "Vídeo guardado" : uploading ? "Guardando vídeo…" : "Guardar vídeo"}
               </button>
-              {!uploaded && <span className="ui-field-hint">Se reemplaza solo el vídeo del formato elegido.</span>}
             </>
           )}
-          {uploaded && onPublish && (canPublish ? publishChannels.map((channel) => <button key={channel} className={`ui-button ${channel === "video" ? "ui-button-primary" : "ui-button-secondary"}`} onClick={() => onPublish(channel)} disabled={Boolean(busy)}>{busy ? "Programando…" : `Publicar en ${publishLabel(channel)}`}</button>) : <><button className="ui-button ui-button-secondary" disabled>Publicar en Buffer</button><span className="ui-field-hint">Conecta y activa un canal de Buffer en Administración para publicar.</span></>)}
+          {uploaded && onPublish && (canPublish ? publishChannels.map((channel) => <button key={channel} className={`ui-button ${channel === "video" ? "ui-button-primary" : "ui-button-secondary"}`} onClick={() => onPublish(channel)} disabled={Boolean(busy)}>{busy ? "Programando…" : `Publicar en ${publishLabel(channel)}`}</button>) : <button className="ui-button ui-button-secondary" disabled>Publicar en Buffer</button>)}
           <Button className="teleprompter-close" size="sm" variant="ghost" onClick={() => { exitRecorderFullscreen(); onClose(); }}>{t("editor.close")}</Button>
         </div>
       </section>
@@ -5273,7 +5277,7 @@ function Settings() {
         <p className="ui-eyebrow">{t("settings.workspace")}</p>
         <h2>{site}</h2>
         <p className="ui-muted">
-          {t("settings.role")}: {roleLabel(session.role, t)}
+          {t("settings.role")}: {sessionRoleLabel(session, t)}
         </p>
         {workflowFlags.cmsAiEnabled && <NavLink className="text-link" to="/billing">{t("settings.credits")}</NavLink>}
       </section>
