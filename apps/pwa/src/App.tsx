@@ -59,6 +59,16 @@ const SOCIAL_PACK_CHANNEL_KEYS: Array<{ key: keyof SocialPackChannels; labelKey:
   { key: "instagramStory", labelKey: "admin.socialPackInstagramStory" },
 ];
 const uniqueSiteHandles = (values: Array<string | undefined> = []) => [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
+const dedupeMedia = (items: MediaItem[] = []) => {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const path = String(item.path || item.url || "").replace(/^https?:\/\/[^/]+/i, "").split("?")[0];
+    const key = path || `filename:${String(item.filename || item.id || "")}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
 type AppState = {
   session: Session;
   site: string;
@@ -7318,7 +7328,7 @@ function BrandIdentityView() {
                 metadata: { ...(asset.metadata || {}), source: "brand-kit", usage: asset.metadata?.usage || asset.metadata?.role || "reference" },
               }))
           : [];
-        setReferenceMedia([...(references.media || []), ...kitReferences]);
+        setReferenceMedia(dedupeMedia([...(references.media || []), ...kitReferences]));
         const manifest = kitResult && typeof kitResult.manifest === "object" ? kitResult.manifest : {};
         const files = [...new Set([...(legacy?.files || []), ...Object.keys(manifest)])];
         setBrandFiles(files);
@@ -7365,7 +7375,7 @@ function BrandIdentityView() {
       setBrandFiles(nextFiles);
       const importedCore = parseBrandDocument(core.content);
       if (Object.keys(importedCore).length) setBrandCore(importedCore);
-      setReferenceMedia(references.media || []);
+      setReferenceMedia(dedupeMedia(references.media || []));
       if (importedFiles.length) setSelectedBrandFile(importedFiles[0]);
       setKit((current) => current ? { ...current, manifest: { ...(current.manifest || {}), ...Object.fromEntries(importedFiles.map((name) => [name, current.manifest?.[name] ?? {}])) } } : current);
       showToast(`${t("admin.brandZipImported")} ${(result.importedImages || []).length} ${t("admin.brandZipImages")}`);

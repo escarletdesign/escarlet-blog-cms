@@ -1912,6 +1912,7 @@ async function handleRequest(req, res) {
     const batchReviewMatch = path.match(/^\/api\/v2\/content\/batches\/([^/]+)\/(approve|reject)$/)
     const brandMatch = path.match(/^\/api\/v2\/brands\/([^/]+)$/)
     const brandKitImportMatch = path.match(/^\/api\/v2\/brands\/([^/]+)\/brand-kit\/import$/)
+    const brandKitLegacyCleanupMatch = path.match(/^\/api\/v2\/brands\/([^/]+)\/brand-kit\/cleanup-legacy-media$/)
     const brandChannelsMatch = path.match(/^\/api\/v2\/brands\/([^/]+)\/channels$/)
     const brandCapabilitiesMatch = path.match(/^\/api\/v2\/brands\/([^/]+)\/capabilities$/)
     const brandConnectionsMatch = path.match(/^\/api\/v2\/brands\/([^/]+)\/connections$/)
@@ -2177,6 +2178,23 @@ async function handleRequest(req, res) {
           assets
         })
         json(res, 200, { ...imported, canonicalBrandKitVersionId: version.id, canonicalAssets: assets.length })
+        return
+      }
+      if (req.method === 'POST' && brandKitLegacyCleanupMatch) {
+        const scope = await requireV2Context(req, url, res, { ...body, siteId: decodeURIComponent(brandKitLegacyCleanupMatch[1]) })
+        if (!scope) return
+        assertWorkspaceRole(scope.context.role, ['owner', 'admin'])
+        const siteHandles = new Set([scope.context.siteHandle, scope.siteId].filter(Boolean))
+        const dbNow = readDb()
+        const before = Array.isArray(dbNow.media) ? dbNow.media : []
+        const removed = before.filter((media) => siteHandles.has(media?.site) && media?.kind === 'reference')
+        if (removed.length) {
+          dbNow.media = before.filter((media) => !(siteHandles.has(media?.site) && media?.kind === 'reference'))
+          // Keep the files on disk: post content and canonical v2 assets may
+          // still point to the same storage key.
+          writeDb(dbNow)
+        }
+        json(res, 200, { ok: true, site: scope.context.siteHandle || scope.siteId, removed: removed.length, filesPreserved: true })
         return
       }
       if (req.method === 'GET' && path === '/api/v2/context') {
