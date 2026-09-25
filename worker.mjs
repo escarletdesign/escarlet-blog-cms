@@ -8,6 +8,7 @@ import { schedulePlanablePost, syncPlanablePost, planableStatus } from './lib/pl
 import { schedulePostizPost, syncPostizPost, postizPostId, postizProviderForChannel, postizStatus } from './lib/postiz.mjs'
 import { scheduleBufferPost, syncBufferPost, updateBufferPostDueAt, bufferPostId, bufferStatus } from './lib/buffer.mjs'
 import { blogPublicationIsLive, blogPublicationUrl } from './lib/blog-publication.mjs'
+import { blogPublishJobKey, dueBlogJobAction } from './lib/blog-publish.mjs'
 
 function loadEnv() {
   const path = new URL('./.env', import.meta.url)
@@ -91,6 +92,30 @@ async function processBlogVerifyJob(job) {
   await pool.query("UPDATE schedules SET status='published',last_error=NULL,updated_at=NOW() WHERE variant_id=$1", [variantId])
   await pool.query(`UPDATE content_items ci SET status=CASE WHEN NOT EXISTS (SELECT 1 FROM content_variants cv LEFT JOIN schedules s ON s.variant_id=cv.id WHERE cv.item_id=ci.id AND (cv.status NOT IN ('published','canceled') OR COALESCE(s.status,cv.status) NOT IN ('published','canceled'))) THEN 'published' ELSE ci.status END,error=NULL,updated_at=NOW() WHERE ci.id=$1`, [result.rows[0].item_id])
   return { published: true, variantId, publicationUrl }
+}
+
+async function reconcileDueBlogJobs() {
+  const pool = await getPgPool()
+  if (!pool) return 0
+  const due = await pool.query(`SELECT cv.id,cv.workspace_id,s.publication_date
+    FROM content_variants cv JOIN schedules s ON s.variant_id=cv.id
+    WHERE cv.channel='blog' AND cv.status='scheduled' AND s.status='scheduled' AND s.publication_date<=NOW()
+    ORDER BY s.publication_date LIMIT 100`)
+  let recovered = 0
+  for (const variant of due.rows) {
+    const idempotencyKey = blogPublishJobKey(variant.id, variant.publication_date)
+    const existing = await pool.query('SELECT id,status FROM jobs WHERE idempotency_key=$1 LIMIT 1', [idempotencyKey])
+    const action = dueBlogJobAction(existing.rows[0]?.status)
+    if (action === 'enqueue') {
+      await enqueueJob({ workspaceId: variant.workspace_id, type: 'content.publish_blog', payload: { variantId: variant.id }, idempotencyKey, availableAt: variant.publication_date })
+      recovered++
+    } else if (action === 'requeue') {
+      await pool.query("UPDATE jobs SET status='queued',attempts=0,available_at=NOW(),last_error=NULL,locked_at=NULL,locked_by=NULL,updated_at=NOW() WHERE id=$1", [existing.rows[0].id])
+      recovered++
+    }
+  }
+  if (recovered) console.log(`[worker] recuperados ${recovered} jobs vencidos del Blog`)
+  return recovered
 }
 
 async function processExternalPublicationEvent(event) {
@@ -386,6 +411,7 @@ async function processJob(job) {
 }
 
 async function drainOnce() {
+  await reconcileDueBlogJobs()
   const jobs = await claimJobs({ workerId, limit: 5 })
   for (const job of jobs) {
     try {
