@@ -7,7 +7,7 @@ import { scheduleMetricoolPost, syncMetricoolPost } from './lib/metricool.mjs'
 import { schedulePlanablePost, syncPlanablePost, planableStatus } from './lib/planable.mjs'
 import { schedulePostizPost, syncPostizPost, postizPostId, postizProviderForChannel, postizStatus } from './lib/postiz.mjs'
 import { scheduleBufferPost, syncBufferPost, updateBufferPostDueAt, bufferPostId, bufferStatus } from './lib/buffer.mjs'
-import { blogPublicationIsLive, blogPublicationUrl } from './lib/blog-publication.mjs'
+import { blogPublicationIsLive, blogPublicationTitle, blogPublicationUrl } from './lib/blog-publication.mjs'
 import { blogPublishJobKey, dueBlogJobAction } from './lib/blog-publish.mjs'
 
 function loadEnv() {
@@ -45,18 +45,18 @@ async function triggerBlogRebuild(variant) {
   if (!response.ok) throw new Error(`Webhook de Coolify falló con HTTP ${response.status}.`)
 }
 
-async function beginBlogPublication({ pool, workspaceId, variant, sourceId }) {
+async function beginBlogPublication({ pool, workspaceId, variant, sourceId, recordPublication = true, failureStatus = 'scheduled', expectedTitle = '' }) {
   const publicationUrl = blogPublicationUrl(variant)
   if (!publicationUrl) throw new Error('El Blog necesita un dominio público y un slug antes de publicarse.')
-  await recordUsage({ workspaceId, siteId: variant.site_id, kind: 'publications', quantity: 1, idempotencyKey: `publication:${sourceId}:${variant.id}`, metadata: { itemId: variant.item_id, channel: 'blog', provider: 'cms' } })
+  if (recordPublication) await recordUsage({ workspaceId, siteId: variant.site_id, kind: 'publications', quantity: 1, idempotencyKey: `publication:${sourceId}:${variant.id}`, metadata: { itemId: variant.item_id, channel: 'blog', provider: 'cms' } })
   await pool.query("UPDATE content_variants SET status='syncing',updated_at=NOW() WHERE id=$1", [variant.id])
   await pool.query("UPDATE schedules SET status='syncing',last_error=NULL,updated_at=NOW() WHERE variant_id=$1", [variant.id])
   try {
     await triggerBlogRebuild(variant)
-    await enqueueJob({ workspaceId, type: 'content.verify_blog', payload: { variantId: variant.id, publicationUrl }, idempotencyKey: `blog-verify:${variant.id}:${sourceId}`, availableAt: new Date(Date.now() + blogVerifyDelayMs) })
+    await enqueueJob({ workspaceId, type: 'content.verify_blog', payload: { variantId: variant.id, publicationUrl, expectedTitle }, idempotencyKey: `blog-verify:${variant.id}:${sourceId}`, availableAt: new Date(Date.now() + blogVerifyDelayMs) })
   } catch (error) {
-    await pool.query("UPDATE content_variants SET status='scheduled',updated_at=NOW() WHERE id=$1 AND status='syncing'", [variant.id])
-    await pool.query("UPDATE schedules SET status='scheduled',last_error=$2,updated_at=NOW() WHERE variant_id=$1 AND status='syncing'", [variant.id, String(error.message || error).slice(0, 2000)])
+    await pool.query("UPDATE content_variants SET status=$2,updated_at=NOW() WHERE id=$1 AND status='syncing'", [variant.id, failureStatus])
+    await pool.query("UPDATE schedules SET status=$2,last_error=$3,updated_at=NOW() WHERE variant_id=$1 AND status='syncing'", [variant.id, failureStatus, String(error.message || error).slice(0, 2000)])
     throw error
   }
 }
@@ -85,7 +85,7 @@ async function processBlogVerifyJob(job) {
     WHERE cv.id=$1 AND cv.channel='blog'`, [variantId])
   if (!result.rowCount || result.rows[0].schedule_status === 'published') return { published: Boolean(result.rowCount), variantId }
   const publicationUrl = job.payload?.publicationUrl || blogPublicationUrl(result.rows[0])
-  if (!await blogPublicationIsLive(publicationUrl)) {
+  if (!await blogPublicationIsLive(publicationUrl, fetch, job.payload?.expectedTitle || '')) {
     throw Object.assign(new Error(`El despliegue terminó de solicitarse, pero ${publicationUrl || 'la URL del artículo'} todavía no está visible.`), { retryAt: new Date(Date.now() + blogVerifyDelayMs).toISOString() })
   }
   await pool.query("UPDATE content_variants SET status='published',updated_at=NOW() WHERE id=$1", [variantId])
@@ -150,7 +150,7 @@ async function processExternalPublicationEvent(event) {
       if (publicationDate && publicationDate.getTime() > Date.now()) {
         await enqueueJob({ workspaceId: event.workspace_id, type: 'content.publish_blog', payload: { variantId: variant.id }, idempotencyKey: `blog-publish:${variant.id}:${publicationDate.toISOString()}`, availableAt: publicationDate })
       } else {
-        await beginBlogPublication({ pool, workspaceId: event.workspace_id, variant, sourceId: event.id })
+        await beginBlogPublication({ pool, workspaceId: event.workspace_id, variant, sourceId: event.id, recordPublication: event.type !== 'content.blog.updated', failureStatus: event.type === 'content.blog.updated' ? 'published' : 'scheduled', expectedTitle: event.type === 'content.blog.updated' ? blogPublicationTitle(variant) : '' })
       }
       continue
     }
@@ -439,7 +439,7 @@ async function drainOnce() {
   const events = await claimOutbox({ workerId, limit: 10 })
   for (const event of events) {
     try {
-      if (event.type === 'content.item.approved' || event.type === 'content.item.scheduled') await processExternalPublicationEvent(event)
+      if (event.type === 'content.item.approved' || event.type === 'content.item.scheduled' || event.type === 'content.blog.updated') await processExternalPublicationEvent(event)
       await finishOutbox(event.id, { ok: true })
     } catch (error) {
       const pool = await getPgPool()
