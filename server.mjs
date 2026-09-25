@@ -57,7 +57,8 @@ import {
   publicSiteConfigForAuth,
   extractBearerOrCookie,
   resolveRequestAuthAsync,
-  workspaceRoleForAuth
+  workspaceRoleForAuth,
+  isLocalDevAutoLogin
 } from './lib/auth.mjs'
 import {
   createEmbedSession,
@@ -4317,6 +4318,7 @@ if (process.env.NODE_ENV === 'production' && !persistence.likelyDockerVolume) {
 server.listen(PORT, () => {
   console.log(`Escarlet blog CMS en http://localhost:${PORT}/app`)
   console.log(`MCP remoto (Hermes) en http://localhost:${PORT}/mcp`)
+  if (isLocalDevAutoLogin()) console.log('Login local automático como admin (solo loopback). LOCAL_AUTO_LOGIN=0 para desactivarlo.')
 })
 
 const SCHEDULE_TICK_MS = Number(process.env.SCHEDULE_TICK_MS || 60_000)
