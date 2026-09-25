@@ -1,5 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { rmSync } from 'node:fs'
+import { join } from 'node:path'
 import { buildToolList, createMcpServer, invokeMcpTool, normalizeImagePreparationArgs, preparedImageResult } from './create-mcp-server.mjs'
 import { MCP_INSTRUCTIONS, MCP_SERVER_VERSION } from '../lib/media-upload-contract.mjs'
 
@@ -22,7 +24,7 @@ test('el contrato MCP expone media y contenido v2, sin operaciones de posts lega
   assert.equal(createBatch.inputSchema.properties.createNewPlan, undefined)
   assert.match(createBatch.description, /campaña/i)
   assert.match(createBatch.description, /pregunta al usuario/i)
-  assert.equal(tools.some((tool) => tool.name === 'brand_update_file'), false)
+  assert.equal(tools.some((tool) => tool.name === 'brand_update_file'), true)
   assert.equal(tools.some((tool) => tool.name === 'brand_complete_image_generation'), false)
   assert.equal(tools.some((tool) => tool.name === 'brand_register_generation'), false)
   assert.deepEqual(upload._meta['openai/fileParams'], ['file'])
@@ -51,7 +53,7 @@ test('el contrato MCP expone media y contenido v2, sin operaciones de posts lega
   assert.equal(tools.some((tool) => /^blog_|^social_/.test(tool.name)), false)
   const publicContract = JSON.stringify(tools)
   assert.doesNotMatch(publicContract, /generationReceiptId|brand_complete_image_generation|brand_register_generation|content-system\/instagram-renderer/)
-  assert.equal(buildToolList({ role: 'editor' }).some((tool) => tool.name === 'brand_update_file'), false)
+  assert.equal(buildToolList({ role: 'editor' }).some((tool) => tool.name === 'brand_update_file'), true)
   assert.equal(MCP_SERVER_VERSION, '3.3.0')
 })
 
@@ -193,4 +195,45 @@ test('la restricción del bridge bloquea acciones v2 mutables', async () => {
   )
   assert.equal(result.isError, true)
   assert.match(result.content?.[0]?.text || '', /AI_CHAT_TOOL_BLOCKED/)
+})
+
+test('owner y admin pueden editar el brand kit; un editor recibe el motivo', async () => {
+  const site = `kit-mcp-write-${Date.now()}`
+  try {
+    const denied = await invokeMcpTool(
+      'brand_update_file',
+      { site: 'escarlet', file: 'voice.md', content: '# no' },
+      { role: 'editor', site: 'escarlet' }
+    )
+    assert.equal(denied.isError, true)
+    const deniedValue = payload(denied)
+    assert.equal(deniedValue.code, 'brand_kit_write_forbidden')
+    assert.equal(deniedValue.writesBrandKit, false)
+    assert.equal(deniedValue.currentRole, 'editor')
+    assert.deepEqual(deniedValue.requiredRoles, ['owner', 'admin'])
+    assert.match(deniedValue.message, /owner o admin/)
+
+    const chatBlocked = await invokeMcpTool(
+      'brand_update_file',
+      { site: 'escarlet', file: 'voice.md', content: '# no' },
+      { role: 'admin' },
+      { restrictMutations: true, source: 'chat' }
+    )
+    assert.equal(chatBlocked.isError, true)
+    assert.match(chatBlocked.content?.[0]?.text || '', /AI_CHAT_TOOL_BLOCKED/)
+
+    const marker = `voz-mcp-${Date.now()}`
+    const saved = await invokeMcpTool(
+      'brand_update_file',
+      { site, file: 'voice.md', content: `# Voz\n\n${marker}\n` },
+      { role: 'agency_admin', site }
+    )
+    assert.ok(!saved.isError)
+    const savedValue = payload(saved)
+    assert.equal(savedValue.ok, true)
+    assert.equal(savedValue.file, 'voice.md')
+    assert.equal(savedValue.writesBrandKit, true)
+  } finally {
+    rmSync(join(new URL('../', import.meta.url).pathname, 'data', 'brand', site), { recursive: true, force: true })
+  }
 })

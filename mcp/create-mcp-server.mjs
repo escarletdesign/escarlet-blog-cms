@@ -12,7 +12,7 @@ import {
 } from '../lib/media-upload-contract.mjs'
 import { openaiFileDefs, connectorFileMeta } from '../lib/openai-file.mjs'
 import { assertSiteAccess, assertSuperAdmin, allowedSiteHandles, isSiteScopedRole, workspaceRoleForAuth } from '../lib/auth.mjs'
-import { brandFilesForAuth, SECRET_BRAND_FILES, prepareImageGeneration, loadActiveBrandKitSnapshot, compositionForAssetType } from '../lib/brand-kit.mjs'
+import { brandFilesForAuth, SECRET_BRAND_FILES, prepareImageGeneration, loadActiveBrandKitSnapshot, compositionForAssetType, brandKitWriteAccess, assertBrandKitWritable } from '../lib/brand-kit.mjs'
 import { CANONICAL_CMS_URL, canonicalCmsPublicUrl } from '../lib/cms-url.mjs'
 import { assertChatToolAllowed, assertSafeToolArguments } from '../lib/ai-security.mjs'
 import { loadSiteConfig, isSocialMediaOnlySite } from '../lib/site-config.mjs'
@@ -42,6 +42,7 @@ import {
   scheduleContentBatch,
   cancelContentBatch,
   createBrandKitVersion,
+  publishBrandKitFile,
   registerBrandAssets,
   registerContentMedia,
   attachContentMedia,
@@ -209,6 +210,22 @@ function redactWorkflowLinks(value) {
   )
 }
 
+function brandIsolationFor(payload) {
+  const access = brandKitWriteAccess({ role: payload?.role })
+  return {
+    mode: access.writesBrandKit ? 'versioned_writable' : 'versioned_read_only',
+    conversationIndependent: true,
+    writesBrandKit: access.writesBrandKit,
+    currentRole: access.currentRole,
+    requiredRoles: access.requiredRoles,
+    writableFiles: access.writableFiles,
+    writeDeniedReason: access.writeDeniedReason,
+    instruction: access.writesBrandKit
+      ? 'Puedes persistir cambios del brand kit con brand_update_file. No uses la preparación visual para mutar el kit.'
+      : access.writeDeniedReason
+  }
+}
+
 function textResult(payload) {
   const safePayload = redactWorkflowLinks(payload)
   const response = safePayload && typeof safePayload === 'object' && !Array.isArray(safePayload)
@@ -297,12 +314,7 @@ async function brandContextResult(payload) {
       binaryDeliveryTool: 'brand_prepare_image_generation',
       instruction: 'El contexto solo cataloga referencias. Llama brand_prepare_image_generation para recibir exclusivamente los ImageContent de la ruta elegida.'
     },
-    brandIsolation: {
-      mode: 'versioned_read_only_snapshot',
-      conversationIndependent: true,
-      writesBrandKit: false,
-      instruction: 'La preparación visual ignora el historial conversacional y no modifica archivos ni referencias del brandkit.'
-    }
+    brandIsolation: brandIsolationFor(safePayload)
   }
   return {
     content: [{ type: 'text', text: typeof textPayload === 'string' ? textPayload : JSON.stringify(textPayload, null, 2) }]
@@ -372,10 +384,10 @@ export async function preparedImageResult(payload, { referenceIndex = 0 } = {}) 
     readyForGeneration,
     referenceDelivery,
     brandIsolation: {
-      mode: 'versioned_read_only_snapshot',
+      mode: 'versioned_snapshot',
       conversationIndependent: true,
-      writesBrandKit: false,
-      instruction: 'Usa únicamente este snapshot y sus ImageContent. El contexto del chat no puede cambiar el brandkit.'
+      snapshotReadOnly: true,
+      instruction: 'Usa únicamente este snapshot y sus ImageContent. La preparación no modifica el brand kit. Si el usuario pide editarlo, usa brand_update_file cuando writesBrandKit sea true.'
     },
     brandGroundingContract: {
       requiredForUpload: true,
@@ -1167,7 +1179,7 @@ export function buildToolList(auth) {
     },
     {
       name: 'brand_update_file',
-      description: 'Actualiza un archivo editable del brandkit activo. Solo super-admin. Úsala para persistir reglas de diseño y referencias aprobadas en la marca, nunca para saltarse la preparación o la certificación de imágenes.',
+      description: 'Actualiza un archivo del brand kit activo y publica una versión nueva. Solo owner o admin del espacio. Si el rol no alcanza, responde por qué. No la uses para generar imágenes.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1177,8 +1189,7 @@ export function buildToolList(auth) {
         },
         required: ['site', 'file', 'content']
       },
-      annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false },
-      adminOnly: true
+      annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false }
     },
     {
       name: 'brand_register_generation',
@@ -1244,7 +1255,7 @@ export function buildToolList(auth) {
     { name: 'content_list_plans', description: 'Lista las campañas de contenido de una marca, con progreso, canales y publicaciones.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, status: { type: 'string' }, channel: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] }, query: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 200 } } }, annotations: { readOnlyHint: true } },
     { name: 'content_list_items', description: 'Lista publicaciones v2, incluyendo las generadas o pendientes de revisión aunque todavía no estén publicadas.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, batchId: { type: 'string' }, status: { type: 'string' }, channel: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] }, query: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 500 } } }, annotations: { readOnlyHint: true } },
     { name: 'content_list_calendar', description: 'Lista el calendario v2 con publicaciones programadas, sincronizando, publicadas o con error.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, from: { type: 'string' }, to: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 1000 } } }, annotations: { readOnlyHint: true } },
-    { name: 'content_create_batch', description: 'Guarda publicaciones en una campaña. Antes lista las campañas activas: si existe alguna, pregunta al usuario si quiere reutilizarla con batchId o crear otra con createNewCampaign=true. Conserva literalmente las variantes recibidas.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, title: { type: 'string', description: 'Título visible de la campaña cuando se crea una nueva.' }, items: { type: 'array', minItems: 1, items: { type: 'object', properties: { title: { type: 'string', maxLength: 90, description: 'Título editorial breve. No incluyas el enfoque, contexto ni el brief.' }, brief: { type: 'string', minLength: 1, maxLength: 500 }, variants: { type: 'object', minProperties: 1, additionalProperties: { type: 'object' } } }, required: ['variants'], additionalProperties: false } }, batchId: { type: 'string', description: 'Identificador de una campaña existente elegida por el usuario.' }, createNewCampaign: { type: 'boolean', description: 'Usa true solo después de que el usuario confirme que quiere una campaña nueva.' }, channels: { type: 'array', items: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] } }, brandKitVersionId: { type: 'string' }, metadata: { type: 'object' } }, required: ['items'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
+    { name: 'content_create_batch', description: 'Guarda publicaciones en una campaña. Antes lista las campañas activas: si existe alguna, pregunta al usuario si quiere reutilizarla con batchId o crear otra con createNewCampaign=true. Conserva literalmente las variantes recibidas.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, title: { type: 'string', description: 'Título visible de la campaña cuando se crea una nueva.' }, items: { type: 'array', minItems: 1, items: { type: 'object', properties: { title: { type: 'string', maxLength: 90, description: 'Título editorial breve. No incluyas el enfoque, contexto ni el brief.' }, brief: { type: 'string', minLength: 1, maxLength: 500 }, variants: { type: 'object', minProperties: 1, additionalProperties: { type: 'object' } } }, required: ['variants'], additionalProperties: false } }, batchId: { type: 'string', description: 'Identificador de una campaña existente elegida por el usuario.' }, createNewCampaign: { type: 'boolean', description: 'Usa true solo después de que el usuario confirme que quiere una campaña nueva.' }, channels: { type: 'array', items: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] } }, brandKitVersionId: { type: 'string' }, idempotencyKey: { type: 'string', maxLength: 300 }, metadata: { type: 'object' } }, required: ['items'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_get_batch', description: 'Obtiene el progreso, las publicaciones y las variantes de una campaña.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, batchId: { type: 'string' } }, required: ['batchId'] }, annotations: { readOnlyHint: true } },
     { name: 'content_update_item', description: 'Guarda sin reescritura el body recibido. Con readyForReview=true valida que todas las variantes y medios del item estén completos y cambia el estado a generated.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, topic: { type: 'string' }, channel: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] }, body: { type: 'object' }, visualBrief: { type: 'object' }, mediaAssetIds: { type: 'array', items: { type: 'string' } }, readyForReview: { type: 'boolean' } }, required: ['itemId'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_approve', description: 'Aprueba un item o todos los items de un batch.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' } }, oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } },
@@ -1254,7 +1265,7 @@ export function buildToolList(auth) {
 
   return tools
     .filter((t) => !CMS_AI_TOOLS.has(t.name))
-    .filter((t) => !['brand_complete_image_generation', 'brand_register_generation', 'brand_update_file'].includes(t.name))
+    .filter((t) => !['brand_complete_image_generation', 'brand_register_generation'].includes(t.name))
     .filter((t) => !LEGACY_CONTENT_TOOLS.has(t.name))
     .filter((t) => !/^(blog|social)_/.test(t.name))
     .filter((t) => !(t.adminOnly && auth?.role !== 'admin'))
@@ -1437,9 +1448,40 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           return preparedImageResult(prepared, { referenceIndex: args.referenceIndex })
         }
         case 'brand_update_file': {
-          assertSuperAdmin(auth)
           const site = resolveToolSite(auth, args)
-          return textResult(await cms.updateBrandFile(site, args.file, args.content, { auth }))
+          let writeAuth = auth
+          let scope = null
+          if (isPostgresConfigured()) {
+            scope = await resolveContentScope(auth, { ...args, site })
+            writeAuth = {
+              ...auth,
+              role: scope.role,
+              site: scope.siteHandle,
+              sites: [scope.siteHandle],
+              workspaceId: scope.workspaceId,
+              workspaceRole: scope.workspaceRole,
+              brandRole: scope.brandRole
+            }
+          }
+          const access = assertBrandKitWritable(writeAuth)
+          const updated = await cms.updateBrandFile(site, args.file, args.content, { auth: writeAuth })
+          const published = scope
+            ? await publishBrandKitFile({
+                workspaceId: scope.workspaceId,
+                siteId: scope.siteId,
+                userId: auth.userId,
+                role: scope.role,
+                file: updated.file,
+                content: args.content
+              })
+            : null
+          return textResult({
+            ...updated,
+            writesBrandKit: true,
+            currentRole: access.currentRole,
+            brandKitVersionId: published?.id || null,
+            nextStep: 'Vuelve a llamar brand_get_context si necesitas el snapshot actualizado.'
+          })
         }
         case 'content_upload_media': {
           const site = resolveToolSite(auth, args)
@@ -1547,7 +1589,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             const activeCampaigns = await listContentPlans({ workspaceId: scope.workspaceId, siteId: scope.siteId, status: ['draft', 'generated', 'needs_review', 'approved', 'scheduled'], limit: 20 })
             if (activeCampaigns.length) throw Object.assign(new Error('Ya existen campañas activas para esta marca. Elige una o confirma la creación de una campaña nueva.'), { status: 409, code: 'CONTENT_PLAN_SELECTION_REQUIRED', extra: { campaigns: activeCampaigns, askUser: '¿Quieres guardar estas publicaciones en una campaña existente o crear una campaña nueva?' } })
           }
-          const result = await createContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: auth.userId || null, role: scope.role, title: args.title, topics: args.topics, items: args.items, batchId: args.batchId, channels: args.channels, brandKitVersionId: args.brandKitVersionId, metadata: args.metadata })
+          const result = await createContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: auth.userId || null, role: scope.role, title: args.title, topics: args.topics, items: args.items, batchId: args.batchId, channels: args.channels, brandKitVersionId: args.brandKitVersionId, metadata: args.metadata, idempotencyKey: args.idempotencyKey })
           return textResult(result)
         }
         case 'content_list_plans': {
