@@ -2194,7 +2194,33 @@ async function handleRequest(req, res) {
           // still point to the same storage key.
           writeDb(dbNow)
         }
-        json(res, 200, { ok: true, site: scope.context.siteHandle || scope.siteId, removed: removed.length, filesPreserved: true })
+        const activeKit = await getActiveBrandKit({ workspaceId: scope.workspaceId, siteId: scope.siteId })
+        const activeAssets = Array.isArray(activeKit.assets) ? activeKit.assets : []
+        const manifestText = Object.values(activeKit.manifest || {}).map((value) => typeof value === 'string' ? value : JSON.stringify(value)).join('\n')
+        const canonicalNames = new Set(activeAssets.map((asset) => asset.name).filter((name) => name && manifestText.includes(name)))
+        const pool = await getPgPool()
+        const contentMedia = await pool.query(`
+          SELECT DISTINCT ma.storage_key AS "storageKey"
+          FROM media_assets ma
+          JOIN content_variant_media cvm ON cvm.media_asset_id=ma.id
+          JOIN content_variants cv ON cv.id=cvm.variant_id
+          JOIN content_items ci ON ci.id=cv.item_id
+          WHERE ci.workspace_id=$1 AND ci.site_id=$2
+        `, [scope.workspaceId, scope.siteId])
+        const contentStorageKeys = new Set(contentMedia.rows.map((row) => row.storageKey).filter(Boolean))
+        const seenNames = new Set()
+        const staleAssets = activeAssets.filter((asset) => {
+          const name = String(asset.name || '')
+          if (contentStorageKeys.has(asset.storageKey)) return true
+          if (canonicalNames.size && !canonicalNames.has(name)) return true
+          if (seenNames.has(name)) return true
+          seenNames.add(name)
+          return false
+        })
+        if (staleAssets.length) {
+          await pool.query('DELETE FROM brand_assets WHERE brand_kit_version_id=$1 AND id=ANY($2::text[])', [activeKit.id, staleAssets.map((asset) => asset.id)])
+        }
+        json(res, 200, { ok: true, site: scope.context.siteHandle || scope.siteId, removed: removed.length, removedBrandAssets: staleAssets.length, keptBrandAssets: activeAssets.length - staleAssets.length, filesPreserved: true })
         return
       }
       if (req.method === 'GET' && path === '/api/v2/context') {
