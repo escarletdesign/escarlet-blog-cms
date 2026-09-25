@@ -167,6 +167,7 @@ import { blogPublicationSlug, blogPublicationTitle } from './lib/blog-publicatio
 import { withPostLinks } from './lib/preview-url.mjs'
 import { escapeHtml } from './lib/content-render.mjs'
 import { handleMcpHttp, sendMcpCors } from './mcp/http-handler.mjs'
+import { applyCors } from './lib/cors.mjs'
 import { buildToolList, invokeMcpTool } from './mcp/create-mcp-server.mjs'
 import {
   aiRateLimitKey,
@@ -292,11 +293,16 @@ loadEnv()
 
 // Both API and worker share the same repository-owned SQL migrations. Do not
 // make startup depend on a JSON fallback when Postgres is configured.
-const coreMigrationPromise = isPostgresConfigured() ? runCoreMigrations().catch((error) => {
+let coreMigrationError = null
+const coreMigrationPromise = isPostgresConfigured() ? runCoreMigrations().then((ready) => {
+  if (!ready) coreMigrationError = Object.assign(new Error('Las migraciones de Postgres no están listas.'), { code: 'migrations_unavailable', status: 503 })
+  return ready
+}).catch((error) => {
+  coreMigrationError = Object.assign(error, { code: error.code || 'migrations_failed', status: error.status || 503 })
   console.error('[postgres] migration failed:', error.message)
   return false
 }) : Promise.resolve(false)
-if (isPostgresConfigured()) coreMigrationPromise.then(() => syncLegacyUsersToPostgres().catch((error) => console.warn('[postgres] user migration skipped:', error.message)))
+if (isPostgresConfigured()) coreMigrationPromise.then((ready) => ready && syncLegacyUsersToPostgres().catch((error) => console.warn('[postgres] user migration skipped:', error.message)))
 
 const PORT = Number(process.env.PORT || 3040)
 const ADMIN_TOKEN = String(process.env.ADMIN_TOKEN || '').trim()
@@ -307,14 +313,27 @@ const CMS_PUBLIC_URL = canonicalCmsPublicUrl(process.env.CMS_PUBLIC_URL || `http
 const AUTH_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365
 
 function json(res, status, payload) {
-  const body = JSON.stringify(payload)
+  const responsePayload = status >= 400 && payload && typeof payload === 'object' && !Array.isArray(payload)
+    ? { ...payload, code: payload.code || 'request_failed', requestId: payload.requestId || res._requestId || undefined }
+    : payload
+  const body = JSON.stringify(responsePayload)
+  applyCors(res, res._request)
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
+    'X-Request-Id': res._requestId || responsePayload?.requestId || randomUUID()
   })
   res.end(body)
+}
+
+function cookieAttributes({ clear = false, persistent = false } = {}) {
+  const secure = process.env.NODE_ENV === 'production' || CMS_PUBLIC_URL.startsWith('https:') ? '; Secure' : ''
+  return clear
+    ? `Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Lax${secure}`
+    : `Path=/;${persistent ? ` Max-Age=${AUTH_COOKIE_MAX_AGE_SECONDS};` : ''} HttpOnly; SameSite=Lax${secure}`
+}
+
+function authCookie(token, options = {}) {
+  return `escarlet_cms=${token ? encodeURIComponent(token) : ''}; ${cookieAttributes({ ...options, clear: !token || options.clear })}`
 }
 
 function html(res, status, body, extraHeaders = {}) {
@@ -423,17 +442,46 @@ function readRawBuffer(req, maxBytes = MAX_BODY_BYTES) {
   return new Promise((resolve, reject) => {
     const chunks = []
     let size = 0
-    req.on('data', (c) => {
+    let settled = false
+    const cleanup = () => {
+      req.off('data', onData)
+      req.off('end', onEnd)
+      req.off('error', onError)
+      req.off('aborted', onAborted)
+    }
+    const fail = (error) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      req.resume()
+      reject(error)
+    }
+    const onData = (c) => {
+      if (settled) return
       size += c.length
       if (size > maxBytes) {
-        req.destroy()
-        reject(Object.assign(new Error('La subida supera 15 MB'), { status: 413 }))
+        fail(Object.assign(new Error(`La subida supera ${Math.round(maxBytes / 1024 / 1024)} MB`), { status: 413, code: 'body_too_large' }))
         return
       }
       chunks.push(c)
-    })
-    req.on('end', () => resolve(Buffer.concat(chunks)))
-    req.on('error', reject)
+    }
+    const onEnd = () => {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve(Buffer.concat(chunks))
+    }
+    const onError = (error) => fail(error)
+    const onAborted = () => fail(Object.assign(new Error('El cliente cerró la conexión.'), { status: 499, code: 'client_disconnected' }))
+    const declared = Number(req.headers['content-length'] || 0)
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      fail(Object.assign(new Error(`La subida supera ${Math.round(maxBytes / 1024 / 1024)} MB`), { status: 413, code: 'body_too_large' }))
+      return
+    }
+    req.on('data', onData)
+    req.on('end', onEnd)
+    req.on('error', onError)
+    req.on('aborted', onAborted)
   })
 }
 
@@ -441,7 +489,10 @@ function parseBody(req, maxBytes = MAX_BODY_BYTES) {
   return readRawBuffer(req, maxBytes).then((buf) => {
     if (!buf.length) return {}
     if (isMultipartRequest(req)) {
-      const parsed = parseMultipart(buf, req.headers['content-type'])
+      let parsed
+      try { parsed = parseMultipart(buf, req.headers['content-type']) } catch (error) {
+        throw Object.assign(new Error(error.message || 'Multipart inválido'), { status: 400, code: 'invalid_multipart' })
+      }
       return {
         ...parsed.fields,
         filename: parsed.fields.filename || parsed.file?.filename,
@@ -454,7 +505,7 @@ function parseBody(req, maxBytes = MAX_BODY_BYTES) {
     try {
       return JSON.parse(raw)
     } catch {
-      throw new Error('JSON inválido')
+      throw Object.assign(new Error('JSON inválido'), { status: 400, code: 'invalid_json' })
     }
   })
 }
@@ -786,8 +837,8 @@ async function requireV2Context(req, url, res, body = {}) {
   try {
     const rateSite = String(body.siteId || body.site || url.searchParams.get('siteId') || url.searchParams.get('site') || auth.site || '').trim()
     assertAiRateLimit(aiRateLimitKey(auth, rateSite, requestIp(req)), { limit: 120 })
-    await coreMigrationPromise
-    await runCoreMigrations()
+    const migrationsReady = await coreMigrationPromise
+    if (!migrationsReady) throw (coreMigrationError || Object.assign(new Error('Las migraciones de Postgres no están listas.'), { status: 503, code: 'migrations_unavailable' }))
     const requestedWorkspace = String(body.workspaceId || url.searchParams.get('workspaceId') || '').trim()
     const requestedSite = String(body.siteId || body.site || url.searchParams.get('siteId') || url.searchParams.get('site') || auth.site || (Array.isArray(auth.sites) && auth.sites.length === 1 ? auth.sites[0] : '')).trim()
     if (auth.role !== 'admin' && !auth.userId && auth.site && requestedSite && requestedSite !== auth.site) throw Object.assign(new Error('Este token solo gestiona el sitio autorizado.'), { status: 403 })
@@ -992,7 +1043,8 @@ function queueSocialPackImages({ site, post, socialPack, auth }) {
   return job
 }
 
-const server = createServer(async (req, res) => {
+async function handleRequest(req, res) {
+  res._request = req
   const url = new URL(req.url || '/', `http://127.0.0.1:${PORT}`)
   const path = url.pathname.replace(/\/+$/, '') || '/'
 
@@ -1005,11 +1057,11 @@ const server = createServer(async (req, res) => {
   }
 
   if (req.method === 'OPTIONS') {
-    sendMcpCors(res)
+    applyCors(res, req, { credentials: true })
+    sendMcpCors(res, req)
     res.writeHead(204, {
-      'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Headers':
-        'Authorization, Content-Type, Mcp-Session-Id, MCP-Protocol-Version, Last-Event-Id, Stripe-Signature',
+        'Authorization, Content-Type, Idempotency-Key, X-Request-Id, Mcp-Session-Id, MCP-Protocol-Version, Last-Event-Id, Stripe-Signature',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
     })
     res.end()
@@ -1105,11 +1157,10 @@ const server = createServer(async (req, res) => {
       return
     }
     if (!auth) {
-      sendMcpCors(res)
+      sendMcpCors(res, req)
       res.writeHead(401, {
         'Content-Type': 'application/json; charset=utf-8',
         'WWW-Authenticate': wwwAuthenticateHeader(),
-        'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers':
           'Authorization, Content-Type, Mcp-Session-Id, MCP-Protocol-Version, Last-Event-Id',
         'Access-Control-Expose-Headers': 'Mcp-Session-Id, WWW-Authenticate'
@@ -1158,11 +1209,11 @@ const server = createServer(async (req, res) => {
       json(res, 404, { message: 'Archivo runtime no encontrado' })
       return
     }
+    applyCors(res, req)
     res.writeHead(200, {
       'Content-Type': file.contentType,
       'Content-Length': file.body.length,
-      'Cache-Control': 'no-store, no-cache, must-revalidate',
-      'Access-Control-Allow-Origin': '*'
+      'Cache-Control': 'no-store, no-cache, must-revalidate'
     })
     res.end(file.body)
     return
@@ -1210,7 +1261,7 @@ const server = createServer(async (req, res) => {
       html(res, 400, '<!doctype html><p>El enlace de acceso ha caducado. Vuelve a WordPress y ábrelo otra vez.</p>')
       return
     }
-    const cookie = `escarlet_cms=${encodeURIComponent(session.token)}; Path=/; HttpOnly; SameSite=Lax`
+    const cookie = authCookie(session.token)
     html(res, 200, embedBootstrapHtml({ next: session.next }), {
       'Set-Cookie': cookie,
       'Cache-Control': 'no-store'
@@ -1275,7 +1326,7 @@ const server = createServer(async (req, res) => {
       userId: result.session.userId,
       mustSetPassword: result.session.purpose === 'invite' || result.session.purpose === 'reset'
     })
-    const cookie = `escarlet_cms=${encodeURIComponent(bearer.token)}; Path=/; HttpOnly; SameSite=Lax`
+    const cookie = authCookie(bearer.token)
     const next = result.session.next || '/'
     html(
       res,
@@ -1403,7 +1454,7 @@ const server = createServer(async (req, res) => {
         'Content-Type': 'application/json; charset=utf-8',
         // A persistent cookie is important for the installed PWA: session
         // cookies can disappear when the standalone app is closed.
-        'Set-Cookie': `escarlet_cms=${encodeURIComponent(browserSession.token)}; Path=/; Max-Age=${AUTH_COOKIE_MAX_AGE_SECONDS}; HttpOnly; SameSite=Lax`
+        'Set-Cookie': authCookie(browserSession.token, { persistent: true })
       })
       res.end(JSON.stringify({ ok: true, ...session }))
     } catch (error) {
@@ -1416,7 +1467,7 @@ const server = createServer(async (req, res) => {
     res.writeHead(200, {
       'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': 'no-store',
-      'Set-Cookie': 'escarlet_cms=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Lax'
+      'Set-Cookie': authCookie('', { clear: true })
     })
     res.end(JSON.stringify({ ok: true }))
     return
@@ -1436,7 +1487,7 @@ const server = createServer(async (req, res) => {
       const result = loginPasswordUser(body)
       res.writeHead(200, {
         'Content-Type': 'application/json; charset=utf-8',
-        'Set-Cookie': `escarlet_cms=${encodeURIComponent(result.token)}; Path=/; HttpOnly; SameSite=Lax`
+        'Set-Cookie': authCookie(result.token)
       })
       res.end(JSON.stringify({ ok: true, ...result, ...await publicSessionForAuth(resolveAuth(result.token)) }))
     } catch (error) {
@@ -1457,7 +1508,7 @@ const server = createServer(async (req, res) => {
         const brand = await createBrand({ workspaceId: workspace.id, userId: user.id, role: 'owner', handle: body.brandHandle || workspace.slug, name: body.brandName || body.workspaceName || body.name || workspace.name, domain: body.domain || null })
         const login = loginPasswordUser({ email: body.email, password: body.password })
         const session = await publicSessionForAuth(resolveAuth(login.token))
-        res.writeHead(201, { 'Content-Type': 'application/json; charset=utf-8', 'Set-Cookie': `escarlet_cms=${encodeURIComponent(login.token)}; Path=/; HttpOnly; SameSite=Lax` })
+        res.writeHead(201, { 'Content-Type': 'application/json; charset=utf-8', 'Set-Cookie': authCookie(login.token) })
         res.end(JSON.stringify({ ok: true, user, workspace, brand, ...login, session }))
       } catch (error) {
         json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
@@ -1622,7 +1673,7 @@ const server = createServer(async (req, res) => {
         mustSetPassword: auth.mustSetPassword,
         ttlMs: 8 * 60 * 60 * 1000
       })
-      res.setHeader('Set-Cookie', `escarlet_cms=${encodeURIComponent(browserSession.token)}; Path=/; Max-Age=${AUTH_COOKIE_MAX_AGE_SECONDS}; HttpOnly; SameSite=Lax`)
+      res.setHeader('Set-Cookie', authCookie(browserSession.token, { persistent: true }))
       const minted = await mintUserLoginTokenAsync({ id: auth.userId })
       const { token, ...profile } = minted
       json(res, 200, { ok: true, profile, token })
@@ -1645,7 +1696,7 @@ const server = createServer(async (req, res) => {
         mustSetPassword: auth.mustSetPassword,
         ttlMs: 8 * 60 * 60 * 1000
       })
-      res.setHeader('Set-Cookie', `escarlet_cms=${encodeURIComponent(browserSession.token)}; Path=/; Max-Age=${AUTH_COOKIE_MAX_AGE_SECONDS}; HttpOnly; SameSite=Lax`)
+      res.setHeader('Set-Cookie', authCookie(browserSession.token, { persistent: true }))
       const profile = await revokeUserLoginTokenAsync({ id: auth.userId })
       json(res, 200, { ok: true, profile })
     } catch (error) {
@@ -2152,8 +2203,8 @@ const server = createServer(async (req, res) => {
         }
         const siteId = scope.siteId || scope.context.siteIds[0]
         if (!siteId) throw Object.assign(new Error('siteId es obligatorio.'), { status: 400 })
-        const result = await createContentBatch({ workspaceId: scope.workspaceId, siteId, userId: scope.auth.userId || null, role: scope.context.role, title: body.title, topics: v2Topics(body), items: body.items, batchId: body.batchId, channels: body.channels, brandKitVersionId: body.brandKitVersionId, metadata: body.metadata })
-        json(res, 202, result)
+        const result = await createContentBatch({ workspaceId: scope.workspaceId, siteId, userId: scope.auth.userId || null, role: scope.context.role, title: body.title, topics: v2Topics(body), items: body.items, batchId: body.batchId, channels: body.channels, brandKitVersionId: body.brandKitVersionId, metadata: body.metadata, idempotencyKey: req.headers['idempotency-key'] })
+        json(res, 201, result)
         return
       }
       if (req.method === 'GET' && path === '/api/v2/content/plans') {
@@ -2433,8 +2484,15 @@ const server = createServer(async (req, res) => {
 
   if (req.method === 'GET' && path === '/api/health') {
     const persistence = getPersistenceStatus()
-    json(res, persistence.writable ? 200 : 503, {
-      ok: persistence.writable,
+    const migrationsReady = !isPostgresConfigured() || await coreMigrationPromise
+    const live = true
+    const ready = persistence.writable && migrationsReady
+    json(res, ready ? 200 : 503, {
+      ok: ready,
+      live,
+      ready,
+      migrationsReady,
+      requestId: res._requestId,
       version: MCP_SERVER_VERSION,
       mcpServerName: 'escarlet-cms-v2',
       mcp: '/mcp',
@@ -2443,7 +2501,7 @@ const server = createServer(async (req, res) => {
       canonicalMcpUrl: `${CANONICAL_CMS_URL}/mcp`,
       deprecatedMcpHosts: [...DEPRECATED_CMS_HOSTS],
       mcpUpload: 'content_upload_media',
-      postgres: { configured: isPostgresConfigured(), migrationsStarted: isPostgresConfigured() },
+      postgres: { configured: isPostgresConfigured(), migrationsStarted: isPostgresConfigured(), migrationError: coreMigrationError?.message || null },
       persistence
     })
     return
@@ -2451,7 +2509,7 @@ const server = createServer(async (req, res) => {
 
   const inboxMatch = path.match(/^\/api\/media-inbox\/([a-f0-9]+)$/i)
   if (inboxMatch) {
-    res.setHeader('Access-Control-Allow-Origin', '*')
+    applyCors(res, req)
     res.setHeader('Access-Control-Allow-Methods', 'PUT, POST, OPTIONS')
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
     if (req.method === 'OPTIONS') {
@@ -2678,6 +2736,7 @@ const server = createServer(async (req, res) => {
           legacyPreviewEnabled: workflow.legacyPreviewEnabled,
           legacySocialPackEnabled: workflow.legacySocialPackEnabled,
           authorInviteEnabled: workflow.authorInviteEnabled,
+          assistantBrandKitToolsEnabled: workflow.assistantBrandKitToolsEnabled === true,
           creation_ui_enabled: Boolean(productFlags.creation_ui_enabled),
           manual_creation_enabled: Boolean(productFlags.manual_creation_enabled),
           updatedAt: workflow.updatedAt
@@ -2696,10 +2755,13 @@ const server = createServer(async (req, res) => {
     if (!auth) return
     try {
       const appHiddenTools = new Set(['blog_get_brand_context', 'blog_update_brand_file', 'blog_import_brand_zip'])
+      const db = readDb()
+      const workflow = getWorkflowFlags(db)
+      const chatToolPolicy = { assistantBrandKitToolsEnabled: workflow.assistantBrandKitToolsEnabled }
       if (path === '/api/ai/tools' && req.method === 'GET') {
         assertAiRateLimit(aiRateLimitKey(auth, url.searchParams.get('site') || DEFAULT_SITE, requestIp(req)), { limit: 60 })
         const tools = buildToolList(auth)
-          .filter((tool) => isChatToolAllowedName(tool.name))
+          .filter((tool) => isChatToolAllowedName(tool.name, chatToolPolicy))
           .filter((tool) => isSuperAdmin(auth) || !appHiddenTools.has(tool.name))
         json(res, 200, { protocol: 'mcp', version: MCP_SERVER_VERSION, tools })
         return
@@ -2710,7 +2772,12 @@ const server = createServer(async (req, res) => {
         const site = body.arguments?.site || DEFAULT_SITE
         assertAiRateLimit(aiRateLimitKey(auth, site, requestIp(req)), { limit: 45 })
         if (!isSuperAdmin(auth) && appHiddenTools.has(body.name)) throw Object.assign(new Error('Esta tool está reservada al espacio/agencia.'), { status: 403 })
-        if (!isChatToolAllowedName(body.name)) throw Object.assign(new Error('Esta acción no está disponible desde el asistente.'), { status: 403, extra: { code: 'AI_CHAT_TOOL_BLOCKED' } })
+        if (!isChatToolAllowedName(body.name, chatToolPolicy)) {
+          const blocked = body.name === 'brand_update_file'
+            ? 'La edición del brand kit desde el chat está desactivada. Actívala en Ajustes (super-admin) o edita desde Identidad en la app.'
+            : 'Esta acción no está disponible desde el asistente.'
+          throw Object.assign(new Error(blocked), { status: 403, extra: { code: 'AI_CHAT_TOOL_BLOCKED' } })
+        }
         const result = await invokeMcpTool(body.name, body.arguments || {}, auth, { restrictMutations: true, source: 'app' })
         json(res, 200, { protocol: 'mcp', version: MCP_SERVER_VERSION, ...result })
         return
@@ -3043,8 +3110,8 @@ const server = createServer(async (req, res) => {
         const siteRecord = rawScope.sites.find((entry) => entry.handle === site) || rawScope.sites[0]
         if (!siteRecord) throw Object.assign(new Error('Sitio no migrado a Postgres.'), { status: 404 })
         const workspaceRole = auth.role === 'admin' ? 'admin' : auth.userId ? rawScope.role || workspaceRoleForAuth(auth) : workspaceRoleForAuth(auth)
-        const result = await createContentBatch({ workspaceId: rawScope.workspaceId, siteId: siteRecord.id, userId: auth.userId || null, role: workspaceRole, title: body.title || 'Batch generado desde chat', topics: body.topics, channels: body.channels, metadata: { source: 'chat' } })
-        json(res, 202, { site, batchId: result.batchId, itemIds: result.itemIds, operationId: result.operationId, status: result.status, totalItems: result.totalItems })
+        const result = await createContentBatch({ workspaceId: rawScope.workspaceId, siteId: siteRecord.id, userId: auth.userId || null, role: workspaceRole, title: body.title || 'Batch generado desde chat', topics: body.topics, channels: body.channels, metadata: { source: 'chat' }, idempotencyKey: req.headers['idempotency-key'] })
+        json(res, 201, { site, ...result })
         return
       }
 
@@ -3118,6 +3185,8 @@ const server = createServer(async (req, res) => {
 
       // The provider may answer non-streaming upstream, but delivery to the PWA is
       // always SSE so clients can render tokens incrementally and recover on done.
+      let clientClosed = false
+      req.once('close', () => { clientClosed = true })
       const result = await runAiChat({
         site,
         auth,
@@ -3125,17 +3194,20 @@ const server = createServer(async (req, res) => {
         provider: body.provider,
         model: body.model
       })
+      if (clientClosed) return
+      applyCors(res, req)
       res.writeHead(200, {
         'Content-Type': 'text/event-stream; charset=utf-8',
         'Cache-Control': 'no-cache, no-transform',
         Connection: 'keep-alive',
-        'X-Accel-Buffering': 'no',
-        'Access-Control-Allow-Origin': '*'
+        'X-Accel-Buffering': 'no'
       })
       res.write(`event: meta\ndata: ${JSON.stringify({ site, provider: result.provider, mode: result.mode, quota: result.quota })}\n\n`)
       for (const delta of splitSseChunks(result.content)) {
+        if (clientClosed) return
         res.write(`event: delta\ndata: ${JSON.stringify({ delta })}\n\n`)
       }
+      if (clientClosed) return
       res.write(`event: done\ndata: ${JSON.stringify({ operation: result.operation, provider: result.provider, mode: result.mode, quota: result.quota })}\n\n`)
       res.end()
     } catch (error) {
@@ -3148,6 +3220,19 @@ const server = createServer(async (req, res) => {
     const auth = await requireAuthAsync(req, url, res)
     if (!auth) return
     const db = readDb()
+    const legacyContentWrite = isPostgresConfigured() && req.method !== 'GET' && (
+      path.startsWith('/api/admin/posts') ||
+      path.startsWith('/api/admin/media') ||
+      path === '/api/admin/validate-seo'
+    )
+    if (legacyContentWrite) {
+      json(res, 409, {
+        code: 'legacy_write_disabled',
+        message: 'Las escrituras legacy están deshabilitadas cuando Postgres es la fuente canónica.',
+        redirect: '/plans'
+      })
+      return
+    }
     if (req.method === 'GET' && path === '/api/admin/session') {
       json(res, 200, await publicSessionForAuth(auth))
       return
@@ -3176,6 +3261,7 @@ const server = createServer(async (req, res) => {
             legacyPreviewEnabled: body.legacyPreviewEnabled,
             legacySocialPackEnabled: body.legacySocialPackEnabled,
             authorInviteEnabled: body.authorInviteEnabled,
+            assistantBrandKitToolsEnabled: body.assistantBrandKitToolsEnabled,
             actorId: auth.userId || auth.role
           })
           writeDb(db)
@@ -4173,6 +4259,29 @@ const server = createServer(async (req, res) => {
   }
 
   json(res, 404, { message: 'Ruta no encontrada' })
+}
+
+const server = createServer((req, res) => {
+  const requestId = String(req.headers['x-request-id'] || randomUUID()).slice(0, 120)
+  res._request = req
+  res._requestId = requestId
+  res.setHeader('X-Request-Id', requestId)
+  handleRequest(req, res).catch((error) => {
+    const status = Number(error?.status) >= 400 && Number(error?.status) < 600 ? Number(error.status) : 500
+    const payload = {
+      message: error?.message || 'Error interno del servidor',
+      code: error?.code || (status === 500 ? 'internal_error' : 'request_failed'),
+      requestId
+    }
+    console.error(`[http] ${requestId} ${req.method} ${req.url}:`, error)
+    if (!res.headersSent) json(res, status, payload)
+    else res.destroy()
+  })
+})
+
+server.on('clientError', (error, socket) => {
+  if (!socket.destroyed) socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n')
+  console.warn('[http] client error:', error.message)
 })
 
 mkdirSync(dataDir, { recursive: true })

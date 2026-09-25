@@ -33,7 +33,7 @@ import { DesignSystem } from "./DesignSystem";
 import { Badge, Button, Card, ChannelBadge, Checkbox, ConnectionCard, Drawer, EmptyState as UiEmptyState, Field, IconButton, Inline, Modal, MultiSelectPills, PageHeader, Select, Stack, StatusBadge, Tabs, TeleprompterLineControls, TextField, Toast as UiToast } from "./ui";
 
 type Draft = Partial<Post> & { title: string; slug?: string };
-type WorkflowFlags = { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean; legacyPreviewEnabled: boolean; legacySocialPackEnabled: boolean; authorInviteEnabled: boolean; creationUiEnabled: boolean; manualCreationEnabled: boolean };
+type WorkflowFlags = { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean; legacyPreviewEnabled: boolean; legacySocialPackEnabled: boolean; authorInviteEnabled: boolean; assistantBrandKitToolsEnabled: boolean; creationUiEnabled: boolean; manualCreationEnabled: boolean };
 type SocialPackChannels = {
   substack: boolean;
   linkedin: boolean;
@@ -336,7 +336,7 @@ function ContentPlansRoute({ site, creationEnabled, activeChannels }: { site: st
 function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [workflowFlags, setWorkflowFlags] = useState<WorkflowFlags>({ cmsAiEnabled: true, assistantEnabled: false, blogWizardEnabled: false, legacyPreviewEnabled: true, legacySocialPackEnabled: true, authorInviteEnabled: true, creationUiEnabled: false, manualCreationEnabled: false });
+  const [workflowFlags, setWorkflowFlags] = useState<WorkflowFlags>({ cmsAiEnabled: true, assistantEnabled: false, blogWizardEnabled: false, legacyPreviewEnabled: true, legacySocialPackEnabled: true, authorInviteEnabled: true, assistantBrandKitToolsEnabled: false, creationUiEnabled: false, manualCreationEnabled: false });
   const [channels, setChannels] = useState<Array<{ channel: string; enabled: boolean; connectionStatus?: string }>>([]);
   const [brandCapabilities, setBrandCapabilities] = useState<Record<string, boolean>>({});
   const [productContext, setProductContext] = useState<AppState["productContext"]>();
@@ -364,6 +364,7 @@ function App() {
           legacyPreviewEnabled: nextFlags.flags?.legacyPreviewEnabled !== false,
           legacySocialPackEnabled: nextFlags.flags?.legacySocialPackEnabled !== false,
           authorInviteEnabled: nextFlags.flags?.authorInviteEnabled !== false,
+          assistantBrandKitToolsEnabled: nextFlags.flags?.assistantBrandKitToolsEnabled === true,
           creationUiEnabled: false,
           manualCreationEnabled: false,
         });
@@ -380,7 +381,7 @@ function App() {
           setWorkflowFlags((current) => ({ ...current, creationUiEnabled: Boolean(context.featureFlags?.creation_ui_enabled), manualCreationEnabled: Boolean(context.featureFlags?.manual_creation_enabled), assistantEnabled: current.assistantEnabled && Boolean(context.featureFlags?.creation_ui_enabled), blogWizardEnabled: current.blogWizardEnabled && Boolean(context.featureFlags?.manual_creation_enabled) }));
         } catch { setChannels([]); setBrandCapabilities({}); setProductContext(undefined); }
       } catch {
-        setWorkflowFlags({ cmsAiEnabled: true, assistantEnabled: false, blogWizardEnabled: false, legacyPreviewEnabled: true, legacySocialPackEnabled: true, authorInviteEnabled: true, creationUiEnabled: false, manualCreationEnabled: false });
+        setWorkflowFlags({ cmsAiEnabled: true, assistantEnabled: false, blogWizardEnabled: false, legacyPreviewEnabled: true, legacySocialPackEnabled: true, authorInviteEnabled: true, assistantBrandKitToolsEnabled: false, creationUiEnabled: false, manualCreationEnabled: false });
       }
     } catch {
       setSession(null);
@@ -5002,6 +5003,7 @@ function AuthorInvite() {
 
 function Settings() {
   const { session, site, refresh, workflowFlags } = useApp();
+  const isSuperAdmin = session.role === "admin";
   const { language, setLanguage, t } = useI18n();
   const { showToast } = useToast();
   const [model, setModel] = useState(
@@ -5024,6 +5026,11 @@ function Settings() {
   const [tokenAction, setTokenAction] = useState<"regenerate" | "revoke" | null>(null);
   const [delegates, setDelegates] = useState<Array<Record<string, any>>>([]);
   const [delegateBusy, setDelegateBusy] = useState("");
+  const [assistantBrandKitToolsEnabled, setAssistantBrandKitToolsEnabled] = useState(workflowFlags.assistantBrandKitToolsEnabled);
+  const [assistantBrandKitSaving, setAssistantBrandKitSaving] = useState(false);
+  useEffect(() => {
+    setAssistantBrandKitToolsEnabled(workflowFlags.assistantBrandKitToolsEnabled);
+  }, [workflowFlags.assistantBrandKitToolsEnabled]);
   useEffect(() => {
     if (!workflowFlags.cmsAiEnabled) {
       setModelOptions([{ value: "auto", label: t("settings.modelAuto") }]);
@@ -5143,6 +5150,18 @@ function Settings() {
       setPersonalTokenBusy(false);
     }
   };
+  const saveAssistantBrandKitFlag = async () => {
+    setAssistantBrandKitSaving(true);
+    try {
+      await api.saveFeatureFlags({ assistantBrandKitToolsEnabled });
+      await refresh();
+      showToast(t("settings.assistantBrandKitSaved"));
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : t("common.error"), "error");
+    } finally {
+      setAssistantBrandKitSaving(false);
+    }
+  };
   const toggleDelegate = async (delegate: Record<string, any>) => {
     if (!delegate.id) return;
     const enabled = !Boolean(delegate.enabled);
@@ -5243,6 +5262,27 @@ function Settings() {
           ) : (
             <p className="ui-empty-compact">{t("settings.delegatesEmpty")}</p>
           )}
+        </section>
+      )}
+      {isSuperAdmin && (
+        <section className="ui-card ui-settings-card">
+          <p className="ui-eyebrow">{t("settings.superAdminEyebrow")}</p>
+          <h2>{t("settings.assistantBrandKitTitle")}</h2>
+          <p className="ui-muted">{t("settings.assistantBrandKitHelp")}</p>
+          <label className="switch-row">
+            <span>
+              <b>{t("settings.assistantBrandKitToggle")}</b>
+              <small>{assistantBrandKitToolsEnabled ? t("settings.assistantBrandKitOn") : t("settings.assistantBrandKitOff")}</small>
+            </span>
+            <input
+              type="checkbox"
+              checked={assistantBrandKitToolsEnabled}
+              onChange={(event) => setAssistantBrandKitToolsEnabled(event.target.checked)}
+            />
+          </label>
+          <button className="ui-button ui-button-secondary" type="button" disabled={assistantBrandKitSaving} onClick={() => void saveAssistantBrandKitFlag()}>
+            {assistantBrandKitSaving ? "…" : t("settings.assistantBrandKitSave")}
+          </button>
         </section>
       )}
       <section className="ui-card ui-settings-card">
@@ -5581,6 +5621,7 @@ function Admin() {
   const [legacyPreviewEnabled, setLegacyPreviewEnabled] = useState(true);
   const [legacySocialPackEnabled, setLegacySocialPackEnabled] = useState(true);
   const [authorInviteEnabled, setAuthorInviteEnabled] = useState(true);
+  const [assistantBrandKitToolsEnabled, setAssistantBrandKitToolsEnabled] = useState(false);
   const [creationUiEnabled, setCreationUiEnabled] = useState(false);
   const [manualCreationEnabled, setManualCreationEnabled] = useState(false);
   const [workflowSaving, setWorkflowSaving] = useState(false);
@@ -5652,6 +5693,7 @@ function Admin() {
       setLegacyPreviewEnabled(featureFlagData.flags?.legacyPreviewEnabled !== false);
       setLegacySocialPackEnabled(featureFlagData.flags?.legacySocialPackEnabled !== false);
       setAuthorInviteEnabled(featureFlagData.flags?.authorInviteEnabled !== false);
+      setAssistantBrandKitToolsEnabled(featureFlagData.flags?.assistantBrandKitToolsEnabled === true);
       try {
         const productContext = await api.context(site);
         setCreationUiEnabled(Boolean(productContext.featureFlags?.creation_ui_enabled));
@@ -6069,13 +6111,14 @@ function Admin() {
   const saveWorkflowFlags = async () => {
     setWorkflowSaving(true);
     try {
-      const result = await api.saveFeatureFlags({ assistantEnabled, blogWizardEnabled, legacyPreviewEnabled, legacySocialPackEnabled, authorInviteEnabled });
+      const result = await api.saveFeatureFlags({ assistantEnabled, blogWizardEnabled, legacyPreviewEnabled, legacySocialPackEnabled, authorInviteEnabled, assistantBrandKitToolsEnabled });
       await api.updateFeatureFlags({ creation_ui_enabled: creationUiEnabled, manual_creation_enabled: manualCreationEnabled }, site);
       setAssistantEnabled(result.flags?.assistantEnabled !== false);
       setBlogWizardEnabled(result.flags?.blogWizardEnabled !== false);
       setLegacyPreviewEnabled(result.flags?.legacyPreviewEnabled !== false);
       setLegacySocialPackEnabled(result.flags?.legacySocialPackEnabled !== false);
       setAuthorInviteEnabled(result.flags?.authorInviteEnabled !== false);
+      setAssistantBrandKitToolsEnabled(result.flags?.assistantBrandKitToolsEnabled === true);
       report(t("admin.savedWorkflowFlags"));
       await refresh();
     } catch (err) {
@@ -6756,6 +6799,13 @@ function Admin() {
             </label>
             <label className="switch-row">
               <span>
+                <b>{t("admin.assistantBrandKitFlag")}</b>
+                <small>{assistantBrandKitToolsEnabled ? t("settings.assistantBrandKitOn") : t("settings.assistantBrandKitOff")}</small>
+              </span>
+              <input type="checkbox" checked={assistantBrandKitToolsEnabled} onChange={(event) => setAssistantBrandKitToolsEnabled(event.target.checked)} />
+            </label>
+            <label className="switch-row">
+              <span>
                 <b>Creación desde la aplicación</b>
                 <small>{creationUiEnabled ? "Visible para este espacio/marca" : "Desactivada: la creación se hace desde ChatGPT/MCP"}</small>
               </span>
@@ -7425,8 +7475,10 @@ function BrandChannelsView() {
   const [brand, setBrand] = useState<BrandSummary | null>(null);
   const [web, setWeb] = useState({ domain: "", rebuildWebhookUrl: "", token: "" });
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const canManage = isWorkspaceAdmin(session);
-  useEffect(() => { Promise.all([api.brandV2(brandId), api.brandChannels(brandId), api.brandConnections(brandId), api.brandCapabilities(brandId)]).then(([brandResult, channelResult, connectionResult, capResult]) => { setBrand(brandResult.brand); setChannels(channelResult.channels || []); setCaps(capResult.capabilities || {}); const connection = (connectionResult.connections || []).find((item) => item.channel === "blog" && item.provider === "web"); setWeb({ domain: String(connection?.config?.domain || brandResult.brand.domain || ""), rebuildWebhookUrl: String(connection?.config?.rebuildWebhookUrl || ""), token: "" }); }).catch(() => undefined); }, [brandId]);
+  useEffect(() => { let active = true; setLoading(true); setError(""); Promise.all([api.brandV2(brandId), api.brandChannels(brandId), api.brandConnections(brandId), api.brandCapabilities(brandId)]).then(([brandResult, channelResult, connectionResult, capResult]) => { if (!active) return; setBrand(brandResult.brand); setChannels(channelResult.channels || []); setCaps(capResult.capabilities || {}); const connection = (connectionResult.connections || []).find((item) => item.channel === "blog" && item.provider === "web"); setWeb({ domain: String(connection?.config?.domain || brandResult.brand.domain || ""), rebuildWebhookUrl: String(connection?.config?.rebuildWebhookUrl || ""), token: "" }); }).catch((err) => { if (active) setError(err?.message || "No se pudo cargar la configuración de canales."); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, [brandId]);
   const save = async () => { setBusy(true); try { const channelMap = Object.fromEntries(channels.map((channel) => [channel.channel, channel.enabled])); await api.updateBrandChannels(brandId, channelMap); await api.updateBrandCapabilities(brandId, { ...caps, content_publishing: Object.values(channelMap).some(Boolean), blog_publishing: Boolean(channelMap.blog) }); if (channelMap.blog && (web.domain || web.rebuildWebhookUrl || web.token)) { await api.updateBrandV2(brandId, { domain: web.domain || undefined }); await api.saveBrandConnection(brandId, { provider: "web", channel: "blog", token: web.token || undefined, config: { domain: web.domain, rebuildWebhookUrl: web.rebuildWebhookUrl } }); } showToast("Canales y capacidades guardados."); } catch (err: any) { showToast(err?.message || "No se pudo guardar la configuración.", "error"); } finally { setBusy(false); } };
   const blogEnabled = channels.some((channel) => channel.channel === "blog" && channel.enabled);
   return <main className="ui-page"><PageHeader eyebrow="Marca · Canales" title={brand?.name || "Canales activos"} description="Activa solo los canales que esta marca utiliza. Cada uno puede tener su propia conexión primaria." back={<NavLink to={`/brands/${encodeURIComponent(brandId)}`}>← Volver a la marca</NavLink>} actions={canManage ? <Button onClick={() => void save()} loading={busy}>Guardar cambios</Button> : undefined} /><div className="ui-channel-settings-grid"><Card><span className="ui-eyebrow">Canales</span><h2>Publicación multicanal</h2><Stack gap="sm">{channels.map((channel) => <label className="ui-toggle-row" key={channel.channel}><span><b>{channel.channel === "x" ? "X" : channel.channel.charAt(0).toUpperCase() + channel.channel.slice(1)}</b><small>{channel.enabled ? "Activo" : "Inactivo"}</small></span><input type="checkbox" disabled={!canManage} checked={Boolean(channel.enabled)} onChange={(event) => setChannels((current) => current.map((item) => item.channel === channel.channel ? { ...item, enabled: event.target.checked } : item))} /></label>)}</Stack></Card><Card><span className="ui-eyebrow">Usos de marca</span><h2>Capacidades</h2><Stack gap="sm"><label className="ui-toggle-row"><span><b>Presentaciones</b><small>Permite usar el brand kit desde ChatGPT/MCP.</small></span><input type="checkbox" disabled={!canManage} checked={Boolean(caps.presentation_generation)} onChange={(event) => setCaps((current) => ({ ...current, presentation_generation: event.target.checked }))} /></label><label className="ui-toggle-row"><span><b>Publicaciones</b><small>Se activa automáticamente al encender un canal.</small></span><input type="checkbox" checked={Boolean(caps.content_publishing)} readOnly /></label></Stack></Card>{blogEnabled && <Card className="ui-blog-connection-card"><div className="ui-card-head"><div><span className="ui-eyebrow">{t("admin.blogPublishRouteEyebrow", "Publicación del Blog")}</span><h2>{t("admin.blogPublishRouteTitle", "Webhook de Coolify")}</h2></div><Badge tone={web.rebuildWebhookUrl ? "success" : "warning"}>{web.rebuildWebhookUrl ? t("admin.blogPublishRouteConfigured", "Coolify conectado") : t("admin.blogPublishRouteMissing", "Webhook pendiente")}</Badge></div><p className="ui-muted">{t("admin.blogPublishRouteHelp", "El Blog se publica mediante este webhook. Buffer se reserva para Instagram y los demás canales sociales.")}</p><Stack gap="md"><Field label="Dominio público"><TextField type="url" value={web.domain} onChange={(event) => setWeb({ ...web, domain: event.target.value })} placeholder="https://marca.com" /></Field><Field label="Webhook de rebuild"><TextField value={web.rebuildWebhookUrl} onChange={(event) => setWeb({ ...web, rebuildWebhookUrl: event.target.value })} placeholder="https://…" /></Field><Field label="Token de la conexión" hint="Se cifra y no vuelve a mostrarse."><TextField type="password" value={web.token} onChange={(event) => setWeb({ ...web, token: event.target.value })} placeholder="Pega un token nuevo para reemplazarlo" /></Field></Stack></Card>}</div></main>;

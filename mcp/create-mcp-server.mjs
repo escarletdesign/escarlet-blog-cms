@@ -17,12 +17,12 @@ import { CANONICAL_CMS_URL, canonicalCmsPublicUrl } from '../lib/cms-url.mjs'
 import { assertChatToolAllowed, assertSafeToolArguments } from '../lib/ai-security.mjs'
 import { loadSiteConfig, isSocialMediaOnlySite } from '../lib/site-config.mjs'
 import { mediaDir, readDb } from '../lib/db.mjs'
+import { getWorkflowFlags } from '../lib/workflow-flags.mjs'
 import {
   getStandaloneSocialPack,
   listStandaloneSocialPacks,
   saveStandaloneSocialPack
 } from '../lib/social-pack-store.mjs'
-import { getWorkflowFlags } from '../lib/workflow-flags.mjs'
 import { isCmsAiEnabled } from '../lib/product-flags.mjs'
 import { withGenerationPolicy, assertCmsAiAllowed, CMS_AI_TOOLS } from '../lib/generation-policy.mjs'
 import { canReadPost, assertPostAccess, safePostFields } from '../lib/post-access.mjs'
@@ -1361,7 +1361,10 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
       // mutation restriction is enabled only for app/chat bridges; the
       // authenticated external MCP transport keeps its explicit workflow.
       assertSafeToolArguments(name, args, { source })
-      if (restrictMutations) assertChatToolAllowed(name, args)
+      if (restrictMutations) {
+        const workflow = getWorkflowFlags(readDb())
+        assertChatToolAllowed(name, args, { assistantBrandKitToolsEnabled: workflow.assistantBrandKitToolsEnabled })
+      }
       const tool = buildToolList(auth).find((t) => t.name === name)
       if (!tool) throw Object.assign(new Error('Herramienta no disponible para este acceso.'), { status: 403 })
       if (MUTATING_SITE_TOOLS.has(name) && auth?.role === 'viewer') {

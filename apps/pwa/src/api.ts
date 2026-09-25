@@ -5,28 +5,46 @@ export class ApiError extends Error {
     message: string,
     public status: number,
     public details: Record<string, unknown> = {},
+    public code?: string,
+    public requestId?: string,
   ) {
     super(message);
   }
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+export type ApiRequestOptions = RequestInit & { timeoutMs?: number };
+
+export async function request<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
+  const { timeoutMs = 30_000, signal: upstreamSignal, ...fetchOptions } = options;
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(new DOMException("Tiempo de espera agotado", "TimeoutError")), timeoutMs);
+  const abort = () => controller.abort(upstreamSignal?.reason);
+  if (upstreamSignal) {
+    if (upstreamSignal.aborted) abort();
+    else upstreamSignal.addEventListener("abort", abort, { once: true });
+  }
   const headers = options.body instanceof FormData
     ? options.headers
     : { "Content-Type": "application/json", ...(options.headers || {}) };
-  const response = await fetch(path, {
-    credentials: "include",
-    headers,
-    ...options,
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok)
-    throw new ApiError(
-      data.message || "No se pudo completar la operación.",
-      response.status,
-      data,
-    );
-  return data as T;
+  try {
+    const response = await fetch(path, {
+      credentials: "include",
+      headers,
+      ...fetchOptions,
+      signal: controller.signal,
+    });
+    const data = await response.json().catch(() => ({}));
+    const requestId = response.headers.get("x-request-id") || data.requestId;
+    if (!response.ok) throw new ApiError(data.message || "No se pudo completar la operación.", response.status, data, data.code, requestId);
+    return data as T;
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    if (controller.signal.aborted) throw new ApiError("La operación fue cancelada o agotó el tiempo de espera.", 0, {}, controller.signal.reason?.name === "TimeoutError" ? "timeout" : "aborted");
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
+    upstreamSignal?.removeEventListener("abort", abort);
+  }
 }
 
 const baseApi = {
@@ -197,9 +215,10 @@ const baseApi = {
     request<{ items: ContentItem[] }>(
       `/api/v2/content/items${site ? `?site=${encodeURIComponent(site)}` : ""}`,
     ),
-  contentPlans: (site?: string) =>
+  contentPlans: (site?: string, signal?: AbortSignal) =>
     request<{ plans: Array<Record<string, any>> }>(
       `/api/v2/content/plans${site ? `?site=${encodeURIComponent(site)}` : ""}`,
+      { signal },
     ),
   context: (site?: string) =>
     request<{
@@ -242,8 +261,8 @@ const baseApi = {
     request<Record<string, any>>(`/api/v2/connections/${encodeURIComponent(connectionId)}/test${site ? `?site=${encodeURIComponent(site)}` : ""}`, { method: "POST", body: JSON.stringify({ site }) }),
   disconnectConnection: (connectionId: string, site?: string) =>
     request<{ connection: Record<string, any> }>(`/api/v2/connections/${encodeURIComponent(connectionId)}/disconnect${site ? `?site=${encodeURIComponent(site)}` : ""}`, { method: "POST", body: JSON.stringify({ site }) }),
-  reviewItems: (site?: string) =>
-    request<{ items: ContentItem[] }>(`/api/v2/content/review${site ? `?site=${encodeURIComponent(site)}` : ""}`),
+  reviewItems: (site?: string, signal?: AbortSignal) =>
+    request<{ items: ContentItem[] }>(`/api/v2/content/review${site ? `?site=${encodeURIComponent(site)}` : ""}`, { signal }),
   calendarV2: (site?: string) =>
     request<{ entries: Array<Record<string, any>> }>(`/api/v2/calendar${site ? `?site=${encodeURIComponent(site)}` : ""}`),
   teamV2: () =>
@@ -265,10 +284,10 @@ const baseApi = {
     request<ContentBatch>(
       `/api/v2/content/batches/${encodeURIComponent(batchId)}${site ? `?site=${encodeURIComponent(site)}` : ""}`,
     ),
-  createContentBatch: (input: { site?: string; title: string; topics: string[]; channels: string[]; brandKitVersionId?: string }) =>
-    request<{ batchId: string; itemIds: string[]; operationId: string; status: "draft"; totalItems: number }>(
+  createContentBatch: (input: { site?: string; title: string; topics: string[]; channels: string[]; brandKitVersionId?: string; idempotencyKey?: string }) =>
+    request<{ batchId: string; itemIds: string[]; status: "draft"; totalItems: number }>(
       "/api/v2/content/batches",
-      { method: "POST", headers: { "X-Escarlet-Client": "pwa" }, body: JSON.stringify(input) },
+      { method: "POST", headers: { "X-Escarlet-Client": "pwa", "Idempotency-Key": input.idempotencyKey || crypto.randomUUID() }, body: JSON.stringify(input) },
     ),
   updateContentItem: (itemId: string, input: { site?: string; topic?: string; contentTitle?: string; channel?: string; body?: Record<string, any>; visualBrief?: Record<string, any>; mediaAssetIds?: string[]; readyForReview?: boolean; keepPublished?: boolean }) =>
     request<ContentItem>(
@@ -548,6 +567,7 @@ const baseApi = {
         legacyPreviewEnabled: boolean;
         legacySocialPackEnabled: boolean;
         authorInviteEnabled: boolean;
+        assistantBrandKitToolsEnabled?: boolean;
         updatedAt?: string | null;
       };
     }>('/api/admin/feature-flags'),
@@ -559,6 +579,7 @@ const baseApi = {
     legacyPreviewEnabled?: boolean;
     legacySocialPackEnabled?: boolean;
     authorInviteEnabled?: boolean;
+    assistantBrandKitToolsEnabled?: boolean;
   }) =>
     request<{
       ok: boolean;
@@ -570,6 +591,7 @@ const baseApi = {
         legacyPreviewEnabled: boolean;
         legacySocialPackEnabled: boolean;
         authorInviteEnabled: boolean;
+        assistantBrandKitToolsEnabled?: boolean;
         updatedAt?: string | null;
       };
     }>('/api/admin/feature-flags', {
@@ -578,7 +600,7 @@ const baseApi = {
     }),
   workflowFlags: (site?: string) =>
     request<{
-      flags: { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean; legacyPreviewEnabled: boolean; legacySocialPackEnabled: boolean; authorInviteEnabled: boolean; creation_ui_enabled?: boolean; manual_creation_enabled?: boolean; updatedAt?: string | null };
+      flags: { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean; legacyPreviewEnabled: boolean; legacySocialPackEnabled: boolean; authorInviteEnabled: boolean; assistantBrandKitToolsEnabled?: boolean; creation_ui_enabled?: boolean; manual_creation_enabled?: boolean; updatedAt?: string | null };
     }>(`/api/app/feature-flags${site ? `?site=${encodeURIComponent(site)}` : ""}`),
   creditPacks: () =>
     request<{
@@ -675,49 +697,77 @@ async function deleteAiConversation(id: string, site?: string) {
 async function aiChat(
   input: { site?: string; message: string; model?: string },
   onDelta?: (text: string) => void,
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
 ) {
-  const response = await fetch("/api/ai/chat", {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json", "X-Escarlet-Client": "pwa" },
-    body: JSON.stringify(input),
-  });
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(new DOMException("Tiempo de espera agotado", "TimeoutError")), options.timeoutMs ?? 60_000);
+  const abort = () => controller.abort(options.signal?.reason);
+  if (options.signal) {
+    if (options.signal.aborted) abort();
+    else options.signal.addEventListener("abort", abort, { once: true });
+  }
+  let response: Response;
+  try {
+    response = await fetch("/api/ai/chat", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", "X-Escarlet-Client": "pwa" },
+      body: JSON.stringify(input),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    window.clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", abort);
+    if (controller.signal.aborted) throw new ApiError("El chat fue cancelado o agotó el tiempo de espera.", 0, {}, controller.signal.reason?.name === "TimeoutError" ? "timeout" : "aborted");
+    throw error;
+  }
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
-    throw new ApiError(
-      data.message || "El asistente no está disponible.",
-      response.status,
-    );
+    window.clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", abort);
+    throw new ApiError(data.message || "El asistente no está disponible.", response.status, data, data.code, response.headers.get("x-request-id") || data.requestId);
   }
-  if (!response.body) return "";
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let content = "";
-  const consume = (chunk: string) => {
-    for (const line of chunk.split("\n")) {
-      if (!line.startsWith("data:")) continue;
-      try {
-        const value = JSON.parse(line.slice(5).trim());
-        if (typeof value.delta === "string") {
-          content += value.delta;
-          onDelta?.(content);
+  try {
+    if (!response.body) return "";
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let content = "";
+    let sawDone = false;
+    const consume = (chunk: string) => {
+      for (const frame of chunk.split("\n\n")) {
+        const event = frame.match(/^event:\s*([^\n]+)/m)?.[1]?.trim();
+        const line = frame.split("\n").find((entry) => entry.startsWith("data:"));
+        if (!line) continue;
+        try {
+          const value = JSON.parse(line.slice(5).trim());
+          if (event === "error" || value?.error) throw new ApiError(value.message || value.error || "El asistente devolvió un error.", Number(value.status) || 502, value, value.code);
+          if (event === "done") sawDone = true;
+          if (typeof value.delta === "string") {
+            content += value.delta;
+            onDelta?.(content);
+          }
+        } catch (error) {
+          if (error instanceof ApiError) throw error;
+          // A partial JSON frame remains buffered by the caller.
         }
-      } catch {
-        /* ignore malformed SSE frame */
       }
     }
-  };
-  while (true) {
-    const { done, value } = await reader.read();
-    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
-    const frames = buffer.split("\n\n");
-    buffer = frames.pop() || "";
-    frames.forEach(consume);
-    if (done) break;
+    while (true) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() || "";
+      frames.forEach(consume);
+      if (done) break;
+    }
+    if (buffer) consume(buffer);
+    if (!sawDone && !controller.signal.aborted) throw new ApiError("La conexión del asistente terminó antes de completar la respuesta.", 502, {}, "sse_incomplete");
+    return content;
+  } finally {
+    window.clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", abort);
   }
-  if (buffer) consume(buffer);
-  return content;
 }
 
 async function aiGenerate(input: {
