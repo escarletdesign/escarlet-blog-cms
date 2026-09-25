@@ -2167,6 +2167,7 @@ async function handleRequest(req, res) {
           name,
           storageKey: `media/${siteHandle}/reference/${name}`,
           publicUrl: `${origin}/media/${siteHandle}/reference/${encodeURIComponent(name)}`,
+          metadata: { source: 'brand-kit' },
           visibility: 'role_limited'
         }))
         await registerBrandAssets({
@@ -2213,7 +2214,8 @@ async function handleRequest(req, res) {
         const seenNames = new Set()
         const staleAssets = activeAssets.filter((asset) => {
           const name = String(asset.name || '')
-          if (contentStorageKeys.has(asset.storageKey)) return true
+          const isCanonicalAsset = asset.metadata?.source === 'brand-kit' || canonicalNames.has(name)
+          if (!isCanonicalAsset && contentStorageKeys.has(asset.storageKey)) return true
           if (allowedNames.size && !allowedNames.has(name)) return true
           if (seenNames.has(name)) return true
           seenNames.add(name)
