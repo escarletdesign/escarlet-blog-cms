@@ -258,7 +258,6 @@ import {
   cancelContentChannel,
   cancelContentBatch,
   usageSnapshot,
-  updateWorkspaceQuotaLimits,
   connectMetricool,
   getMetricoolIntegration,
   createBrandKitVersion,
@@ -2657,13 +2656,6 @@ async function handleRequest(req, res) {
         const scope = await requireV2Context(req, url, res, body)
         if (!scope) return
         json(res, 200, await rejectContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, batchId: decodeURIComponent(batchReviewMatch[1]), userId: scope.auth.userId, role: scope.context.role, comment: body.comment || body.reason }))
-        return
-      }
-      if (req.method === 'PATCH' && path === '/api/v2/usage/quotas') {
-        const scope = await requireV2Context(req, url, res, body)
-        if (!scope) return
-        if (!scope.auth.systemAdmin) throw Object.assign(new Error('Solo el superadministrador puede modificar cuotas.'), { status: 403 })
-        json(res, 200, await updateWorkspaceQuotaLimits({ workspaceId: scope.workspaceId, limits: body.limits, userId: scope.auth.userId }))
         return
       }
       if (req.method === 'GET' && path === '/api/v2/usage') {
