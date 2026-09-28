@@ -33,7 +33,7 @@ let stopping = false
 
 const retryAt = (attempts) => new Date(Date.now() + Math.min(60 * 60 * 1000, 1000 * 2 ** Math.max(0, attempts - 1))).toISOString()
 
-async function enqueueBufferStatusPolls(workspaceId, rows, now = Date.now()) {
+async function enqueueBufferStatusPolls(workspaceId, rows, now = Date.now(), quotaExempt = false) {
   const bySite = new Map()
   for (const row of rows || []) {
     const key = row.site_id || ''
@@ -47,7 +47,7 @@ async function enqueueBufferStatusPolls(workspaceId, rows, now = Date.now()) {
     await enqueueJob({
       workspaceId,
       type: 'buffer.sync',
-      payload: { siteId: siteId || null },
+      payload: { siteId: siteId || null, quotaExempt },
       idempotencyKey: `buffer:poll:${workspaceId}:${siteKey}:${Math.floor(nextPoll.getTime() / 60_000)}`,
       availableAt: nextPoll
     })
@@ -72,10 +72,10 @@ async function triggerBlogRebuild(variant) {
   if (!response.ok) throw Object.assign(new Error(`Webhook de Coolify falló con HTTP ${response.status}.`), { status: response.status, code: response.status === 429 || response.status >= 500 ? 'provider_transient' : 'provider_rejected' })
 }
 
-async function beginBlogPublication({ pool, workspaceId, variant, sourceId, recordPublication = true, failureStatus = 'scheduled', expectedTitle = '' }) {
+async function beginBlogPublication({ pool, workspaceId, variant, sourceId, recordPublication = true, failureStatus = 'scheduled', expectedTitle = '', quotaExempt = false }) {
   const publicationUrl = blogPublicationUrl(variant)
   if (!publicationUrl) throw new Error('El Blog necesita un dominio público y un slug antes de publicarse.')
-  if (recordPublication) await recordUsage({ workspaceId, siteId: variant.site_id, kind: 'publications', quantity: 1, idempotencyKey: `publication:${sourceId}:${variant.id}`, metadata: { itemId: variant.item_id, channel: 'blog', provider: 'cms' } })
+  if (recordPublication) await recordUsage({ workspaceId, siteId: variant.site_id, kind: 'publications', quantity: 1, idempotencyKey: `publication:${sourceId}:${variant.id}`, metadata: { itemId: variant.item_id, channel: 'blog', provider: 'cms' }, quotaExempt })
   await pool.query("UPDATE content_variants SET status='syncing',updated_at=NOW() WHERE id=$1", [variant.id])
   await pool.query("UPDATE schedules SET status='syncing',last_error=NULL,updated_at=NOW() WHERE variant_id=$1", [variant.id])
   try {
@@ -102,7 +102,7 @@ async function processBlogPublishJob(job) {
     WHERE cv.id=$1 AND cv.channel='blog' AND cv.status='scheduled' AND ci.workflow_revision=$2
       AND EXISTS (SELECT 1 FROM schedules s WHERE s.variant_id=cv.id AND s.publication_date<=NOW())`, [variantId, job.payload?.itemRevision === undefined ? null : Number(job.payload.itemRevision)])
   if (!due.rowCount) return { published: false, variantId }
-  await beginBlogPublication({ pool, workspaceId: job.workspace_id, variant: due.rows[0], sourceId: job.id, expectedTitle: blogPublicationTitle(due.rows[0]) })
+  await beginBlogPublication({ pool, workspaceId: job.workspace_id, variant: due.rows[0], sourceId: job.id, expectedTitle: blogPublicationTitle(due.rows[0]), quotaExempt: Boolean(job.payload?.quotaExempt) })
   return { published: false, syncing: true, variantId }
 }
 
@@ -194,9 +194,9 @@ async function processExternalPublicationEvent(event) {
     if (variant.channel === 'blog') {
       const publicationDate = variant.publication_date ? new Date(variant.publication_date) : null
       if (publicationDate && publicationDate.getTime() > Date.now()) {
-        await enqueueJob({ workspaceId: event.workspace_id, type: 'content.publish_blog', payload: { variantId: variant.id }, idempotencyKey: `blog-publish:${variant.id}:${publicationDate.toISOString()}`, availableAt: publicationDate })
+        await enqueueJob({ workspaceId: event.workspace_id, type: 'content.publish_blog', payload: { variantId: variant.id, quotaExempt: Boolean(event.payload?.quotaExempt) }, idempotencyKey: `blog-publish:${variant.id}:${publicationDate.toISOString()}`, availableAt: publicationDate })
       } else {
-        await beginBlogPublication({ pool, workspaceId: event.workspace_id, variant, sourceId: event.id, recordPublication: event.type !== 'content.blog.updated', failureStatus: event.type === 'content.blog.updated' ? 'published' : 'scheduled', expectedTitle: blogPublicationTitle(variant) })
+        await beginBlogPublication({ pool, workspaceId: event.workspace_id, variant, sourceId: event.id, recordPublication: event.type !== 'content.blog.updated', failureStatus: event.type === 'content.blog.updated' ? 'published' : 'scheduled', expectedTitle: blogPublicationTitle(variant), quotaExempt: Boolean(event.payload?.quotaExempt) })
       }
       continue
     }
@@ -240,7 +240,7 @@ async function processExternalPublicationEvent(event) {
       continue
     }
     const movingBuffer = provider === 'buffer' && moveChannels.has(String(variant.channel).toLowerCase()) && variant.provider_post_id
-    if (!movingBuffer) await recordUsage({ workspaceId: event.workspace_id, siteId: variant.site_id, kind: 'publications', quantity: 1, idempotencyKey: `publication:${event.id}:${variant.id}`, metadata: { itemId, channel: variant.channel, provider } })
+    if (!movingBuffer) await recordUsage({ workspaceId: event.workspace_id, siteId: variant.site_id, kind: 'publications', quantity: 1, idempotencyKey: `publication:${event.id}:${variant.id}`, metadata: { itemId, channel: variant.channel, provider }, quotaExempt: Boolean(event.payload?.quotaExempt) })
     let response
     if (provider === 'metricool') {
       if (!variant.connection_credentials_ciphertext && (!variant.metricool_user_id || !variant.blog_id)) {
@@ -284,7 +284,7 @@ async function processExternalPublicationEvent(event) {
       if (provider === 'buffer') bufferPending.push({ site_id: variant.site_id, publication_date: variant.publication_date, status })
       else {
         const nextPoll = new Date(Date.now() + metricoolPollMs)
-        await enqueueJob({ workspaceId: event.workspace_id, type: `${provider}.sync`, payload: { siteId: variant.site_id }, idempotencyKey: `${provider}:poll:${variant.id}:${Math.floor(nextPoll.getTime() / metricoolPollMs)}`, availableAt: nextPoll })
+        await enqueueJob({ workspaceId: event.workspace_id, type: `${provider}.sync`, payload: { siteId: variant.site_id, quotaExempt: Boolean(event.payload?.quotaExempt) }, idempotencyKey: `${provider}:poll:${variant.id}:${Math.floor(nextPoll.getTime() / metricoolPollMs)}`, availableAt: nextPoll })
       }
     }
     } catch (error) {
@@ -296,7 +296,7 @@ async function processExternalPublicationEvent(event) {
       await pool.query(`UPDATE schedules SET status=$2,last_error=$3,updated_at=NOW() WHERE variant_id=$1 AND status NOT IN ('published','canceled')`, [variant.id, state, message])
     }
   }
-  await enqueueBufferStatusPolls(event.workspace_id, bufferPending)
+  await enqueueBufferStatusPolls(event.workspace_id, bufferPending, Date.now(), Boolean(event.payload?.quotaExempt))
   await pool.query(`UPDATE content_items ci SET status=CASE
     WHEN EXISTS (SELECT 1 FROM content_variants cv WHERE cv.item_id=ci.id AND cv.status='scheduled') THEN 'scheduled'
     WHEN EXISTS (SELECT 1 FROM content_variants cv WHERE cv.item_id=ci.id AND cv.status='failed') THEN 'failed'
@@ -335,10 +335,10 @@ async function processMetricoolSyncJob(job) {
     const status = ['failed', 'error', 'rejected'].includes(remoteStatus) ? 'failed' : remoteStatus === 'published' ? 'published' : 'syncing'
     await pool.query('UPDATE content_variants SET status=$1,updated_at=NOW() WHERE id=$2', [status, row.id])
     await pool.query('UPDATE schedules SET status=$1,last_error=NULL,updated_at=NOW() WHERE variant_id=$2', [status, row.id])
-    await recordUsage({ workspaceId: job.workspace_id, siteId: row.site_id, kind: 'external_syncs', quantity: 1, idempotencyKey: `sync:${job.id}:${row.id}`, metadata: { itemId: row.item_id, channel: row.channel, provider: 'metricool' } })
+    await recordUsage({ workspaceId: job.workspace_id, siteId: row.site_id, kind: 'external_syncs', quantity: 1, idempotencyKey: `sync:${job.id}:${row.id}`, metadata: { itemId: row.item_id, channel: row.channel, provider: 'metricool' }, quotaExempt: Boolean(job.payload?.quotaExempt) })
     if (status === 'syncing' || status === 'scheduled') {
       const nextPoll = new Date(Date.now() + metricoolPollMs)
-      await enqueueJob({ workspaceId: job.workspace_id, type: 'metricool.sync', payload: { siteId: row.site_id }, idempotencyKey: `metricool:poll:${row.id}:${Math.floor(nextPoll.getTime() / metricoolPollMs)}`, availableAt: nextPoll })
+      await enqueueJob({ workspaceId: job.workspace_id, type: 'metricool.sync', payload: { siteId: row.site_id, quotaExempt: Boolean(job.payload?.quotaExempt) }, idempotencyKey: `metricool:poll:${row.id}:${Math.floor(nextPoll.getTime() / metricoolPollMs)}`, availableAt: nextPoll })
     }
     synced++
   }
@@ -368,10 +368,10 @@ async function processPlanableSyncJob(job) {
     const status = ['failed', 'error', 'rejected'].includes(remoteStatus) ? 'failed' : remoteStatus === 'published' ? 'published' : 'syncing'
     await pool.query('UPDATE content_variants SET status=$1,updated_at=NOW() WHERE id=$2', [status, row.id])
     await pool.query('UPDATE schedules SET status=$1,last_error=NULL,updated_at=NOW() WHERE variant_id=$2', [status, row.id])
-    await recordUsage({ workspaceId: job.workspace_id, siteId: row.site_id, kind: 'external_syncs', quantity: 1, idempotencyKey: `sync:${job.id}:${row.id}`, metadata: { itemId: row.item_id, channel: row.channel, provider: 'planable' } })
+    await recordUsage({ workspaceId: job.workspace_id, siteId: row.site_id, kind: 'external_syncs', quantity: 1, idempotencyKey: `sync:${job.id}:${row.id}`, metadata: { itemId: row.item_id, channel: row.channel, provider: 'planable' }, quotaExempt: Boolean(job.payload?.quotaExempt) })
     if (status === 'syncing') {
       const nextPoll = new Date(Date.now() + metricoolPollMs)
-      await enqueueJob({ workspaceId: job.workspace_id, type: 'planable.sync', payload: { siteId: row.site_id }, idempotencyKey: `planable:poll:${row.id}:${Math.floor(nextPoll.getTime() / metricoolPollMs)}`, availableAt: nextPoll })
+      await enqueueJob({ workspaceId: job.workspace_id, type: 'planable.sync', payload: { siteId: row.site_id, quotaExempt: Boolean(job.payload?.quotaExempt) }, idempotencyKey: `planable:poll:${row.id}:${Math.floor(nextPoll.getTime() / metricoolPollMs)}`, availableAt: nextPoll })
     }
     synced++
   }
@@ -401,10 +401,10 @@ async function processPostizSyncJob(job) {
     const status = row.channel === 'instagram_story' && remoteStatus === 'published' ? 'action_required' : remoteStatus === 'failed' ? 'failed' : remoteStatus === 'published' ? 'published' : remoteStatus === 'canceled' ? 'canceled' : remoteStatus === 'draft' || remoteStatus === 'scheduled' ? 'scheduled' : 'syncing'
     await pool.query('UPDATE content_variants SET status=$1,updated_at=NOW() WHERE id=$2', [status, row.id])
     await pool.query('UPDATE schedules SET status=$1,last_error=NULL,updated_at=NOW() WHERE variant_id=$2', [status, row.id])
-    await recordUsage({ workspaceId: job.workspace_id, siteId: row.site_id, kind: 'external_syncs', quantity: 1, idempotencyKey: `sync:${job.id}:${row.id}`, metadata: { itemId: row.item_id, channel: row.channel, provider: 'postiz' } })
+    await recordUsage({ workspaceId: job.workspace_id, siteId: row.site_id, kind: 'external_syncs', quantity: 1, idempotencyKey: `sync:${job.id}:${row.id}`, metadata: { itemId: row.item_id, channel: row.channel, provider: 'postiz' }, quotaExempt: Boolean(job.payload?.quotaExempt) })
     if (status === 'syncing') {
       const nextPoll = new Date(Date.now() + metricoolPollMs)
-      await enqueueJob({ workspaceId: job.workspace_id, type: 'postiz.sync', payload: { siteId: row.site_id }, idempotencyKey: `postiz:poll:${row.id}:${Math.floor(nextPoll.getTime() / metricoolPollMs)}`, availableAt: nextPoll })
+      await enqueueJob({ workspaceId: job.workspace_id, type: 'postiz.sync', payload: { siteId: row.site_id, quotaExempt: Boolean(job.payload?.quotaExempt) }, idempotencyKey: `postiz:poll:${row.id}:${Math.floor(nextPoll.getTime() / metricoolPollMs)}`, availableAt: nextPoll })
     }
     synced++
   }
@@ -448,11 +448,11 @@ async function processBufferSyncJob(job) {
             : remoteStatus === 'draft' || remoteStatus === 'scheduled' ? 'scheduled' : 'syncing'
     await pool.query('UPDATE content_variants SET status=$1,updated_at=NOW() WHERE id=$2', [status, row.id])
     await pool.query('UPDATE schedules SET status=$1,last_error=NULL,updated_at=NOW() WHERE variant_id=$2', [status, row.id])
-    await recordUsage({ workspaceId: job.workspace_id, siteId: row.site_id, kind: 'external_syncs', quantity: 1, idempotencyKey: `sync:${job.id}:${row.id}`, metadata: { itemId: row.item_id, channel: row.channel, provider: 'buffer' } })
+    await recordUsage({ workspaceId: job.workspace_id, siteId: row.site_id, kind: 'external_syncs', quantity: 1, idempotencyKey: `sync:${job.id}:${row.id}`, metadata: { itemId: row.item_id, channel: row.channel, provider: 'buffer' }, quotaExempt: Boolean(job.payload?.quotaExempt) })
     if (status === 'syncing' || status === 'scheduled') pending.push({ ...row, status })
     synced++
   }
-  await enqueueBufferStatusPolls(job.workspace_id, pending, now)
+  await enqueueBufferStatusPolls(job.workspace_id, pending, now, Boolean(job.payload?.quotaExempt))
   return { synced }
 }
 

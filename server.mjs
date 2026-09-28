@@ -258,6 +258,7 @@ import {
   cancelContentChannel,
   cancelContentBatch,
   usageSnapshot,
+  updateWorkspaceQuotaLimits,
   connectMetricool,
   getMetricoolIntegration,
   createBrandKitVersion,
@@ -2328,7 +2329,7 @@ async function handleRequest(req, res) {
         }
         const siteId = scope.siteId || scope.context.siteIds[0]
         if (!siteId) throw Object.assign(new Error('siteId es obligatorio.'), { status: 400 })
-        const result = await createContentBatch({ workspaceId: scope.workspaceId, siteId, userId: scope.auth.userId || null, role: scope.context.role, title: body.title, topics: v2Topics(body), items: body.items, batchId: body.batchId, channels: body.channels, brandKitVersionId: body.brandKitVersionId, metadata: body.metadata, idempotencyKey: req.headers['idempotency-key'] })
+        const result = await createContentBatch({ workspaceId: scope.workspaceId, siteId, userId: scope.auth.userId || null, role: scope.context.role, title: body.title, topics: v2Topics(body), items: body.items, batchId: body.batchId, channels: body.channels, brandKitVersionId: body.brandKitVersionId, metadata: body.metadata, idempotencyKey: req.headers['idempotency-key'], quotaExempt: Boolean(scope.auth.systemAdmin) })
         json(res, 201, result)
         return
       }
@@ -2585,7 +2586,7 @@ async function handleRequest(req, res) {
       if (req.method === 'PATCH' && itemMatch) {
         const scope = await requireV2Context(req, url, res, body)
         if (!scope) return
-        const result = await updateContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId: decodeURIComponent(itemMatch[1]), userId: scope.auth.userId, role: scope.context.role, topic: body.topic, contentTitle: body.contentTitle, body: body.body, channel: body.channel, visualBrief: body.visualBrief, mediaAssetIds: body.mediaAssetIds, readyForReview: body.readyForReview, keepPublished: body.keepPublished })
+        const result = await updateContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId: decodeURIComponent(itemMatch[1]), userId: scope.auth.userId, role: scope.context.role, topic: body.topic, contentTitle: body.contentTitle, body: body.body, channel: body.channel, visualBrief: body.visualBrief, mediaAssetIds: body.mediaAssetIds, readyForReview: body.readyForReview, keepPublished: body.keepPublished, quotaExempt: Boolean(scope.auth.systemAdmin) })
         json(res, 200, result)
         return
       }
@@ -2595,7 +2596,7 @@ async function handleRequest(req, res) {
         const itemId = decodeURIComponent(itemActionMatch[1])
         const action = itemActionMatch[2]
         if (action === 'approve') {
-          json(res, 200, await approveContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role }))
+          json(res, 200, await approveContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role, quotaExempt: Boolean(scope.auth.systemAdmin) }))
           return
         }
         if (action === 'reject') {
@@ -2611,7 +2612,7 @@ async function handleRequest(req, res) {
           return
         }
         if (action === 'reschedule') {
-          json(res, 200, await rescheduleContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role, channels: body.channels, publicationDate: body.publicationDate, timezone: body.timezone, publishNow: body.publishNow === true }))
+          json(res, 200, await rescheduleContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role, channels: body.channels, publicationDate: body.publicationDate, timezone: body.timezone, publishNow: body.publishNow === true, quotaExempt: Boolean(scope.auth.systemAdmin) }))
           return
         }
         if (action === 'mark-published') {
@@ -2631,10 +2632,10 @@ async function handleRequest(req, res) {
           return
         }
         if (action === 'publish-buffer') {
-          json(res, 202, await publishContentItemViaBuffer({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role, channels: body.channels, copy: body.copy }))
+          json(res, 202, await publishContentItemViaBuffer({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role, channels: body.channels, copy: body.copy, quotaExempt: Boolean(scope.auth.systemAdmin) }))
           return
         }
-        json(res, 200, await scheduleContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role, channels: body.channels, publicationDate: body.publicationDate, timezone: body.timezone, publishNow: body.publishNow === true }))
+        json(res, 200, await scheduleContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role, channels: body.channels, publicationDate: body.publicationDate, timezone: body.timezone, publishNow: body.publishNow === true, quotaExempt: Boolean(scope.auth.systemAdmin) }))
         return
       }
       if (req.method === 'POST' && batchActionMatch) {
@@ -2643,19 +2644,26 @@ async function handleRequest(req, res) {
         const batchId = decodeURIComponent(batchActionMatch[1])
         json(res, 200, batchActionMatch[2] === 'cancel'
           ? await cancelContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, batchId, userId: scope.auth.userId, role: scope.context.role })
-          : await scheduleContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, batchId, userId: scope.auth.userId, role: scope.context.role, channels: body.channels, publicationDate: body.publicationDate, timezone: body.timezone }))
+          : await scheduleContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, batchId, userId: scope.auth.userId, role: scope.context.role, channels: body.channels, publicationDate: body.publicationDate, timezone: body.timezone, quotaExempt: Boolean(scope.auth.systemAdmin) }))
         return
       }
       if (req.method === 'POST' && batchReviewMatch && batchReviewMatch[2] === 'approve') {
         const scope = await requireV2Context(req, url, res, body)
         if (!scope) return
-        json(res, 200, await approveContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, batchId: decodeURIComponent(batchReviewMatch[1]), userId: scope.auth.userId, role: scope.context.role }))
+        json(res, 200, await approveContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, batchId: decodeURIComponent(batchReviewMatch[1]), userId: scope.auth.userId, role: scope.context.role, quotaExempt: Boolean(scope.auth.systemAdmin) }))
         return
       }
       if (req.method === 'POST' && batchReviewMatch && batchReviewMatch[2] === 'reject') {
         const scope = await requireV2Context(req, url, res, body)
         if (!scope) return
         json(res, 200, await rejectContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, batchId: decodeURIComponent(batchReviewMatch[1]), userId: scope.auth.userId, role: scope.context.role, comment: body.comment || body.reason }))
+        return
+      }
+      if (req.method === 'PATCH' && path === '/api/v2/usage/quotas') {
+        const scope = await requireV2Context(req, url, res, body)
+        if (!scope) return
+        if (!scope.auth.systemAdmin) throw Object.assign(new Error('Solo el superadministrador puede modificar cuotas.'), { status: 403 })
+        json(res, 200, await updateWorkspaceQuotaLimits({ workspaceId: scope.workspaceId, limits: body.limits, userId: scope.auth.userId }))
         return
       }
       if (req.method === 'GET' && path === '/api/v2/usage') {
@@ -2691,13 +2699,13 @@ async function handleRequest(req, res) {
         if (!scope) return
         const { credentials } = await metricoolCredentialsFor(scope)
         if (body.providerPostId) json(res, 200, await syncMetricoolPost({ ...credentials, providerPostId: body.providerPostId }))
-        else json(res, 202, await enqueueJob({ workspaceId: scope.workspaceId, type: 'metricool.sync', payload: { siteId: scope.siteId }, idempotencyKey: `metricool:sync:${scope.workspaceId}:${scope.siteId || 'workspace'}:${new Date().toISOString().slice(0, 13)}` }))
+        else json(res, 202, await enqueueJob({ workspaceId: scope.workspaceId, type: 'metricool.sync', payload: { siteId: scope.siteId, quotaExempt: Boolean(scope.auth.systemAdmin) }, idempotencyKey: `metricool:sync:${scope.workspaceId}:${scope.siteId || 'workspace'}:${new Date().toISOString().slice(0, 13)}` }))
         return
       }
       if (req.method === 'POST' && path === '/api/v2/content/sync-remote-status') {
         const scope = await requireV2Context(req, url, res, body)
         if (!scope) return
-        json(res, 202, await enqueueRemotePublicationStatusSync({ workspaceId: scope.workspaceId, siteId: scope.siteId || null }))
+        json(res, 202, await enqueueRemotePublicationStatusSync({ workspaceId: scope.workspaceId, siteId: scope.siteId || null, quotaExempt: Boolean(scope.auth.systemAdmin) }))
         return
       }
       json(res, 404, { message: 'Contrato v2 no encontrado.' })
@@ -3341,7 +3349,7 @@ async function handleRequest(req, res) {
         const siteRecord = rawScope.sites.find((entry) => entry.handle === site) || rawScope.sites[0]
         if (!siteRecord) throw Object.assign(new Error('Sitio no migrado a Postgres.'), { status: 404 })
         const workspaceRole = auth.role === 'admin' ? 'admin' : auth.userId ? rawScope.role || workspaceRoleForAuth(auth) : workspaceRoleForAuth(auth)
-        const result = await createContentBatch({ workspaceId: rawScope.workspaceId, siteId: siteRecord.id, userId: auth.userId || null, role: workspaceRole, title: body.title || 'Batch generado desde chat', topics: body.topics, channels: body.channels, metadata: { source: 'chat' }, idempotencyKey: req.headers['idempotency-key'] })
+        const result = await createContentBatch({ workspaceId: rawScope.workspaceId, siteId: siteRecord.id, userId: auth.userId || null, role: workspaceRole, title: body.title || 'Batch generado desde chat', topics: body.topics, channels: body.channels, metadata: { source: 'chat' }, idempotencyKey: req.headers['idempotency-key'], quotaExempt: Boolean(auth.systemAdmin) })
         json(res, 201, { site, ...result })
         return
       }

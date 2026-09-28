@@ -5391,7 +5391,7 @@ function Settings() {
 
 function Billing({ embedded = false }: { embedded?: boolean } = {}) {
   const Root = embedded ? "section" : "main";
-  const { site, workflowFlags } = useApp();
+  const { site, workflowFlags, session } = useApp();
   const { t, language } = useI18n();
   const { showToast } = useToast();
   const [snapshot, setSnapshot] = useState<Record<string, any> | null>(null);
@@ -5459,16 +5459,15 @@ function Billing({ embedded = false }: { embedded?: boolean } = {}) {
         {snapshot ? (
           <>
             <strong className="credit-number">
-              {Number(ai?.available || 0).toLocaleString(
+              {session?.systemAdmin ? "∞" : Number(ai?.available || 0).toLocaleString(
                 language === "en" ? "en-GB" : "es-ES",
               )}
             </strong>
             <p className="ui-muted">
-              {t("billing.available")} ·{" "}
+              {session?.systemAdmin ? t("billing.adminUnlimited") : <>{t("billing.available")} ·{" "}
               {Number(ai?.monthlyRemaining || 0).toLocaleString(
                 language === "en" ? "en-GB" : "es-ES",
-              )}{" "}
-              {t("billing.included")}
+              )}{" "}{t("billing.included")}</>}
             </p>
             {testCreditsEnabled && (
               <div className="temporary-flag-warning billing-test-banner" role="status">
@@ -5481,7 +5480,7 @@ function Billing({ embedded = false }: { embedded?: boolean } = {}) {
           <p className="ui-muted">{t("common.loading")}</p>
         )}
       </section>
-      <section className="ui-card credit-help-card">
+      {!session?.systemAdmin && <section className="ui-card credit-help-card">
         <p className="ui-eyebrow">{t("billing.howItWorks")}</p>
         <h2>{t("billing.creditTitle")}</h2>
         <p className="ui-muted">{t("billing.creditHelp")}</p>
@@ -5490,8 +5489,8 @@ function Billing({ embedded = false }: { embedded?: boolean } = {}) {
           <li>{t("billing.creditPointTwo")}</li>
           <li>{t("billing.creditPointThree")}</li>
         </ul>
-      </section>
-      <section className="pack-grid">
+      </section>}
+      {!session?.systemAdmin && <section className="pack-grid">
         {packs.length ? (
           packs.map((pack) => (
             <div className="ui-card" key={pack.id}>
@@ -5524,10 +5523,88 @@ function Billing({ embedded = false }: { embedded?: boolean } = {}) {
             <p>{t("billing.emptyHelp")}</p>
           </div>
         )}
-      </section>
+      </section>}
       {message && <p className="ui-success">{message}</p>}
     </Root>
   );
+}
+
+const WORKSPACE_QUOTA_METRICS = [
+  "content_items_created",
+  "generations",
+  "media_uploads",
+  "publications",
+  "external_syncs",
+] as const;
+
+function WorkspaceQuotaSettings({ embedded = false }: { embedded?: boolean } = {}) {
+  const { site } = useApp();
+  const { t } = useI18n();
+  const { showToast } = useToast();
+  const [loadVersion, setLoadVersion] = useState(0);
+  const [workspace, setWorkspace] = useState<{ id: string; name?: string } | null>(null);
+  const [snapshot, setSnapshot] = useState<Record<string, any> | null>(null);
+  const [limits, setLimits] = useState<Record<string, number>>({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError("");
+    void (async () => {
+      const context = await api.context(site);
+      const usage = await api.usageV2(context.workspace.id);
+      if (!active) return;
+      setWorkspace(context.workspace);
+      setSnapshot(usage);
+      setLimits(usage.limits || {});
+    })().catch((err) => {
+      if (active) setError(err instanceof Error ? err.message : t("quota.loadError"));
+    }).finally(() => {
+      if (active) setLoading(false);
+    });
+    return () => { active = false; };
+  }, [site, loadVersion, t]);
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!workspace) return;
+    setSaving(true);
+    setSaved(false);
+    setError("");
+    try {
+      const next = await api.updateWorkspaceQuotaLimits(workspace.id, limits);
+      setSnapshot(next);
+      setLimits(next.limits || limits);
+      setSaved(true);
+      showToast(t("quota.saved"));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t("quota.saveError");
+      setError(message);
+      showToast(message, "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return <section className={embedded ? "ui-admin-section" : "ui-page ui-page-narrow"}>
+    <PageHeader eyebrow={workspace?.name || t("admin.workspaceScope")} title={t("quota.title")} description={t("quota.description")} />
+    {loading ? <Card><p className="ui-muted">{t("common.loading")}</p></Card> : error && !snapshot ? <EmptyState title={t("quota.loadError")} description={error} action={<Button variant="ghost" size="sm" onClick={() => setLoadVersion((version) => version + 1)}>{t("calendar.retry")}</Button>} /> : <form className="ui-stack ui-stack-md" onSubmit={(event) => void save(event)}>
+      <Card><Stack gap="md">{WORKSPACE_QUOTA_METRICS.map((kind) => {
+        const used = Number(snapshot?.counters?.[kind]?.quantity || 0);
+        const label = t(`quota.metric.${kind}`);
+        return <Field key={kind} label={label} hint={`${t("quota.used")}: ${used} · ${t("quota.period")}: ${snapshot?.period || ""}`}>
+          <TextField type="number" min={0} step={1} value={limits[kind] ?? 0} aria-label={label} onChange={(event) => setLimits((current) => ({ ...current, [kind]: Number(event.target.value) }))} />
+        </Field>;
+      })}</Stack><p className="ui-field-hint">{t("quota.unlimitedHelp")}</p></Card>
+      {error && <p className="ui-field-error" role="alert">{error}</p>}
+      {saved && <p className="ui-success" role="status">{t("quota.saved")}</p>}
+      <Inline gap="sm"><Button type="submit" loading={saving} disabled={loading || !workspace}>{t("quota.save")}</Button></Inline>
+    </form>}
+  </section>;
 }
 
 function AdminGate() {
@@ -5535,23 +5612,28 @@ function AdminGate() {
   return isWorkspaceAdmin(session) ? <AdminIndex /> : <Navigate to="/" replace />;
 }
 
-type AdminTabId = "brands" | "team" | "connections" | "billing";
+type AdminTabId = "brands" | "team" | "connections" | "billing" | "quotas";
 
 function AdminTabs({ active, onChange }: { active: AdminTabId; onChange: (tab: AdminTabId) => void }) {
-  const { workflowFlags } = useApp();
+  const { workflowFlags, session } = useApp();
+  const { t } = useI18n();
   const tabs: Array<{ id: AdminTabId; label: string }> = [
     { id: "brands", label: "Marcas" },
     { id: "team", label: "Equipo y acceso" },
     { id: "connections", label: "Conexiones" },
     ...(workflowFlags.cmsAiEnabled ? [{ id: "billing" as const, label: "Plan y uso" }] : []),
+    ...(session?.systemAdmin ? [{ id: "quotas" as const, label: t("quota.tab") }] : []),
   ];
   return <Tabs items={tabs} value={active} onChange={onChange} ariaLabel="Áreas de administración" className="ui-admin-tabs" idPrefix="admin-tablist" panelIdPrefix="admin-panel" />;
 }
 
 function AdminIndex() {
+  const { session, workflowFlags } = useApp();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get("tab") as AdminTabId | null;
-  const active: AdminTabId = requestedTab && ["brands", "team", "connections", "billing"].includes(requestedTab) ? requestedTab : "brands";
+  const availableTabs: AdminTabId[] = ["brands", "team", "connections", ...(session?.systemAdmin ? ["quotas" as const] : [])];
+  if (workflowFlags.cmsAiEnabled) availableTabs.push("billing");
+  const active: AdminTabId = requestedTab && availableTabs.includes(requestedTab) ? requestedTab : "brands";
   const selectTab = (tab: AdminTabId) => setSearchParams({ tab }, { replace: true });
   return <main className="ui-page admin-index-page">
     <PageHeader eyebrow="Configuración del espacio" title="Administración" description="Gestiona marcas, accesos, conexiones y uso sin salir de esta pantalla." />
@@ -5561,6 +5643,7 @@ function AdminIndex() {
       {active === "team" && <TeamView embedded autoInvite={searchParams.get("invite") === "1"} />}
       {active === "connections" && <ConnectionsView embedded />}
       {active === "billing" && <Billing embedded />}
+      {active === "quotas" && session?.systemAdmin && <WorkspaceQuotaSettings embedded />}
     </div>
   </main>;
 }
