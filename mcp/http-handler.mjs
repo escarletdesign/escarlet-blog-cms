@@ -17,7 +17,7 @@ export function sendMcpCors(res, req = res._request) {
 const modernHandler = createMcpHandler(
   ({ authInfo }) => createMcpServer(authInfo || { role: 'admin' }),
   {
-    legacy: 'reject',
+    legacy: 'stateless',
     responseMode: 'json',
     onerror: (error) => console.error('[mcp] request failed', error)
   }
