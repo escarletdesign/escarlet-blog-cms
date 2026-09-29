@@ -1,8 +1,8 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "./api";
 import type { ContentChannel, ContentItem, ContentPlanSummary, ContentVariant } from "./types";
-import { aggregateStatus, CONTENT_TITLE_MAX, itemTitle, statusLabel } from "./content-format";
+import { aggregateStatus, CONTENT_TITLE_MAX, contentPreviewPath, itemTitle, statusLabel } from "./content-format";
 import { ContentPackPreview } from "./ContentPackPreview";
 import { Badge, Button, Card, ChannelBadge, Checkbox, Drawer, EmptyState, Field, Inline, Modal, PageHeader, Progress, ReviewToolbar, Select, Stack, StatusBadge, TextField, Textarea } from "./ui";
 
@@ -26,9 +26,10 @@ const localDateInput = (value?: string) => { if (!value) return ""; const date =
 const dateKey = (itemId: string, channel: string) => itemId + ":" + channel;
 const formatDate = (value?: string) => value ? new Intl.DateTimeFormat("es-ES", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Sin fecha";
 const publicationSortTime = (item: ContentItem) => {
-  const times = (item.variants || []).map((variant) => variant.publicationDate).filter(Boolean).map((value) => new Date(value as string).getTime()).filter((value) => Number.isFinite(value));
-  return times.length ? Math.min(...times) : Number.NEGATIVE_INFINITY;
+  const times = (item.variants || []).filter((variant) => !["published", "canceled"].includes(variant.scheduleStatus || variant.status)).map((variant) => variant.publicationDate).filter(Boolean).map((value) => new Date(value as string).getTime()).filter((value) => Number.isFinite(value));
+  return times.length ? Math.min(...times) : Number.POSITIVE_INFINITY;
 };
+const statusPriority: Record<string, number> = { action_required: 0, failed: 1, needs_review: 2, draft: 3, generated: 4, approved: 5, scheduled: 6, syncing: 7, published: 8, canceled: 9 };
 const normalizeVariant = (raw: any): ContentVariant => ({ ...raw, channel: raw.channel, status: raw.status || "draft", body: raw.body || {}, publicationDate: raw.publicationDate || raw.publication_date || "", scheduleTimezone: raw.scheduleTimezone || raw.schedule_timezone || "", scheduleStatus: raw.scheduleStatus || raw.schedule_status || undefined, lastError: raw.lastError || raw.last_error || null });
 const normalizeItem = (raw: any): ContentItem => ({ ...raw, batchId: raw.batchId || raw.batch_id, planTitle: raw.planTitle || raw.plan_title, planStatus: raw.planStatus || raw.plan_status, metadata: raw.metadata || {}, variants: Array.isArray(raw.variants) ? raw.variants.map(normalizeVariant) : [] });
 const BUFFER_PUBLISH_CHANNELS: ContentChannel[] = ["instagram", "linkedin", "x", "video"];
@@ -49,21 +50,17 @@ const bufferPublishableChannels = (rows: Array<{ channel: string; enabled?: bool
   return ready;
 };
 
-type Props = { site: string; brandId?: string; creationEnabled?: boolean; activeChannels?: Array<{ channel: string; enabled: boolean; connectionStatus?: string }>; onNotify?: (message: string, kind?: "success" | "error" | "info") => void };
-type Dialog = { type: "edit" | "schedule" | "blog-edit"; item: ContentItem } | { type: "preview"; item: ContentItem; autoRecord?: boolean } | { type: "details"; item: ContentItem } | null;
+type Props = { site: string; brandId?: string; previewItemId?: string; creationEnabled?: boolean; activeChannels?: Array<{ channel: string; enabled: boolean; connectionStatus?: string }>; onNotify?: (message: string, kind?: "success" | "error" | "info") => void };
+type Dialog = { type: "edit" | "schedule" | "blog-edit"; item: ContentItem } | { type: "details"; item: ContentItem } | null;
 
-export function ContentBatches({ site, brandId, creationEnabled = false, activeChannels, onNotify }: Props) {
+export function ContentBatches({ site, brandId, previewItemId, creationEnabled = false, activeChannels, onNotify }: Props) {
   const [plans, setPlans] = useState<ContentPlanSummary[]>([]);
   const [items, setItems] = useState<ContentItem[]>([]);
+  const [previewFallback, setPreviewFallback] = useState<ContentItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [setupRequired, setSetupRequired] = useState(false);
-  const [filterQuery, setFilterQuery] = useState("");
-  const [filterPlan, setFilterPlan] = useState("all");
-  const [filterStatus, setFilterStatus] = useState("all");
-  const [filterChannel, setFilterChannel] = useState("all");
-  const [filterDate, setFilterDate] = useState("all");
   const [dialog, setDialog] = useState<Dialog>(null);
   const [modalValue, setModalValue] = useState("");
   const [blogForm, setBlogForm] = useState({ title: "", excerpt: "", content: "", usesHtml: false });
@@ -73,16 +70,34 @@ export function ContentBatches({ site, brandId, creationEnabled = false, activeC
   const [title, setTitle] = useState("");
   const [dates, setDates] = useState<Record<string, string>>({});
   const [topics, setTopics] = useState("");
-  const [view, setView] = useState<"list" | "calendar">("list");
-  const [calendarCursor, setCalendarCursor] = useState(() => new Date());
   const loadSequence = useRef(0);
   const loadAbort = useRef<AbortController | null>(null);
   const createIdempotencyKey = useRef<string | null>(null);
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const previewBatchId = searchParams.get("batchId") || "";
+  const filterQuery = searchParams.get("q") || "";
+  const filterPlan = searchParams.get("plan") || "all";
+  const filterStatus = searchParams.get("status") || "all";
+  const filterChannel = searchParams.get("channel") || "all";
+  const filterDate = searchParams.get("date") || "all";
+  const sortOrder = ["date", "status", "title"].includes(searchParams.get("sort") || "") ? searchParams.get("sort") as "date" | "status" | "title" : "date";
+  const updateSearchParam = (key: string, value: string, defaultValue = "all") => {
+    const next = new URLSearchParams(searchParams);
+    if (!value || value === defaultValue) next.delete(key);
+    else next.set(key, value);
+    setSearchParams(next, { replace: true });
+  };
+  const clearFilters = () => {
+    const next = new URLSearchParams(searchParams);
+    ["q", "plan", "status", "channel", "date"].forEach((key) => next.delete(key));
+    setSearchParams(next, { replace: true });
+  };
   const channels = (activeChannels?.filter((channel) => channel.enabled).map((channel) => channel.channel).filter((channel): channel is ContentChannel => ALL_CHANNELS.includes(channel as ContentChannel)) || ALL_CHANNELS).slice(0, 7);
   const publishChannels = useMemo(() => bufferPublishableChannels(activeChannels || []), [activeChannels]);
   const connectionsPath = brandId ? `/brands/${encodeURIComponent(brandId)}/connections` : "/connections";
-  const previewItem = dialog?.type === "preview" ? dialog.item : null;
+  const previewItem = previewItemId ? items.find((item) => item.id === previewItemId) || (previewFallback?.id === previewItemId ? previewFallback : null) : null;
   const detailItem = dialog?.type === "details" ? dialog.item : null;
   const bufferReady = publishChannels.length > 0;
 
@@ -97,7 +112,15 @@ export function ContentBatches({ site, brandId, creationEnabled = false, activeC
       if (sequence !== loadSequence.current || controller.signal.aborted) return;
       setPlans((planResponse.plans || []) as ContentPlanSummary[]);
       const nextItems = (reviewResponse.items || []).map(normalizeItem);
+      let fallback: ContentItem | null = null;
+      if (previewItemId && previewBatchId && !nextItems.some((entry) => entry.id === previewItemId)) {
+        const batch = await api.contentBatch(previewBatchId, site);
+        const preview = batch.items?.find((entry) => entry.id === previewItemId);
+        if (preview) fallback = normalizeItem(preview);
+      }
+      if (sequence !== loadSequence.current || controller.signal.aborted) return;
       setItems(nextItems);
+      setPreviewFallback(fallback);
       setDialog((current) => {
         if (!current) return current;
         const refreshed = nextItems.find((entry) => entry.id === current.item.id);
@@ -115,22 +138,38 @@ export function ContentBatches({ site, brandId, creationEnabled = false, activeC
       return false;
     } finally { if (sequence === loadSequence.current) setLoading(false); }
   };
-  useEffect(() => { void load(); return () => { loadAbort.current?.abort(); }; }, [site]);
-  useEffect(() => { setFilterPlan(searchParams.get("plan") || "all"); setFilterStatus(searchParams.get("status") || "all"); }, [searchParams]);
-
+  useEffect(() => {
+    if (previewItemId) return;
+    void load();
+    return () => { loadAbort.current?.abort(); };
+  }, [site]);
+  useEffect(() => {
+    if (!previewItemId) return;
+    void load();
+    return () => { loadAbort.current?.abort(); };
+  }, [site, previewItemId, previewBatchId]);
+  useEffect(() => { if (previewItemId) setDialog(null); }, [previewItemId]);
   const visibleItems = useMemo(() => {
     const query = filterQuery.trim().toLowerCase();
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
     return items.filter((item) => {
       const itemStatus = aggregateStatus(item);
-      const datesForItem = (item.variants || []).map((variant) => variant.publicationDate).filter(Boolean).map((value) => new Date(value as string)).filter((date) => !Number.isNaN(date.getTime()));
+      const datesForItem = (item.variants || []).filter((variant) => !["published", "canceled"].includes(variant.scheduleStatus || variant.status)).map((variant) => variant.publicationDate).filter(Boolean).map((value) => new Date(value as string)).filter((date) => !Number.isNaN(date.getTime()));
       const hasDate = datesForItem.length > 0;
       const dateMatch = filterDate === "all" || (filterDate === "no_date" && !hasDate) || (filterDate === "overdue" && datesForItem.some((date) => date < new Date())) || (filterDate === "today" && datesForItem.some((date) => date >= today && date < tomorrow)) || (filterDate === "upcoming" && datesForItem.some((date) => date >= tomorrow));
-      const text = (item.topic + " " + (item.planTitle || "") + " " + (item.metadata?.contentTitle || "")).toLowerCase();
+      const variantText = (item.variants || []).flatMap((variant) => [variant.body?.title, variant.body?.excerpt, variant.body?.text, variant.body?.caption]).filter(Boolean).join(" ");
+      const text = (item.topic + " " + (item.planTitle || "") + " " + (item.metadata?.contentTitle || "") + " " + variantText).toLowerCase();
       return (!query || text.includes(query)) && (filterPlan === "all" || String(item.batchId) === filterPlan) && (filterStatus === "all" || itemStatus === filterStatus || item.status === filterStatus) && (filterChannel === "all" || (item.variants || []).some((variant) => variant.channel === filterChannel)) && dateMatch;
-    }).sort((left, right) => publicationSortTime(left) - publicationSortTime(right));
-  }, [items, filterQuery, filterPlan, filterStatus, filterChannel, filterDate]);
+    }).sort((left, right) => {
+      if (sortOrder === "title") return itemTitle(left).localeCompare(itemTitle(right), "es", { sensitivity: "base" });
+      if (sortOrder === "status") {
+        const priority = (statusPriority[aggregateStatus(left)] ?? 10) - (statusPriority[aggregateStatus(right)] ?? 10);
+        if (priority) return priority;
+      }
+      return publicationSortTime(left) - publicationSortTime(right) || itemTitle(left).localeCompare(itemTitle(right), "es", { sensitivity: "base" });
+    });
+  }, [items, filterQuery, filterPlan, filterStatus, filterChannel, filterDate, sortOrder]);
 
   const run = async (action: () => Promise<unknown>) => {
     if (busy) return false;
@@ -169,7 +208,24 @@ export function ContentBatches({ site, brandId, creationEnabled = false, activeC
   });
   const reopenBlog = (item: ContentItem) => run(async () => { await api.reopenUnsentChannel(item.id, "blog", site); onNotify?.("Blog reabierto. Ya puedes publicarlo de nuevo."); });
   const skipChannel = (item: ContentItem, channel: ContentChannel) => run(() => api.cancelContentChannel(item.id, channel, site));
-  const openPreview = (item: ContentItem, autoRecord = false) => setDialog({ type: "preview", item, autoRecord });
+  const openPreview = (item: ContentItem, autoRecord = false) => {
+    const params = new URLSearchParams(location.search);
+    if (autoRecord) params.set("record", "1");
+    navigate(contentPreviewPath(item, params.toString()), { state: { returnToContentList: true } });
+  };
+  const closePreview = () => {
+    const openedFromList = (location.state as { returnToContentList?: boolean } | null)?.returnToContentList;
+    if (openedFromList && typeof window.history.state?.idx === "number" && window.history.state.idx > 0) {
+      navigate(-1);
+      return;
+    }
+    if (previewFallback) setItems((current) => current.some((item) => item.id === previewFallback.id) ? current : [...current, previewFallback]);
+    const next = new URLSearchParams(location.search);
+    next.delete("record");
+    next.delete("batchId");
+    const search = next.toString();
+    navigate(`/plans${search ? `?${search}` : ""}`, { replace: true });
+  };
   const openBlogEditor = (item: ContentItem) => { setBlogForm(blogEditorValues(item)); setDialog({ type: "blog-edit", item }); };
   const savePublishedBlog = async (event: FormEvent) => {
     event.preventDefault();
@@ -182,33 +238,33 @@ export function ContentBatches({ site, brandId, creationEnabled = false, activeC
   };
   const openSchedule = (item: ContentItem) => { setDialog({ type: "schedule", item }); setModalValue(""); setScheduleChannels((item.variants || []).filter((variant) => (variant.scheduleStatus || variant.status) === "approved").map((variant) => variant.channel)); };
   const dateSummary = (item: ContentItem) => { const values = [...new Set((item.variants || []).map((variant) => variant.publicationDate).filter(Boolean))].sort(); if (!values.length) return "Sin fecha de publicación"; if (values.length === 1) return formatDate(values[0]); return formatDate(values[0]) + " · " + formatDate(values[values.length - 1]); };
-  const scheduledItems = visibleItems.filter((item) => (item.variants || []).some((variant) => variant.publicationDate && ["scheduled", "syncing"].includes(variant.scheduleStatus || variant.status)));
-  const calendarDays = useMemo(() => { const year = calendarCursor.getFullYear(); const month = calendarCursor.getMonth(); const first = (new Date(year, month, 1).getDay() + 6) % 7; const total = new Date(year, month + 1, 0).getDate(); return Array.from({ length: 42 }, (_, index) => { const number = index - first + 1; return { date: new Date(year, month, number), inMonth: number >= 1 && number <= total }; }); }, [calendarCursor]);
-  const calendarDayKey = (date: Date) => date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0");
-  const calendarLabel = new Intl.DateTimeFormat("es-ES", { month: "long", year: "numeric" }).format(calendarCursor);
-  const itemsForDay = (date: Date) => scheduledItems.filter((item) => (item.variants || []).some((variant) => variant.publicationDate && calendarDayKey(new Date(variant.publicationDate)) === calendarDayKey(date)));
+  const hasActiveFilters = Boolean(filterQuery || filterPlan !== "all" || filterStatus !== "all" || filterChannel !== "all" || filterDate !== "all");
 
   return <main className="ui-page ui-plans-page">
-    <PageHeader eyebrow="Espacio editorial" title="Contenido" description="Revisa, filtra y ejecuta todos los contenidos de la marca desde una sola bandeja." actions={<Inline gap="sm"><Button variant="ghost" disabled={busy || loading} onClick={() => void syncRemoteStatuses()}>Sincronizar estados</Button><Button variant={view === "list" ? "secondary" : "ghost"} onClick={() => setView("list")}>Lista</Button><Button variant={view === "calendar" ? "secondary" : "ghost"} onClick={() => setView("calendar")}>Calendario</Button>{creationEnabled && <Button onClick={() => setCreateOpen(true)}>Nueva campaña</Button>}</Inline>} />
-    {error && !items.length && <EmptyState title="No se pudo cargar el contenido" description={error} action={<Button variant="ghost" size="sm" onClick={() => void load()}>Reintentar</Button>} />}
-    {!loading && setupRequired && <EmptyState title="Configura tu marca para comenzar" description="Un administrador debe inicializar el espacio y asignarte una marca antes de mostrar publicaciones." />}
-    {!loading && !setupRequired && !items.length && !error && <EmptyState title="Todavía no hay contenido" description="Crea una campaña aquí o desde ChatGPT. Cuando esté lista, aparecerá en esta bandeja." />}
-    {loading ? <Stack gap="md"><Card><Progress value={35} /><p className="ui-muted">Cargando contenido…</p></Card></Stack> : !setupRequired && (items.length > 0 || plans.length > 0) && <div className="ui-plans-workspace">
-      <ReviewToolbar>
-        <Field label="Buscar"><TextField value={filterQuery} onChange={(event) => setFilterQuery(event.target.value)} placeholder="Título, brief o campaña" /></Field>
-        <Field label="Campaña"><Select value={filterPlan} onChange={(event) => setFilterPlan(event.target.value)}><option value="all">Todas las campañas</option>{plans.map((plan) => <option key={plan.id} value={plan.id}>{plan.title}</option>)}</Select></Field>
-        <Field label="Estado"><Select value={filterStatus} onChange={(event) => setFilterStatus(event.target.value)}><option value="all">Todos los estados</option>{["draft", "generated", "needs_review", "approved", "scheduled", "published", "action_required", "failed", "canceled"].map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}</Select></Field>
-        <Field label="Canal"><Select value={filterChannel} onChange={(event) => setFilterChannel(event.target.value)}><option value="all">Todos los canales</option>{channels.map((channel) => <option key={channel} value={channel}>{channelLabel(channel)}</option>)}</Select></Field>
-        <Field label="Fecha"><Select value={filterDate} onChange={(event) => setFilterDate(event.target.value)}><option value="all">Todas las fechas</option><option value="no_date">Sin fecha</option><option value="overdue">Con fecha vencida</option><option value="today">Hoy</option><option value="upcoming">Próximas</option></Select></Field>
-        <div className="ui-filter-summary"><span>{visibleItems.length} publicaciones</span></div>
-      </ReviewToolbar>
-      {view === "list" && (visibleItems.length ? <Stack gap="sm">{visibleItems.map((item) => {
-        const status = aggregateStatus(item); const titleText = itemTitle(item); const cover = itemCover(item); const excerpt = itemExcerpt(item);
-        return <Card className="ui-review-item" key={item.id}><div className="ui-card-head"><div className="ui-review-item-title">{cover ? <img className="ui-review-thumb" src={cover} alt="" loading="lazy" decoding="async" /> : <span className="ui-review-thumb" aria-hidden="true" />}<div><span className="ui-eyebrow">{item.planTitle || "Contenido"}</span><h3>{titleText}</h3>{excerpt && <p className="ui-review-excerpt">{excerpt}</p>}<p className="ui-muted">{dateSummary(item)}</p></div></div><StatusBadge status={status} label={statusLabel(status)} /></div><div className="ui-channel-list">{(item.variants || []).map((variant) => <ChannelBadge key={variant.id} channel={variant.channel} />)}</div>{item.error && <p className="ui-field-error">{item.error}</p>}<div className="ui-card-actions"><Button variant="secondary" size="sm" disabled={busy} onClick={() => setDialog({ type: "details", item })}>Canales y publicación</Button><Button variant="ghost" size="sm" disabled={busy || !(item.variants || []).length} onClick={() => openPreview(item)}>Vista previa</Button></div></Card>;
-      })}</Stack> : <EmptyState title="No hay publicaciones con estos filtros" description="Prueba otra combinación de búsqueda, estado, canal o fecha." />)}
-      {view === "calendar" && <Card className="ui-calendar-month"><div className="ui-calendar-month-head"><Button variant="ghost" size="sm" aria-label="Mes anterior" onClick={() => setCalendarCursor((date) => new Date(date.getFullYear(), date.getMonth() - 1, 1))}>‹</Button><strong>{calendarLabel}</strong><Button variant="ghost" size="sm" aria-label="Mes siguiente" onClick={() => setCalendarCursor((date) => new Date(date.getFullYear(), date.getMonth() + 1, 1))}>›</Button></div><div className="ui-calendar-weekdays">{["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((day) => <span key={day}>{day}</span>)}</div><div className="ui-calendar-grid">{calendarDays.map(({ date, inMonth }) => { const dayItems = itemsForDay(date); return <div className={"ui-calendar-day " + (inMonth ? "" : "outside") + (dayItems.length ? " has-items" : "")} key={calendarDayKey(date)}><span>{date.getDate()}</span>{dayItems.slice(0, 4).map((item) => <button type="button" className="ui-calendar-item" key={item.id} onClick={() => setDialog({ type: "details", item })}><Inline gap="sm">{item.variants.filter((variant) => variant.publicationDate && calendarDayKey(new Date(variant.publicationDate)) === calendarDayKey(date)).map((variant) => <ChannelBadge key={variant.id} channel={variant.channel} />)}</Inline><small>{itemTitle(item)}</small></button>)}{dayItems.length > 4 && <small>+{dayItems.length - 4}</small>}</div>; })}</div>{!scheduledItems.length && <p className="ui-muted">No hay publicaciones programadas con estos filtros.</p>}</Card>}
-    </div>}
-    {previewItem && <section className="ui-plan-preview-screen"><PageHeader eyebrow="Vista previa" title={itemTitle(previewItem)} description="Revisa el pack completo antes de publicar." back={<Button variant="ghost" onClick={() => setDialog(null)}>← Volver al contenido</Button>} /><ContentPackPreview site={site} item={previewItem} autoRecord={dialog?.type === "preview" && dialog.autoRecord} bufferReady={bufferReady} publishChannels={publishChannels} busy={busy} onVideoUploaded={(replacedPrevious) => { onNotify?.(replacedPrevious ? "Vídeo guardado. Se reemplazó el anterior del mismo formato." : "Vídeo guardado."); void load(); }} onNotify={onNotify} onClose={() => setDialog(null)} onEditBlog={() => openBlogEditor(previewItem)} onPublish={(channel, copy) => void publishBuffer(previewItem, channel, copy)} onPublishAll={() => void publishBufferAll(previewItem)} /></section>}
+    {previewItemId ? <section className="ui-plan-preview-screen">
+      <PageHeader eyebrow="Vista previa" title={previewItem ? itemTitle(previewItem) : "Vista previa"} description="Revisa el pack completo antes de publicar." back={<Button variant="ghost" onClick={closePreview}>← Volver al contenido</Button>} />
+      {loading ? <Stack gap="md"><Card><Progress value={35} /><p className="ui-muted">Cargando contenido…</p></Card></Stack> : previewItem ? <ContentPackPreview site={site} item={previewItem} autoRecord={searchParams.get("record") === "1"} bufferReady={bufferReady} publishChannels={publishChannels} busy={busy} onVideoUploaded={(replacedPrevious) => { onNotify?.(replacedPrevious ? "Vídeo guardado. Se reemplazó el anterior del mismo formato." : "Vídeo guardado."); void load(); }} onNotify={onNotify} onClose={closePreview} onEditBlog={() => openBlogEditor(previewItem)} onPublish={(channel, copy) => void publishBuffer(previewItem, channel, copy)} onPublishAll={() => void publishBufferAll(previewItem)} /> : <EmptyState title={error ? "No se pudo abrir la vista previa" : "No se encontró este contenido"} description={error || "Puede que se haya eliminado o que ya no tengas acceso."} action={<Button variant="secondary" onClick={closePreview}>Volver al contenido</Button>} />}
+    </section> : <>
+      <PageHeader eyebrow="Espacio editorial" title="Contenido" description="Revisa, filtra y ejecuta todos los contenidos de la marca desde una sola bandeja." actions={<Inline gap="sm"><Button variant="ghost" disabled={busy || loading} onClick={() => void syncRemoteStatuses()}>Sincronizar estados</Button><Button variant="secondary" onClick={() => navigate("/calendar")}>Calendario editorial</Button>{creationEnabled && <Button onClick={() => setCreateOpen(true)}>Nueva campaña</Button>}</Inline>} />
+      {error && !items.length && <EmptyState title="No se pudo cargar el contenido" description={error} action={<Button variant="ghost" size="sm" onClick={() => void load()}>Reintentar</Button>} />}
+      {!loading && setupRequired && <EmptyState title="Configura tu marca para comenzar" description="Un administrador debe inicializar el espacio y asignarte una marca antes de mostrar publicaciones." />}
+      {!loading && !setupRequired && !items.length && !error && <EmptyState title="Todavía no hay contenido" description="Crea una campaña aquí o desde ChatGPT. Cuando esté lista, aparecerá en esta bandeja." />}
+      {loading ? <Stack gap="md"><Card><Progress value={35} /><p className="ui-muted">Cargando contenido…</p></Card></Stack> : !setupRequired && (items.length > 0 || plans.length > 0) && <div className="ui-plans-workspace">
+        <ReviewToolbar>
+          <Field label="Buscar"><TextField value={filterQuery} onChange={(event) => updateSearchParam("q", event.target.value, "")} placeholder="Título, brief o campaña" /></Field>
+          <Field label="Campaña"><Select value={filterPlan} onChange={(event) => updateSearchParam("plan", event.target.value)}><option value="all">Todas las campañas</option>{plans.map((plan) => <option key={plan.id} value={plan.id}>{plan.title}</option>)}</Select></Field>
+          <Field label="Estado"><Select value={filterStatus} onChange={(event) => updateSearchParam("status", event.target.value)}><option value="all">Todos los estados</option>{["draft", "generated", "needs_review", "approved", "scheduled", "published", "action_required", "failed", "canceled"].map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}</Select></Field>
+          <Field label="Canal"><Select value={filterChannel} onChange={(event) => updateSearchParam("channel", event.target.value)}><option value="all">Todos los canales</option>{channels.map((channel) => <option key={channel} value={channel}>{channelLabel(channel)}</option>)}</Select></Field>
+          <Field label="Fecha"><Select value={filterDate} onChange={(event) => updateSearchParam("date", event.target.value)}><option value="all">Todas las fechas</option><option value="no_date">Sin fecha</option><option value="overdue">Con fecha vencida</option><option value="today">Hoy</option><option value="upcoming">Próximas</option></Select></Field>
+          <Field label="Ordenar por"><Select value={sortOrder} onChange={(event) => updateSearchParam("sort", event.target.value, "date")}><option value="date">Próxima fecha</option><option value="status">Estado</option><option value="title">Título A-Z</option></Select></Field>
+          <div className="ui-filter-summary"><span>{visibleItems.length} de {items.length} publicaciones</span>{hasActiveFilters && <Button size="sm" variant="ghost" onClick={clearFilters}>Limpiar filtros</Button>}</div>
+        </ReviewToolbar>
+        {visibleItems.length ? <Stack gap="sm">{visibleItems.map((item) => {
+          const status = aggregateStatus(item); const titleText = itemTitle(item); const cover = itemCover(item); const excerpt = itemExcerpt(item);
+          return <Card className="ui-review-item" key={item.id}><div className="ui-card-head"><div className="ui-review-item-title">{cover ? <img className="ui-review-thumb" src={cover} alt="" loading="lazy" decoding="async" /> : <span className="ui-review-thumb" aria-hidden="true" />}<div><span className="ui-eyebrow">{item.planTitle || "Contenido"}</span><h3>{titleText}</h3>{excerpt && <p className="ui-review-excerpt">{excerpt}</p>}<p className="ui-muted">{dateSummary(item)}</p></div></div><StatusBadge status={status} label={statusLabel(status)} /></div><div className="ui-channel-list">{(item.variants || []).map((variant) => <ChannelBadge key={variant.id} channel={variant.channel} />)}</div>{item.error && <p className="ui-field-error">{item.error}</p>}<div className="ui-card-actions"><Button variant="secondary" size="sm" disabled={busy} onClick={() => setDialog({ type: "details", item })}>Canales y publicación</Button><Link className="ui-button ui-button-ghost ui-button-sm" to={contentPreviewPath(item, location.search)} state={{ returnToContentList: true }}>Vista previa</Link></div></Card>;
+        })}</Stack> : <EmptyState title="No hay publicaciones con estos filtros" description="Prueba otra combinación de búsqueda, estado, canal o fecha." action={hasActiveFilters ? <Button variant="secondary" onClick={clearFilters}>Limpiar filtros</Button> : undefined} />}
+      </div>}
+    </>}
     <Drawer open={Boolean(detailItem)} title={detailItem ? itemTitle(detailItem) : "Canales y publicación"} onClose={() => setDialog(null)}>
       {detailItem && <Stack gap="md">
         <p className="ui-muted">{detailItem.planTitle || "Contenido"} · {dateSummary(detailItem)}</p>

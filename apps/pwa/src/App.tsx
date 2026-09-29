@@ -21,11 +21,12 @@ import {
   useParams,
   useSearchParams,
 } from "react-router-dom";
+import type { NavigateFunction } from "react-router-dom";
 import { api } from "./api";
 import type { AiConversation, SocialPackJobResult } from "./api";
 import { getInitialLanguage, Language, translate } from "./i18n";
 import type { Author, BrandSummary, ContentItem, MediaItem, Post, Session } from "./types";
-import { itemTitle, socialPackPath } from "./content-format";
+import { contentPreviewPath, itemTitle } from "./content-format";
 import { createVideoCapture } from "./portrait-recorder";
 import type { VideoCapture, VideoFormat } from "./portrait-recorder";
 import { ContentBatches as ContentPlans } from "./ContentBatches";
@@ -361,7 +362,15 @@ function ToastProvider({ children }: { children: ReactNode }) {
 function ContentPlansRoute({ site, creationEnabled, activeChannels }: { site: string; creationEnabled: boolean; activeChannels: AppState["channels"] }) {
   const { showToast } = useToast();
   const { productContext } = useApp();
-  return <ContentPlans site={site} brandId={productContext?.activeBrand?.id} creationEnabled={creationEnabled} activeChannels={activeChannels} onNotify={showToast} />;
+  const { itemId } = useParams();
+  const location = useLocation();
+  if (!itemId && new URLSearchParams(location.search).get("view") === "calendar") {
+    const search = new URLSearchParams(location.search);
+    search.delete("view");
+    const query = search.toString();
+    return <Navigate to={`/calendar${query ? `?${query}` : ""}`} replace />;
+  }
+  return <ContentPlans site={site} brandId={productContext?.activeBrand?.id} previewItemId={itemId} creationEnabled={creationEnabled} activeChannels={activeChannels} onNotify={showToast} />;
 }
 
 function App() {
@@ -549,15 +558,16 @@ function App() {
                 {workflowFlags.manualCreationEnabled && workflowFlags.blogWizardEnabled && brandCapabilities.content_publishing !== false && <Route path="/quick-create" element={<QuickCreate />} />}
                 {workflowFlags.manualCreationEnabled && brandCapabilities.content_publishing !== false && <>
                   <Route path="/manual/:slug?" element={<ManualPost />} />
-                  {workflowFlags.legacyPreviewEnabled && <Route path="/preview/:slug" element={<Preview />} />}
                   <Route path="/schedule/:slug" element={<Schedule />} />
                   <Route path="/publish/:slug" element={<PublishSocial />} />
                   <Route path="/posts" element={<Posts />} />
                 </>}
-                <Route path="/calendar" element={<Navigate to="/plans" replace />} />
+                {workflowFlags.legacyPreviewEnabled && brandCapabilities.content_publishing !== false && <Route path="/preview/:slug" element={<Preview />} />}
+                <Route path="/calendar" element={<EditorialCalendar />} />
                 <Route path="/social-pack" element={<Navigate to="/plans" replace />} />
                 {workflowFlags.legacySocialPackEnabled && <Route path="/social-pack/:slug" element={<SocialPackRoute />} />}
                 <Route path="/plans" element={<ContentPlansRoute site={site} creationEnabled={workflowFlags.creationUiEnabled && brandCapabilities.content_publishing !== false} activeChannels={channels} />} />
+                <Route path="/plans/:itemId/preview" element={<ContentPlansRoute site={site} creationEnabled={workflowFlags.creationUiEnabled && brandCapabilities.content_publishing !== false} activeChannels={channels} />} />
                 <Route path="/review" element={<ReviewRedirect />} />
                 <Route path="/batches" element={<Navigate to="/plans" replace />} />
                 <Route path="/brands" element={<AdminTabRedirect tab="brands"><BrandsView /></AdminTabRedirect>} />
@@ -830,16 +840,21 @@ function RouteScrollMemory() {
   const location = useLocation();
   const navigationType = useNavigationType();
   const keyRef = useRef(location.key);
+  const pathRef = useRef(location.pathname);
   useEffect(() => {
     const save = () => sessionStorage.setItem(`scroll:${keyRef.current}`, String(window.scrollY));
     window.addEventListener("scroll", save, { passive: true });
     return () => { save(); window.removeEventListener("scroll", save); };
   }, []);
   useEffect(() => {
+    const samePathReplacement = navigationType === "REPLACE" && pathRef.current === location.pathname;
+    const currentScroll = window.scrollY;
+    if (samePathReplacement) sessionStorage.setItem(`scroll:${location.key}`, String(currentScroll));
     keyRef.current = location.key;
-    const saved = navigationType === "POP" ? Number(sessionStorage.getItem(`scroll:${location.key}`) || 0) : 0;
+    pathRef.current = location.pathname;
+    const saved = navigationType === "POP" ? Number(sessionStorage.getItem(`scroll:${location.key}`) || 0) : samePathReplacement ? currentScroll : 0;
     window.requestAnimationFrame(() => window.scrollTo(0, saved));
-  }, [location.key, navigationType]);
+  }, [location.key, location.pathname, navigationType]);
   return null;
 }
 
@@ -889,6 +904,7 @@ function Shell() {
   const links = [
     { to: "/", label: t("nav.home", "Resumen"), icon: "home" },
     { to: "/plans", label: t("nav.plans", "Contenido"), icon: "plans" },
+    ...(publishingEnabled ? [{ to: "/calendar", label: t("nav.calendar", "Calendario"), icon: "calendar" }] : []),
     ...(!adminUser ? [
       { to: "/brands", label: t("nav.brands", "Marcas"), icon: "brands" },
       { to: "/team", label: t("nav.team", "Equipo y acceso"), icon: "team" },
@@ -896,6 +912,7 @@ function Shell() {
     ] : []),
     ...(workflowFlags.assistantEnabled && publishingEnabled ? [{ to: "/chat", label: t("nav.assistant"), icon: "assistant" }] : []),
   ];
+  const mobileLinks = links.slice(0, 3);
   return (
     <div className="app-shell">
       <aside id="primary-navigation" className={`sidebar ${open ? "open" : ""}`}>
@@ -979,7 +996,7 @@ function Shell() {
         </header>
         <Outlet />
         <nav className="mobile-bottom-nav" aria-label={t("nav.mobile") || t("nav.open")}>
-          {links.map((link) => (
+          {mobileLinks.map((link) => (
             <NavLink
               key={link.to}
               to={link.to}
@@ -1215,7 +1232,7 @@ function Home() {
         </div>
         <RecentPosts />
         <div className="quick-actions">
-          <button onClick={() => nav("/plans?status=scheduled")}>{t("home.calendar")}</button>
+          <button onClick={() => nav("/calendar")}>{t("home.calendar")}</button>
           {isWorkspaceAdmin(session) && (
             <button onClick={() => nav("/admin")}>{t("home.openAdmin")}</button>
           )}
@@ -1239,10 +1256,10 @@ function RecentContentWork() {
   if (error || !items.length) return null;
   return <section className="home-content-work"><div className="section-title"><h2>{t("home.inProgress")}</h2><Button size="sm" variant="ghost" onClick={() => nav("/plans")}>{t("home.openContent")}</Button></div><div className="post-list compact">{items.map((item) => {
     const imageSrc = (item.variants || []).flatMap((variant) => [variant.body?.imageThumbUrl, variant.body?.imagePreviewUrl, variant.body?.imageUrl, variant.body?.coverUrl, ...(variant.media || [])]).map((value) => socialImageUrl(value, "thumb")).find(Boolean);
-    const blogVariant = (item.variants || []).find((variant) => variant.channel === "blog");
-    const previewSlug = String(item.metadata?.slug || blogVariant?.body?.slug || "").trim();
     const batchId = String(item.batch_id || item.batchId || "");
-    const destination = item.id ? socialPackPath(item) : previewSlug ? `/preview/${encodeURIComponent(previewSlug)}` : `/plans?plan=${encodeURIComponent(batchId)}`;
+    const previewFilters = new URLSearchParams();
+    if (batchId) previewFilters.set("plan", batchId);
+    const destination = item.id ? contentPreviewPath(item, previewFilters.toString()) : batchId ? `/plans?plan=${encodeURIComponent(batchId)}` : "/plans";
     return <button key={item.id} type="button" className="post-row" onClick={() => nav(destination)}>
       {imageSrc ? <img className="post-thumb" src={imageSrc} alt="" loading="lazy" decoding="async" /> : <span className="post-thumb placeholder-thumb" aria-hidden="true">✦</span>}
       <span className="post-row-copy"><StatusBadge status={item.status} /><h3>{itemTitle(item)}</h3><p>{(item.variants || []).map((variant) => variant.channel).join(" · ") || t("home.noChannel")}</p></span>
@@ -1320,8 +1337,9 @@ function Chat() {
   const [creating, setCreating] = useState(false);
   const [lastBrief, setLastBrief] = useState("");
   const [conversationTitle, setConversationTitle] = useState(t("chat.newConversation"));
-  const { site } = useApp();
+  const { site, workflowFlags, brandCapabilities } = useApp();
   const { showToast } = useToast();
+  const canCreateReviewedDraft = brandCapabilities.content_publishing !== false && (workflowFlags.legacyPreviewEnabled || workflowFlags.manualCreationEnabled);
   const hydrationRequestRef = useRef("");
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const location = useLocation();
@@ -1527,7 +1545,7 @@ function Chat() {
     }
   };
   const createDraft = async () => {
-    if (!lastBrief) return;
+    if (!lastBrief || !canCreateReviewedDraft) return;
     setCreating(true);
     try {
       const assistantText = [...messages].reverse().find((message) => message.role === "assistant" && message.text.trim())?.text || "";
@@ -1605,7 +1623,8 @@ function Chat() {
         showToast(t("chat.imageUnavailable"), "info");
       }
       showToast(t("chat.draftCreated"));
-      nav(`/preview/${encodeURIComponent(result.post.slug)}`);
+      if (workflowFlags.legacyPreviewEnabled && brandCapabilities.content_publishing !== false) nav(`/preview/${encodeURIComponent(result.post.slug)}`);
+      else if (workflowFlags.manualCreationEnabled && brandCapabilities.content_publishing !== false) nav("/posts");
     } catch (e) {
       showToast(e instanceof Error ? e.message : t("common.error"), "error");
       setMessages((prev) => [
@@ -1647,9 +1666,9 @@ function Chat() {
       </div>
       {lastBrief && (
         <div className="chat-actions">
-          <button className="ui-button ui-button-secondary draft-from-chat" disabled={creating} onClick={createDraft}>
+          {canCreateReviewedDraft ? <button className="ui-button ui-button-secondary draft-from-chat" disabled={creating} onClick={createDraft}>
             {t("chat.convert")}
-          </button>
+          </button> : <p className="ui-field-hint">{t("chat.createUnavailable")}</p>}
         </div>
       )}
       <form className="composer" onSubmit={submit}>
@@ -1673,7 +1692,7 @@ function Chat() {
 type QuickStep = 0 | 1 | 2 | 3;
 
 function QuickCreate() {
-  const { site } = useApp();
+  const { site, workflowFlags } = useApp();
   const { t } = useI18n();
   const { showToast } = useToast();
   const nav = useNavigate();
@@ -1971,7 +1990,7 @@ function QuickCreate() {
         <section className="ui-card quick-step-card">
           <h2>{t("wizard.publishedTitle")}</h2>
           <p className="ui-muted">{t("wizard.publishedHelp")}</p>
-          <div className="ui-actions"><button type="button" className="ui-button ui-button-secondary" disabled={Boolean(busy)} onClick={() => void generateSocial()}>{busy === "social" ? t("publish.preparing") : t("wizard.generateSocial")}</button>{socialPack && <button type="button" className="ui-button ui-button-ghost" onClick={() => nav(`/social-pack/${encodeURIComponent(draft.slug)}`)}>{t("wizard.openSocial")}</button>}</div>
+          <div className="ui-actions"><button type="button" className="ui-button ui-button-secondary" disabled={Boolean(busy)} onClick={() => void generateSocial()}>{busy === "social" ? t("publish.preparing") : t("wizard.generateSocial")}</button>{socialPack && workflowFlags.legacySocialPackEnabled && <button type="button" className="ui-button ui-button-ghost" onClick={() => nav(`/social-pack/${encodeURIComponent(draft.slug)}`)}>{t("wizard.openSocial")}</button>}</div>
           {socialPack && <div className="quick-social-preview">{Object.entries(socialPack).filter(([, value]) => typeof value === "string").slice(0, 3).map(([key, value]) => <article key={key}><b>{key}</b><p>{String(value)}</p></article>)}</div>}
         </section>
       )}
@@ -2518,7 +2537,7 @@ function AiSuggestionModal({
 
 function ManualPost() {
   const nav = useNavigate();
-  const { site, session } = useApp();
+  const { site, session, workflowFlags } = useApp();
   const { t } = useI18n();
   const { showToast } = useToast();
   const { slug: editSlug = "" } = useParams();
@@ -2882,7 +2901,7 @@ function ManualPost() {
       localStorage.removeItem(storageKey);
       localStorage.removeItem(serverDraftKey);
       showToast(t("editor.saved"));
-      nav(`/preview/${encodeURIComponent(saved.post.slug)}`);
+      nav(workflowFlags.legacyPreviewEnabled ? `/preview/${encodeURIComponent(saved.post.slug)}` : "/posts");
     } catch (e) {
       setError(e instanceof Error ? e.message : t("common.error"));
       showToast(e instanceof Error ? e.message : t("common.error"), "error");
@@ -3187,7 +3206,7 @@ function ManualPost() {
         )}
         {error && <p className="ui-error">{error}</p>}
         <div className="ui-actions">
-          <button type="button" className="ui-button ui-button-ghost" onClick={() => nav(-1)}>
+          <button type="button" className="ui-button ui-button-ghost" onClick={() => navigateBack(nav)}>
             {t("editor.cancel")}
           </button>
           <button
@@ -3224,7 +3243,7 @@ function ManualPost() {
 function Preview() {
   const { slug = "" } = useParams();
   const nav = useNavigate();
-  const { site } = useApp();
+  const { site, workflowFlags, brandCapabilities } = useApp();
   const { t, language } = useI18n();
   const [searchParams] = useSearchParams();
   const socialTab = searchParams.get("tab") === "social";
@@ -3236,19 +3255,22 @@ function Preview() {
       .then((r) => setPost(r.post))
       .catch((e) => setError(e.message));
   }, [slug, site]);
-  if (socialTab) return <SocialPack />;
+  if (socialTab && workflowFlags.legacySocialPackEnabled) return <SocialPack />;
   if (error)
     return (
       <main className="ui-page">
+        <BackButton to="/plans" />
         <p className="ui-error">{error}</p>
       </main>
     );
   if (!post) return <Loading />;
+  const canManagePost = workflowFlags.manualCreationEnabled && brandCapabilities.content_publishing !== false;
+  const canOpenSocialPack = workflowFlags.legacySocialPackEnabled && hasSocialPack(post);
   return (
     <main className="preview-page">
       <div className="preview-head">
         <div>
-          <BackButton />
+          <BackButton to="/plans" />
           <p className="ui-eyebrow">{t("preview.eyebrow")}</p>
           <h1>{t("preview.title")}</h1>
         </div>
@@ -3269,7 +3291,7 @@ function Preview() {
           dangerouslySetInnerHTML={{ __html: post.bodyHtml }}
         />
       </article>
-      {hasSocialPack(post) && (
+      {canOpenSocialPack && (
         <section className="ui-card preview-social-link">
           <div>
             <p className="ui-eyebrow">{t("social.eyebrow")}</p>
@@ -3284,14 +3306,14 @@ function Preview() {
           </button>
         </section>
       )}
-      <div className="sticky-actions">
-        <button
+      {(canManagePost || canOpenSocialPack) && <div className="sticky-actions">
+        {canManagePost && <button
           className="ui-button ui-button-ghost"
           onClick={() => nav(`/manual/${encodeURIComponent(post.slug)}`)}
         >
           {t("preview.edit")}
-        </button>
-        {hasSocialPack(post) && (
+        </button>}
+        {canOpenSocialPack && (
           <button
             className="ui-button ui-button-secondary"
             onClick={() => nav(`/social-pack/${encodeURIComponent(post.slug)}`)}
@@ -3299,7 +3321,7 @@ function Preview() {
             {t("preview.socialView")}
           </button>
         )}
-        {post.status !== "published" && post.status !== "scheduled" && post.status !== "pending_schedule" && (
+        {canManagePost && post.status !== "published" && post.status !== "scheduled" && post.status !== "pending_schedule" && (
           <button
             className="ui-button ui-button-secondary"
             onClick={() => nav(`/schedule/${encodeURIComponent(post.slug)}`)}
@@ -3307,7 +3329,7 @@ function Preview() {
             {t("preview.schedule")}
           </button>
         )}
-        {(post.status !== "published" && post.status !== "scheduled" && post.status !== "pending_schedule") && (
+        {canManagePost && (post.status !== "published" && post.status !== "scheduled" && post.status !== "pending_schedule") && (
           <button
             className="ui-button ui-button-primary"
             onClick={() => nav(`/publish/${encodeURIComponent(post.slug)}`)}
@@ -3315,7 +3337,7 @@ function Preview() {
             {t("preview.publish")}
           </button>
         )}
-      </div>
+      </div>}
     </main>
   );
 }
@@ -3530,7 +3552,7 @@ function Schedule() {
         >
           {saving ? t("schedule.scheduling") : t("schedule.confirm")}
         </button>
-        <button type="button" className="ui-button ui-button-ghost" onClick={() => nav(-1)}>
+        <button type="button" className="ui-button ui-button-ghost" onClick={() => navigateBack(nav)}>
           {t("common.back")}
         </button>
       </form>
@@ -3545,7 +3567,7 @@ function languageDateLabel(t: (key: string, fallback?: string) => string) {
 function PublishSocial() {
   const { slug = "" } = useParams();
   const nav = useNavigate();
-  const { site } = useApp();
+  const { site, workflowFlags } = useApp();
   const { t } = useI18n();
   const { showToast } = useToast();
   const [post, setPost] = useState<Post | null>(null);
@@ -3654,7 +3676,7 @@ function PublishSocial() {
             <span>X</span>
             <span>Substack</span>
           </div>
-          {hasPack && (
+          {hasPack && workflowFlags.legacySocialPackEnabled && (
             <button
               className="ui-button ui-button-secondary"
               onClick={() =>
@@ -3668,7 +3690,7 @@ function PublishSocial() {
       )}
       {message && <p className="ui-success">{message}</p>}
       <div className="ui-actions">
-        <button className="ui-button ui-button-ghost" onClick={() => nav(-1)}>
+        <button className="ui-button ui-button-ghost" onClick={() => navigateBack(nav)}>
           {t("common.back")}
         </button>
         <button
@@ -3686,8 +3708,9 @@ function PublishSocial() {
 function SocialPackRoute() {
   const { slug = "" } = useParams();
   const location = useLocation();
+  const { workflowFlags, brandCapabilities } = useApp();
   const search = new URLSearchParams(location.search);
-  if (search.has("itemId") || search.has("batchId")) return <SocialPack />;
+  if (search.has("itemId") || search.has("batchId") || !workflowFlags.legacyPreviewEnabled || brandCapabilities.content_publishing === false) return <SocialPack />;
   search.set("tab", "social");
   return <Navigate to={`/preview/${encodeURIComponent(slug)}?${search.toString()}`} replace />;
 }
@@ -3972,6 +3995,7 @@ function SocialPack() {
         title={t("social.title")}
         description={t("social.description")}
         back
+        backTo="/plans"
       />
       {savedVideoMedia.length > 0 && <section className="ui-card saved-video-card"><div><p className="ui-eyebrow">Vídeos guardados</p><p className="ui-muted">Puedes conservar una versión vertical y otra horizontal del mismo contenido.</p></div><div className="saved-content-videos">{savedVideoMedia.map((media) => <figure className="saved-content-video-item" key={media.format}><video className={`saved-content-video saved-content-video-${media.format}`} src={media.url} controls playsInline /><figcaption>{media.format === "portrait" ? "Vertical 9:16" : "Horizontal 16:9"}</figcaption></figure>)}</div></section>}
       {standalone && !post && (
@@ -4494,20 +4518,26 @@ function TeleprompterModal({
 function Posts() {
   const { site } = useApp();
   const { t } = useI18n();
-  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [posts, setPosts] = useState<Post[]>([]);
   const [error, setError] = useState("");
-  const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [scheduledView, setScheduledView] = useState<"list" | "month">("list");
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const requestedFilter = params.get("status");
-    if (requestedFilter && ["all", "draft", "scheduled", "published"].includes(requestedFilter)) {
-      setStatusFilter(requestedFilter);
-    }
-    if (params.get("view") === "month") setScheduledView("month");
-  }, [location.search]);
+  const query = searchParams.get("q") || "";
+  const requestedStatus = searchParams.get("status") || "all";
+  const statusFilter = ["all", "draft", "scheduled", "published"].includes(requestedStatus) ? requestedStatus : "all";
+  const scheduledView = searchParams.get("view") === "month" ? "month" : "list";
+  const updatePostSearch = (key: string, value: string, defaultValue = "") => {
+    const next = new URLSearchParams(searchParams);
+    if (!value || value === defaultValue) next.delete(key);
+    else next.set(key, value);
+    setSearchParams(next, { replace: true });
+  };
+  const selectPostStatus = (filter: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (filter === "all") next.delete("status");
+    else next.set("status", filter);
+    if (filter !== "scheduled") next.delete("view");
+    setSearchParams(next, { replace: true });
+  };
   const nav = useNavigate();
   useEffect(() => {
     api
@@ -4528,15 +4558,16 @@ function Posts() {
               `${post.title} ${post.slug}`.toLowerCase().includes(needle))
           );
         })
-        .sort(
-          (a, b) =>
-            new Date(
-              b.dateModified || b.publishAt || b.datePublished || 0,
-            ).getTime() -
-            new Date(
-              a.dateModified || a.publishAt || a.datePublished || 0,
-            ).getTime(),
-        ),
+        .sort((a, b) => {
+          if (statusFilter === "scheduled") {
+            const nextPublication = (post: Post) => {
+              const timestamp = new Date(post.publishAt || "").getTime();
+              return Number.isFinite(timestamp) ? timestamp : Number.POSITIVE_INFINITY;
+            };
+            return nextPublication(a) - nextPublication(b);
+          }
+          return new Date(b.dateModified || b.publishAt || b.datePublished || 0).getTime() - new Date(a.dateModified || a.publishAt || a.datePublished || 0).getTime();
+        }),
     [posts, query, statusFilter],
   );
   return (
@@ -4558,7 +4589,7 @@ function Posts() {
           <div className="post-filters">
             <input
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => updatePostSearch("q", e.target.value)}
               placeholder={t("posts.search")}
               aria-label={t("posts.search")}
             />
@@ -4574,8 +4605,7 @@ function Posts() {
                     type="button"
                     className={`filter-pill ${statusFilter === filter ? "selected" : ""}`}
                     onClick={() => {
-                      setStatusFilter(filter);
-                      if (filter !== "scheduled") setScheduledView("list");
+                      selectPostStatus(filter);
                     }}
                   >
                     {t(`posts.filter.${filter}`)}
@@ -4590,7 +4620,7 @@ function Posts() {
               <button
                 type="button"
                 className="ui-icon-button calendar-view-toggle"
-                onClick={() => setScheduledView((current) => current === "list" ? "month" : "list")}
+                onClick={() => updatePostSearch("view", scheduledView === "list" ? "month" : "list", "list")}
                 aria-label={t(scheduledView === "list" ? "calendar.monthView" : "calendar.listView")}
                 title={t(scheduledView === "list" ? "calendar.monthView" : "calendar.listView")}
               >
@@ -4611,8 +4641,7 @@ function Posts() {
               title={t("posts.noMatches")}
               action={t("posts.clearFilters")}
               onClick={() => {
-                setQuery("");
-                setStatusFilter("all");
+                setSearchParams(new URLSearchParams(), { replace: true });
               }}
             />
           )}
@@ -4630,6 +4659,7 @@ function Posts() {
 function PostRow({ post, onDeleted }: { post: Post; onDeleted?: (slug: string) => void }) {
   const nav = useNavigate();
   const { t, language } = useI18n();
+  const { workflowFlags, brandCapabilities } = useApp();
   const { showToast } = useToast();
   const [imageError, setImageError] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -4641,6 +4671,8 @@ function PostRow({ post, onDeleted }: { post: Post; onDeleted?: (slug: string) =
     <div className="post-row">
       <button
         className="post-row-main"
+        disabled={!postSlug || !workflowFlags.legacyPreviewEnabled || brandCapabilities.content_publishing === false}
+        title={!workflowFlags.legacyPreviewEnabled || brandCapabilities.content_publishing === false ? t("preview.disabled") : undefined}
         onClick={() => postSlug && nav(`/preview/${encodeURIComponent(postSlug)}`)}
       >
         {imageSrc && !imageError ? (
@@ -4666,7 +4698,7 @@ function PostRow({ post, onDeleted }: { post: Post; onDeleted?: (slug: string) =
         </div>
         <span className="chevron">›</span>
       </button>
-      {hasSocialPack(post) && (
+      {workflowFlags.legacySocialPackEnabled && hasSocialPack(post) && (
         <button
           className="post-pack-button"
           type="button"
@@ -4677,7 +4709,7 @@ function PostRow({ post, onDeleted }: { post: Post; onDeleted?: (slug: string) =
           <MobileSocialIcon />
         </button>
       )}
-      {hasSocialPack(post) && post.socialPack?.videoScript && (
+      {workflowFlags.legacySocialPackEnabled && hasSocialPack(post) && post.socialPack?.videoScript && (
         <button
           className="post-pack-button"
           type="button"
@@ -4688,7 +4720,7 @@ function PostRow({ post, onDeleted }: { post: Post; onDeleted?: (slug: string) =
           ◉
         </button>
       )}
-      <button
+      {onDeleted && <button
         className="post-delete-button"
         type="button"
         disabled={deleting}
@@ -4714,13 +4746,13 @@ function PostRow({ post, onDeleted }: { post: Post; onDeleted?: (slug: string) =
         title={t("posts.delete")}
       >
         {deleting ? "…" : "⌫"}
-      </button>
+      </button>}
     </div>
   );
 }
 
 function Calendar({ embedded = false, postsOverride }: { embedded?: boolean; postsOverride?: Post[] }) {
-  const { site } = useApp();
+  const { site, workflowFlags } = useApp();
   const { t, language } = useI18n();
   const nav = useNavigate();
   const [posts, setPosts] = useState<Post[]>([]);
@@ -4742,7 +4774,7 @@ function Calendar({ embedded = false, postsOverride }: { embedded?: boolean; pos
   const scheduledPosts = useMemo(
     () => posts
       .filter((post) => ["pending_schedule", "scheduled"].includes(post.status) && Boolean(post.publishAt))
-      .sort((a, b) => new Date(b.publishAt || 0).getTime() - new Date(a.publishAt || 0).getTime()),
+      .sort((a, b) => new Date(a.publishAt || 0).getTime() - new Date(b.publishAt || 0).getTime()),
     [posts],
   );
   const grouped = useMemo(
@@ -4840,7 +4872,7 @@ function Calendar({ embedded = false, postsOverride }: { embedded?: boolean; pos
                 <div key={dayKey(date)} className={`calendar-day ${inMonth ? "" : "outside"} ${rows.length ? "has-posts" : ""}`}>
                   <span>{date.getDate()}</span>
                   {rows.slice(0, 2).map((post) => (
-                    <button key={post.slug || (post as any).id} type="button" className="calendar-day-post" onClick={() => post.slug && nav(`/preview/${encodeURIComponent(post.slug)}`)} title={post.title}>{post.title}</button>
+                    <button key={post.slug || (post as any).id} type="button" className="calendar-day-post" disabled={!workflowFlags.legacyPreviewEnabled} onClick={() => post.slug && nav(`/preview/${encodeURIComponent(post.slug)}`)} title={!workflowFlags.legacyPreviewEnabled ? t("preview.disabled") : post.title}>{post.title}</button>
                   ))}
                   {rows.length > 2 && <small>+{rows.length - 2}</small>}
                 </div>
@@ -4876,6 +4908,7 @@ function EditorialCalendar() {
   const [retryOpen, setRetryOpen] = useState(false);
   const [retryBusy, setRetryBusy] = useState(false);
   const [openId, setOpenId] = useState("");
+  const [openDay, setOpenDay] = useState("");
   const [planId, setPlanId] = useState("all");
   const [retryingChannel, setRetryingChannel] = useState("");
   const load = (quiet = false) => {
@@ -5008,11 +5041,14 @@ function EditorialCalendar() {
     return clean.length > 118 ? `${clean.slice(0, 115).replace(/\s+\S*$/, "").trim()}…` : clean;
   };
   const openEntry = groupedEntries.find((entry) => entryKey(entry) === openId) || null;
+  const dayEntries = openDay ? groupedEntries.filter((entry) => entry.channels.some((channel: any) => dayKey(new Date(channel.publicationDate)) === openDay)) : [];
+  const dayLabel = openDay ? new Intl.DateTimeFormat(language === "en" ? "en-GB" : "es-ES", { dateStyle: "full" }).format(new Date(`${openDay}T12:00:00`)) : "Publicaciones del día";
   return <main className="ui-page ui-calendar-page">
     <PageHeader eyebrow="Ejecución editorial" title="Calendario editorial" description="Campañas = qué contenido estamos preparando. Calendario = cuándo se publicará y qué está ocurriendo en cada canal. La conexión externa actualiza aquí su estado." actions={<Inline gap="sm">{retryableEntries.length > 0 && <Button variant="primary" disabled={!retrySelection.length || retryBusy} onClick={openRetry}>{t("calendar.retrySelected", "Reagendar seleccionadas")}{retrySelection.length ? ` (${retrySelection.length})` : ""}</Button>}<Button variant={view === "list" ? "secondary" : "ghost"} onClick={() => setView("list")}>Lista</Button><Button variant={view === "month" ? "secondary" : "ghost"} onClick={() => setView("month")}>Mes</Button></Inline>} />
     {error && <Card><Inline gap="md"><p className="ui-field-error">{error}</p><Button size="sm" variant="ghost" onClick={() => load()}>Reintentar</Button></Inline></Card>}
     {retryableEntries.length > 0 && <Card className="ui-calendar-retry-help"><strong>{t("calendar.retryTitle", "Publicaciones con error")}</strong><p>{t("calendar.retryHelp", "Selecciona solo los errores que quieras volver a programar. Las publicaciones programadas o publicadas no se incluyen.")}</p></Card>}
-    {loading ? <div className="ui-calendar-loading"><span className="ui-skeleton" style={{ height: 180 }} /><span className="ui-skeleton" style={{ height: 90 }} /></div> : !groupedEntries.length && !error ? <UiEmptyState title="Todavía no hay publicaciones programadas" description="Cuando apruebes y agendes una publicación desde Campañas, aparecerá aquí con su zona horaria y conexión." action={<NavLink className="ui-button ui-button-secondary" to="/plans">Abrir campañas</NavLink>} /> : view === "list" ? <div className="ui-calendar-list">{plans.length > 0 && <div className="ui-calendar-plan-filter"><Field label="Campaña"><Select aria-label="Filtrar por campaña" value={plans.some(([id]) => id === planId) ? planId : "all"} onChange={(event) => setPlanId(event.target.value)}><option value="all">Todas las campañas</option>{plans.map(([id, title]) => <option key={id} value={id}>{title}</option>)}</Select></Field></div>}{listedEntries.map((entry) => { const key = entryKey(entry); const channelsToRetry = retryChannels(entry); const statuses = entry.channels.map((channel: any) => channel.status).filter(Boolean); const status = statuses.length && statuses.every((value: string) => value === statuses[0]) ? statuses[0] : ""; return <Card key={key}><div className="ui-card-head"><div className="ui-calendar-card-title">{channelsToRetry.length > 0 && <Checkbox label="" aria-label={`${t("calendar.retrySelect", "Seleccionar para reagendar")}: ${topicLabel(entry.topic)}`} checked={retrySelection.includes(key)} onChange={() => toggleRetry(key)} />}<div><span className="ui-eyebrow">{entry.planTitle || `${entry.channels.length} canales`}</span><h2>{topicLabel(entry.topic)}</h2><p className="ui-muted">{dateSpan(entry)}</p></div></div>{status && <StatusBadge status={status} />}</div><div className="ui-calendar-channel-groups">{entry.channels.map((channel: any, index: number) => <Inline gap="sm" key={`${channel.channel}-${index}`}><ChannelBadge channel={channel.channel} /><StatusBadge status={channel.status} /></Inline>)}</div><Button size="sm" variant="ghost" onClick={() => setOpenId(key)}>Ver canales</Button></Card>; })}{!listedEntries.length && <p className="ui-muted">Ninguna publicación de esta campaña.</p>}</div> : <Card className="ui-calendar-month"><div className="ui-calendar-month-head"><Button variant="ghost" size="sm" onClick={() => setCursor((date) => new Date(date.getFullYear(), date.getMonth() - 1, 1))}>‹</Button><strong>{monthLabel}</strong><Button variant="ghost" size="sm" onClick={() => setCursor((date) => new Date(date.getFullYear(), date.getMonth() + 1, 1))}>›</Button></div><div className="ui-calendar-weekdays">{weekdays.map((day) => <span key={day}>{day}</span>)}</div><div className="ui-calendar-grid">{monthDays.map(({ date, inMonth }) => { const rows = groupedEntries.filter((entry) => entry.channels.some((channel: any) => dayKey(new Date(channel.publicationDate)) === dayKey(date))); return <div className={`ui-calendar-day ${inMonth ? "" : "outside"} ${rows.length ? "has-items" : ""}`} key={dayKey(date)}><span>{date.getDate()}</span>{rows.slice(0, 3).map((entry) => <button type="button" className="ui-calendar-item" key={entryKey(entry)} onClick={() => setOpenId(entryKey(entry))}><Inline gap="sm">{entry.channels.filter((channel: any) => dayKey(new Date(channel.publicationDate)) === dayKey(date)).slice(0, 2).map((channel: any, index: number) => <ChannelBadge key={`${channel.channel}-${index}`} channel={channel.channel} />)}</Inline><small>{topicLabel(entry.topic)}</small></button>)}{rows.length > 3 && <small>+{rows.length - 3}</small>}</div>; })}</div></Card>}
+    {loading ? <div className="ui-calendar-loading"><span className="ui-skeleton" style={{ height: 180 }} /><span className="ui-skeleton" style={{ height: 90 }} /></div> : !groupedEntries.length && !error ? <UiEmptyState title="Todavía no hay publicaciones programadas" description="Cuando apruebes y agendes una publicación desde Campañas, aparecerá aquí con su zona horaria y conexión." action={<NavLink className="ui-button ui-button-secondary" to="/plans">Abrir campañas</NavLink>} /> : view === "list" ? <div className="ui-calendar-list">{plans.length > 0 && <div className="ui-calendar-plan-filter"><Field label="Campaña"><Select aria-label="Filtrar por campaña" value={plans.some(([id]) => id === planId) ? planId : "all"} onChange={(event) => setPlanId(event.target.value)}><option value="all">Todas las campañas</option>{plans.map(([id, title]) => <option key={id} value={id}>{title}</option>)}</Select></Field></div>}{listedEntries.map((entry) => { const key = entryKey(entry); const channelsToRetry = retryChannels(entry); const statuses = entry.channels.map((channel: any) => channel.status).filter(Boolean); const status = statuses.length && statuses.every((value: string) => value === statuses[0]) ? statuses[0] : ""; return <Card key={key}><div className="ui-card-head"><div className="ui-calendar-card-title">{channelsToRetry.length > 0 && <Checkbox label="" aria-label={`${t("calendar.retrySelect", "Seleccionar para reagendar")}: ${topicLabel(entry.topic)}`} checked={retrySelection.includes(key)} onChange={() => toggleRetry(key)} />}<div><span className="ui-eyebrow">{entry.planTitle || `${entry.channels.length} canales`}</span><h2>{topicLabel(entry.topic)}</h2><p className="ui-muted">{dateSpan(entry)}</p></div></div>{status && <StatusBadge status={status} />}</div><div className="ui-calendar-channel-groups">{entry.channels.map((channel: any, index: number) => <Inline gap="sm" key={`${channel.channel}-${index}`}><ChannelBadge channel={channel.channel} /><StatusBadge status={channel.status} /></Inline>)}</div><Button size="sm" variant="ghost" onClick={() => setOpenId(key)}>Ver canales</Button></Card>; })}{!listedEntries.length && <p className="ui-muted">Ninguna publicación de esta campaña.</p>}</div> : <Card className="ui-calendar-month"><div className="ui-calendar-month-head"><Button variant="ghost" size="sm" aria-label={t("calendar.previousMonth")} onClick={() => setCursor((date) => new Date(date.getFullYear(), date.getMonth() - 1, 1))}>‹</Button><strong>{monthLabel}</strong><Button variant="ghost" size="sm" aria-label={t("calendar.nextMonth")} onClick={() => setCursor((date) => new Date(date.getFullYear(), date.getMonth() + 1, 1))}>›</Button></div><div className="ui-calendar-weekdays">{weekdays.map((day) => <span key={day}>{day}</span>)}</div><div className="ui-calendar-grid">{monthDays.map(({ date, inMonth }) => { const key = dayKey(date); const rows = groupedEntries.filter((entry) => entry.channels.some((channel: any) => dayKey(new Date(channel.publicationDate)) === key)); return <div className={`ui-calendar-day ${inMonth ? "" : "outside"} ${rows.length ? "has-items" : ""}`} key={key}><span>{date.getDate()}</span>{rows.slice(0, 3).map((entry) => { const channels = entry.channels.filter((channel: any) => dayKey(new Date(channel.publicationDate)) === key); const label = `${topicLabel(entry.topic)} · ${channels.map((channel: any) => channel.channel).join(", ")} · ${formatDate(channels[0]?.publicationDate || entry.publicationDate)}`; return <button type="button" className="ui-calendar-item" key={entryKey(entry)} onClick={() => setOpenId(entryKey(entry))} aria-label={`Ver ${label}`} title={label}><Inline gap="sm">{channels.slice(0, 2).map((channel: any, index: number) => <ChannelBadge key={`${channel.channel}-${index}`} channel={channel.channel} />)}</Inline><small>{topicLabel(entry.topic)}</small></button>; })}{rows.length > 3 && <Button size="sm" variant="ghost" className="ui-calendar-more" onClick={() => setOpenDay(key)}>Ver {rows.length - 3} más</Button>}</div>; })}</div></Card>}
+    <Drawer open={Boolean(openDay)} title={dayLabel} onClose={() => setOpenDay("")}>{dayEntries.length > 0 && <Stack gap="sm">{dayEntries.map((entry) => <Card key={entryKey(entry)}><div className="ui-card-head"><div><h3>{topicLabel(entry.topic)}</h3><p className="ui-muted">{dateSpan(entry)}</p></div></div><div className="ui-channel-list">{entry.channels.filter((channel: any) => dayKey(new Date(channel.publicationDate)) === openDay).map((channel: any, index: number) => <ChannelBadge key={`${channel.channel}-${index}`} channel={channel.channel} />)}</div><Button size="sm" variant="ghost" onClick={() => { setOpenDay(""); setOpenId(entryKey(entry)); }}>Ver canales</Button></Card>)}</Stack>}</Drawer>
     <Drawer open={Boolean(openEntry)} title={topicLabel(openEntry?.topic)} onClose={() => setOpenId("")}>{openEntry && <Stack gap="md"><p className="ui-muted">{dateSpan(openEntry)}</p>{openEntry.channels.map((channel: any, index: number) => { const retryKey = `${openEntry.itemId}:${channel.channel}`; const canRetry = ["failed", "action_required"].includes(channel.status); const canMove = channel.status === "scheduled"; return <div className="ui-calendar-channel-row" key={`${channel.channel}-${index}`}><Inline gap="sm"><ChannelBadge channel={channel.channel} />{channel.provider && <Badge tone="neutral">{channel.provider}</Badge>}<StatusBadge status={channel.status} /></Inline><p className="ui-muted">{channel.timezone} · {formatDate(channel.publicationDate)}</p>{channel.updatedAt && <small className="ui-calendar-sync">Actualizado {formatDate(channel.updatedAt)}</small>}{channel.lastError && <p className="ui-field-error">{channel.lastError}</p>}{canMove && <Button size="sm" variant="secondary" loading={retryingChannel === `move:${retryKey}`} onClick={() => void moveToday(openEntry, channel)}>Publicar hoy</Button>}{canRetry && <Inline gap="sm"><Button size="sm" variant="secondary" loading={retryingChannel === retryKey} onClick={() => void retryOne(openEntry, channel)}>Reintentar este canal</Button><Button size="sm" variant="ghost" loading={retryingChannel === `mark:${retryKey}`} onClick={() => void markPublished(openEntry, channel)}>Marcar como publicado</Button></Inline>}</div>; })}<Button size="sm" variant="ghost" onClick={() => load(true)}>Actualizar estado</Button><p className="ui-field-hint">Publicar hoy adelanta solo ese canal a los próximos minutos y, si ya está en Buffer, mueve el mismo post. Reintentar vuelve a enviar un canal con error. Marcar como publicado cierra el error sin enviar nada.</p></Stack>}</Drawer>
     <Modal open={retryOpen} title={t("calendar.retryTitle", "Reagendar publicaciones con error")} onClose={() => setRetryOpen(false)}><form className="ui-stack ui-stack-md" onSubmit={reschedule}><Field label={t("calendar.retryDate", "Nueva fecha y hora")} hint={t("calendar.retryDateHelp", "Se usará tu zona horaria local.")} required><TextField type="datetime-local" value={retryDate} onChange={(event) => setRetryDate(event.target.value)} autoFocus required /></Field><p className="ui-field-hint">{t("calendar.retryCount", "Se reagendarán las publicaciones seleccionadas. Las ya programadas o publicadas no se modifican.")}</p><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setRetryOpen(false)}>{t("common.cancel", "Cancelar")}</Button><Button type="submit" loading={retryBusy}>{t("calendar.retryConfirm", "Reagendar")}</Button></Inline></form></Modal>
   </main>;
@@ -7053,25 +7089,31 @@ function PageTitle({
   title,
   description,
   back = false,
+  backTo,
 }: {
   eyebrow: string;
   title: string;
   description: string;
   back?: boolean;
+  backTo?: string;
 }) {
   return (
     <div className="title-block">
-      {back && <BackButton />}
+      {back && <BackButton to={backTo} />}
       <p className="ui-eyebrow">{eyebrow}</p>
       <h1>{title}</h1>
       <p className="ui-muted">{description}</p>
     </div>
   );
 }
-function BackButton() {
+function navigateBack(nav: NavigateFunction, to = "/plans") {
+  if (typeof window.history.state?.idx === "number" && window.history.state.idx > 0) nav(-1);
+  else nav(to, { replace: true });
+}
+function BackButton({ to = "/plans" }: { to?: string }) {
   const nav = useNavigate();
   const { t } = useI18n();
-  return <button type="button" className="back-link" onClick={() => nav(-1)}>← {t("common.back")}</button>;
+  return <button type="button" className="back-link" onClick={() => navigateBack(nav, to)}>← {t("common.back")}</button>;
 }
 function EmptyState({
   title,
