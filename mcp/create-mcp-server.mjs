@@ -52,7 +52,8 @@ import {
   listSiteChannels,
   listBrandCapabilities,
   listBrandConnections,
-  getActiveBrandKit
+  getActiveBrandKit,
+  preflightContentMediaAttachment
 } from '../lib/workspace-domain.mjs'
 import { isPostgresConfigured, runCoreMigrations } from '../lib/pg.mjs'
 import {
@@ -65,8 +66,10 @@ import {
 } from '../lib/video-jobs.mjs'
 import {
   getImagePreparation,
-  persistImagePreparation
+  persistImagePreparation,
+  assertAssetTypeForMediaKind
 } from '../lib/generation-provenance.mjs'
+import { assertImageAspectCompatible } from '../lib/image-normalize.mjs'
 
 const DEFAULT_SITE = process.env.DEFAULT_SITE || 'escarlet'
 const V2_CONTENT_TOOLS = new Set([
@@ -76,6 +79,7 @@ const V2_CONTENT_TOOLS = new Set([
   'content_create_batch',
   'content_get_batch',
   'content_upload_media',
+  'content_attach_media',
   'content_update_item',
   'content_approve',
   'content_schedule',
@@ -191,6 +195,7 @@ const MUTATING_SITE_TOOLS = new Set([
   'blog_import_remote_image',
   'content_create_batch',
   'content_upload_media',
+  'content_attach_media',
   'content_update_item',
   'content_approve',
   'content_schedule',
@@ -263,7 +268,8 @@ function textResult(payload) {
       }
     : safePayload
   return {
-    content: [{ type: 'text', text: typeof response === 'string' ? response : JSON.stringify(response, null, 2) }]
+    content: [{ type: 'text', text: typeof response === 'string' ? response : JSON.stringify(response, null, 2) }],
+    ...(response && typeof response === 'object' && !Array.isArray(response) ? { structuredContent: response } : {})
   }
 }
 
@@ -349,13 +355,12 @@ async function brandContextResult(payload) {
   }
 }
 
-export async function preparedImageResult(payload, { referenceIndex = 0 } = {}) {
+export async function preparedImageResult(payload) {
   const prepared = redactWorkflowLinks(payload)
   const refs = Array.isArray(payload?.resolvedReferences)
     ? [...payload.resolvedReferences].sort((a, b) => Number(a.attachmentIndex || 0) - Number(b.attachmentIndex || 0))
     : []
-  const selectedIndex = Number.isInteger(Number(referenceIndex)) ? Number(referenceIndex) : 0
-  const selectedReferences = refs.length ? [refs[selectedIndex]].filter(Boolean) : []
+  const selectedReferences = refs
   const preparationId = String(payload?.brandPreparation?.preparationId || '')
   const attachments = []
   const attachmentHashes = []
@@ -390,7 +395,7 @@ export async function preparedImageResult(payload, { referenceIndex = 0 } = {}) 
     }
   })
   const allReferencesAvailable = !payload?.generationBlocked && refs.length > 0 && missing.length === 0 && attachments.length === selectedReferences.length
-  const complete = allReferencesAvailable && selectedIndex === refs.length - 1
+  const complete = allReferencesAvailable
   const readyForGeneration = complete
   const referenceDelivery = {
     expected: refs.length,
@@ -399,13 +404,15 @@ export async function preparedImageResult(payload, { referenceIndex = 0 } = {}) 
     exactReferenceOrder: refs.map((reference) => reference.filename),
     hashes: attachmentHashes.map((entry) => entry.sha256),
     readyForGeneration,
-    mode: 'single_image_per_call',
-    deliveredIndex: selectedReferences.length ? selectedIndex : null,
+    mode: 'all_references_in_one_call',
     complete,
-    nextReferenceIndex: complete ? null : selectedIndex + 1
+    nextReferenceIndex: null
   }
   const textPayload = {
     ...prepared,
+    preparationId,
+    assetType: payload?.brandPreparation?.assetType || null,
+    expectedDimensions: payload?.composition?.dimensions || null,
     mcpServer: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION, contract: 'v2', canonicalUrl: MCP_CANONICAL_URL },
     generationBlocked: Boolean(payload?.generationBlocked) || selectedReferences.length === 0 || attachments.length !== selectedReferences.length,
     brandPreparation: prepared.brandPreparation,
@@ -430,18 +437,31 @@ export async function preparedImageResult(payload, { referenceIndex = 0 } = {}) 
       },
       exactReferenceOrder: referenceDelivery.exactReferenceOrder,
       instruction: complete
-        ? 'Ya recibiste todos los ImageContent en llamadas consecutivas. Usa todas las referencias en el orden exacto indicado, genera los píxeles finales y sube el archivo con preparationId, channels y assetIndex. Incluye itemId si el contenido ya existe.'
-        : allReferencesAvailable
-          ? `Esta llamada entrega solo la referencia ${selectedIndex + 1} de ${refs.length}. Vuelve a llamar brand_prepare_image_generation con preparationId ${preparationId} y referenceIndex ${selectedIndex + 1} antes de generar. No uses Pillow ni sustituyas referencias.`
-          : 'No generes ninguna imagen. La preparación no pudo adjuntar la referencia solicitada.'
+        ? 'Todas las referencias exactas están adjuntas en el orden indicado. Genera la imagen final y súbela con content_upload_media.'
+        : 'No generes ninguna imagen. La preparación no pudo adjuntar todas las referencias.'
     }
   }
   return {
     isError: Boolean(payload?.generationBlocked) || selectedReferences.length === 0 || attachments.length !== selectedReferences.length,
     content: [
-      { type: 'text', text: JSON.stringify(textPayload, null, 2) },
+      { type: 'text', text: JSON.stringify({
+        preparationId,
+        assetType: textPayload.assetType,
+        expectedDimensions: textPayload.expectedDimensions,
+        readyForGeneration,
+        generationBlocked: textPayload.generationBlocked,
+        referenceCount: attachments.length,
+        instruction: textPayload.brandGroundingContract.instruction
+      }) },
       ...attachments
-    ]
+    ],
+    structuredContent: {
+      preparationId,
+      assetType: payload?.brandPreparation?.assetType || null,
+      expectedDimensions: payload?.composition?.dimensions || null,
+      resolvedReferences: textPayload.resolvedReferences,
+      ...textPayload
+    }
   }
 }
 
@@ -497,11 +517,28 @@ async function preparedUploadGrounding(site, scope, args) {
   if (preparation.itemId && args.itemId && preparation.itemId !== args.itemId) throw Object.assign(new Error('La preparación pertenece a otro item.'), { status: 409, code: 'ITEM_MISMATCH' })
   const kind = String(args.kind || '').toLowerCase()
   const channels = Array.isArray(args.channels) ? args.channels.map((channel) => String(channel).toLowerCase()) : []
-  if (kind === 'post' && preparation.assetType !== 'blog_cover') throw Object.assign(new Error('kind post requiere una preparación blog_cover.'), { status: 409, code: 'ASSET_TYPE_MISMATCH' })
-  if (kind === 'social' && !['social_image', 'instagram_story'].includes(preparation.assetType)) throw Object.assign(new Error('kind social requiere una preparación social_image o instagram_story.'), { status: 409, code: 'ASSET_TYPE_MISMATCH' })
-  if (channels.includes('instagram_story') !== (preparation.assetType === 'instagram_story')) throw Object.assign(new Error('La preparación y los canales no coinciden.'), { status: 409, code: 'ASSET_TYPE_MISMATCH' })
+  if (!['post', 'social'].includes(kind)) throw Object.assign(new Error('kind debe ser post o social para una preparación visual.'), { status: 400, code: 'MEDIA_KIND_INVALID' })
+  assertAssetTypeForMediaKind(kind, preparation.assetType)
+  if (channels.some((channel) => !['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'].includes(channel))) {
+    throw Object.assign(new Error('channels contiene un canal no reconocido.'), { status: 400, code: 'MEDIA_CHANNEL_INVALID' })
+  }
+  if (args.itemId && !channels.length) throw Object.assign(new Error('channels es obligatorio cuando el medio se asocia a un item.'), { status: 400, code: 'MEDIA_CHANNELS_REQUIRED' })
+  if (channels.length && (preparation.assetType === 'instagram_story'
+    ? channels.some((channel) => channel !== 'instagram_story')
+    : channels.includes('instagram_story'))) throw Object.assign(new Error('La preparación y los canales no coinciden.'), { status: 409, code: 'ASSET_TYPE_MISMATCH' })
+  const expectedDimensions = compositionForAssetType(preparation.assetType).dimensions
+  if (!args.expectedDimensions) throw Object.assign(new Error(`Indica expectedDimensions=${expectedDimensions} para validar el upload antes de transferir el archivo.`), { status: 400, code: 'EXPECTED_DIMENSIONS_REQUIRED', expectedDimensions })
+  if (args.expectedDimensions && String(args.expectedDimensions) !== expectedDimensions) {
+    throw Object.assign(new Error(`expectedDimensions debe ser ${expectedDimensions} para ${preparation.assetType}.`), { status: 409, code: 'EXPECTED_DIMENSIONS_MISMATCH', expectedDimensions })
+  }
+  if (!args.sourceDimensions || typeof args.sourceDimensions !== 'object') throw Object.assign(new Error('Indica sourceDimensions con el tamaño original para validar su proporción antes de transferir el archivo.'), { status: 400, code: 'SOURCE_DIMENSIONS_REQUIRED' })
+  if (!Number.isInteger(Number(args.sourceDimensions.width)) || !Number.isInteger(Number(args.sourceDimensions.height)) || Number(args.sourceDimensions.width) < 1 || Number(args.sourceDimensions.height) < 1) {
+    throw Object.assign(new Error('sourceDimensions debe contener width y height enteros positivos.'), { status: 400, code: 'SOURCE_DIMENSIONS_INVALID' })
+  }
+  assertImageAspectCompatible(args.sourceDimensions.width, args.sourceDimensions.height, preparation.assetType)
   const index = Number(args.assetIndex)
   if (!Number.isInteger(index) || index < 0 || index >= Number(preparation.expectedAssetCount || 1)) throw Object.assign(new Error('assetIndex no pertenece a esta preparación.'), { status: 409, code: 'ASSET_INDEX_MISMATCH' })
+  if (args.itemId) await preflightContentMediaAttachment({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId: args.itemId, channels, assetIndex: index })
   const active = await getActiveBrandKit({ workspaceId: scope.workspaceId, siteId: scope.siteId })
   if (active.id !== preparation.brandKitVersionId) throw Object.assign(new Error('El brand kit cambió desde la preparación. Vuelve a preparar la imagen.'), { status: 409, code: 'BRAND_VERSION_MISMATCH' })
   return {
@@ -951,7 +988,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_get_brand_context',
       description:
-        'Devuelve el contexto general canónico y versionado, pero no reemplaza brand_prepare_image_generation. Para cualquier imagen llama primero a brand_prepare_image_generation y repite con preparationId y referenceIndex para recibir un ImageContent por llamada. Está prohibido escoger, sustituir referencias o usar Pillow; si generationBlocked es true, detén la generación.',
+        'Devuelve el contexto general canónico y versionado, pero no reemplaza brand_prepare_image_generation. Para cualquier imagen llama primero a brand_prepare_image_generation, que devuelve preparationId, expectedDimensions, assetType y todas las referencias exactas en una sola respuesta. Está prohibido escoger, sustituir referencias o usar Pillow; si generationBlocked es true, detén la generación.',
       inputSchema: {
         type: 'object',
         properties: { site: { type: 'string' } },
@@ -1232,7 +1269,7 @@ export function buildToolList(auth) {
     },
     {
       name: 'brand_prepare_image_generation',
-      description: 'Obligatoria antes de toda generación visual. Devuelve preparationId, versión, hash, dimensiones y las referencias binarias exactas. Si la marca tiene personajes, primero pregunta al usuario si quiere usar uno y pasa useCharacter=true o false; con varios personajes pasa también characterId. Entrega una referencia por llamada para evitar errores de transporte, repite con preparationId y referenceIndex hasta completar la lista, y solo entonces genera el archivo final. LinkedIn usa blog_cover 3:2 cuando no se indica assetType; si se indica social_image, respétalo. Después llama content_upload_media con preparationId, channels y assetIndex, e incluye itemId solo si ya existe.',
+      description: 'Obligatoria antes de toda generación visual. Devuelve campos estructurados preparationId, expectedDimensions, assetType y resolvedReferences, con todas las referencias binarias exactas en una llamada. Si la marca tiene personajes, primero pregunta al usuario si quiere usar uno y pasa useCharacter=true o false; con varios personajes pasa también characterId. LinkedIn usa blog_cover 3:2 cuando no se indica assetType; si se indica social_image, respétalo. Después llama content_upload_media con preparationId, expectedDimensions, sourceDimensions, kind y assetIndex. Incluye itemId y channels solo si el item ya existe.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1249,7 +1286,7 @@ export function buildToolList(auth) {
           useCharacter: { type: 'boolean', description: 'Elección explícita del usuario cuando la marca tiene personajes. Obligatorio si el contexto ofrece personajes.' },
           characterId: { type: 'string', description: 'ID o filename del personaje elegido cuando la marca tiene más de uno.' },
           preparationId: { type: 'string', description: 'Preparación existente para entregar la siguiente referencia binaria sin crear otra preparación.' },
-          referenceIndex: { type: 'integer', minimum: 0, description: 'Índice cero-based de la referencia que se debe entregar en esta llamada.' }
+          referenceIndex: { type: 'integer', minimum: 0, description: 'Campo de compatibilidad. Las referencias se devuelven juntas en una sola respuesta.' }
         },
         required: ['site']
       },
@@ -1323,7 +1360,7 @@ export function buildToolList(auth) {
     },
     {
       name: 'content_upload_media',
-      description: 'Sube el archivo final generado por ChatGPT, comprueba marca, preparación, formato y dimensiones, conserva exactamente sus bytes y lo asocia a las variantes indicadas si itemId ya existe. Sin itemId lo guarda como medio pendiente para asociarlo después.',
+      description: 'Valida marca, preparación, kind, canales, itemId y dimensiones declaradas antes de descargar file. Normaliza la imagen al formato exacto, guarda hash y dimensiones original/final, y asocia el medio si itemId está presente. Sin itemId devuelve pendingMediaId para asociarlo después con content_attach_media. Usa file para transferencia nativa; el servidor descarga y guarda el archivo en una sola llamada.',
       inputSchema: {
         type: 'object',
         $defs: openaiFileDefs(),
@@ -1344,11 +1381,18 @@ export function buildToolList(auth) {
           chunkCount: { type: 'string' },
           preparationId: { type: 'string' },
           itemId: { type: 'string' },
-          channels: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] } },
-          assetIndex: { type: 'integer', minimum: 0, maximum: 19 }
+          channels: { type: 'array', uniqueItems: true, items: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] } },
+          assetIndex: { type: 'integer', minimum: 0, maximum: 19, default: 0 },
+          expectedDimensions: { type: 'string', description: 'Dimensiones finales indicadas por brand_prepare_image_generation.' },
+          sourceDimensions: { type: 'object', properties: { width: { type: 'integer', minimum: 1 }, height: { type: 'integer', minimum: 1 } }, required: ['width', 'height'], additionalProperties: false },
+          autoNormalize: { type: 'boolean', default: true },
+          idempotencyKey: { type: 'string', maxLength: 300 }
         },
         required: ['site', 'filename', 'kind'],
-        allOf: [{ if: { properties: { kind: { enum: ['post', 'social'] } } }, then: { required: ['preparationId', 'channels', 'assetIndex'] } }]
+        allOf: [
+          { if: { properties: { kind: { enum: ['post', 'social'] } } }, then: { required: ['preparationId', 'expectedDimensions', 'sourceDimensions', 'assetIndex'] } },
+          { if: { required: ['itemId'] }, then: { required: ['channels', 'assetIndex'] } }
+        ]
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
       _meta: {
@@ -1356,6 +1400,23 @@ export function buildToolList(auth) {
         'openai/toolInvocation/invoking': 'Subiendo imagen v2',
         'openai/toolInvocation/invoked': 'Imagen v2 guardada'
       }
+    },
+    {
+      name: 'content_attach_media',
+      description: 'Asocia un pendingMediaId ya subido a las variantes de un item. Conserva el alt en la variante, comprueba que todos los canales estén completos y marca el item como generated cuando esté listo para revisión. Nunca aprueba ni publica.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          workspaceId: { type: 'string' },
+          site: { type: 'string' },
+          itemId: { type: 'string' },
+          mediaId: { type: 'string' },
+          channels: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] } },
+          assetIndex: { type: 'integer', minimum: 0, maximum: 19 }
+        },
+        required: ['itemId', 'mediaId', 'channels', 'assetIndex']
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false }
     },
     { name: 'content_list_plans', description: 'Lista las campañas de contenido de una marca, con progreso, canales y publicaciones.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, status: { type: 'string' }, channel: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] }, query: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 200 } } }, annotations: { readOnlyHint: true } },
     { name: 'content_list_items', description: 'Lista publicaciones v2, incluyendo las generadas o pendientes de revisión aunque todavía no estén publicadas.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, batchId: { type: 'string' }, status: { type: 'string' }, channel: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] }, query: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 500 } } }, annotations: { readOnlyHint: true } },
@@ -1688,25 +1749,58 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             userId: auth.userId,
             role: scope.role,
             media: uploaded.media,
-            brandGrounding: uploaded.media?.brandGrounding || null
+            brandGrounding: uploaded.media?.brandGrounding || null,
+            idempotencyKey: args.idempotencyKey || args.uploadId || '',
+            idempotencyFingerprint: createHash('sha256').update(JSON.stringify({
+              siteId: scope.siteId,
+              filename: uploaded.media?.filename || '',
+              sha256: uploaded.media?.sha256 || '',
+              originalSha256: uploaded.media?.metadata?.originalSha256 || '',
+              kind,
+              alt: args.alt || '',
+              preparationId: args.preparationId || '',
+              assetType: uploaded.media?.brandGrounding?.assetType || '',
+              itemId: args.itemId || '',
+              channels: args.channels || [],
+              assetIndex: Number(args.assetIndex ?? 0)
+            })).digest('hex')
           })
           const attachment = ['post', 'social'].includes(kind)
-            ? await attachContentMedia({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId: args.itemId, userId: auth.userId, role: scope.role, mediaAssetId: asset.id, channels: args.channels, assetIndex: args.assetIndex })
+            ? args.itemId
+              ? await attachContentMedia({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId: args.itemId, userId: auth.userId, role: scope.role, mediaAssetId: asset.id, channels: args.channels, assetIndex: args.assetIndex ?? 0 })
+              : null
             : null
           const { suggestedPostPatch, suggestedTool, nextStep, reviewHint, ...safeUpload } = uploaded
           return textResult({
             ...safeUpload,
             mediaAsset: asset,
             mediaAssetId: asset.id,
+            ...(kind !== 'reference' && !args.itemId ? { pendingMediaId: asset.id } : {}),
             attachment,
             nextStep: kind === 'reference'
               ? 'Referencia guardada en el almacenamiento de la marca.'
-              : attachment
-                ? 'Actualiza el mismo itemId con content_update_item y readyForReview=true cuando todas las variantes y medios estén completos.'
-                : `Medio guardado sin asociar. Cuando exista el item, usa content_update_item con mediaAssetIds: ["${asset.id}"].`,
-            suggestedTool: kind === 'reference' ? null : 'content_update_item',
+              : attachment?.contentComplete
+                ? 'Todas las variantes y medios están completos. El item quedó en generated, listo para revisión humana.'
+                : attachment
+                  ? `Medio asociado. Faltan estos campos antes de revisión: ${(attachment.incomplete || []).map((entry) => `${entry.channel}: ${entry.fields.join(', ')}`).join('; ')}`
+                : `Medio guardado como pendingMediaId. Cuando exista el item, asócialo con content_attach_media usando mediaId "${asset.id}".`,
+            suggestedTool: kind === 'reference' ? null : attachment ? null : 'content_attach_media',
             reviewHint: kind === 'reference' ? 'Referencia guardada.' : attachment ? 'Medio asociado al item y a sus variantes.' : 'Medio guardado, pendiente de asociar a un item.'
           })
+        }
+        case 'content_attach_media': {
+          const scope = await resolveContentScope(auth, args)
+          const attachment = await attachContentMedia({
+            workspaceId: scope.workspaceId,
+            siteId: scope.siteId,
+            itemId: args.itemId,
+            userId: auth.userId,
+            role: scope.role,
+            mediaAssetId: args.mediaId,
+            channels: args.channels,
+            assetIndex: args.assetIndex
+          })
+          return textResult({ ...attachment, readyForReview: attachment.contentComplete, approved: false, published: false })
         }
         case 'brand_get_context': {
           if (!isPostgresConfigured()) throw Object.assign(new Error('El brand kit canónico requiere Postgres.'), { status: 503, code: 'postgres_required' })
@@ -1787,8 +1881,28 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             const activeCampaigns = await listContentPlans({ workspaceId: scope.workspaceId, siteId: scope.siteId, status: ['draft', 'generated', 'needs_review', 'approved', 'scheduled'], limit: 20 })
             if (activeCampaigns.length) throw Object.assign(new Error('Ya existen campañas activas para esta marca. Elige una o confirma la creación de una campaña nueva.'), { status: 409, code: 'CONTENT_PLAN_SELECTION_REQUIRED', extra: { campaigns: activeCampaigns, askUser: '¿Quieres guardar estas publicaciones en una campaña existente o crear una campaña nueva?' } })
           }
-          const result = await createContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: auth.userId || null, role: scope.role, title: args.title, topics: args.topics, items: args.items, batchId: args.batchId, channels: args.channels, brandKitVersionId: args.brandKitVersionId, metadata: args.metadata, idempotencyKey: args.idempotencyKey })
-          return textResult(result)
+          const requestedChannels = [...new Set((Array.isArray(args.channels) && args.channels.length
+            ? args.channels
+            : (args.items || []).flatMap((item) => Object.keys(item?.variants || {}))).map((channel) => String(channel).toLowerCase()))]
+          const enabled = new Set((await listSiteChannels({ workspaceId: scope.workspaceId, siteId: scope.siteId }))
+            .filter((channel) => channel.enabled).map((channel) => channel.channel))
+          const activeChannels = requestedChannels.filter((channel) => enabled.has(channel))
+          const unavailableChannels = requestedChannels.filter((channel) => !enabled.has(channel))
+          if (!activeChannels.length) throw Object.assign(new Error('No hay canales activos para crear esta campaña.'), { status: 409, code: 'NO_ACTIVE_CONTENT_CHANNELS', extra: { unavailableChannels } })
+          const activeItems = (args.items || []).map((item) => ({
+            ...item,
+            variants: Object.fromEntries(Object.entries(item?.variants || {}).filter(([channel]) => activeChannels.includes(channel.toLowerCase())))
+          }))
+          const result = await createContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: auth.userId || null, role: scope.role, title: args.title, topics: args.topics, items: activeItems, batchId: args.batchId, channels: activeChannels, brandKitVersionId: args.brandKitVersionId, metadata: args.metadata, idempotencyKey: args.idempotencyKey })
+          return textResult({
+            ...result,
+            unavailableChannels,
+            channelAvailability: {
+              active: activeChannels,
+              unavailable: unavailableChannels,
+              message: unavailableChannels.length ? `Se omitieron canales desactivados: ${unavailableChannels.join(', ')}.` : 'Todos los canales solicitados están activos.'
+            }
+          })
         }
         case 'content_list_plans': {
           const scope = await resolveContentScope(auth, args)

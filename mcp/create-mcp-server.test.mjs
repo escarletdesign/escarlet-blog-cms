@@ -4,6 +4,7 @@ import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { buildToolList, createMcpServer, invokeMcpTool, normalizeImagePreparationArgs, preparedImageResult } from './create-mcp-server.mjs'
 import { MCP_INSTRUCTIONS, MCP_SERVER_VERSION } from '../lib/media-upload-contract.mjs'
+import { assertSafeToolArguments } from '../lib/ai-security.mjs'
 
 function payload(result) {
   return JSON.parse(result.content?.find((block) => block.type === 'text')?.text || '{}')
@@ -37,16 +38,17 @@ test('el contrato MCP expone media y contenido v2, sin operaciones de posts lega
   assert.ok(tools.find((tool) => tool.name === 'brand_create_draft').inputSchema.properties.idempotencyKey)
   assert.ok(tools.find((tool) => tool.name === 'brand_publish_draft').inputSchema.properties.expectedActiveVersionId)
   assert.equal(tools.find((tool) => tool.name === 'brand_prepare_image_generation').inputSchema.properties.expectedAssetCount.type, 'integer')
-  assert.match(upload.description, /conserva exactamente sus bytes/i)
+  assert.match(upload.description, /normaliza la imagen/i)
   for (const field of ['preparationId', 'itemId', 'channels', 'assetIndex']) assert.ok(upload.inputSchema.properties[field], field)
-  assert.deepEqual(upload.inputSchema.allOf[0].then.required, ['preparationId', 'channels', 'assetIndex'])
+  assert.deepEqual(upload.inputSchema.allOf[0].then.required, ['preparationId', 'expectedDimensions', 'sourceDimensions', 'assetIndex'])
+  assert.ok(tools.some((tool) => tool.name === 'content_attach_media'))
   assert.equal(upload.inputSchema.properties.generationReceiptId, undefined)
   assert.ok(update.inputSchema.properties.readyForReview)
   assert.match(update.description, /sin reescritura/i)
   for (const name of ['blog_upload_media_file', 'blog_open_image_drop', 'blog_upload_media', 'blog_import_remote_image']) {
     assert.equal(tools.some((tool) => tool.name === name), false, name)
   }
-  for (const name of ['content_list_plans', 'content_list_items', 'content_list_calendar', 'content_create_batch', 'content_get_batch', 'content_update_item', 'content_approve', 'content_schedule', 'content_cancel']) {
+  for (const name of ['content_list_plans', 'content_list_items', 'content_list_calendar', 'content_create_batch', 'content_get_batch', 'content_update_item', 'content_attach_media', 'content_approve', 'content_schedule', 'content_cancel']) {
     assert.ok(tools.some((tool) => tool.name === name), name)
   }
   assert.equal(tools.some((tool) => tool.name === 'content_reject'), false)
@@ -57,7 +59,7 @@ test('el contrato MCP expone media y contenido v2, sin operaciones de posts lega
   const publicContract = JSON.stringify(tools)
   assert.doesNotMatch(publicContract, /generationReceiptId|brand_complete_image_generation|brand_register_generation|content-system\/instagram-renderer/)
   assert.equal(buildToolList({ role: 'editor' }).some((tool) => tool.name === 'brand_update_file'), true)
-  assert.equal(MCP_SERVER_VERSION, '3.4.0')
+  assert.equal(MCP_SERVER_VERSION, '3.5.0')
   for (const name of ['video_create_job', 'video_get_job', 'video_update_job', 'video_upload_media', 'video_import_external_media', 'video_list_jobs']) {
     assert.ok(tools.some((tool) => tool.name === name), name)
   }
@@ -71,6 +73,26 @@ test('el registro tools/list publica un único upload y no expone aliases legacy
   assert.ok(names.includes('content_upload_media'))
   assert.equal(names.includes('brand_complete_image_generation'), false)
   assert.equal(names.some((name) => /^blog_.*upload|^blog_import_remote_image/.test(name)), false)
+})
+
+test('el preflight de seguridad permite slides y frames estructurados en content_create_batch', () => {
+  const args = {
+    items: [{
+      title: 'Campaña',
+      variants: {
+        instagram: { socialPack: { instagramSlides: [{ headline: 'Título', body: 'Texto', alt: 'Descripción', media: { mediaId: 'pending-1' } }] } },
+        instagram_story: { socialPack: { instagramStory: { text: 'Story', frames: [{ alt: 'Frame', media: { mediaId: 'pending-2' } }] } } }
+      }
+    }]
+  }
+  assert.equal(assertSafeToolArguments('content_create_batch', args), args)
+  const deepArgs = { body: {} }
+  let nested = deepArgs.body
+  for (const key of ['a', 'b', 'c', 'd', 'e', 'f', 'g']) {
+    nested[key] = {}
+    nested = nested[key]
+  }
+  assert.throws(() => assertSafeToolArguments('content_update_item', deepArgs))
 })
 
 test('las tools retiradas no son invocables', async () => {
@@ -89,8 +111,8 @@ test('createMcpServer anuncia el contrato v2 y la selección explícita de marca
   assert.match(MCP_INSTRUCTIONS, /content_list_items/)
   assert.match(MCP_INSTRUCTIONS, /content_upload_media/)
   assert.match(MCP_INSTRUCTIONS, /exactamente una imagen/i)
-  assert.match(MCP_INSTRUCTIONS, /preparationId, channels y assetIndex/i)
-  assert.match(MCP_INSTRUCTIONS, /versión 3\.4\.0/)
+  assert.match(MCP_INSTRUCTIONS, /expectedDimensions.*sourceDimensions.*channels/i)
+  assert.match(MCP_INSTRUCTIONS, /versión 3\.5\.0/)
   assert.match(MCP_INSTRUCTIONS, /video_upload_media/)
 })
 
@@ -100,7 +122,7 @@ test('LinkedIn usa la portada del blog salvo petición explícita de otra pieza'
   assert.equal(normalizeImagePreparationArgs({ channel: 'linkedin', assetType: 'social_image' }).assetType, 'social_image')
 })
 
-test('la preparación entrega una referencia binaria por llamada y conserva el orden', async () => {
+test('la preparación entrega todas las referencias binarias en una llamada y conserva el orden', async () => {
   const resolvedReferences = ['05-tablero-visual.png', 'fondo-escarlet.jpg', 'reference-blog-example.png'].map((filename, index) => ({
     filename,
     attachmentIndex: index + 1,
@@ -110,19 +132,19 @@ test('la preparación entrega una referencia binaria por llamada y conserva el o
     generationBlocked: false,
     resolvedReferences,
     brandPreparation: { preparationId: 'preparation-test', site: 'escarlet', assetType: 'blog_cover' },
-    composition: { allowedAspectRatios: ['3:2'] },
+    composition: { dimensions: '1536x1024', allowedAspectRatios: ['3:2'] },
     generationCardinality: { maxImageCount: 1 }
   }
-  const first = await preparedImageResult(payload, { referenceIndex: 0 })
+  const first = await preparedImageResult(payload)
   const firstText = JSON.parse(first.content[0].text)
   assert.equal(first.isError, false)
-  assert.equal(first.content.length, 2)
-  assert.equal(firstText.referenceDelivery.complete, false)
-  assert.equal(firstText.referenceDelivery.nextReferenceIndex, 1)
-  const last = await preparedImageResult(payload, { referenceIndex: 2 })
-  const lastText = JSON.parse(last.content[0].text)
-  assert.equal(lastText.referenceDelivery.complete, true)
-  assert.equal(lastText.readyForGeneration, true)
+  assert.equal(first.content.length, 4)
+  assert.equal(firstText.referenceCount, 3)
+  assert.equal(firstText.readyForGeneration, true)
+  assert.equal(first.structuredContent.referenceDelivery.complete, true)
+  assert.equal(first.structuredContent.resolvedReferences.length, 3)
+  assert.equal(first.structuredContent.preparationId, 'preparation-test')
+  assert.equal(first.structuredContent.expectedDimensions, '1536x1024')
 })
 
 test('el MCP no elige una marca por defecto cuando el acceso incluye varias', async () => {
@@ -166,7 +188,7 @@ test('las respuestas de preparación exponen la versión MCP activa', async () =
   const result = await invokeMcpTool('brand_prepare_image_generation', { site: 'escarlet', assetType: 'generic', title: 'versión MCP' }, { role: 'admin' })
   const value = payload(result)
   assert.equal(value.mcpServer.name, 'escarlet-cms-v2')
-  assert.equal(value.mcpServer.version, '3.4.0')
+  assert.equal(value.mcpServer.version, '3.5.0')
   assert.equal(value.mcpServer.contract, 'v2')
 })
 
