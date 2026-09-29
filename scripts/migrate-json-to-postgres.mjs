@@ -252,7 +252,7 @@ export async function migrateJsonToPostgres({ db = readDb(), users = readJson('u
       await client.query('INSERT INTO brand_kits (id,site_id) VALUES ($1,$2) ON CONFLICT (site_id) DO NOTHING', [`brand-${siteId}`, siteId])
       const brandKitId = `brand-${siteId}`
       const versionId = `${brandKitId}-version-1`
-      await client.query('INSERT INTO brand_kit_versions (id,brand_kit_id,version,status,manifest,created_by) VALUES ($1,$2,1,\'published\',$3,$4) ON CONFLICT (brand_kit_id,version) DO UPDATE SET manifest=EXCLUDED.manifest,status=EXCLUDED.status', [versionId, brandKitId, json(brandManifest(site.handle)), 'system'])
+      await client.query('INSERT INTO brand_kit_versions (id,brand_kit_id,version,status,manifest,created_by) VALUES ($1,$2,1,\'published\',$3,$4) ON CONFLICT (brand_kit_id,version) DO NOTHING', [versionId, brandKitId, json(brandManifest(site.handle)), 'system'])
       await client.query('UPDATE brand_kits SET active_version_id=$1,updated_at=NOW() WHERE id=$2', [versionId, brandKitId])
       const legacyConfig = loadSiteConfig(site.handle) || {}
       const social = legacyConfig.socialPackChannels && typeof legacyConfig.socialPackChannels === 'object' ? legacyConfig.socialPackChannels : {}

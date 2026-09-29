@@ -194,13 +194,19 @@ const fileAsBase64 = (file: File) =>
     reader.onerror = () => reject(reader.error || new Error("No se pudo leer el archivo."));
     reader.readAsDataURL(file);
   });
-const socialImageUrl = (value: unknown) => {
-  const candidate = value && typeof value === "object"
-    ? (value as any).url || (value as any).publicUrl || (value as any).imageUrl || (value as any).path
-    : value;
+const socialImageUrl = (value: unknown, resolution: "thumb" | "preview" | "original" = "preview") => {
+  const media = value && typeof value === "object" ? value as any : null;
+  const candidates = media ? resolution === "thumb"
+    ? [media.thumbUrl, media.thumbPath, media.previewUrl, media.previewPath, media.url, media.publicUrl, media.imageUrl, media.path]
+    : resolution === "preview"
+      ? [media.previewUrl, media.previewPath, media.thumbUrl, media.thumbPath, media.url, media.publicUrl, media.imageUrl, media.path]
+      : [media.url, media.publicUrl, media.imageUrl, media.path]
+    : [value];
+  const candidate = candidates.find((entry) => entry);
   const url = String(candidate || "").trim();
   return url.startsWith("/") || /^https?:\/\//i.test(url) ? url : "";
 };
+const originalImageUrl = (value: unknown) => socialImageUrl(value, "original");
 
 async function waitForSocialPackJob(
   jobId: string,
@@ -1232,13 +1238,13 @@ function RecentContentWork() {
   }, [site]);
   if (error || !items.length) return null;
   return <section className="home-content-work"><div className="section-title"><h2>{t("home.inProgress")}</h2><Button size="sm" variant="ghost" onClick={() => nav("/plans")}>{t("home.openContent")}</Button></div><div className="post-list compact">{items.map((item) => {
-    const imageSrc = (item.variants || []).flatMap((variant) => [variant.body?.imageThumbUrl, variant.body?.imageUrl, variant.body?.coverUrl, ...(variant.media || [])]).map(socialImageUrl).find(Boolean);
+    const imageSrc = (item.variants || []).flatMap((variant) => [variant.body?.imageThumbUrl, variant.body?.imagePreviewUrl, variant.body?.imageUrl, variant.body?.coverUrl, ...(variant.media || [])]).map((value) => socialImageUrl(value, "thumb")).find(Boolean);
     const blogVariant = (item.variants || []).find((variant) => variant.channel === "blog");
     const previewSlug = String(item.metadata?.slug || blogVariant?.body?.slug || "").trim();
     const batchId = String(item.batch_id || item.batchId || "");
     const destination = item.id ? socialPackPath(item) : previewSlug ? `/preview/${encodeURIComponent(previewSlug)}` : `/plans?plan=${encodeURIComponent(batchId)}`;
     return <button key={item.id} type="button" className="post-row" onClick={() => nav(destination)}>
-      {imageSrc ? <img className="post-thumb" src={imageSrc} alt="" loading="lazy" /> : <span className="post-thumb placeholder-thumb" aria-hidden="true">✦</span>}
+      {imageSrc ? <img className="post-thumb" src={imageSrc} alt="" loading="lazy" decoding="async" /> : <span className="post-thumb placeholder-thumb" aria-hidden="true">✦</span>}
       <span className="post-row-copy"><StatusBadge status={item.status} /><h3>{itemTitle(item)}</h3><p>{(item.variants || []).map((variant) => variant.channel).join(" · ") || t("home.noChannel")}</p></span>
       <span className="chevron">›</span>
     </button>;
@@ -1957,7 +1963,7 @@ function QuickCreate() {
         <section className="ui-card quick-step-card">
           <h2>{t("wizard.imageTitle")}</h2>
           <p className="ui-muted">{t("wizard.imageHelp")}</p>
-          {draft.imageUrl && <img className="quick-cover-image" src={draft.imageUrl} alt={draft.imageAlt || draft.title} />}
+          {draft.imageUrl && <img className="quick-cover-image" src={draft.imagePreviewUrl || draft.imageThumbUrl || draft.imageUrl} alt={draft.imageAlt || draft.title} loading="lazy" decoding="async" />}
           <div className="ui-actions"><button type="button" className="ui-button ui-button-ghost" onClick={() => setStep(1)}>{t("common.back")}</button><button type="button" className="ui-button ui-button-primary" disabled={Boolean(busy)} onClick={() => void publish()}>{busy === "publish" ? t("publish.publishing") : t("wizard.publish")}</button></div>
         </section>
       )}
@@ -2227,7 +2233,7 @@ function ReferenceMediaModal({
   const [filename, setFilename] = useState(media.filename || "");
   const [alt, setAlt] = useState(media.alt || "");
   const [usage, setUsage] = useState(String(media.metadata?.usage || "reference"));
-  const imageSrc = media.url || media.path || media.thumbUrl || media.thumbPath || "";
+  const imageSrc = media.url || media.path || media.previewUrl || media.previewPath || media.thumbUrl || media.thumbPath || "";
   return (
     <div
       className="ui-modal-backdrop"
@@ -2246,7 +2252,7 @@ function ReferenceMediaModal({
           <button className="ui-icon-button" type="button" onClick={onClose} disabled={busy} aria-label={t("editor.close")}>×</button>
         </div>
         <div className="reference-modal-preview">
-          {imageSrc ? <img src={imageSrc} alt={alt || t("admin.referenceImage")} /> : <span>✦</span>}
+          {imageSrc ? <img src={imageSrc} alt={alt || t("admin.referenceImage")} decoding="async" /> : <span>✦</span>}
         </div>
         <div className="reference-modal-meta">
           <span className="reference-badge">✦ {t("admin.referenceBadge")}</span>
@@ -2694,6 +2700,7 @@ function ManualPost() {
         kind: "post",
       });
       update("imageUrl", result.media.url || result.media.path || "");
+      update("imagePreviewUrl", result.media.previewUrl || result.media.previewPath || "");
       update(
         "imageThumbUrl",
         result.media.thumbUrl || result.media.thumbPath || "",
@@ -2773,6 +2780,7 @@ function ManualPost() {
         return {
           ...current,
           imageUrl: current.imageUrl || first?.url || first?.path || "",
+          imagePreviewUrl: current.imagePreviewUrl || first?.previewUrl || first?.previewPath || "",
           imageThumbUrl: current.imageThumbUrl || first?.thumbUrl || first?.thumbPath || "",
           imageAlt: current.imageAlt || first?.alt || current.title || t("editor.imageAltPlaceholder"),
           imageGallery: result.gallery?.length ? result.gallery : merged,
@@ -2818,6 +2826,7 @@ function ManualPost() {
   });
   const useGalleryImage = (image: NonNullable<Draft["imageGallery"]>[number]) => {
     update("imageUrl", image.url || image.path || "");
+    update("imagePreviewUrl", image.previewUrl || image.previewPath || "");
     update("imageThumbUrl", image.thumbUrl || image.thumbPath || "");
     update("imageAlt", image.alt || draft.title || t("editor.imageAltPlaceholder"));
     showToast(t("editor.imageSelected"));
@@ -3070,8 +3079,10 @@ function ManualPost() {
           {draft.imageUrl ? (
             <div className="cover-preview">
               <img
-                src={draft.imageThumbUrl || draft.imageUrl}
+                src={draft.imagePreviewUrl || draft.imageThumbUrl || draft.imageUrl}
                 alt={draft.imageAlt || ""}
+                loading="lazy"
+                decoding="async"
               />
               <button
                 type="button"
@@ -3079,6 +3090,7 @@ function ManualPost() {
                 aria-label={t("editor.removeImage")}
                 onClick={() => {
                   update("imageUrl", "");
+                  update("imagePreviewUrl", "");
                   update("imageThumbUrl", "");
                 }}
               >
@@ -3121,10 +3133,10 @@ function ManualPost() {
                 <div className="generated-gallery-grid">
                   {galleryImages.map((image, index) => {
                     const imageSrc = image.thumbUrl || image.thumbPath || image.url || image.path || "";
-                    const selected = imageSrc && imageSrc === (draft.imageThumbUrl || draft.imageUrl);
+                    const selected = Boolean(imageSrc && [draft.imageThumbUrl, draft.imagePreviewUrl, draft.imageUrl].includes(imageSrc));
                     return (
                       <article className={`generated-image-card ${selected ? "selected" : ""}`} key={image.url || image.path || image.id || `${image.generatedAt}-${index}`}>
-                        {imageSrc ? <img src={imageSrc} alt={image.alt || ""} /> : <div className="generated-image-empty">{t("editor.imageUnavailable")}</div>}
+                        {imageSrc ? <img src={imageSrc} alt={image.alt || ""} width={image.width || undefined} height={image.height || undefined} loading="lazy" decoding="async" /> : <div className="generated-image-empty">{t("editor.imageUnavailable")}</div>}
                         <div className="generated-image-card-body">
                           <span className="tiny">{image.generatedAt ? readableDate(image.generatedAt) : t("editor.imageUploaded")}</span>
                           <button type="button" className="ui-button ui-button-ghost" onClick={() => useGalleryImage(image)} disabled={!imageSrc}>
@@ -3245,7 +3257,7 @@ function Preview() {
         </span>
       </div>
       <article className="article-preview">
-        {post.imageUrl && <img src={post.imageUrl} alt={post.imageAlt || ""} />}
+        {(post.imagePreviewUrl || post.imageUrl) && <img src={post.imagePreviewUrl || post.imageUrl} alt={post.imageAlt || ""} decoding="async" fetchPriority="high" />}
         <p className="article-meta">
           {post.authorName || t("common.unknownAuthor")} ·{" "}
           {readableDate(post.datePublished, language)}
@@ -3868,7 +3880,7 @@ function SocialPack() {
     URL.revokeObjectURL(url);
   };
   const downloadSlide = async (slide: any, index: number) => {
-    const image = slide?.imageUrl || slide?.url || slide?.image || "";
+    const image = slide?.imageOriginalUrl || originalImageUrl(slide?.url || slide?.imageUrl || slide?.image || slide?.media || post?.imageGallery?.[index]);
     if (!image) return;
     const filename = `${post?.slug || "social-pack"}-instagram-${String(index + 1).padStart(2, "0")}.png`;
     try {
@@ -3930,7 +3942,7 @@ function SocialPack() {
             ? socialPack.instagramSlides.map((slide: any) => [slide?.headline, slide?.body].filter(Boolean).join("\n"))
             : []),
         ].filter(Boolean).join("\n\n");
-  const blogImage = post?.imageThumbUrl || post?.imageUrl || "";
+  const blogImage = post?.imagePreviewUrl || post?.imageThumbUrl || post?.imageUrl || "";
   let blogImageSrc = blogImage;
   if (blogImage.startsWith("/images/") && articleUrl) {
     try {
@@ -3942,16 +3954,17 @@ function SocialPack() {
   const carouselSlides = Array.isArray(socialPack.instagramSlides)
     ? socialPack.instagramSlides.map((slide: any, index: number) => ({
         ...slide,
-        imageUrl: socialImageUrl(slide?.imageUrl || slide?.url || slide?.image || slide?.media || post?.imageGallery?.[index]),
+        imageUrl: socialImageUrl(slide?.previewUrl || slide?.imagePreviewUrl || slide?.imageUrl || slide?.url || slide?.image || slide?.media || post?.imageGallery?.[index], "preview"),
+        imageOriginalUrl: originalImageUrl(slide?.url || slide?.imageUrl || slide?.image || slide?.media || post?.imageGallery?.[index]),
       }))
     : [];
   const safeSlideIndex = carouselSlides.length
     ? Math.min(activeSlide, carouselSlides.length - 1)
     : 0;
   const activeCarouselSlide = carouselSlides[safeSlideIndex];
-  const activeCarouselImage = socialImageUrl(activeCarouselSlide?.imageUrl || activeCarouselSlide?.url || activeCarouselSlide?.image);
+  const activeCarouselImage = socialImageUrl(activeCarouselSlide?.previewUrl || activeCarouselSlide?.imagePreviewUrl || activeCarouselSlide?.imageUrl || activeCarouselSlide?.url || activeCarouselSlide?.image, "preview");
   const story = socialPack.instagramStory && typeof socialPack.instagramStory === "object" ? socialPack.instagramStory : {};
-  const storyImage = socialImageUrl(story.imageUrl || story.image || story.url || story.media || carouselSlides[0]?.imageUrl);
+  const storyImage = socialImageUrl(story.previewUrl || story.imagePreviewUrl || story.imageUrl || story.image || story.url || story.media || carouselSlides[0]?.imageUrl, "preview");
   return (
     <main className="ui-page social-pack-page">
       <PageTitle
@@ -4066,6 +4079,8 @@ function SocialPack() {
               <img
                 src={blogImageSrc}
                 alt={post.imageAlt || post.title}
+                loading="lazy"
+                decoding="async"
                 onError={(event) => {
                   event.currentTarget.style.display = "none";
                   event.currentTarget.parentElement?.classList.add(
@@ -4107,6 +4122,8 @@ function SocialPack() {
                         {activeCarouselImage ? (
                           <img
                             src={activeCarouselImage}
+                            loading="lazy"
+                            decoding="async"
                             alt={
                               activeCarouselSlide?.alt ||
                               activeCarouselSlide?.headline ||
@@ -4165,7 +4182,7 @@ function SocialPack() {
           </article>
           <article className="ui-card social-story-card">
             <div className="social-channel-head"><div><p className="ui-eyebrow">{t("social.instagramStory")}</p><h2>Story publicada</h2></div><ChannelBadge channel="instagram_story" /></div>
-            {storyImage ? <img src={storyImage} alt={story.imageAlt || post.title} /> : <div className="carousel-placeholder">Story</div>}
+            {storyImage ? <img src={storyImage} alt={story.imageAlt || post.title} loading="lazy" decoding="async" /> : <div className="carousel-placeholder">Story</div>}
             {story.text && <p>{story.text}</p>}
             <p className="ui-field-hint">La imagen y el enlace quedan visibles aquí aunque Buffer requiera confirmar el sticker manualmente.</p>
           </article>
@@ -4618,7 +4635,7 @@ function PostRow({ post, onDeleted }: { post: Post; onDeleted?: (slug: string) =
   const [deleting, setDeleting] = useState(false);
   const statusKey = uiStatus(post.status);
   const status = t(`status.${statusKey}`, statusKey);
-  const imageSrc = post.imageThumbUrl || post.imageUrl || post.imageGallery?.[0]?.thumbUrl || post.imageGallery?.[0]?.url || post.imageGallery?.[0]?.path;
+  const imageSrc = post.imageThumbUrl || post.imagePreviewUrl || post.imageUrl || post.imageGallery?.[0]?.thumbUrl || post.imageGallery?.[0]?.previewUrl || post.imageGallery?.[0]?.url || post.imageGallery?.[0]?.path;
   const postSlug = String(post.slug || (post as any).id || "").trim();
   return (
     <div className="post-row">
@@ -4632,6 +4649,7 @@ function PostRow({ post, onDeleted }: { post: Post; onDeleted?: (slug: string) =
             src={imageSrc}
             alt=""
             loading="lazy"
+            decoding="async"
             onError={() => setImageError(true)}
           />
         ) : (
@@ -6348,7 +6366,7 @@ function Admin() {
                       onClick={() => setSelectedReference(media)}
                       aria-label={`${t("admin.referenceEditTitle")}: ${media.filename || t("admin.referenceImage")}`}
                     >
-                      <img src={media.thumbUrl || media.url || media.path} alt={media.alt || ""} />
+                      <img src={media.thumbUrl || media.previewUrl || media.url || media.path} alt={media.alt || ""} width={media.width || undefined} height={media.height || undefined} loading="lazy" decoding="async" />
                       <span className="reference-edit-icon" aria-hidden="true">✎</span>
                     </button>
                     <div className="reference-card-actions">
@@ -7506,7 +7524,7 @@ function BrandIdentityView() {
         </Card>
         <Card className="ui-brand-summary-references">
           <div className="ui-card-head"><div><span className="ui-eyebrow">{t("brandIdentity.referencesEyebrow", "Referencias")}</span><h2>{t("brandIdentity.referencesTitle", "Biblioteca visual")}</h2></div><Badge tone="info">{referenceMedia.length}</Badge></div>
-          {referenceMedia.length ? <div className="ui-brand-summary-reference-grid">{referenceMedia.slice(0, 4).map((media) => <img key={media.id || media.path || media.url} src={media.thumbUrl || media.url || media.path} alt={media.alt || media.filename || t("brandIdentity.visualReference", "Referencia visual")} loading="lazy" />)}</div> : <p className="ui-muted">{t("brandIdentity.referencesEmpty", "Aún no hay imágenes de referencia.")}</p>}
+          {referenceMedia.length ? <div className="ui-brand-summary-reference-grid">{referenceMedia.slice(0, 4).map((media) => <img key={media.id || media.path || media.url} src={media.thumbUrl || media.previewUrl || media.url || media.path} alt={media.alt || media.filename || t("brandIdentity.visualReference", "Referencia visual")} width={media.width || undefined} height={media.height || undefined} loading="lazy" decoding="async" />)}</div> : <p className="ui-muted">{t("brandIdentity.referencesEmpty", "Aún no hay imágenes de referencia.")}</p>}
         </Card>
       </section> : <div id={editTabId} role="tabpanel" aria-labelledby="identity-view-tabs-edit" className="ui-identity-grid">
         <Card className="ui-identity-brand-card">
@@ -7522,7 +7540,7 @@ function BrandIdentityView() {
           </div>
           <div className="reference-library ui-brand-reference-library">
             <div className="ui-reference-toolbar"><div><span className="ui-eyebrow">Referencias visuales</span><h3>Biblioteca de imágenes</h3><p className="ui-field-hint">Abre una imagen para verla en alta calidad y clasificar su uso.</p></div><Inline gap="sm"><Field label="Columnas"><Select value={referenceColumns} onChange={(event) => setReferenceColumns(event.target.value)}><option value="2">2</option><option value="3">3</option><option value="4">4</option></Select></Field>{canEdit && <label className="ui-button ui-button-secondary ui-button-sm ui-file-upload-button">{referenceBusy ? "Cargando…" : "Añadir imágenes"}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden disabled={referenceBusy} onChange={(event) => { Array.from(event.target.files || []).forEach((file) => void uploadReference(file)); event.currentTarget.value = ""; }} /></label>}</Inline></div>
-            {referenceMedia.length ? <div className={`reference-grid ui-reference-grid ui-reference-grid-${referenceColumns}`}>{referenceMedia.map((media) => { const canEditMedia = canEdit && Boolean(media.id); const usage = String(media.metadata?.usage || "reference"); return <article className="reference-card" key={media.id || media.path || media.url}><button className="reference-image-button" type="button" onClick={() => canEditMedia && setSelectedReference(media)} disabled={!canEditMedia} aria-label={`Ver ${media.filename || "referencia visual"}`}><img src={media.thumbUrl || media.url || media.path} alt={media.alt || media.filename || "Referencia visual"} loading="lazy" /><span className="reference-edit-icon" aria-hidden="true">⌕</span></button><div className="reference-card-actions"><div className="reference-meta"><strong title={media.filename}>{media.filename || "Referencia"}</strong><Badge tone="neutral">{referenceUsageLabels[usage] || usage}</Badge></div>{canEditMedia && <Badge tone="info">Editar</Badge>}</div></article>; })}</div> : <UiEmptyState title="Aún no hay referencias visuales" description="Importa un ZIP o añade imágenes para construir la biblioteca de la marca." />}
+            {referenceMedia.length ? <div className={`reference-grid ui-reference-grid ui-reference-grid-${referenceColumns}`}>{referenceMedia.map((media) => { const canEditMedia = canEdit && Boolean(media.id); const usage = String(media.metadata?.usage || "reference"); return <article className="reference-card" key={media.id || media.path || media.url}><button className="reference-image-button" type="button" onClick={() => canEditMedia && setSelectedReference(media)} disabled={!canEditMedia} aria-label={`Ver ${media.filename || "referencia visual"}`}><img src={media.thumbUrl || media.previewUrl || media.url || media.path} alt={media.alt || media.filename || "Referencia visual"} width={media.width || undefined} height={media.height || undefined} loading="lazy" decoding="async" /><span className="reference-edit-icon" aria-hidden="true">⌕</span></button><div className="reference-card-actions"><div className="reference-meta"><strong title={media.filename}>{media.filename || "Referencia"}</strong><Badge tone="neutral">{referenceUsageLabels[usage] || usage}</Badge></div>{canEditMedia && <Badge tone="info">Editar</Badge>}</div></article>; })}</div> : <UiEmptyState title="Aún no hay referencias visuales" description="Importa un ZIP o añade imágenes para construir la biblioteca de la marca." />}
           </div>
           <p className="ui-muted">Las referencias privadas solo se muestran según el rol y la capacidad de acceso.</p>
         </Card>

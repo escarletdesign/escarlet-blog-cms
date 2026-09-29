@@ -42,6 +42,9 @@ import {
   scheduleContentBatch,
   cancelContentBatch,
   createBrandKitVersion,
+  getBrandKitVersion,
+  validateBrandKitVersion,
+  publishBrandKitVersion,
   publishBrandKitFile,
   registerBrandAssets,
   registerContentMedia,
@@ -180,6 +183,7 @@ const MUTATING_SITE_TOOLS = new Set([
   'blog_request_changes',
   'blog_schedule_post',
   'blog_cancel_schedule',
+  'brand_update_file',
   'blog_update_brand_file',
   'blog_upload_media_file',
   'blog_open_image_drop',
@@ -194,7 +198,10 @@ const MUTATING_SITE_TOOLS = new Set([
   'video_create_job',
   'video_update_job',
   'video_upload_media',
-  'video_import_external_media'
+  'video_import_external_media',
+  'brand_create_draft',
+  'brand_upload_asset',
+  'brand_publish_draft'
 ])
 
 export const RESOURCE_MAP = {
@@ -1151,6 +1158,79 @@ export function buildToolList(auth) {
     { name: 'brand_list', description: 'Lista las marcas v2 visibles para este token. Si devuelve varias, pregunta al usuario cuál quiere usar y pasa site en las siguientes llamadas.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' } } }, annotations: { readOnlyHint: true } },
     { name: 'brand_get_context', description: 'Devuelve el contexto y el catálogo de referencias del brand kit activo en Postgres. Si la marca tiene assets de uso personaje, debes preguntar al usuario si quiere usar uno antes de preparar cualquier imagen.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, siteId: { type: 'string' } } }, annotations: { readOnlyHint: true } },
     {
+      name: 'brand_create_draft',
+      description: 'Crea un draft versionado del brand kit copiando el manifest y los assets de la versión activa. Solo owner o admin. Nunca modifica la versión activa. Usa idempotencyKey para reintentos seguros.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          site: { type: 'string' },
+          manifest: { type: 'object' },
+          baseVersionId: { type: 'string' },
+          expectedActiveVersionId: { type: 'string' },
+          idempotencyKey: { type: 'string', maxLength: 300 }
+        },
+        required: ['site']
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false }
+    },
+    {
+      name: 'brand_validate_draft',
+      description: 'Valida un draft de brand kit sin publicarlo. Comprueba manifest y assets canónicos.',
+      inputSchema: {
+        type: 'object',
+        properties: { site: { type: 'string' }, versionId: { type: 'string' } },
+        required: ['site', 'versionId']
+      },
+      annotations: { readOnlyHint: true }
+    },
+    {
+      name: 'brand_upload_asset',
+      description: 'Añade o reemplaza assets en un draft de Brand Kit. Las versiones publicadas son inmutables. Solo owner o admin.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          site: { type: 'string' },
+          versionId: { type: 'string' },
+          assets: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 100,
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+                storageKey: { type: 'string' },
+                publicUrl: { type: 'string' },
+                contentType: { type: 'string' },
+                sizeBytes: { type: 'integer' },
+                sha256: { type: 'string' },
+                visibility: { type: 'string', enum: ['private', 'role_limited', 'public'] },
+                metadata: { type: 'object' }
+              },
+              required: ['name', 'storageKey']
+            }
+          }
+        },
+        required: ['site', 'versionId', 'assets']
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false }
+    },
+    {
+      name: 'brand_publish_draft',
+      description: 'Publica un draft validado como nueva versión activa. Solo owner o admin. Rechaza si el brand kit activo cambió desde la lectura indicada.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          site: { type: 'string' },
+          versionId: { type: 'string' },
+          expectedActiveVersionId: { type: 'string' },
+          idempotencyKey: { type: 'string', maxLength: 300 }
+        },
+        required: ['site', 'versionId']
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false }
+    },
+    {
       name: 'brand_prepare_image_generation',
       description: 'Obligatoria antes de toda generación visual. Devuelve preparationId, versión, hash, dimensiones y las referencias binarias exactas. Si la marca tiene personajes, primero pregunta al usuario si quiere usar uno y pasa useCharacter=true o false; con varios personajes pasa también characterId. Entrega una referencia por llamada para evitar errores de transporte, repite con preparationId y referenceIndex hasta completar la lista, y solo entonces genera el archivo final. LinkedIn usa blog_cover 3:2 cuando no se indica assetType; si se indica social_image, respétalo. Después llama content_upload_media con preparationId, channels y assetIndex, e incluye itemId solo si ya existe.',
       inputSchema: {
@@ -1208,7 +1288,9 @@ export function buildToolList(auth) {
         properties: {
           site: { type: 'string' },
           file: { type: 'string' },
-          content: { type: 'string' }
+          content: { type: 'string' },
+          expectedActiveVersionId: { type: 'string', description: 'Versión activa que el usuario leyó antes de editar.' },
+          idempotencyKey: { type: 'string', maxLength: 300, description: 'Clave estable para reintentar la misma publicación.' }
         },
         required: ['site', 'file', 'content']
       },
@@ -1448,6 +1530,59 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             selectionRequired: context.sites.length > 1
           })
         }
+        case 'brand_create_draft': {
+          const site = resolveToolSite(auth, args)
+          const scope = await resolveContentScope(auth, { ...args, site })
+          const writeAuth = { ...auth, role: scope.role, workspaceRole: scope.workspaceRole, brandRole: scope.brandRole }
+          const access = assertBrandKitWritable(writeAuth)
+          const active = await getActiveBrandKit({ workspaceId: scope.workspaceId, siteId: scope.siteId })
+          const draft = await createBrandKitVersion({
+            workspaceId: scope.workspaceId,
+            siteId: scope.siteId,
+            userId: auth.userId,
+            role: scope.role,
+            manifest: args.manifest,
+            status: 'draft',
+            baseVersionId: args.baseVersionId || active.id,
+            expectedActiveVersionId: args.expectedActiveVersionId === undefined ? active.id : args.expectedActiveVersionId,
+            idempotencyKey: args.idempotencyKey
+          })
+          return textResult({ ...draft, writesBrandKit: true, currentRole: access.currentRole, nextStep: 'Valida el draft con brand_validate_draft y publícalo con brand_publish_draft tras la confirmación humana.' })
+        }
+        case 'brand_validate_draft': {
+          const site = resolveToolSite(auth, args)
+          const scope = await resolveContentScope(auth, { ...args, site })
+          return textResult(await validateBrandKitVersion({ workspaceId: scope.workspaceId, siteId: scope.siteId, versionId: args.versionId }))
+        }
+        case 'brand_upload_asset': {
+          const site = resolveToolSite(auth, args)
+          const scope = await resolveContentScope(auth, { ...args, site })
+          const writeAuth = { ...auth, role: scope.role, workspaceRole: scope.workspaceRole, brandRole: scope.brandRole }
+          const access = assertBrandKitWritable(writeAuth)
+          const version = await getBrandKitVersion({ workspaceId: scope.workspaceId, siteId: scope.siteId, versionId: args.versionId })
+          if (version.status === 'published') throw Object.assign(new Error('Las versiones publicadas son inmutables. Crea un draft para cargar assets.'), { status: 409, code: 'BRAND_KIT_VERSION_IMMUTABLE' })
+          const assets = await registerBrandAssets({ workspaceId: scope.workspaceId, siteId: scope.siteId, brandKitVersionId: args.versionId, userId: auth.userId, role: scope.role, assets: args.assets })
+          return textResult({ versionId: args.versionId, assets, writesBrandKit: true, currentRole: access.currentRole, nextStep: 'Valida el draft con brand_validate_draft y publícalo con brand_publish_draft tras la confirmación humana.' })
+        }
+        case 'brand_publish_draft': {
+          const site = resolveToolSite(auth, args)
+          const scope = await resolveContentScope(auth, { ...args, site })
+          const writeAuth = { ...auth, role: scope.role, workspaceRole: scope.workspaceRole, brandRole: scope.brandRole }
+          const access = assertBrandKitWritable(writeAuth)
+          const active = await getActiveBrandKit({ workspaceId: scope.workspaceId, siteId: scope.siteId })
+          const validation = await validateBrandKitVersion({ workspaceId: scope.workspaceId, siteId: scope.siteId, versionId: args.versionId })
+          if (!validation.valid) throw Object.assign(new Error('El draft del brand kit no pasa la validación.'), { status: 409, code: 'BRAND_KIT_VALIDATION_FAILED', extra: validation })
+          const published = await publishBrandKitVersion({
+            workspaceId: scope.workspaceId,
+            siteId: scope.siteId,
+            userId: auth.userId,
+            role: scope.role,
+            versionId: args.versionId,
+            expectedActiveVersionId: args.expectedActiveVersionId === undefined ? active.id : args.expectedActiveVersionId,
+            idempotencyKey: args.idempotencyKey
+          })
+          return textResult({ ...published, writesBrandKit: true, currentRole: access.currentRole })
+        }
         case 'brand_prepare_image_generation': {
           const site = resolveToolSite(auth, args)
           let scope = null
@@ -1520,7 +1655,9 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
                 userId: auth.userId,
                 role: scope.role,
                 file: updated.file,
-                content: args.content
+                content: args.content,
+                expectedActiveVersionId: args.expectedActiveVersionId,
+                idempotencyKey: args.idempotencyKey
               })
             : null
           return textResult({
@@ -1603,7 +1740,11 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             sha256: asset.sha256 || null,
             visibility: asset.visibility || 'private',
             metadata: asset.metadata && typeof asset.metadata === 'object'
-              ? { alt: String(asset.metadata.alt || ''), usage: String(asset.metadata.usage || 'reference').toLowerCase() }
+              ? {
+                  alt: String(asset.metadata.alt || ''),
+                  usage: String(asset.metadata.usage || 'reference').toLowerCase(),
+                  ...(asset.metadata.characterId ? { characterId: String(asset.metadata.characterId) } : {})
+                }
               : {}
           }))
           const characters = brandKit.assets.filter((asset) => asset.kind === 'character').map((asset) => ({
@@ -1973,13 +2114,14 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           const imported = await cms.importBrandZip(site, args, { auth })
           if (isPostgresConfigured()) {
             const scope = await resolveContentScope(auth, { site })
-            const version = await createBrandKitVersion({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: auth.userId, role: scope.role, manifest: imported.brand?.files || {}, status: 'published' })
+            const draft = await createBrandKitVersion({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: auth.userId, role: scope.role, manifest: imported.brand?.files || {}, status: 'draft' })
             const origin = cmsOrigin()
             // Reference images are visual guidance, not private credentials.
             // Keep them scoped to the brand and readable by editors through
             // the role-limited asset policy.
             const assets = (imported.importedImages || []).map((name) => ({ name, storageKey: `media/${site}/reference/${name}`, publicUrl: `${origin}/media/${site}/reference/${encodeURIComponent(name)}`, visibility: 'role_limited' }))
-            await registerBrandAssets({ workspaceId: scope.workspaceId, siteId: scope.siteId, brandKitVersionId: version.id, userId: auth.userId, role: scope.role, assets })
+            await registerBrandAssets({ workspaceId: scope.workspaceId, siteId: scope.siteId, brandKitVersionId: draft.id, userId: auth.userId, role: scope.role, assets })
+            const version = await publishBrandKitVersion({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: auth.userId, role: scope.role, versionId: draft.id, expectedActiveVersionId: draft.baseVersionId || null })
             return textResult({ ...imported, canonicalBrandKitVersionId: version.id, canonicalAssets: assets.length })
           }
           return textResult(imported)

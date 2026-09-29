@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import { randomUUID, createHash } from 'node:crypto'
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
+import { createReadStream, readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from 'node:fs'
 import { dirname, join, extname, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -25,7 +25,8 @@ import {
   isSocialMediaOnlySite,
   isAgencyGate,
   canApproveLivePublish,
-  resolveApproverRole
+  resolveApproverRole,
+  publicSiteDirectoryEntry
 } from './lib/site-config.mjs'
 import {
   getBrandContext,
@@ -153,7 +154,7 @@ import {
   createDraft as cmsCreateDraft,
   getQuotaSnapshot as cmsGetQuotaSnapshot
 } from './lib/cms-ops.mjs'
-import { mediaForClient, repairMediaInDb, repairPostsInDb, resolveImageSrc, resolvePostImageSrc, inspectImageBuffer } from './lib/media-url.mjs'
+import { mediaForClient, findMediaForClient, repairMediaInDb, repairPostsInDb, resolveImageSrc, resolvePostImageSrc, inspectImageBuffer } from './lib/media-url.mjs'
 import { runChat as runAiChat, runGenerateOperation, splitSseChunks, recordPublicationMemory } from './lib/ai-gateway.mjs'
 import { generateImageOptions } from './lib/ai-image.mjs'
 import { assertCmsAiAllowed } from './lib/generation-policy.mjs'
@@ -261,6 +262,7 @@ import {
   connectMetricool,
   getMetricoolIntegration,
   createBrandKitVersion,
+  publishBrandKitVersion,
   getActiveBrandKit,
   updateBrandAsset,
   enqueueJob,
@@ -557,6 +559,55 @@ function serveStaticFile(
   res.end(data)
 }
 
+function serveMediaFile(res, filePath, contentType, req, filename) {
+  const resolvedPath = resolvePath(filePath)
+  const resolvedMediaDir = resolvePath(mediaDir)
+  if (resolvedPath !== resolvedMediaDir && !resolvedPath.startsWith(`${resolvedMediaDir}/`)) {
+    json(res, 404, { message: 'No encontrado' })
+    return
+  }
+
+  let stat
+  try {
+    stat = statSync(resolvedPath)
+  } catch {
+    json(res, 404, { message: 'No encontrado' })
+    return
+  }
+
+  const etag = `"${stat.size.toString(16)}-${Math.trunc(stat.mtimeMs).toString(16)}"`
+  const lastModifiedMs = Math.floor(stat.mtimeMs / 1000) * 1000
+  const lastModified = new Date(lastModifiedMs).toUTCString()
+  const requestEtag = String(req.headers['if-none-match'] || '')
+  const requestDate = Date.parse(String(req.headers['if-modified-since'] || ''))
+  const versioned = new URL(req.url || '/', 'http://local').searchParams.has('v')
+  const derivative = /(?:^|[_-])(thumb|preview)$/i.test(String(filename || '').replace(/\.[^.]+$/, ''))
+  const cacheControl = versioned || derivative
+    ? 'public, max-age=31536000, immutable'
+    : 'public, max-age=3600'
+  if (requestEtag === etag || (!Number.isNaN(requestDate) && requestDate >= lastModifiedMs)) {
+    res.writeHead(304, { ETag: etag, 'Last-Modified': lastModified, 'Cache-Control': cacheControl })
+    res.end()
+    return
+  }
+
+  res.writeHead(200, {
+    'Content-Type': contentType,
+    'Content-Length': stat.size,
+    'Cache-Control': cacheControl,
+    ETag: etag,
+    'Last-Modified': lastModified
+  })
+  if (req.method === 'HEAD') {
+    res.end()
+    return
+  }
+  createReadStream(resolvedPath).on('error', () => {
+    if (!res.headersSent) json(res, 404, { message: 'No encontrado' })
+    else res.destroy()
+  }).pipe(res)
+}
+
 // The Vite bundle is optional during development before `npm run build`. Only paths below
 // /app (and the root SPA entry) reach here.
 const pwaDist = join(root, 'apps', 'pwa', 'dist')
@@ -750,7 +801,22 @@ function servePublic(res, filePath, contentType, cacheControl = 'public, max-age
 
 function normalizePostForClient(post) {
   if (!post) return post
-  return { ...post, imageUrl: resolvePostImageSrc(post.imageUrl, post.site || 'escarlet') || resolveImageSrc(post.imageUrl) }
+  const site = post.site || 'escarlet'
+  const imageUrl = resolvePostImageSrc(post.imageUrl, site) || resolveImageSrc(post.imageUrl)
+  const media = findMediaForClient(imageUrl || post.imageUrl, site)
+  if (!media) return { ...post, imageUrl }
+  return {
+    ...post,
+    imageUrl,
+    imagePreviewUrl: media.previewUrl || media.previewPath || imageUrl,
+    imageThumbUrl: media.thumbUrl || media.thumbPath || media.previewUrl || media.previewPath || imageUrl,
+    ...(media.width ? { imageWidth: media.width } : {}),
+    ...(media.height ? { imageHeight: media.height } : {}),
+    ...(media.originalBytes ? { imageOriginalBytes: media.originalBytes } : {}),
+    ...(media.storedBytes ? { imageStoredBytes: media.storedBytes } : {}),
+    ...(media.previewBytes ? { imagePreviewBytes: media.previewBytes } : {}),
+    ...(media.thumbBytes ? { imageThumbBytes: media.thumbBytes } : {})
+  }
 }
 
 function normalizePostsForClient(posts) {
@@ -763,12 +829,12 @@ async function readV2PublicBlogPosts(siteHandle) {
     const pool = await getPgPool()
     if (!pool) return null
     await coreMigrationPromise
-    const result = await pool.query(`SELECT ci.id AS item_id,ci.topic,ci.metadata->>'contentTitle' AS content_title,ci.status,cv.body,ci.created_at,cover.url AS cover_url FROM content_items ci JOIN content_variants cv ON cv.item_id=ci.id JOIN sites s ON s.id=ci.site_id LEFT JOIN LATERAL (SELECT ma.public_url AS url FROM content_variant_media cvm JOIN media_assets ma ON ma.id=cvm.media_asset_id WHERE cvm.variant_id=cv.id ORDER BY cvm.sort_order ASC LIMIT 1) cover ON TRUE WHERE s.handle=$1 AND cv.channel='blog' AND cv.status IN ('syncing','published') ORDER BY COALESCE(NULLIF(cv.body->>'datePublished','')::date,ci.created_at::date) DESC`, [siteHandle])
+    const result = await pool.query(`SELECT ci.id AS item_id,ci.topic,ci.metadata->>'contentTitle' AS content_title,ci.status,cv.body,ci.created_at,cover.url AS cover_url,cover.metadata AS cover_metadata FROM content_items ci JOIN content_variants cv ON cv.item_id=ci.id JOIN sites s ON s.id=ci.site_id LEFT JOIN LATERAL (SELECT ma.public_url AS url,ma.metadata FROM content_variant_media cvm JOIN media_assets ma ON ma.id=cvm.media_asset_id WHERE cvm.variant_id=cv.id ORDER BY cvm.sort_order ASC LIMIT 1) cover ON TRUE WHERE s.handle=$1 AND cv.channel='blog' AND cv.status IN ('syncing','published') ORDER BY COALESCE(NULLIF(cv.body->>'datePublished','')::date,ci.created_at::date) DESC`, [siteHandle])
     // A Postgres deployment may be running before the one-time JSON import. In
     // that window an empty canonical feed must not hide the legacy public feed.
     if (!result.rows.length) return null
     const itemIds = result.rows.map((row) => row.item_id).filter(Boolean)
-    const socialResult = itemIds.length ? await pool.query(`SELECT cv.item_id,cv.channel,cv.body,COALESCE(json_agg(json_build_object('url',ma.public_url,'path',ma.storage_key) ORDER BY cvm.sort_order) FILTER (WHERE ma.id IS NOT NULL),'[]'::json) AS media FROM content_variants cv LEFT JOIN content_variant_media cvm ON cvm.variant_id=cv.id LEFT JOIN media_assets ma ON ma.id=cvm.media_asset_id WHERE cv.item_id=ANY($1::text[]) AND cv.channel IN ('instagram','instagram_story') GROUP BY cv.item_id,cv.channel,cv.body`, [itemIds]) : { rows: [] }
+    const socialResult = itemIds.length ? await pool.query(`SELECT cv.item_id,cv.channel,cv.body,COALESCE(json_agg(json_build_object('url',ma.public_url,'path',ma.storage_key,'metadata',ma.metadata,'thumbUrl',ma.metadata->>'thumbUrl','previewUrl',ma.metadata->>'previewUrl','width',ma.metadata->>'width','height',ma.metadata->>'height') ORDER BY cvm.sort_order) FILTER (WHERE ma.id IS NOT NULL),'[]'::json) AS media FROM content_variants cv LEFT JOIN content_variant_media cvm ON cvm.variant_id=cv.id LEFT JOIN media_assets ma ON ma.id=cvm.media_asset_id WHERE cv.item_id=ANY($1::text[]) AND cv.channel IN ('instagram','instagram_story') GROUP BY cv.item_id,cv.channel,cv.body`, [itemIds]) : { rows: [] }
     const socialByItem = new Map()
     for (const row of socialResult.rows) {
       const channels = socialByItem.get(row.item_id) || {}
@@ -787,7 +853,9 @@ async function readV2PublicBlogPosts(siteHandle) {
         const media = Array.isArray(socialRow.media) ? socialRow.media : []
         socialPack.instagramSlides = socialPack.instagramSlides.map((slide, index) => ({
           ...slide,
-          imageUrl: slide?.imageUrl || slide?.url || slide?.image || media[index]?.url || media[index]?.path || ''
+          imageUrl: slide?.imageUrl || slide?.url || slide?.image || media[index]?.url || media[index]?.path || '',
+          previewUrl: slide?.previewUrl || slide?.imagePreviewUrl || media[index]?.previewUrl || media[index]?.metadata?.previewUrl || '',
+          thumbUrl: slide?.thumbUrl || slide?.imageThumbUrl || media[index]?.thumbUrl || media[index]?.metadata?.thumbUrl || ''
         }))
       }
       const storyPack = storyBody.socialPack?.instagramStory
@@ -795,7 +863,9 @@ async function readV2PublicBlogPosts(siteHandle) {
         const storyMedia = Array.isArray(storyRow?.media) ? storyRow.media : []
         socialPack.instagramStory = {
           ...storyPack,
-          imageUrl: storyPack.imageUrl || storyPack.url || storyMedia[0]?.url || storyMedia[0]?.path || ''
+          imageUrl: storyPack.imageUrl || storyPack.url || storyMedia[0]?.url || storyMedia[0]?.path || '',
+          previewUrl: storyPack.previewUrl || storyPack.imagePreviewUrl || storyMedia[0]?.previewUrl || storyMedia[0]?.metadata?.previewUrl || '',
+          thumbUrl: storyPack.thumbUrl || storyPack.imageThumbUrl || storyMedia[0]?.thumbUrl || storyMedia[0]?.metadata?.thumbUrl || ''
         }
       }
       return {
@@ -808,6 +878,10 @@ async function readV2PublicBlogPosts(siteHandle) {
         metaTitle: body.metaTitle || {},
         metaDescription: body.metaDescription || {},
         imageUrl: body.imageUrl || row.cover_url || '',
+        imagePreviewUrl: body.imagePreviewUrl || row.cover_metadata?.previewUrl || row.cover_metadata?.previewPath || '',
+        imageThumbUrl: body.imageThumbUrl || row.cover_metadata?.thumbUrl || row.cover_metadata?.thumbPath || row.cover_metadata?.previewUrl || '',
+        ...(row.cover_metadata?.width ? { imageWidth: Number(row.cover_metadata.width) } : {}),
+        ...(row.cover_metadata?.height ? { imageHeight: Number(row.cover_metadata.height) } : {}),
         imageAlt: body.imageAlt || '',
         datePublished: body.datePublished || row.created_at,
         dateModified: body.dateModified || row.created_at,
@@ -939,7 +1013,11 @@ function sanitizeV2BrandKit(kit, auth) {
         sha256: asset.sha256 || null,
         visibility: asset.visibility || 'private',
         metadata: asset.metadata && typeof asset.metadata === 'object'
-          ? { alt: String(asset.metadata.alt || ''), ...(asset.metadata.usage ? { usage: String(asset.metadata.usage) } : {}) }
+          ? {
+              alt: String(asset.metadata.alt || ''),
+              ...(asset.metadata.usage ? { usage: String(asset.metadata.usage) } : {}),
+              ...(asset.metadata.characterId ? { characterId: String(asset.metadata.characterId) } : {})
+            }
           : {}
       }))
     : []
@@ -1440,7 +1518,7 @@ async function handleRequest(req, res) {
       '.mov': 'video/quicktime',
       '.m4v': 'video/x-m4v'
     }
-    serveStaticFile(res, filePath, types[ext] || 'application/octet-stream', req.method)
+    serveMediaFile(res, filePath, types[ext] || 'application/octet-stream', req, filename)
     return
   }
 
@@ -2148,7 +2226,7 @@ async function handleRequest(req, res) {
       if (req.method === 'PATCH' && brandAssetMatch) {
         const scope = await requireV2Context(req, url, res, { ...body, siteId: decodeURIComponent(brandAssetMatch[1]) })
         if (!scope) return
-        json(res, 200, { asset: await updateBrandAsset({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: scope.auth.userId, role: scope.context.role, assetId: decodeURIComponent(brandAssetMatch[2]), alt: body.alt, usage: body.usage }) })
+        json(res, 200, { asset: await updateBrandAsset({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: scope.auth.userId, role: scope.context.role, assetId: decodeURIComponent(brandAssetMatch[2]), alt: body.alt, usage: body.usage, characterId: body.characterId }) })
         return
       }
       if (req.method === 'POST' && brandKitImportMatch) {
@@ -2164,13 +2242,13 @@ async function handleRequest(req, res) {
           zipUrl: body.zipUrl,
           buffer: body.buffer
         })
-        const version = await createBrandKitVersion({
+        const draft = await createBrandKitVersion({
           workspaceId: scope.workspaceId,
           siteId: scope.siteId,
           userId: scope.auth.userId,
           role: scope.context.role,
           manifest: imported.brand?.files || {},
-          status: 'published'
+          status: 'draft'
         })
         const origin = absoluteCmsOrigin(req)
         const assets = (imported.importedImages || []).map((name) => ({
@@ -2183,10 +2261,18 @@ async function handleRequest(req, res) {
         await registerBrandAssets({
           workspaceId: scope.workspaceId,
           siteId: scope.siteId,
-          brandKitVersionId: version.id,
+          brandKitVersionId: draft.id,
           userId: scope.auth.userId,
           role: scope.context.role,
           assets
+        })
+        const version = await publishBrandKitVersion({
+          workspaceId: scope.workspaceId,
+          siteId: scope.siteId,
+          userId: scope.auth.userId,
+          role: scope.context.role,
+          versionId: draft.id,
+          expectedActiveVersionId: draft.baseVersionId || null
         })
         json(res, 200, { ...imported, canonicalBrandKitVersionId: version.id, canonicalAssets: assets.length })
         return
@@ -2712,7 +2798,17 @@ async function handleRequest(req, res) {
     return
   }
 
-  if (req.method === 'GET' && path === '/api/health') {
+  if (req.method === 'GET' && (path === '/api/health' || path === '/api/health/live' || path === '/api/health/ready')) {
+    if (path === '/api/health/live') {
+      json(res, 200, {
+        ok: true,
+        live: true,
+        ready: null,
+        requestId: res._requestId,
+        version: MCP_SERVER_VERSION
+      })
+      return
+    }
     const persistence = getPersistenceStatus()
     const migrationsReady = !isPostgresConfigured() || await coreMigrationPromise
     const live = true
@@ -2769,8 +2865,17 @@ async function handleRequest(req, res) {
   if (req.method === 'GET' && path === '/api/sites') {
     const db = readDb()
     const handles = listSiteHandles()
-    const configured = handles.map((h) => loadSiteConfig(h)).filter(Boolean)
-    json(res, 200, { sites: db.sites || [], configured })
+    const configured = handles
+      .map((handle) => publicSiteDirectoryEntry(loadSiteConfig(handle)))
+      .filter(Boolean)
+    const sites = (db.sites || [])
+      .map((site) => {
+        const handle = site.handle || site.id
+        const config = loadSiteConfig(handle)
+        return publicSiteDirectoryEntry({ ...(site || {}), ...(config || {}), handle })
+      })
+      .filter(Boolean)
+    json(res, 200, { sites, configured })
     return
   }
 

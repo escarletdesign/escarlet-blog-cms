@@ -101,7 +101,14 @@ export interface Post {
   metaTitle?: { es?: string };
   metaDescription?: { es?: string };
   imageUrl?: string;
+  imagePreviewUrl?: string;
   imageThumbUrl?: string;
+  imageWidth?: number;
+  imageHeight?: number;
+  imageOriginalBytes?: number;
+  imageStoredBytes?: number;
+  imagePreviewBytes?: number;
+  imageThumbBytes?: number;
   imageAlt?: string;
   /** Images generated for this post, kept so a later option can be reused. */
   imageGallery?: GeneratedImage[];
@@ -134,8 +141,20 @@ export interface MediaItem {
   site?: string;
   path?: string;
   url?: string;
+  previewUrl?: string;
+  previewPath?: string;
   thumbUrl?: string;
   thumbPath?: string;
+  width?: number;
+  height?: number;
+  thumbWidth?: number;
+  thumbHeight?: number;
+  previewWidth?: number;
+  previewHeight?: number;
+  originalBytes?: number;
+  storedBytes?: number;
+  previewBytes?: number;
+  thumbBytes?: number;
   filename?: string;
   alt?: string;
   kind?: string;
