@@ -40,7 +40,10 @@ test('el contrato MCP expone media y contenido v2, sin operaciones de posts lega
   assert.equal(tools.find((tool) => tool.name === 'brand_prepare_image_generation').inputSchema.properties.expectedAssetCount.type, 'integer')
   assert.match(upload.description, /normaliza la imagen/i)
   for (const field of ['preparationId', 'itemId', 'channels', 'assetIndex']) assert.ok(upload.inputSchema.properties[field], field)
-  assert.deepEqual(upload.inputSchema.allOf[0].then.required, ['preparationId', 'expectedDimensions', 'sourceDimensions', 'assetIndex'])
+  assert.deepEqual(upload.inputSchema.required, ['site', 'filename'])
+  assert.deepEqual(upload.inputSchema.allOf[0].then.required, ['preparationId', 'sourceDimensions', 'assetIndex'])
+  assert.equal(upload.inputSchema.properties.expectedDimensions.description.includes('Opcional'), true)
+  assert.ok(upload.inputSchema.properties.imageAlt)
   assert.ok(tools.some((tool) => tool.name === 'content_attach_media'))
   assert.equal(upload.inputSchema.properties.generationReceiptId, undefined)
   assert.ok(update.inputSchema.properties.readyForReview)
@@ -59,7 +62,7 @@ test('el contrato MCP expone media y contenido v2, sin operaciones de posts lega
   const publicContract = JSON.stringify(tools)
   assert.doesNotMatch(publicContract, /generationReceiptId|brand_complete_image_generation|brand_register_generation|content-system\/instagram-renderer/)
   assert.equal(buildToolList({ role: 'editor' }).some((tool) => tool.name === 'brand_update_file'), true)
-  assert.equal(MCP_SERVER_VERSION, '3.5.0')
+  assert.equal(MCP_SERVER_VERSION, '3.5.1')
   for (const name of ['video_create_job', 'video_get_job', 'video_update_job', 'video_upload_media', 'video_import_external_media', 'video_list_jobs']) {
     assert.ok(tools.some((tool) => tool.name === name), name)
   }
@@ -112,7 +115,7 @@ test('createMcpServer anuncia el contrato v2 y la selección explícita de marca
   assert.match(MCP_INSTRUCTIONS, /content_upload_media/)
   assert.match(MCP_INSTRUCTIONS, /exactamente una imagen/i)
   assert.match(MCP_INSTRUCTIONS, /expectedDimensions.*sourceDimensions.*channels/i)
-  assert.match(MCP_INSTRUCTIONS, /versión 3\.5\.0/)
+  assert.match(MCP_INSTRUCTIONS, /versión 3\.5\.1/)
   assert.match(MCP_INSTRUCTIONS, /video_upload_media/)
 })
 
@@ -188,7 +191,7 @@ test('las respuestas de preparación exponen la versión MCP activa', async () =
   const result = await invokeMcpTool('brand_prepare_image_generation', { site: 'escarlet', assetType: 'generic', title: 'versión MCP' }, { role: 'admin' })
   const value = payload(result)
   assert.equal(value.mcpServer.name, 'escarlet-cms-v2')
-  assert.equal(value.mcpServer.version, '3.5.0')
+  assert.equal(value.mcpServer.version, '3.5.1')
   assert.equal(value.mcpServer.contract, 'v2')
 })
 
