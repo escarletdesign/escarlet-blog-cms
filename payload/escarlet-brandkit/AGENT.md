@@ -24,9 +24,9 @@ Un post, un enfoque principal. Si mezcla temas, elige autor por el objetivo del 
 ## Flujo MCP (crear)
 
 1. Si hay varias marcas, llama `brand_list` y pregunta cuál quiere usar. Nunca elijas una por defecto.
-2. Consulta `brand_get_context` y genera título, contenido, metadatos e imágenes en ChatGPT. Antes de cada imagen llama `brand_prepare_image_generation`, entrega exactamente sus `ImageContent`, certifica el resultado con `brand_complete_image_generation` y conserva `generationReceiptId`.
-3. Llama `content_list_plans`. Si hay campañas activas, pregunta si se reutiliza una o se crea otra. Después usa `content_create_batch` con el `batchId` elegido o con `createNewCampaign: true`.
-4. Sigue el estado con `content_list_plans`, `content_list_items` o `content_get_batch`. Aplica correcciones con `content_update_item`.
+2. Consulta `brand_get_context` y genera primero los textos y variantes completas. Guarda todo con `content_create_batch`; crea una campaña nueva automáticamente, y usa `batchId` solo si el usuario pidió reutilizar una existente.
+3. Para Instagram, genera fondos sin texto. Prepara cada imagen con `brand_prepare_image_generation` indicando itemId y canal una sola vez. Después sube cada archivo con `content_upload_media` y preparationId; el CMS reutiliza item y canal, valida las dimensiones reales y renderiza el texto guardado.
+4. Confirma que cada item esté `readyForReview` antes de indicar que terminó. Usa `content_get_batch` solo si la respuesta devuelve `in_progress`.
 5. Tras la revisión humana, usa `content_approve`. Para una fecha futura usa `content_schedule`.
 
 ## Flujo MCP (editar)
@@ -59,7 +59,7 @@ Recomendado (aviso, no bloquea):
 - imageAlt descriptivo.
 - Al menos 1 enlace interno.
 - Las variantes de cada canal deben incluir el enlace canónico cuando corresponda.
-- Carrusel Instagram. Caption con canónico. Slides con `imageUrl` absoluta del CMS + alt. El formato operativo es 1080×1350 o 1080×1440, nunca cuadrado.
+- Carrusel Instagram. Caption con canónico. Slides a 1080×1350 con alt descriptivo; el CMS incorpora el texto guardado en cada slide.
 
 ## Imágenes
 
@@ -67,28 +67,24 @@ Recomendado (aviso, no bloquea):
 - Alt describe lo que se ve. Palabra clave si encaja.
 - Composición y color según `visual-style.md` y las referencias exactas devueltas por `brand_prepare_image_generation`.
 - Cómo subir en v2:
-  1. Genera la imagen usando exactamente las referencias adjuntas por `brand_prepare_image_generation`.
-  2. `content_upload_media` con `kind: post` o `social`, `contentBase64` o `blob` y `generationReceiptId`. El CMS comprueba el snapshot, las referencias y el hash, y guarda un `mediaAssetId` canónico.
-  3. Si el host recorta el base64, usa `uploadId`, `chunkIndex` y `chunkCount` con la misma credencial.
-  4. Nunca uses `/mnt/data` como `imageUrl`.
-  5. Pasa `mediaAssetId` a `content_update_item` junto con `visualBrief` y `generationReceiptId`.
-- Carrusel Instagram (`kind` `social`). 4–7 slides. Formato 1080×1350 (o 1080×1080). Sube cada slide al CMS y enlázala en la variante Instagram del item.
+  1. Crea y guarda primero el texto completo con `content_create_batch`.
+  2. Llama `brand_prepare_image_generation` con el `itemId` y canal. Genera el fondo usando exactamente las referencias adjuntas.
+  3. Sube el archivo con `content_upload_media` y `preparationId`. El CMS asocia el archivo al item y valida las dimensiones reales.
+  4. Si el host no permite adjuntar `file`, usa `contentBase64` o, como último recurso, `uploadId`, `chunkIndex` y `chunkCount`.
+  5. Nunca uses `/mnt/data` como `imageUrl`. Comprueba `readyForReview` antes de informar que terminó.
+- Carrusel Instagram (`kind` `social`). 4–7 fondos sin texto a 1080×1350. Reutiliza el mismo `preparationId` y sube cada slide en orden con `assetIndex`.
 
 ## Sistema visual v2 (obligatorio)
 
 - El sistema web usa `#47A4E7` como color principal, Montserrat como tipografía y un degradado teal `#12B8D6` a dorado `#E8B73A` solo en héroes y llamadas a la acción.
 
-- Antes de generar una portada, inspecciona las publicaciones recientes con `content_list_items` y sus variantes.
-- Consulta el arquetipo y el historial para redactar el brief, pero no uses esa decisión para seleccionar referencias. La ruta de referencias la resuelve `brand_prepare_image_generation` de forma determinista.
-- Construye y guarda un `visualBrief` con `archetype`, `composition`, `references`, `negativeRules` y `decision.recentPostsInspected`.
+- Sigue la composición y las referencias exactas que devuelve `brand_prepare_image_generation`.
 - La portada siempre se genera sin texto, letras, números, logos ni UI legible. El prompt debe incluir la intención emocional, el arquetipo, la composición, las referencias aprobadas y lo que no se debe repetir.
-- Para el modo operativo entrega una única ruta final. No existe exploración automática ni fallback silencioso.
-- En Instagram, la IA solo genera fondos. Nunca le pidas que dibuje `headline` o `body`.
-- Renderiza cada slide con un único template (`editorial` o `impact`) usando `content-system/instagram-renderer.mjs`. La fuente, safe areas, saltos y jerarquías salen del template.
+- En Instagram, la IA solo genera fondos. El CMS renderiza el `headline` y `body` exactos guardados en cada slide con el template `editorial`.
 - El texto de cada slide debe ser grande y legible en móvil. Cada bloque admite una, dos o tres líneas como máximo. Si desborda, divide el mensaje en otra slide, nunca reduzcas la tipografía para que quepa.
 - La primera y la última slide usan colores puros de Escarlet, sin overlay aclarador, texto blanco con contraste y el logo oficial indicado por el brandkit. Las slides centrales usan fondos claros y generalistas, texto oscuro y sin logo.
 - El logo solo se inserta desde el SVG oficial del brandkit. Nunca lo redibujes ni lo generes con IA.
-- Guarda en cada slide `templateId`, `backgroundMediaId`, `backgroundStyle` y `renderedBy: content-system/instagram-renderer`.
+- El CMS conserva los datos del render y el hash final del archivo.
 - Si una portada o slide existente repite filename/hash, carece de metadata o rompe el template, marca `regenerate` con `analyze-existing-assets.mjs` y regenera solo ese slug.
 - No heredes la paleta o las referencias de Escarlet en otro sitio. Carga el brand core de la marca solicitada.
 

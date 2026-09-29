@@ -8,7 +8,7 @@ En este mismo turno llama `brand_get_context` con el `site` pedido. Lee voz, est
 
 Si `missingBrand` tiene archivos, para y pide que los suban desde Brand kit en la app v2.
 
-Pregunta al humano lo que aún no sepas antes de redactar.
+Resuelve los detalles menores con el brand kit y el contexto. Pregunta solo si falta una decisión que impide crear el contenido.
 
 No inventes tono ni paleta. La paleta canónica es `#12B8D6`, `#62B38A`, `#E8B73A`, `#1E1E1E`, `#6D6D6D` y `#FFFFFF` cuando sea necesario. El papel crema no forma parte de la marca.
 
@@ -24,9 +24,9 @@ Un post, un enfoque principal. Si mezcla temas, elige autor por el objetivo del 
 ## Flujo MCP (crear)
 
 1. Si hay varias marcas, llama `brand_list` y pregunta cuál quiere usar. Nunca elijas una por defecto.
-2. Consulta `brand_get_context` y genera título, contenido, metadatos e imágenes finales en ChatGPT. Antes de cada imagen llama `brand_prepare_image_generation` y entrega exactamente sus `ImageContent`.
-3. Llama `content_list_plans`. Si hay campañas activas, pregunta si se reutiliza una o se crea otra. Después usa `content_create_batch` con el `batchId` elegido o con `createNewCampaign: true`, y guarda el contenido completo en `items[].variants`. El CMS lo conserva como `draft` y no genera nada.
-4. Sube cada archivo con `content_upload_media`, pasando `preparationId`, `itemId`, `channels` y `assetIndex`. Cuando todo esté completo llama `content_update_item` con `readyForReview: true`.
+2. Consulta `brand_get_context` y genera primero los textos y variantes completas. Guarda todo con `content_create_batch`; crea una campaña nueva automáticamente, y usa `batchId` solo si el usuario pidió reutilizar una existente.
+3. Para Instagram, genera fondos sin texto. Prepara cada imagen con `brand_prepare_image_generation` indicando itemId y canal una sola vez. Después sube cada archivo con `content_upload_media` y preparationId; el CMS reutiliza item y canal, valida las dimensiones reales y renderiza el texto guardado.
+4. Revisa `readyForReview` en la respuesta de subida. Si es `in_progress`, completa lo que indique el CMS. No informes que terminó hasta que cada item esté listo para revisión.
 5. Tras la revisión humana, usa `content_approve`. Para una fecha futura usa `content_schedule`.
 
 ## Flujo MCP (editar)
@@ -75,21 +75,19 @@ Recomendado (aviso, no bloquea):
 - Composición y color según `visual-style.md` y las referencias exactas devueltas por `brand_prepare_image_generation`.
 - Cómo subir (orden preferido):
   1. Genera o elige la imagen. Un PNG de 2–3 MB vale.
-  2. `content_upload_media` con `file`, `contentBase64` o `blob`. El CMS conserva el formato y los bytes recibidos.
-  3. Si el host recorta el base64, usa `uploadId`, `chunkIndex` y `chunkCount`.
-  4. Nunca uses `/mnt/data` como `imageUrl`.
-  5. Usa la `media.url` absoluta en el `imageUrl` del post o en cada slide.
-- Carrusel Instagram (`kind` `social`). 4–7 slides finales a 1080×1350, con texto generado dentro de ChatGPT. Sube cada slide en su orden con `assetIndex`.
+  2. Prepara una vez con `brand_prepare_image_generation`, indicando el `itemId` y canal. Para un carrusel, usa el total de slides en `expectedAssetCount`.
+  3. Sube con `content_upload_media`, `preparationId` y `file`. El CMS inspecciona y normaliza dimensiones compatibles, renderiza el texto guardado en cada slide y asocia el archivo.
+  4. Si el host no acepta `file`, usa `contentBase64` o, como último recurso, `uploadId`, `chunkIndex` y `chunkCount`.
+  5. Nunca uses `/mnt/data` como `imageUrl`.
+- Carrusel Instagram (`kind` `social`). 4–7 fondos a 1080×1350 sin texto. El CMS renderiza el headline y body de la variante. Reutiliza el mismo `preparationId` y sube en orden con `assetIndex`.
 - Story Instagram (`kind` `social`). Una imagen final a 1080×1920 con texto y alt. Buffer la enviará por notificación si incluye enlace.
 
 ## Sistema visual v2 (obligatorio)
 
-- Antes de generar una portada, inspecciona las publicaciones recientes con `content_list_items` y sus variantes.
-- Elige un arquetipo de `content-system/brand/escarlet-image-archetypes.json`. No repitas el arquetipo del post anterior. Si el tema es parecido a uno reciente, fuerza también un encuadre y una presencia de persona distintos.
-- Construye y guarda un `visualBrief` con `archetype`, `composition`, `references`, `negativeRules` y `decision.recentPostsInspected`.
+- Sigue la composición y las referencias exactas que devuelve `brand_prepare_image_generation`.
 - La portada siempre se genera sin texto, letras, números, logos ni UI legible. El prompt debe incluir la intención emocional, el arquetipo, la composición, las referencias aprobadas y lo que no se debe repetir.
 - La selección es determinista. Para modo `automatic` se usa una única ruta cerrada. No existe fallback silencioso ni modo de exploración para generar.
-- En Instagram, ChatGPT genera cada slide final con `headline`, `body` y `alt`. Usa Montserrat, respeta las zonas seguras y evita texto ilegible, contornos, halos y rayas decorativas.
+- En Instagram, genera solo fondos sin texto. El CMS renderiza el headline y body exactos desde la variante guardada.
 - Si una portada o slide existente repite filename/hash, carece de metadata o rompe el template, marca `regenerate` con `analyze-existing-assets.mjs` y regenera solo ese slug.
 - No heredes la paleta o las referencias de Escarlet en otro sitio. Carga el brand core de la marca solicitada.
 

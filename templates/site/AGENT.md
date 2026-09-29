@@ -13,20 +13,16 @@ Si `missingBrand` tiene archivos, para y pide que los completen.
 
 ## Flujo MCP (crear)
 
-1. Si hay varias marcas, llama `brand_list` y pregunta cuál quiere usar. Nunca elijas una por defecto.
-2. Genera el título, contenido, metadatos e imágenes en ChatGPT siguiendo el brand kit y sus referencias.
-   Si el usuario pide una imagen en singular, genera exactamente una imagen y sube un solo archivo. No generes variantes ni galerías salvo que indique una cantidad.
-3. Llama `content_list_plans`. Si hay campañas activas, pregunta si se reutiliza una o se crea otra. Después usa `content_create_batch` con el `batchId` elegido o con `createNewCampaign: true`.
+1. Si hay varias marcas accesibles, llama `brand_list` y pregunta cuál usar. Si hay una sola, continúa con esa marca.
+2. Genera todos los textos completos para los canales pedidos y guárdalos con `content_create_batch`. Se crea una campaña nueva automáticamente; usa `batchId` solo si el usuario pidió añadir a una existente.
+3. Genera imágenes después de guardar el texto. Si el usuario pide una imagen singular, crea una sola. No preguntes si prefiere flujo guiado o directo.
 4. Corrige con `content_update_item`. Tras la revisión humana usa `content_approve`.
 5. Para una fecha futura usa `content_schedule`. Para detener una publicación no publicada usa `content_cancel`.
 
 ## Sistema visual
 
-- Inspecciona los últimos seis posts y guarda un `visualBrief` antes de crear una portada.
-- Elige un arquetipo del sistema del sitio y evita repetir el arquetipo consecutivo. La portada no lleva texto.
-- Usa referencias aprobadas y registra `references`, `negativeRules` y `decision.recentPostsInspected`.
-- Para Instagram, genera fondos sin texto y monta `headline` + `body` con un template controlado y la fuente declarada. El generador de imágenes no dibuja tipografía.
-- Conserva `templateId`, `backgroundMediaId` y `renderedBy` en cada slide.
+- Sigue la composición y las referencias que devuelve `brand_prepare_image_generation`. La portada no lleva texto.
+- Para Instagram, genera cada fondo sin texto. El CMS renderiza el headline y body exactos guardados en la variante.
 
 ## Flujo MCP (editar)
 

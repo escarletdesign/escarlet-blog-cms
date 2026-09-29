@@ -29,4 +29,4 @@ Una petición singular de imagen produce una sola imagen final y una sola subida
 3. `content_upload_media` con `kind` `social` por cada slide.
 4. Guarda en `socialPack.instagramSlides` `{ imageUrl, alt, headline? }` y un `instagramCaption` con el canónico.
 5. Si el canal está activo, genera las variantes en ChatGPT y añádelas al item v2 antes de aprobarlo. El CMS no genera contenido desde MCP.
-6. Mantén el headline y el body con un tamaño suficiente para leerse en un móvil. Si el copy no cabe, acórtalo o divídelo entre slides. Nunca lo reduzcas hasta hacerlo ilegible.
+6. Genera fondos sin texto. El CMS renderiza el headline y el body guardados con tamaño legible en móvil. Si el copy no cabe, acórtalo o divídelo entre slides.

@@ -32,8 +32,8 @@ Env `BLOG_ENABLED=false` en local fuerza apagado. El interruptor del CMS manda e
 
 ## Crear campaña
 
-1. Genera contenido e imágenes en ChatGPT y consulta `content_list_plans`. Si hay campañas activas, pregunta si se reutiliza una o se crea otra. Usa `content_create_batch` con el `batchId` elegido o con `createNewCampaign: true`.
-2. Sigue la generación con `content_list_plans`, `content_list_items` o `content_get_batch`.
+1. Genera primero textos completos para los canales pedidos y guárdalos con `content_create_batch`. Se crea una campaña nueva automáticamente. Usa `batchId` solo si el usuario pidió continuar una campaña existente.
+2. Prepara y sube las imágenes después de guardar el texto. Sigue el resultado con `content_get_batch` solo si la subida devuelve `in_progress`.
 3. `content_update_item` para corregir una publicación antes de revisar.
 
 4. Espera la revisión humana en Campañas y usa `content_approve`.
@@ -57,11 +57,8 @@ Portada. `kind` `post`. Carrusel. `kind` `social`, filename `{slug}-ig-01.jpg` �
 
 ## Sistema visual v2
 
-- Lee las variantes recientes con `content_list_items` antes de crear una portada.
-- Usa un arquetipo aprobado y no repitas el anterior. La portada no lleva texto.
-- Guarda `visualBrief` con arquetipo, composición, referencias y motivo de decisión.
-- Para Instagram, genera fondos sin texto y usa `editorial` o `impact` para renderizar el texto exacto con `content-system/instagram-renderer.mjs`.
-- Conserva `templateId`, `backgroundMediaId` y `renderedBy` en cada slide.
+- Usa la composición y referencias que entrega `brand_prepare_image_generation`. La portada no lleva texto.
+- Para Instagram, genera fondos sin texto. El CMS renderiza el headline y body exactos guardados en la variante.
 
 ## Canales
 

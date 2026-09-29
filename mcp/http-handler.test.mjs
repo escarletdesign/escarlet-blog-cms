@@ -45,7 +45,7 @@ test('el handler moderno publica el contrato MCP único', async () => {
   const body = await response.json()
   assert.ok(body.result.tools.some((tool) => tool.name === 'content_upload_media'))
   assert.equal(body.result.tools.some((tool) => tool.name === 'brand_complete_image_generation'), false)
-  assert.equal(body.result._meta['io.modelcontextprotocol/serverInfo'].version, '3.5.1')
+  assert.equal(body.result._meta['io.modelcontextprotocol/serverInfo'].version, '3.5.2')
 })
 
 test('el handler moderno acepta tools/call con envelope por request', async () => {

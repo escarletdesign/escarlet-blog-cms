@@ -43,7 +43,7 @@ Antes de generar cualquier imagen, llama `brand_prepare_image_generation` despu�
 
 Si el site tiene `instagramCarousel` activo, el agente genera 4–7 slides (1080×1350), las sube al CMS con `kind` `social` (`{slug}-ig-01.jpg` …) y las enlaza en `socialPack.instagramSlides`. ChatGPT envía el PNG en `contentBase64` o a trozos. El CMS comprime. El pack admin solo descarga las URLs del CMS.
 
-Regla visual del carrusel: la primera y la última slide pueden usar colores de marca o gradientes suaves. Las slides centrales usan fondos blancos, grises o desaturados y evitan colores saturados. No uses papel crema. En las piezas de Instagram sí se permite texto, pero debe limitarse al `headline` y `body` entregados por el CMS, con ortografía exacta, jerarquía clara y un tamaño suficiente para leerse en un móvil desde la primera lectura. Si el copy no cabe, acórtalo o divídelo entre slides. Nunca reduzcas la tipografía hasta hacerla ilegible. Esta configuración vive también en `image-spec.json` para que el agente y el generador la apliquen de forma consistente.
+Regla visual del carrusel: la primera y la última slide pueden usar colores de marca o gradientes suaves. Las slides centrales usan fondos blancos, grises o desaturados y evitan colores saturados. No uses papel crema. Genera los fondos de Instagram sin texto. El CMS renderiza el `headline` y `body` guardados, con ortografía exacta, jerarquía clara y tamaño legible en móvil. Si el copy no cabe, acórtalo o divídelo entre slides.
 
 ## Lead magnets
 

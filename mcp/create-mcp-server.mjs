@@ -69,7 +69,6 @@ import {
   persistImagePreparation,
   assertAssetTypeForMediaKind
 } from '../lib/generation-provenance.mjs'
-import { assertImageAspectCompatible } from '../lib/image-normalize.mjs'
 
 const DEFAULT_SITE = process.env.DEFAULT_SITE || 'escarlet'
 const V2_CONTENT_TOOLS = new Set([
@@ -428,7 +427,7 @@ export async function preparedImageResult(payload) {
       requiredForUpload: true,
       preparationIdField: 'brandPreparation.preparationId',
       finalAssetRequiresText: Boolean(payload?.brandPreparation?.finalAssetRequiresText),
-      finalTextRenderer: 'ChatGPT',
+      finalTextRenderer: payload?.brandPreparation?.finalTextRenderer || 'ChatGPT',
       allowedSocialAspectRatios: payload.composition?.allowedAspectRatios || ['4:5'],
       generationCardinality: payload?.generationCardinality || {
         defaultImageCount: 1,
@@ -502,7 +501,7 @@ function preparedPayloadFromStoredPreparation(preparation, canonicalSnapshot) {
       assetType,
       expectedAssetCount: Number(preparation.expectedAssetCount || 1),
       finalAssetRequiresText: ['social_image', 'instagram_story'].includes(assetType),
-      finalTextRenderer: ['social_image', 'instagram_story'].includes(assetType) ? 'ChatGPT' : null
+      finalTextRenderer: assetType === 'social_image' ? 'content-system/instagram-renderer' : assetType === 'instagram_story' ? 'ChatGPT' : null
     },
     resolvedReferences
   }
@@ -515,16 +514,19 @@ async function preparedUploadGrounding(site, scope, args) {
   if (preparation.generationBlocked || preparation.state === 'blocked') throw Object.assign(new Error('La preparación visual está bloqueada.'), { status: 409, code: 'GENERATION_BLOCKED' })
   if (preparation.expiresAt && new Date(preparation.expiresAt).getTime() <= Date.now()) throw Object.assign(new Error('La preparación visual ha expirado.'), { status: 409, code: 'BRAND_PREPARATION_EXPIRED' })
   if (preparation.itemId && args.itemId && preparation.itemId !== args.itemId) throw Object.assign(new Error('La preparación pertenece a otro item.'), { status: 409, code: 'ITEM_MISMATCH' })
+  const itemId = args.itemId || preparation.itemId || null
   const assetType = String(preparation.assetType || '')
   const inferredKind = assetType === 'blog_cover' ? 'post' : ['social_image', 'instagram_story'].includes(assetType) ? 'social' : ''
   const kind = String(args.kind || inferredKind).toLowerCase()
-  const channels = Array.isArray(args.channels) ? args.channels.map((channel) => String(channel).toLowerCase()) : []
+  const channels = Array.isArray(args.channels) && args.channels.length
+    ? args.channels.map((channel) => String(channel).toLowerCase())
+    : preparation.channel ? [String(preparation.channel).toLowerCase()] : []
   if (!['post', 'social'].includes(kind)) throw Object.assign(new Error('kind debe ser post o social para esta preparación visual; no se puede inferir desde preparationId.'), { status: 400, code: args.kind ? 'MEDIA_KIND_INVALID' : 'MEDIA_KIND_REQUIRED' })
   assertAssetTypeForMediaKind(kind, preparation.assetType)
   if (channels.some((channel) => !['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'].includes(channel))) {
     throw Object.assign(new Error('channels contiene un canal no reconocido.'), { status: 400, code: 'MEDIA_CHANNEL_INVALID' })
   }
-  if (args.itemId && !channels.length) throw Object.assign(new Error('channels es obligatorio cuando el medio se asocia a un item.'), { status: 400, code: 'MEDIA_CHANNELS_REQUIRED' })
+  if (itemId && !channels.length) throw Object.assign(new Error('Indica el canal al preparar la imagen o envía channels al subirla.'), { status: 400, code: 'MEDIA_CHANNELS_REQUIRED' })
   if (channels.length && (preparation.assetType === 'instagram_story'
     ? channels.some((channel) => channel !== 'instagram_story')
     : channels.includes('instagram_story'))) throw Object.assign(new Error('La preparación y los canales no coinciden.'), { status: 409, code: 'ASSET_TYPE_MISMATCH' })
@@ -532,14 +534,9 @@ async function preparedUploadGrounding(site, scope, args) {
   if (args.expectedDimensions && String(args.expectedDimensions) !== expectedDimensions) {
     throw Object.assign(new Error(`expectedDimensions debe ser ${expectedDimensions} para ${preparation.assetType}.`), { status: 409, code: 'EXPECTED_DIMENSIONS_MISMATCH', expectedDimensions })
   }
-  if (!args.sourceDimensions || typeof args.sourceDimensions !== 'object') throw Object.assign(new Error('Indica sourceDimensions con el tamaño original para validar su proporción antes de transferir el archivo.'), { status: 400, code: 'SOURCE_DIMENSIONS_REQUIRED' })
-  if (!Number.isInteger(Number(args.sourceDimensions.width)) || !Number.isInteger(Number(args.sourceDimensions.height)) || Number(args.sourceDimensions.width) < 1 || Number(args.sourceDimensions.height) < 1) {
-    throw Object.assign(new Error('sourceDimensions debe contener width y height enteros positivos.'), { status: 400, code: 'SOURCE_DIMENSIONS_INVALID' })
-  }
-  assertImageAspectCompatible(args.sourceDimensions.width, args.sourceDimensions.height, preparation.assetType)
-  const index = Number(args.assetIndex)
+  const index = Number(args.assetIndex ?? 0)
   if (!Number.isInteger(index) || index < 0 || index >= Number(preparation.expectedAssetCount || 1)) throw Object.assign(new Error('assetIndex no pertenece a esta preparación.'), { status: 409, code: 'ASSET_INDEX_MISMATCH' })
-  if (args.itemId) await preflightContentMediaAttachment({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId: args.itemId, channels, assetIndex: index })
+  const attachment = itemId ? await preflightContentMediaAttachment({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId, channels, assetIndex: index }) : null
   const active = await getActiveBrandKit({ workspaceId: scope.workspaceId, siteId: scope.siteId })
   if (active.id !== preparation.brandKitVersionId) throw Object.assign(new Error('El brand kit cambió desde la preparación. Vuelve a preparar la imagen.'), { status: 409, code: 'BRAND_VERSION_MISMATCH' })
   return {
@@ -552,9 +549,11 @@ async function preparedUploadGrounding(site, scope, args) {
     kind,
     resolvedReferenceIds: preparation.expectedReferences.map((reference) => reference.id),
     resolvedReferenceHashes: preparation.expectedReferences.map((reference) => reference.sha256),
-    itemId: args.itemId,
-    channels: args.channels,
+    itemId,
+    channels,
     assetIndex: index,
+    expectedAssetCount: Number(preparation.expectedAssetCount || 1),
+    socialTextContent: attachment?.socialTextContent || args.textContent || null,
     generatedAt: new Date().toISOString()
   }
 }
@@ -1271,7 +1270,7 @@ export function buildToolList(auth) {
     },
     {
       name: 'brand_prepare_image_generation',
-      description: 'Obligatoria antes de toda generación visual. Devuelve campos estructurados preparationId, expectedDimensions, assetType y resolvedReferences, con todas las referencias binarias exactas en una llamada. Si la marca tiene personajes, primero pregunta al usuario si quiere usar uno y pasa useCharacter=true o false; con varios personajes pasa también characterId. LinkedIn usa blog_cover 3:2 cuando no se indica assetType; si se indica social_image, respétalo. Después llama content_upload_media con preparationId, sourceDimensions y assetIndex: kind y expectedDimensions se derivan de la preparación. Incluye itemId y channels solo si el item ya existe.',
+      description: 'Prepara una imagen y entrega juntas todas las referencias exactas. Para contenido ya guardado, pasa itemId y channel; en Instagram, prepara el carrusel una vez con expectedAssetCount igual al número de slides. El CMS reutiliza esos datos al subir. No preguntes por personajes salvo que el usuario pida uno. Después sube con preparationId.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1285,7 +1284,7 @@ export function buildToolList(auth) {
           expectedAssetCount: { type: 'integer', minimum: 1, maximum: 20, description: 'Cantidad explícita de imágenes finales relacionadas. Usa 1 para una imagen singular y el total de slides para un carrusel.' },
           itemId: { type: 'string' },
           batchId: { type: 'string' },
-          useCharacter: { type: 'boolean', description: 'Elección explícita del usuario cuando la marca tiene personajes. Obligatorio si el contexto ofrece personajes.' },
+          useCharacter: { type: 'boolean', description: 'Usa un personaje solo si el usuario lo pide explícitamente. Por defecto no se usa.' },
           characterId: { type: 'string', description: 'ID o filename del personaje elegido cuando la marca tiene más de uno.' },
           preparationId: { type: 'string', description: 'Preparación existente para entregar la siguiente referencia binaria sin crear otra preparación.' },
           referenceIndex: { type: 'integer', minimum: 0, description: 'Campo de compatibilidad. Las referencias se devuelven juntas en una sola respuesta.' }
@@ -1362,7 +1361,7 @@ export function buildToolList(auth) {
     },
     {
       name: 'content_upload_media',
-      description: 'Valida marca, preparación, canales, itemId y proporción antes de descargar file. Si omites kind y expectedDimensions, los deriva de preparationId; acepta imageAlt como alias de alt. Normaliza la imagen al formato exacto, guarda hash y dimensiones original/final, y asocia el medio si itemId está presente. Si faltan campos en las variantes, sugiere content_get_batch para recuperar los bodies completos antes de editarlos. Sin itemId devuelve pendingMediaId para asociarlo después con content_attach_media. Usa file para transferencia nativa; el servidor descarga y guarda el archivo en una sola llamada.',
+      description: 'Sube y asocia una imagen en una llamada. Pasa preparationId y file; el CMS inspecciona y normaliza dimensiones compatibles y reutiliza item y canal de la preparación. Para un carrusel, assetIndex distingue cada slide. En Instagram el CMS renderiza sobre el fondo el texto guardado. Si no preparaste un item, incluye textContent o la imagen quedará pendiente de asociar.',
       inputSchema: {
         type: 'object',
         $defs: openaiFileDefs(),
@@ -1383,18 +1382,17 @@ export function buildToolList(auth) {
           chunkIndex: { type: 'string' },
           chunkCount: { type: 'string' },
           preparationId: { type: 'string' },
+          textContent: { type: 'object', properties: { headline: { type: 'string', minLength: 1, maxLength: 90 }, body: { type: 'string', minLength: 1, maxLength: 240 } }, required: ['headline', 'body'], description: 'Texto de slide solo si no se preparó con un item existente.' },
           itemId: { type: 'string' },
           channels: { type: 'array', uniqueItems: true, items: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] } },
           assetIndex: { type: 'integer', minimum: 0, maximum: 19, default: 0 },
           expectedDimensions: { type: 'string', description: 'Opcional. El CMS la deriva de preparationId y, si se envía, comprueba que coincida.' },
-          sourceDimensions: { type: 'object', properties: { width: { type: 'integer', minimum: 1 }, height: { type: 'integer', minimum: 1 } }, required: ['width', 'height'], additionalProperties: false },
           autoNormalize: { type: 'boolean', default: true },
           idempotencyKey: { type: 'string', maxLength: 300 }
         },
         required: ['site', 'filename'],
         allOf: [
-          { if: { not: { properties: { kind: { const: 'reference' } }, required: ['kind'] } }, then: { required: ['preparationId', 'sourceDimensions', 'assetIndex'] } },
-          { if: { required: ['itemId'] }, then: { required: ['channels', 'assetIndex'] } }
+          { if: { not: { properties: { kind: { const: 'reference' } }, required: ['kind'] } }, then: { required: ['preparationId'] } }
         ]
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
@@ -1424,7 +1422,7 @@ export function buildToolList(auth) {
     { name: 'content_list_plans', description: 'Lista las campañas de contenido de una marca, con progreso, canales y publicaciones.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, status: { type: 'string' }, channel: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] }, query: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 200 } } }, annotations: { readOnlyHint: true } },
     { name: 'content_list_items', description: 'Lista publicaciones v2, incluyendo las generadas o pendientes de revisión aunque todavía no estén publicadas.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, batchId: { type: 'string' }, status: { type: 'string' }, channel: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] }, query: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 500 } } }, annotations: { readOnlyHint: true } },
     { name: 'content_list_calendar', description: 'Lista el calendario v2 con publicaciones programadas, sincronizando, publicadas o con error.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, from: { type: 'string' }, to: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 1000 } } }, annotations: { readOnlyHint: true } },
-    { name: 'content_create_batch', description: 'Guarda publicaciones en una campaña. Antes lista las campañas activas: si existe alguna, pregunta al usuario si quiere reutilizarla con batchId o crear otra con createNewCampaign=true. Conserva literalmente las variantes recibidas.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, title: { type: 'string', description: 'Título visible de la campaña cuando se crea una nueva.' }, items: { type: 'array', minItems: 1, items: { type: 'object', properties: { title: { type: 'string', maxLength: 90, description: 'Título editorial breve. No incluyas el enfoque, contexto ni el brief.' }, brief: { type: 'string', minLength: 1, maxLength: 500 }, variants: { type: 'object', minProperties: 1, additionalProperties: { type: 'object' } } }, required: ['variants'], additionalProperties: false } }, batchId: { type: 'string', description: 'Identificador de una campaña existente elegida por el usuario.' }, createNewCampaign: { type: 'boolean', description: 'Usa true solo después de que el usuario confirme que quiere una campaña nueva.' }, channels: { type: 'array', items: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] } }, brandKitVersionId: { type: 'string' }, idempotencyKey: { type: 'string', maxLength: 300 }, metadata: { type: 'object' } }, required: ['items'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
+    { name: 'content_create_batch', description: 'Guarda primero los textos completos de una o varias publicaciones. Crea una campaña nueva automáticamente; pasa batchId solo si el usuario pidió añadir a una campaña existente. Si falta title de campaña, se toma del primer post. Conserva literalmente las variantes recibidas.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, title: { type: 'string', description: 'Opcional. Por defecto usa el título del primer post.' }, items: { type: 'array', minItems: 1, items: { type: 'object', properties: { title: { type: 'string', maxLength: 90, description: 'Título editorial breve. No incluyas el enfoque, contexto ni el brief.' }, brief: { type: 'string', minLength: 1, maxLength: 500 }, variants: { type: 'object', minProperties: 1, additionalProperties: { type: 'object' } } }, required: ['variants'], additionalProperties: false } }, batchId: { type: 'string', description: 'Solo si el usuario pidió añadir a una campaña existente.' }, createNewCampaign: { type: 'boolean', description: 'Compatibilidad anterior. No hace falta enviarlo para crear campaña nueva.' }, channels: { type: 'array', items: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] } }, brandKitVersionId: { type: 'string' }, idempotencyKey: { type: 'string', maxLength: 300 }, metadata: { type: 'object' } }, required: ['items'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_get_batch', description: 'Obtiene el progreso, las publicaciones y las variantes de una campaña.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, batchId: { type: 'string' } }, required: ['batchId'] }, annotations: { readOnlyHint: true } },
     { name: 'content_update_item', description: 'Reemplaza sin reescritura el body completo recibido para un canal. Lee content_get_batch antes de editar y conserva todos los campos actuales. Con readyForReview=true valida que todas las variantes y medios del item estén completos y cambia el estado a generated.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, topic: { type: 'string' }, channel: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] }, body: { type: 'object' }, visualBrief: { type: 'object' }, mediaAssetIds: { type: 'array', items: { type: 'string' } }, readyForReview: { type: 'boolean' } }, required: ['itemId'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_approve', description: 'Aprueba un item o todos los items de un batch.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' } }, oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } },
@@ -1667,13 +1665,6 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           const activeBrandKit = await getActiveBrandKit({ workspaceId: scope.workspaceId, siteId: scope.siteId })
           const canonicalSnapshot = loadActiveBrandKitSnapshot(scope.siteHandle, { manifest: activeBrandKit.manifest, assets: activeBrandKit.assets, brandKitVersionId: activeBrandKit.id, version: activeBrandKit.version })
           const characters = canonicalSnapshot.references.filter((reference) => String(reference.usage || '').toLowerCase() === 'character')
-          if (characters.length && typeof args.useCharacter !== 'boolean') {
-            throw Object.assign(new Error('Esta marca tiene personajes disponibles. Pregunta al usuario si quiere usar uno en esta imagen antes de continuar.'), {
-              status: 409,
-              code: 'CHARACTER_SELECTION_REQUIRED',
-              extra: { askUser: true, characters: characters.map((character) => ({ id: character.id, filename: character.filename, alt: character.alt || character.filename })) }
-            })
-          }
           if (args.useCharacter === true && characters.length > 1 && !args.characterId) {
             throw Object.assign(new Error('La marca tiene más de un personaje. Pregunta cuál quiere usar y vuelve a preparar la imagen con characterId.'), {
               status: 409,
@@ -1739,7 +1730,9 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           if (requestedKind && !['post', 'social', 'reference'].includes(requestedKind)) throw Object.assign(new Error('kind debe ser post, social o reference.'), { status: 400, code: 'MEDIA_KIND_INVALID' })
           const brandGroundingOverride = requestedKind === 'reference' ? null : await preparedUploadGrounding(site, scope, args)
           const kind = requestedKind || brandGroundingOverride.kind
-          const alt = args.alt || args.imageAlt || ''
+          const itemId = brandGroundingOverride?.itemId || args.itemId || null
+          const channels = brandGroundingOverride?.channels || args.channels || []
+          const alt = args.alt || args.imageAlt || brandGroundingOverride?.socialTextContent?.headline || ''
           const uploaded = await cms.uploadMedia({
             ...args,
             alt,
@@ -1767,32 +1760,40 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
               alt,
               preparationId: args.preparationId || '',
               assetType: uploaded.media?.brandGrounding?.assetType || '',
-              itemId: args.itemId || '',
-              channels: args.channels || [],
+              itemId: itemId || '',
+              channels,
               assetIndex: Number(args.assetIndex ?? 0)
             })).digest('hex')
           })
           const attachment = ['post', 'social'].includes(kind)
-            ? args.itemId
-              ? await attachContentMedia({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId: args.itemId, userId: auth.userId, role: scope.role, mediaAssetId: asset.id, channels: args.channels, assetIndex: args.assetIndex ?? 0 })
+            ? itemId
+              ? await attachContentMedia({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId, userId: auth.userId, role: scope.role, mediaAssetId: asset.id, channels, assetIndex: args.assetIndex ?? 0 })
               : null
             : null
+          const expectedAssetCount = Number(brandGroundingOverride?.expectedAssetCount || 1)
+          const assetIndex = Number(brandGroundingOverride?.assetIndex ?? args.assetIndex ?? 0)
+          const moreSlidesPending = Boolean(attachment && assetIndex + 1 < expectedAssetCount)
           const { suggestedPostPatch, suggestedTool, nextStep, reviewHint, ...safeUpload } = uploaded
           return textResult({
             ...safeUpload,
             mediaAsset: asset,
             mediaAssetId: asset.id,
-            ...(kind !== 'reference' && !args.itemId ? { pendingMediaId: asset.id } : {}),
+            ...(kind !== 'reference' && !itemId ? { pendingMediaId: asset.id } : {}),
             attachment,
+            operationStatus: kind === 'reference' ? 'complete' : attachment?.contentComplete ? 'ready_for_review' : moreSlidesPending ? 'in_progress' : attachment ? 'needs_completion' : 'upload_complete_attachment_pending',
+            readyForReview: Boolean(attachment?.contentComplete),
+            ...(brandGroundingOverride?.assetType === 'social_image' ? { textRendered: Boolean(uploaded.media?.brandGrounding?.textRendered) } : {}),
             nextStep: kind === 'reference'
               ? 'Referencia guardada en el almacenamiento de la marca.'
               : attachment?.contentComplete
                 ? 'Todas las variantes y medios están completos. El item quedó en generated, listo para revisión humana.'
+                : moreSlidesPending
+                  ? `Slide ${assetIndex + 1} de ${expectedAssetCount} asociada. Sube las slides restantes con el mismo preparationId.`
                 : attachment
                   ? `Medio asociado. Faltan estos campos antes de revisión: ${(attachment.incomplete || []).map((entry) => `${entry.channel}: ${entry.fields.join(', ')}`).join('; ')}`
-                : `Medio guardado como pendingMediaId. Cuando exista el item, asócialo con content_attach_media usando mediaId "${asset.id}".`,
-            suggestedTool: kind === 'reference' ? null : attachment?.contentComplete ? null : attachment ? 'content_get_batch' : 'content_attach_media',
-            nextAction: attachment && !attachment.contentComplete
+              : `Medio guardado como pendingMediaId. Cuando exista el item, asócialo con content_attach_media usando mediaId "${asset.id}".`,
+            suggestedTool: kind === 'reference' || attachment?.contentComplete || moreSlidesPending ? null : attachment ? 'content_get_batch' : 'content_attach_media',
+            nextAction: attachment && !attachment.contentComplete && !moreSlidesPending
               ? { tool: 'content_get_batch', arguments: { batchId: attachment.batchId }, then: 'Recupera los bodies completos y usa content_update_item por canal para guardar cada body completo. No envíes solo los campos que faltan.' }
               : null,
             reviewHint: kind === 'reference' ? 'Referencia guardada.' : attachment ? 'Medio asociado al item y a sus variantes.' : 'Medio guardado, pendiente de asociar a un item.'
@@ -1886,7 +1887,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             referenceImages: brandKit.referenceImages || [],
             characters,
             characterPolicy: characters.length
-              ? { askBeforeUse: true, instruction: 'Pregunta al usuario si quiere usar uno de estos personajes antes de preparar una imagen. Si acepta, conserva sus rasgos faciales y usa useCharacter=true.' }
+              ? { askBeforeUse: false, instruction: 'No uses personajes salvo que el usuario lo pida. Si lo pide, conserva sus rasgos faciales y usa useCharacter=true.' }
               : { askBeforeUse: false },
             files: brandKit.files || {},
             channels,
@@ -1896,10 +1897,6 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
         }
         case 'content_create_batch': {
           const scope = await resolveContentScope(auth, args)
-          if (!args.batchId && args.createNewCampaign !== true) {
-            const activeCampaigns = await listContentPlans({ workspaceId: scope.workspaceId, siteId: scope.siteId, status: ['draft', 'generated', 'needs_review', 'approved', 'scheduled'], limit: 20 })
-            if (activeCampaigns.length) throw Object.assign(new Error('Ya existen campañas activas para esta marca. Elige una o confirma la creación de una campaña nueva.'), { status: 409, code: 'CONTENT_PLAN_SELECTION_REQUIRED', extra: { campaigns: activeCampaigns, askUser: '¿Quieres guardar estas publicaciones en una campaña existente o crear una campaña nueva?' } })
-          }
           const requestedChannels = [...new Set((Array.isArray(args.channels) && args.channels.length
             ? args.channels
             : (args.items || []).flatMap((item) => Object.keys(item?.variants || {}))).map((channel) => String(channel).toLowerCase()))]
@@ -2122,7 +2119,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
         }
         case 'blog_get_workflow': {
           const site = resolveToolSite(auth, args)
-          const mode = args.mode === 'guided' ? 'guided' : args.mode === 'easy' ? 'easy' : 'choose'
+          const mode = args.mode === 'guided' ? 'guided' : 'easy'
           const workflowDb = readDb()
           const cmsAiEnabled = isCmsAiEnabled({ db: workflowDb })
           const workflow = getWorkflowFlags(workflowDb)
@@ -2132,9 +2129,8 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             blogWizardEnabled: cmsAiEnabled && workflow.blogWizardEnabled,
             appBaseUrl: appUrl('/'),
             routes: { preview: appUrl('/preview/{slug}'), posts: `${appUrl('/posts')}?site=${encodeURIComponent(site)}` },
-            askUser: '¿Prefieres el flujo simple o revisar e iterar el borrador con el flujo guiado?',
-            steps: ['Consulta blog_get_brand_context y blog_list_authors.', 'Genera en ChatGPT textos e imágenes respetando el brand kit.', 'Crea con blog_create_draft, sube los medios y completa los campos con blog_update_post.', 'En guided entrega appPreviewUrl y aplica las correcciones.', 'Solicita confirmación y usa blog_publish o blog_schedule_post.', 'Solo si se solicita, genera en ChatGPT el Social Pack y guárdalo con blog_save_social_pack.'],
-            modes: { easy: { steps: ['Genera todo en ChatGPT', 'Guarda medios y campos', 'Confirma y publica con direct=true'] }, guided: { steps: ['Guarda el borrador', 'Revisa en /app', 'Publica con direct=true'] } },
+            steps: ['Lee brand_get_context.', 'Escribe y guarda los textos completos con content_create_batch.', 'Prepara y sube imágenes con brand_prepare_image_generation y content_upload_media.', 'En Instagram, genera fondos sin texto y deja que el CMS renderice la variante guardada.', 'Espera la revisión humana antes de aprobar o programar.'],
+            modes: { easy: { steps: ['Genera textos e imágenes en un flujo directo', 'Guarda los medios y revisa readyForReview'] }, guided: { steps: ['Guarda el borrador', 'Revísalo en la app antes de aprobar'] } },
             appUrl: `${appUrl('/posts')}?site=${encodeURIComponent(site)}`,
             rule: 'Nunca llames APIs de IA del CMS. Si no puedes transferir una imagen, conserva el borrador y pide carga manual.'
           }, source))
