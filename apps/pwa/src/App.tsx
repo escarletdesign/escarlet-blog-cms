@@ -2263,6 +2263,7 @@ function ReferenceMediaModal({
               <option value="logo">Logo</option>
               <option value="reference">Referencia visual</option>
               <option value="style_board">Tablero visual</option>
+              <option value="character">Personaje</option>
               <option value="typography">Tipografía</option>
               <option value="palette">Paleta de color</option>
               <option value="campaign">Referencia de campaña</option>
@@ -7334,7 +7335,8 @@ function BrandIdentityView() {
                 metadata: { ...(asset.metadata || {}), source: "brand-kit", usage: asset.metadata?.usage || asset.metadata?.role || "reference" },
               }))
           : [];
-        setReferenceMedia(dedupeMedia([...(references.media || []), ...kitReferences]));
+        // Prefer canonical Postgres assets when legacy and v2 expose the same file.
+        setReferenceMedia(dedupeMedia([...kitReferences, ...(references.media || [])]));
         const manifest = kitResult && typeof kitResult.manifest === "object" ? kitResult.manifest : {};
         const files = [...new Set([...(legacy?.files || []), ...Object.keys(manifest)])];
         setBrandFiles(files);
@@ -7442,7 +7444,7 @@ function BrandIdentityView() {
     }
   };
   const visibleBrandFiles = [...new Set([...brandFiles, ...Object.keys(kit?.manifest || {})])];
-  const referenceUsageLabels: Record<string, string> = { logo: "Logo", reference: "Referencia visual", style_board: "Tablero visual", typography: "Tipografía", palette: "Paleta de color", campaign: "Referencia de campaña" };
+  const referenceUsageLabels: Record<string, string> = { logo: "Logo", reference: "Referencia visual", style_board: "Tablero visual", character: "Personaje", typography: "Tipografía", palette: "Paleta de color", campaign: "Referencia de campaña" };
   const palette = brandPalette(brandCore);
   const identity = brandCore.identity || {};
   const typography = brandCore.fixed?.typography || {};

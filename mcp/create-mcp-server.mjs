@@ -1149,10 +1149,10 @@ export function buildToolList(auth) {
 
   tools.push(
     { name: 'brand_list', description: 'Lista las marcas v2 visibles para este token. Si devuelve varias, pregunta al usuario cuál quiere usar y pasa site en las siguientes llamadas.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' } } }, annotations: { readOnlyHint: true } },
-    { name: 'brand_get_context', description: 'Devuelve el contexto y el catálogo de referencias del brand kit activo en Postgres. La app y el MCP leen exactamente la misma versión, hash y lista de assets.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, siteId: { type: 'string' } } }, annotations: { readOnlyHint: true } },
+    { name: 'brand_get_context', description: 'Devuelve el contexto y el catálogo de referencias del brand kit activo en Postgres. Si la marca tiene assets de uso personaje, debes preguntar al usuario si quiere usar uno antes de preparar cualquier imagen.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, siteId: { type: 'string' } } }, annotations: { readOnlyHint: true } },
     {
       name: 'brand_prepare_image_generation',
-      description: 'Obligatoria antes de toda generación visual. Devuelve preparationId, versión, hash, dimensiones y las referencias binarias exactas. Entrega una referencia por llamada para evitar errores de transporte, repite con preparationId y referenceIndex hasta completar la lista, y solo entonces genera el archivo final. LinkedIn usa blog_cover 3:2 cuando no se indica assetType; si se indica social_image, respétalo. Después llama content_upload_media con preparationId, channels y assetIndex, e incluye itemId solo si ya existe.',
+      description: 'Obligatoria antes de toda generación visual. Devuelve preparationId, versión, hash, dimensiones y las referencias binarias exactas. Si la marca tiene personajes, primero pregunta al usuario si quiere usar uno y pasa useCharacter=true o false; con varios personajes pasa también characterId. Entrega una referencia por llamada para evitar errores de transporte, repite con preparationId y referenceIndex hasta completar la lista, y solo entonces genera el archivo final. LinkedIn usa blog_cover 3:2 cuando no se indica assetType; si se indica social_image, respétalo. Después llama content_upload_media con preparationId, channels y assetIndex, e incluye itemId solo si ya existe.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1166,6 +1166,8 @@ export function buildToolList(auth) {
           expectedAssetCount: { type: 'integer', minimum: 1, maximum: 20, description: 'Cantidad explícita de imágenes finales relacionadas. Usa 1 para una imagen singular y el total de slides para un carrusel.' },
           itemId: { type: 'string' },
           batchId: { type: 'string' },
+          useCharacter: { type: 'boolean', description: 'Elección explícita del usuario cuando la marca tiene personajes. Obligatorio si el contexto ofrece personajes.' },
+          characterId: { type: 'string', description: 'ID o filename del personaje elegido cuando la marca tiene más de uno.' },
           preparationId: { type: 'string', description: 'Preparación existente para entregar la siguiente referencia binaria sin crear otra preparación.' },
           referenceIndex: { type: 'integer', minimum: 0, description: 'Índice cero-based de la referencia que se debe entregar en esta llamada.' }
         },
@@ -1465,6 +1467,24 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           }
           const activeBrandKit = await getActiveBrandKit({ workspaceId: scope.workspaceId, siteId: scope.siteId })
           const canonicalSnapshot = loadActiveBrandKitSnapshot(scope.siteHandle, { manifest: activeBrandKit.manifest, assets: activeBrandKit.assets, brandKitVersionId: activeBrandKit.id, version: activeBrandKit.version })
+          const characters = canonicalSnapshot.references.filter((reference) => String(reference.usage || '').toLowerCase() === 'character')
+          if (characters.length && typeof args.useCharacter !== 'boolean') {
+            throw Object.assign(new Error('Esta marca tiene personajes disponibles. Pregunta al usuario si quiere usar uno en esta imagen antes de continuar.'), {
+              status: 409,
+              code: 'CHARACTER_SELECTION_REQUIRED',
+              extra: { askUser: true, characters: characters.map((character) => ({ id: character.id, filename: character.filename, alt: character.alt || character.filename })) }
+            })
+          }
+          if (args.useCharacter === true && characters.length > 1 && !args.characterId) {
+            throw Object.assign(new Error('La marca tiene más de un personaje. Pregunta cuál quiere usar y vuelve a preparar la imagen con characterId.'), {
+              status: 409,
+              code: 'CHARACTER_ID_REQUIRED',
+              extra: { askUser: true, characters: characters.map((character) => ({ id: character.id, filename: character.filename, alt: character.alt || character.filename })) }
+            })
+          }
+          if (args.useCharacter === true && args.characterId && !characters.some((character) => String(character.id) === String(args.characterId) || character.filename === args.characterId)) {
+            throw Object.assign(new Error('El personaje elegido no pertenece al brand kit activo.'), { status: 409, code: 'CHARACTER_NOT_FOUND' })
+          }
           const prepared = prepareImageGeneration(scope.siteHandle, normalizeImagePreparationArgs(args), { canonicalSnapshot })
           await persistImagePreparation(prepared, {
             workspaceId: scope?.workspaceId || auth?.workspaceId,
@@ -1576,15 +1596,20 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           brandKit.assets = visibleAssets.map((asset) => ({
             id: asset.id,
             filename: asset.name,
-            kind: 'reference',
+            kind: String(asset.metadata?.usage || 'reference').toLowerCase(),
             publicUrl: asset.publicUrl || null,
             contentType: asset.contentType || null,
             sizeBytes: asset.sizeBytes || null,
             sha256: asset.sha256 || null,
             visibility: asset.visibility || 'private',
             metadata: asset.metadata && typeof asset.metadata === 'object'
-              ? { alt: String(asset.metadata.alt || '') }
+              ? { alt: String(asset.metadata.alt || ''), usage: String(asset.metadata.usage || 'reference').toLowerCase() }
               : {}
+          }))
+          const characters = brandKit.assets.filter((asset) => asset.kind === 'character').map((asset) => ({
+            id: asset.id,
+            filename: asset.filename,
+            alt: asset.metadata?.alt || asset.filename
           }))
           const declaredCapabilities = Array.isArray(auth?.capabilities) ? auth.capabilities.filter((capability) => capability !== 'brand_kit_access') : []
           const effectiveBrandAccess = brandKit.brandCapabilityEffective === true
@@ -1605,6 +1630,10 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             ...normalizedBrandFields(brandKit),
             visualContext: brandKit.visualContext,
             referenceImages: brandKit.referenceImages || [],
+            characters,
+            characterPolicy: characters.length
+              ? { askBeforeUse: true, instruction: 'Pregunta al usuario si quiere usar uno de estos personajes antes de preparar una imagen. Si acepta, conserva sus rasgos faciales y usa useCharacter=true.' }
+              : { askBeforeUse: false },
             files: brandKit.files || {},
             channels,
             connections,

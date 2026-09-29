@@ -66,6 +66,18 @@ test('la preparación fija dimensiones finales y cardinalidad sin receipts', () 
   assert.equal(story.composition.aspectRatio, '9:16')
 })
 
+test('un personaje elegido se adjunta y conserva su identidad facial', () => {
+  const active = activeKit()
+  active.assets[0] = { ...active.assets[0], metadata: { usage: 'character', alt: 'Maria Morales' } }
+  const snapshot = loadActiveBrandKitSnapshot('escarlet', { manifest: active.manifest, assets: active.assets, brandKitVersionId: active.id, version: active.version })
+  const prepared = prepareImageGeneration('escarlet', { assetType: 'blog_cover', title: 'Maria presenta el nuevo servicio', useCharacter: true }, { canonicalSnapshot: snapshot })
+  const character = prepared.resolvedReferences.find((reference) => reference.usage === 'character')
+  assert.ok(character)
+  assert.equal(character.filename, active.assets[0].name.split('/').pop())
+  assert.match(prepared.generationPrompt, /rasgos faciales/)
+  assert.match(prepared.negativeRules.join(' '), /character identity or facial features/)
+})
+
 test('la escritura local legacy sigue autorizada y expira su snapshot', () => {
   const site = `brand-cache-${Date.now()}`
   try {
