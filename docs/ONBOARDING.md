@@ -193,7 +193,7 @@ Claude. Customize → Connectors → Add custom connector → URL `https://cms.e
 | Acción | Tools |
 |--------|-------|
 | Crear | ChatGPT genera textos e imágenes → `content_create_batch` → generación asíncrona |
-| Revisar | `content_list_plans` / `content_list_items` → `content_update_item` → `content_approve` |
+| Revisar | `content_list_plans` / `content_list_items` (resumen) → `content_get_item` → `content_update_item` → `content_approve` |
 | Programar | `content_schedule` con `publicationDate` y `timezone` |
 | Cancelar | `content_cancel` antes de la publicación |
 | Calendario | App → Calendario, o `content_list_calendar` |

@@ -27,6 +27,15 @@ La PWA no muestra creación por defecto. `creation_ui_enabled` y `manual_creatio
 
 El MCP v2 usa Postgres como única fuente de contenido. `content_batches`, `/batches` y los nombres históricos de algunas tools son identificadores técnicos internos del modelo que la app presenta como campañas. No se exponen tools de posts ni Social Packs del modelo anterior.
 
+Contrato MCP 3.6.0, compatible con los clientes actuales en estos puntos:
+
+- `content_list_items` devuelve un resumen (id, campaña, título, topic corto, estado, canales, estado por variante, cantidad de medios y fechas). El body y los medios se leen con `content_get_item` o `content_get_batch`.
+- `content` de cada tool es un resumen. El objeto va en `structuredContent`, en camelCase, con fechas ISO 8601.
+- `brand_list` sin `workspaceId` devuelve los workspaces y marcas visibles. Con un solo workspace mantiene también `workspace`, `brands` y `handles`.
+- `readyForReview` lee `socialPack.instagramSlides` y lo compara con `expectedAssetCount` y los `assetIndex` 0..n-1. Una imagen suelta no exige carrusel.
+- `content_update_item` sustituye el body de esa variante por el JSON recibido. `visualBrief` sin body solo actualiza esa clave.
+- Reintentar `content_upload_media` con el mismo sha256, preparationId, assetIndex, itemId y canal devuelve el asset ya guardado.
+
 ## Planable
 
 En **Conexiones**, selecciona **Planable.io**, el canal activo, el API token público de Planable, el `Workspace ID` y el `Page ID` de la cuenta social. Escarlet conserva solo el token cifrado; la prueba usa `GET /ping` y, si se indicó, valida el workspace. El worker crea el post en Planable con su fecha y media pública, manteniendo el flujo de aprobación de Planable.

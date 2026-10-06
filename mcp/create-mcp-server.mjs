@@ -25,15 +25,17 @@ import {
 } from '../lib/social-pack-store.mjs'
 import { isCmsAiEnabled } from '../lib/product-flags.mjs'
 import { withGenerationPolicy, assertCmsAiAllowed, CMS_AI_TOOLS } from '../lib/generation-policy.mjs'
+import { mcpToolResult, toIsoDeep } from '../lib/mcp-public-json.mjs'
 import { canReadPost, assertPostAccess, safePostFields } from '../lib/post-access.mjs'
 import { listSiteAuthors } from '../lib/human-auth.mjs'
 import {
   resolveWorkspaceContext,
   listContentPlans,
-  listContentItems,
+  listContentItemSummaries,
   listScheduledContent,
   createContentBatch,
   getContentBatch,
+  getContentItem,
   updateContentItem,
   approveContentItem,
   scheduleContentItem,
@@ -53,6 +55,7 @@ import {
   listBrandCapabilities,
   listBrandConnections,
   getActiveBrandKit,
+  listBrandDirectory,
   preflightContentMediaAttachment
 } from '../lib/workspace-domain.mjs'
 import { isPostgresConfigured, runCoreMigrations } from '../lib/pg.mjs'
@@ -74,6 +77,7 @@ const DEFAULT_SITE = process.env.DEFAULT_SITE || 'escarlet'
 const V2_CONTENT_TOOLS = new Set([
   'content_list_plans',
   'content_list_items',
+  'content_get_item',
   'content_list_calendar',
   'content_create_batch',
   'content_get_batch',
@@ -84,7 +88,7 @@ const V2_CONTENT_TOOLS = new Set([
   'content_schedule',
   'content_cancel'
 ])
-const V2_READ_ONLY_TOOLS = new Set(['content_list_plans', 'content_list_items', 'content_list_calendar', 'content_get_batch'])
+const V2_READ_ONLY_TOOLS = new Set(['content_list_plans', 'content_list_items', 'content_get_item', 'content_list_calendar', 'content_get_batch'])
 const V2_VIDEO_TOOLS = new Set([
   'video_create_job',
   'video_get_job',
@@ -259,17 +263,12 @@ function brandIsolationFor(payload) {
 }
 
 function textResult(payload) {
-  const safePayload = redactWorkflowLinks(payload)
-  const response = safePayload && typeof safePayload === 'object' && !Array.isArray(safePayload)
-    ? {
-        ...safePayload,
-        mcpServer: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION, contract: 'v2', canonicalUrl: MCP_CANONICAL_URL }
-      }
-    : safePayload
-  return {
-    content: [{ type: 'text', text: typeof response === 'string' ? response : JSON.stringify(response, null, 2) }],
-    ...(response && typeof response === 'object' && !Array.isArray(response) ? { structuredContent: response } : {})
-  }
+  return mcpToolResult(redactWorkflowLinks(payload), {
+    name: MCP_SERVER_NAME,
+    version: MCP_SERVER_VERSION,
+    contract: 'v2',
+    canonicalUrl: MCP_CANONICAL_URL
+  })
 }
 
 function referenceDiskPath(item) {
@@ -583,20 +582,21 @@ function normalizedBrandFields(brandKit = {}) {
 }
 
 function errorResult(err) {
-  const payload = redactWorkflowLinks({
+  const payload = toIsoDeep(redactWorkflowLinks({
     message: err.message,
     status: err.status || 500,
     mcpServer: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION, contract: 'v2', canonicalUrl: MCP_CANONICAL_URL },
     ...(err.code ? { code: err.code } : {}),
     ...(err.extra || {})
-  })
+  }))
   if (payload.validation && !payload.blockingErrors) {
     payload.blockingErrors = payload.validation.errors
     payload.warnings = payload.validation.warnings
   }
   return {
     isError: true,
-    content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }]
+    content: [{ type: 'text', text: `${payload.message || 'Error'}${payload.code ? ` [${payload.code}]` : ''}` }],
+    structuredContent: payload
   }
 }
 
@@ -1193,7 +1193,7 @@ export function buildToolList(auth) {
   ]
 
   tools.push(
-    { name: 'brand_list', description: 'Lista las marcas v2 visibles para este token. Si devuelve varias, pregunta al usuario cuál quiere usar y pasa site en las siguientes llamadas.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' } } }, annotations: { readOnlyHint: true } },
+    { name: 'brand_list', description: 'Lista los workspaces y marcas visibles. workspaceId es opcional. Si hay varias, pregunta al usuario cuál usar y pasa site.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' } } }, annotations: { readOnlyHint: true } },
     { name: 'brand_get_context', description: 'Devuelve el contexto y el catálogo de referencias del brand kit activo en Postgres. Si la marca tiene assets de uso personaje, debes preguntar al usuario si quiere usar uno antes de preparar cualquier imagen.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, siteId: { type: 'string' } } }, annotations: { readOnlyHint: true } },
     {
       name: 'brand_create_draft',
@@ -1420,11 +1420,12 @@ export function buildToolList(auth) {
       annotations: { readOnlyHint: false, destructiveHint: false }
     },
     { name: 'content_list_plans', description: 'Lista las campañas de contenido de una marca, con progreso, canales y publicaciones.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, status: { type: 'string' }, channel: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] }, query: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 200 } } }, annotations: { readOnlyHint: true } },
-    { name: 'content_list_items', description: 'Lista publicaciones v2, incluyendo las generadas o pendientes de revisión aunque todavía no estén publicadas.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, batchId: { type: 'string' }, status: { type: 'string' }, channel: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] }, query: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 500 } } }, annotations: { readOnlyHint: true } },
+    { name: 'content_list_items', description: 'Resumen de publicaciones, sin body. El detalle está en content_get_item.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, batchId: { type: 'string' }, status: { type: 'string' }, channel: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] }, query: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 500 } } }, annotations: { readOnlyHint: true } },
+    { name: 'content_get_item', description: 'Body, medios y readiness de una publicación.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' } }, required: ['itemId'] }, annotations: { readOnlyHint: true } },
     { name: 'content_list_calendar', description: 'Lista el calendario v2 con publicaciones programadas, sincronizando, publicadas o con error.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, from: { type: 'string' }, to: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 1000 } } }, annotations: { readOnlyHint: true } },
     { name: 'content_create_batch', description: 'Guarda primero los textos completos de una o varias publicaciones. Crea una campaña nueva automáticamente; pasa batchId solo si el usuario pidió añadir a una campaña existente. Si falta title de campaña, se toma del primer post. Conserva literalmente las variantes recibidas.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, title: { type: 'string', description: 'Opcional. Por defecto usa el título del primer post.' }, items: { type: 'array', minItems: 1, items: { type: 'object', properties: { title: { type: 'string', maxLength: 90, description: 'Título editorial breve. No incluyas el enfoque, contexto ni el brief.' }, brief: { type: 'string', minLength: 1, maxLength: 500 }, variants: { type: 'object', minProperties: 1, additionalProperties: { type: 'object' } } }, required: ['variants'], additionalProperties: false } }, batchId: { type: 'string', description: 'Solo si el usuario pidió añadir a una campaña existente.' }, createNewCampaign: { type: 'boolean', description: 'Compatibilidad anterior. No hace falta enviarlo para crear campaña nueva.' }, channels: { type: 'array', items: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] } }, brandKitVersionId: { type: 'string' }, idempotencyKey: { type: 'string', maxLength: 300 }, metadata: { type: 'object' } }, required: ['items'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
-    { name: 'content_get_batch', description: 'Obtiene el progreso, las publicaciones y las variantes de una campaña.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, batchId: { type: 'string' } }, required: ['batchId'] }, annotations: { readOnlyHint: true } },
-    { name: 'content_update_item', description: 'Reemplaza sin reescritura el body completo recibido para un canal. Lee content_get_batch antes de editar y conserva todos los campos actuales. Con readyForReview=true valida que todas las variantes y medios del item estén completos y cambia el estado a generated.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, topic: { type: 'string' }, channel: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] }, body: { type: 'object' }, visualBrief: { type: 'object' }, mediaAssetIds: { type: 'array', items: { type: 'string' } }, readyForReview: { type: 'boolean' } }, required: ['itemId'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
+    { name: 'content_get_batch', description: 'Detalle de una campaña. La readiness usa la misma lectura que readyForReview.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, batchId: { type: 'string' } }, required: ['batchId'] }, annotations: { readOnlyHint: true } },
+    { name: 'content_update_item', description: 'Reemplaza sin reescritura el body de esa variante. Lee content_get_item antes y reenvía el body completo. readyForReview=true valida expectedAssetCount y assetIndex.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, topic: { type: 'string' }, channel: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] }, body: { type: 'object' }, visualBrief: { type: 'object' }, mediaAssetIds: { type: 'array', items: { type: 'string' } }, readyForReview: { type: 'boolean' } }, required: ['itemId'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_approve', description: 'Aprueba un item o todos los items de un batch.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' } }, oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_schedule', description: 'Programa variantes aprobadas por canal. Blog publica mediante Coolify; Instagram, LinkedIn y Story usan la conexión Buffer configurada.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' }, channels: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] } }, publicationDate: { type: 'string' }, timezone: { type: 'string' } }, required: ['channels', 'publicationDate'], oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_cancel', description: 'Cancela una publicación o campaña que todavía no se publicó.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' } }, oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } },
@@ -1581,15 +1582,23 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
       switch (name) {
         case 'brand_list': {
           if (!isPostgresConfigured()) throw Object.assign(new Error('Las marcas v2 requieren Postgres.'), { status: 503, code: 'postgres_required' })
-          if (auth?.role === 'admin' && !args.workspaceId && !auth?.workspaceId && !auth?.userId) throw Object.assign(new Error('Para listar marcas con un token administrador pasa workspaceId.'), { status: 400, code: 'workspace_required' })
-          if (auth?.role !== 'admin' && !auth?.userId) throw Object.assign(new Error('Se requiere un token personal de usuario para consultar marcas v2.'), { status: 401, code: 'user_token_required' })
+          const systemAdmin = auth?.role === 'admin' && !auth?.userId
+          if (!systemAdmin && !auth?.userId) throw Object.assign(new Error('Se requiere un token personal de usuario para consultar marcas v2.'), { status: 401, code: 'user_token_required' })
           await runCoreMigrations()
-          const context = await resolveWorkspaceContext({ userId: auth?.userId || undefined, workspaceId: args.workspaceId || auth?.workspaceId || undefined })
+          const workspaces = await listBrandDirectory({
+            userId: systemAdmin ? undefined : auth.userId,
+            workspaceId: args.workspaceId || auth?.workspaceId || undefined,
+            systemAdmin
+          })
+          const only = workspaces.length === 1 ? workspaces[0] : null
           return textResult({
-            workspace: { id: context.workspaceId, name: context.workspaceName },
-            brands: context.sites.map((brand) => ({ id: brand.id, handle: brand.handle, name: brand.name, role: brand.role })),
-            handles: context.sites.map((brand) => brand.handle).sort(),
-            selectionRequired: context.sites.length > 1
+            workspaces,
+            selectionRequired: workspaces.length > 1 || workspaces.some((workspace) => workspace.sites.length > 1),
+            ...(only ? {
+              workspace: { id: only.id, name: only.name },
+              brands: only.sites,
+              handles: only.sites.map((brand) => brand.handle).sort()
+            } : {})
           })
         }
         case 'brand_create_draft': {
@@ -1931,8 +1940,12 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           const scope = await resolveContentScope(auth, args)
           return textResult({
             site: { id: scope.siteId, handle: scope.siteHandle, name: scope.sites.find((entry) => entry.id === scope.siteId)?.name || scope.siteHandle },
-            items: await listContentItems({ workspaceId: scope.workspaceId, siteId: scope.siteId, batchId: args.batchId, status: args.status, channel: args.channel, query: args.query, limit: args.limit })
+            items: await listContentItemSummaries({ workspaceId: scope.workspaceId, siteId: scope.siteId, batchId: args.batchId, status: args.status, channel: args.channel, query: args.query, limit: args.limit })
           })
+        }
+        case 'content_get_item': {
+          const scope = await resolveContentScope(auth, args)
+          return textResult(await getContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId: args.itemId }))
         }
         case 'content_list_calendar': {
           const scope = await resolveContentScope(auth, args)

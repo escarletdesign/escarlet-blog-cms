@@ -13,7 +13,7 @@ const input = args(process.argv)
 const source = input.input ? JSON.parse(readFileSync(String(input.input), 'utf8')) : { instagramSlides: [] }
 const site = String(input.site || source.site || 'escarlet')
 const template = chooseSocialTemplate({ site, preferredId: String(input.template || source.visualSystem?.templateId || '') })
-const slides = (source.instagramSlides || []).slice(0, 7).map((slide, index, all) => ({
+const slides = (source.instagramSlides || []).map((slide, index, all) => ({
   index: index + 1,
   templateId: template?.id || 'editorial',
   backgroundStyle: index === 0 || index === all.length - 1 ? 'brand-color' : 'light-or-grayscale',
