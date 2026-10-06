@@ -466,7 +466,7 @@ export async function preparedImageResult(payload, options = {}) {
   }
 }
 
-function preparedPayloadFromStoredPreparation(preparation) {
+export function preparedPayloadFromStoredPreparation(preparation) {
   const assetType = preparation.assetType || 'blog_cover'
   const resolvedReferences = (preparation.expectedReferences || []).map((expected, position) => ({
     index: Number.isInteger(expected.index) ? expected.index : position,

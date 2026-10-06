@@ -1,9 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { rmSync } from 'node:fs'
+import { readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { buildToolList, createMcpServer, invokeMcpTool, normalizeImagePreparationArgs, preparedImageResult, assertPreparationUploadMatch } from './create-mcp-server.mjs'
+import { buildToolList, createMcpServer, invokeMcpTool, normalizeImagePreparationArgs, preparedImageResult, preparedPayloadFromStoredPreparation, assertPreparationUploadMatch } from './create-mcp-server.mjs'
 import { prepareImageGeneration } from '../lib/brand-kit.mjs'
+import { getImagePreparation, persistImagePreparation } from '../lib/generation-provenance.mjs'
+import { readDb, writeDb } from '../lib/db.mjs'
 import { MCP_INSTRUCTIONS, MCP_SERVER_VERSION } from '../lib/media-upload-contract.mjs'
 import { assertSafeToolArguments } from '../lib/ai-security.mjs'
 
@@ -133,47 +135,107 @@ function imageBlocks(result) {
   return (result.content || []).filter((block) => block.type === 'image')
 }
 
-test('Escarlet entrega una referencia por llamada y no mete el binario en el JSON', async () => {
-  const prepared = prepareImageGeneration('escarlet', { assetType: 'social_image', title: 'fondo editorial', expectedAssetCount: 8 })
-  assert.equal(prepared.resolvedReferences.length, 2)
-  const first = await preparedImageResult(prepared)
-  const delivery = first.structuredContent.referenceDelivery
-  assert.equal(first.isError, false)
-  assert.equal(delivery.total, 2)
-  assert.equal(delivery.currentIndex, 0)
-  assert.equal(delivery.nextReferenceIndex, 1)
-  assert.equal(delivery.complete, false)
-  assert.equal(imageBlocks(first).length, 1)
-  assert.equal(first.structuredContent.preparationId, prepared.brandPreparation.preparationId)
-  assert.equal(first.structuredContent.expectedAssetCount, 8)
-  const metadata = JSON.stringify(first.structuredContent)
-  assert.ok(Buffer.byteLength(metadata) < 100_000)
-  assert.doesNotMatch(metadata, /iVBOR|\/9j\/|data:image/)
-  const blob = imageBlocks(first)[0].data
-  assert.equal(JSON.stringify(first).split(blob).length - 1, 1)
-  assert.doesNotMatch(first.content[0].text, /iVBOR|\/9j\//)
+// grpc.aio rejects above the default 4MiB max_receive_message_length. The client also copies content into content_items.
+const GRPC_MAX_MESSAGE_BYTES = 4 * 1024 * 1024
 
-  const repeat = await preparedImageResult(prepared, { referenceIndex: 0 })
-  assert.equal(imageBlocks(repeat)[0].data, blob)
-  assert.equal(repeat.structuredContent.preparationId, first.structuredContent.preparationId)
+function grpcEnvelopeBytes(result) {
+  return Buffer.byteLength(JSON.stringify({
+    content: result.content,
+    content_items: result.content,
+    structuredContent: result.structuredContent
+  }))
+}
 
-  const second = await preparedImageResult(prepared, { referenceIndex: 1 })
-  assert.equal(imageBlocks(second).length, 1)
-  assert.equal(second.structuredContent.referenceDelivery.currentIndex, 1)
-  assert.equal(second.structuredContent.referenceDelivery.nextReferenceIndex, null)
-  assert.equal(second.structuredContent.referenceDelivery.complete, true)
-  assert.notEqual(imageBlocks(second)[0].data, blob)
-  assert.doesNotMatch(JSON.stringify(second.structuredContent), /iVBOR|\/9j\/|data:image/)
-  assert.ok(Buffer.byteLength(JSON.stringify(second.structuredContent)) < 100_000)
+function assertSingleImageCall(result, { index, total, next, complete, filename, filePath }) {
+  const images = imageBlocks(result)
+  assert.equal(result.isError, false)
+  assert.equal(images.length, 1)
+  assert.equal(result.content.filter((block) => block.type === 'image').length, 1)
+  assert.equal(result.structuredContent.referenceDelivery.total, total)
+  assert.equal(result.structuredContent.referenceDelivery.currentIndex, index)
+  assert.equal(result.structuredContent.referenceDelivery.nextReferenceIndex, next)
+  assert.equal(result.structuredContent.referenceDelivery.complete, complete)
+  assert.equal(result.structuredContent.references[index].filename, filename)
+  const blob = images[0].data
+  const file = readFileSync(filePath)
+  assert.equal(blob, file.toString('base64'))
+  const own = JSON.stringify(result)
+  assert.equal(own.split(blob).length - 1, 1)
+  assert.doesNotMatch(JSON.stringify(result.structuredContent), /iVBOR|\/9j\/|data:image/)
+  assert.doesNotMatch(result.content[0].text, /iVBOR|\/9j\//)
+  assert.ok(Buffer.byteLength(JSON.stringify(result.structuredContent)) < 100_000)
+  assert.ok(grpcEnvelopeBytes(result) < GRPC_MAX_MESSAGE_BYTES)
+  assert.equal(result.content_items, undefined)
+}
 
-  await assert.rejects(
-    () => preparedImageResult(prepared, { referenceIndex: 2 }),
-    (error) => error.code === 'INVALID_REFERENCE_INDEX'
-  )
-  await assert.rejects(
-    () => preparedImageResult(prepared, { referenceIndex: -1 }),
-    (error) => error.code === 'INVALID_REFERENCE_INDEX'
-  )
+test('una preparación real de Escarlet recorre 2 referencias en 2 llamadas', async () => {
+  const prepared = prepareImageGeneration('escarlet', {
+    site: 'escarlet',
+    assetType: 'social_image',
+    title: 'fondo editorial',
+    expectedAssetCount: 8,
+    itemId: '4449834a-2de5-4c1e-9f8b-414f280e47d1',
+    batchId: 'ab17aae1-a7bf-4671-b635-5eaa87b67bf3',
+    channel: 'instagram'
+  })
+  assert.equal(prepared.route, 'abstract_or_background')
+  assert.deepEqual(prepared.resolvedReferences.map((reference) => reference.filename), ['05-tablero-visual.png', 'fondo-escarlet.jpg'])
+  const preparationId = prepared.brandPreparation.preparationId
+  await persistImagePreparation(prepared, {
+    workspaceId: 'escarlet-real-prep',
+    siteId: 'escarlet',
+    itemId: '4449834a-2de5-4c1e-9f8b-414f280e47d1',
+    batchId: 'ab17aae1-a7bf-4671-b635-5eaa87b67bf3',
+    channel: 'instagram'
+  })
+  try {
+    const first = await preparedImageResult(prepared, { referenceIndex: 0 })
+    assertSingleImageCall(first, {
+      index: 0,
+      total: 2,
+      next: 1,
+      complete: false,
+      filename: '05-tablero-visual.png',
+      filePath: 'data/media/escarlet/reference/05-tablero-visual.png'
+    })
+    assert.equal(first.structuredContent.preparationId, preparationId)
+    assert.equal(first.structuredContent.expectedAssetCount, 8)
+    assert.equal(first.structuredContent.brandKitSnapshotHash, prepared.brandKitSnapshotHash)
+
+    const stored = await getImagePreparation(preparationId)
+    assert.ok(stored)
+    assert.notEqual(stored, prepared)
+    assert.equal(stored.brandKitVersionId, prepared.brandKitVersionId)
+    assert.equal(stored.brandKitSnapshotHash, prepared.brandKitSnapshotHash)
+    assert.equal(stored.expectedReferences.length, 2)
+    assert.ok(stored.expectedReferences.every((reference) => reference.storageKey && reference.sha256))
+
+    const second = await preparedImageResult(preparedPayloadFromStoredPreparation(stored), { referenceIndex: 1 })
+    assertSingleImageCall(second, {
+      index: 1,
+      total: 2,
+      next: null,
+      complete: true,
+      filename: 'fondo-escarlet.jpg',
+      filePath: 'data/media/escarlet/reference/fondo-escarlet.jpg'
+    })
+    assert.equal(second.structuredContent.preparationId, preparationId)
+    assert.equal(second.structuredContent.brandKitSnapshotHash, stored.brandKitSnapshotHash)
+    assert.notEqual(imageBlocks(second)[0].data, imageBlocks(first)[0].data)
+
+    const replay = await preparedImageResult(preparedPayloadFromStoredPreparation(stored), { referenceIndex: 1 })
+    assert.equal(imageBlocks(replay)[0].data, imageBlocks(second)[0].data)
+    assert.equal(replay.structuredContent.referenceDelivery.currentIndex, 1)
+
+    await assert.rejects(
+      () => preparedImageResult(preparedPayloadFromStoredPreparation(stored), { referenceIndex: 2 }),
+      (error) => error.code === 'INVALID_REFERENCE_INDEX'
+    )
+  } finally {
+    const db = readDb()
+    if (db.imagePreparations) delete db.imagePreparations[preparationId]
+    writeDb(db)
+  }
 })
 
 test('la subida rechaza una preparación distinta', () => {
