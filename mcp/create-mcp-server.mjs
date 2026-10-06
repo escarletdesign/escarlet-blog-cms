@@ -14,7 +14,9 @@ import { openaiFileDefs, connectorFileMeta } from '../lib/openai-file.mjs'
 import { assertSiteAccess, assertSuperAdmin, allowedSiteHandles, isSiteScopedRole, workspaceRoleForAuth } from '../lib/auth.mjs'
 import { brandFilesForAuth, SECRET_BRAND_FILES, prepareImageGeneration, loadActiveBrandKitSnapshot, compositionForAssetType, archetypeForRoute, brandKitWriteAccess, assertBrandKitWritable } from '../lib/brand-kit.mjs'
 import { generatePreviewBuffer, generateThumbBuffer } from '../lib/media-optimize.mjs'
+import { getOrCreateStyleBoard, styleBoardFingerprint } from '../lib/style-board.mjs'
 import { CANONICAL_CMS_URL, canonicalCmsPublicUrl } from '../lib/cms-url.mjs'
+import { absoluteMediaUrl, contentItemPreviewUrl, dashboardUrl } from '../lib/preview-url.mjs'
 import { assertChatToolAllowed, assertSafeToolArguments } from '../lib/ai-security.mjs'
 import { loadSiteConfig, isSocialMediaOnlySite } from '../lib/site-config.mjs'
 import { mediaDir, readDb } from '../lib/db.mjs'
@@ -313,8 +315,11 @@ function imageMimeType(filename) {
 export function normalizeImagePreparationArgs(args = {}) {
   const channel = String(args.channel || '').trim().toLowerCase()
   const assetType = String(args.assetType || '').trim().toLowerCase()
-  if (channel === 'linkedin' && (!assetType || assetType === 'generic')) return { ...args, assetType: 'blog_cover' }
-  return args
+  const board = String(args.board || '').trim().toLowerCase()
+  const next = { ...args }
+  if (board && ['style', 'character', 'logo', 'default'].includes(board)) next.board = board
+  if (channel === 'linkedin' && (!assetType || assetType === 'generic')) next.assetType = 'blog_cover'
+  return next
 }
 
 async function brandContextResult(payload) {
@@ -344,8 +349,8 @@ async function brandContextResult(payload) {
       total: safeReferences.length,
       imageBlocks: 0,
       inspectable: false,
-      binaryDeliveryTool: 'brand_prepare_image_generation',
-      instruction: 'El contexto solo cataloga referencias. Llama brand_prepare_image_generation para recibir un ImageContent por llamada.'
+      binaryDeliveryTool: 'brand_get_style_board',
+      instruction: 'El contexto solo cataloga. Usa brand_get_style_board (consulta) o brand_prepare_image_generation (si vas a subir al CMS) para un ImageContent (style board).'
     },
     brandIsolation: brandIsolationFor(safePayload)
   }
@@ -392,15 +397,16 @@ export async function preparedImageResult(payload, options = {}) {
     reference.sha256 = createHash('sha256').update(readFileSync(disk)).digest('hex')
   }
   const total = refs.length
-  const rawIndex = options.referenceIndex
-  const index = rawIndex === undefined || rawIndex === null || rawIndex === '' ? 0 : Number(rawIndex)
   const preparationId = String(payload?.brandPreparation?.preparationId || '')
+  const site = String(payload?.site || payload?.brandPreparation?.site || '')
   const catalog = refs.map((reference, position) => ({
     index: referenceOrdinal(reference, position),
     filename: String(reference?.filename || ''),
     sha256: String(reference?.sha256 || ''),
-    required: reference?.required !== false
+    required: reference?.required !== false,
+    role: reference?.role || null
   }))
+  const legacyIndexRequested = options.referenceIndex !== undefined && options.referenceIndex !== null && options.referenceIndex !== ''
   const metadata = {
     preparationId,
     brandKitVersionId: payload?.brandKitVersionId || payload?.brandPreparation?.brandKitVersionId || null,
@@ -411,19 +417,77 @@ export async function preparedImageResult(payload, options = {}) {
     route: payload?.route || payload?.brandPreparation?.route || null,
     archetype: payload?.archetype || null,
     references: catalog,
-    referenceDelivery: { total, currentIndex: Number.isInteger(index) ? index : null, nextReferenceIndex: null, complete: false },
+    generationPrompt: payload?.generationPrompt || '',
+    negativeRules: Array.isArray(payload?.negativeRules) ? payload.negativeRules : [],
+    canonicalPalette: payload?.canonicalPalette || null,
+    composition: payload?.composition || null,
+    deliveryMode: legacyIndexRequested ? 'legacy_single_reference' : 'style_board',
     mcpServer: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION, contract: 'v2', canonicalUrl: MCP_CANONICAL_URL }
   }
   if (!total || payload?.generationBlocked) {
     return {
       isError: true,
-      content: [{ type: 'text', text: `Preparation ${preparationId || 'blocked'}. No references delivered.` }],
-      structuredContent: { ...metadata, generationBlocked: true }
+      content: [{ type: 'text', text: `Preparation ${preparationId || 'blocked'}. No style board delivered.` }],
+      structuredContent: { ...metadata, generationBlocked: true, referenceDelivery: { total, currentIndex: null, nextReferenceIndex: null, complete: false } }
     }
   }
+
+  // Happy path: one ImageContent. Discrete refs stay server-side.
+  if (!legacyIndexRequested) {
+    const diskPaths = refs.map((reference) => referenceDiskPath(reference)).filter(Boolean)
+    if (diskPaths.length !== refs.length) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `Preparation ${preparationId}. Style board incomplete: missing reference files.` }],
+        structuredContent: { ...metadata, code: 'REFERENCE_FILE_MISSING', referenceDelivery: { total, currentIndex: 0, nextReferenceIndex: null, complete: false } }
+      }
+    }
+    let board
+    if (diskPaths.length === 1) {
+      const delivered = await deliverReferenceBytes(diskPaths[0], imageMimeType(refs[0]?.filename) || 'image/png')
+      board = { buffer: delivered.bytes, mimeType: delivered.mimeType, sha256: createHash('sha256').update(delivered.bytes).digest('hex'), sizeBytes: delivered.sizeBytes }
+    } else {
+      const fingerprint = styleBoardFingerprint({
+        site,
+        brandKitVersionId: metadata.brandKitVersionId,
+        brandKitSnapshotHash: metadata.brandKitSnapshotHash,
+        route: metadata.route,
+        filenames: catalog.map((entry) => entry.filename)
+      })
+      board = await getOrCreateStyleBoard({ site, fingerprint, diskPaths })
+      board = { ...board, sizeBytes: board.buffer.length }
+    }
+    const referenceDelivery = { total: 1, currentIndex: 0, nextReferenceIndex: null, complete: true, sourceReferenceCount: total }
+    const summary = `Preparation ${preparationId}. Style board ready (${total} source refs). Generate backgrounds now.`
+    console.info(JSON.stringify({
+      event: 'brand_image_style_board_delivered',
+      preparationId,
+      site,
+      route: metadata.route,
+      sourceReferenceCount: total,
+      mimeType: board.mimeType,
+      sizeBytes: board.sizeBytes || board.buffer.length,
+      sha256: board.sha256
+    }))
+    return {
+      isError: false,
+      content: [
+        { type: 'text', text: summary },
+        { type: 'image', data: board.buffer.toString('base64'), mimeType: board.mimeType }
+      ],
+      structuredContent: {
+        ...metadata,
+        styleBoard: { sha256: board.sha256, mimeType: board.mimeType, sizeBytes: board.sizeBytes || board.buffer.length, sourceFilenames: catalog.map((entry) => entry.filename) },
+        referenceDelivery,
+        readyForGeneration: true
+      }
+    }
+  }
+
+  const index = Number(options.referenceIndex)
   if (!Number.isInteger(index) || index < 0 || index >= total) {
     const error = Object.assign(new Error(`referenceIndex fuera de rango. Hay ${total} referencias.`), { status: 400, code: 'INVALID_REFERENCE_INDEX' })
-    console.info(JSON.stringify({ event: 'brand_image_reference_delivery_failed', preparationId, referenceIndex: rawIndex, error: error.message, payloadBytes: 0 }))
+    console.info(JSON.stringify({ event: 'brand_image_reference_delivery_failed', preparationId, referenceIndex: options.referenceIndex, error: error.message, payloadBytes: 0 }))
     throw error
   }
   const reference = refs[index]
@@ -434,7 +498,7 @@ export async function preparedImageResult(payload, options = {}) {
     return {
       isError: true,
       content: [{ type: 'text', text: `Preparation ${preparationId}. Reference ${index + 1} of ${total} is missing.` }],
-      structuredContent: { ...metadata, code: 'REFERENCE_FILE_MISSING' }
+      structuredContent: { ...metadata, code: 'REFERENCE_FILE_MISSING', referenceDelivery: { total, currentIndex: index, nextReferenceIndex: null, complete: false } }
     }
   }
   let delivered
@@ -447,7 +511,7 @@ export async function preparedImageResult(payload, options = {}) {
   const nextReferenceIndex = index + 1 < total ? index + 1 : null
   const referenceDelivery = { total, currentIndex: index, nextReferenceIndex, complete: nextReferenceIndex === null }
   const references = catalog.map((entry) => entry.index === index && delivered.originalSha ? { ...entry, sha256: delivered.originalSha } : entry)
-  const summary = `Preparation ${preparationId}. Reference ${index + 1} of ${total}. Next referenceIndex: ${nextReferenceIndex === null ? 'none' : nextReferenceIndex}.`
+  const summary = `Preparation ${preparationId}. Legacy reference ${index + 1} of ${total}. Prefer style board (omit referenceIndex).`
   console.info(JSON.stringify({
     event: 'brand_image_reference_delivered',
     preparationId,
@@ -479,6 +543,19 @@ export function preparedPayloadFromStoredPreparation(preparation) {
     path: expected.path || expected.storageKey || (preparation.site && expected.filename ? `/media/${preparation.site}/reference/${expected.filename}` : ''),
     storageKey: expected.storageKey || expected.path || ''
   }))
+  // Rebuild prompt/negativeRules from the kit; keep the stored preparationId and refs.
+  let rebuilt = null
+  try {
+    rebuilt = prepareImageGeneration(preparation.site, {
+      assetType,
+      expectedAssetCount: Number(preparation.expectedAssetCount || 1),
+      channel: preparation.channel,
+      itemId: preparation.itemId,
+      batchId: preparation.batchId
+    })
+  } catch {
+    rebuilt = null
+  }
   return {
     site: preparation.site,
     brandKitVersionId: preparation.brandKitVersionId,
@@ -487,6 +564,9 @@ export function preparedPayloadFromStoredPreparation(preparation) {
     route: preparation.route,
     archetype: archetypeForRoute(preparation.route),
     composition: compositionForAssetType(assetType),
+    generationPrompt: rebuilt?.generationPrompt || '',
+    negativeRules: Array.isArray(rebuilt?.negativeRules) ? rebuilt.negativeRules : [],
+    canonicalPalette: rebuilt?.canonicalPalette || null,
     brandPreparation: {
       preparationId: preparation.preparationId,
       site: preparation.site,
@@ -993,7 +1073,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_get_brand_context',
       description:
-        'Devuelve el contexto general canónico y versionado, pero no reemplaza brand_prepare_image_generation. Para cualquier imagen llama brand_prepare_image_generation: cada llamada entrega una sola referencia. Repite con preparationId y referenceDelivery.nextReferenceIndex hasta que complete sea true. Está prohibido escoger, sustituir referencias o usar Pillow; si generationBlocked es true, detén la generación.',
+        'Devuelve el contexto general canónico y versionado. Para grounding visual usa brand_get_style_board o brand_prepare_image_generation (un ImageContent). No elijas referencias sueltas.',
       inputSchema: {
         type: 'object',
         properties: { site: { type: 'string' } },
@@ -1274,7 +1354,7 @@ export function buildToolList(auth) {
     },
     {
       name: 'brand_prepare_image_generation',
-      description: 'Crea o continúa una preparación visual. Cada llamada entrega como máximo una referencia binaria. En la primera llamada omite preparationId. Si referenceDelivery.nextReferenceIndex no es null, vuelve a llamar con el mismo preparationId y ese referenceIndex. Genera imágenes únicamente cuando referenceDelivery.complete sea true y hayas recibido todas las referencias requeridas. Después sube con content_upload_media y preparationId. Para contenido ya guardado, pasa itemId y channel; en Instagram indica expectedAssetCount. No preguntes por personajes salvo que el usuario pida uno.',
+      description: 'Crea una preparación visual y entrega UN style board (un ImageContent) con generationPrompt. Omite referenceIndex. El catálogo textual lista las referencias fuente; no elijas archivos. Para publicar, reutiliza preparationId en content_upload_media. referenceIndex solo es compatibilidad legacy (una ref suelta).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1285,17 +1365,52 @@ export function buildToolList(auth) {
           topic: { type: 'string' },
           tone: { type: 'string' },
           channel: { type: 'string' },
-          expectedAssetCount: { type: 'integer', minimum: 1, maximum: 20, description: 'Cantidad explícita de imágenes finales relacionadas. Usa 1 para una imagen singular y el total de slides para un carrusel.' },
+          expectedAssetCount: { type: 'integer', minimum: 1, maximum: 20, description: 'Cantidad de imágenes finales. Usa 1 o el total de slides del carrusel.' },
           itemId: { type: 'string' },
           batchId: { type: 'string' },
-          useCharacter: { type: 'boolean', description: 'Usa un personaje solo si el usuario lo pide explícitamente. Por defecto no se usa.' },
-          characterId: { type: 'string', description: 'ID o filename del personaje elegido cuando la marca tiene más de uno.' },
-          preparationId: { type: 'string', description: 'Preparación existente para entregar la siguiente referencia binaria sin crear otra preparación.' },
-          referenceIndex: { type: 'integer', minimum: 0, description: 'Índice 0-based de la única referencia binaria de esta llamada. Omítelo para recibir la 0. Repetir el mismo índice devuelve la misma referencia.' }
+          useCharacter: { type: 'boolean', description: 'Usa el tablero de personajes (o characterId) solo si el usuario lo pide.' },
+          characterId: { type: 'string', description: 'silvia | charly' },
+          board: { type: 'string', enum: ['style', 'character', 'logo'], description: 'style (default), character o logo PNG.' },
+          preparationId: { type: 'string', description: 'Reentrega el style board de una preparación existente.' },
+          referenceIndex: { type: 'integer', minimum: 0, description: 'Legacy: una referencia suelta. Omítelo para recibir el style board completo.' }
         },
         required: ['site']
       },
       annotations: { readOnlyHint: false, destructiveHint: false }
+    },
+    {
+      name: 'brand_get_style_board',
+      description: 'Consulta de marca: un ImageContent. board=style (default) tablero maestro; board=character tablero de personajes; board=logo logo PNG de referencia. No publica.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          site: { type: 'string' },
+          board: { type: 'string', enum: ['style', 'character', 'logo'], description: 'Qué tablero entregar. Default style.' },
+          assetType: { type: 'string', enum: ['blog_cover', 'social_image', 'instagram_story', 'presentation', 'generic'] },
+          title: { type: 'string' },
+          summary: { type: 'string' },
+          topic: { type: 'string' },
+          channel: { type: 'string' },
+          expectedAssetCount: { type: 'integer', minimum: 1, maximum: 20 },
+          useCharacter: { type: 'boolean' },
+          characterId: { type: 'string', description: 'silvia | charly' }
+        },
+        required: ['site']
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false }
+    },
+    {
+      name: 'brand_recap_image_preparation',
+      description: 'Recap textual de una preparación (sin binarios): catálogo, generationPrompt, negativeRules y nextToolCall. Usa esto si el chat compactó el style board.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          site: { type: 'string' },
+          preparationId: { type: 'string' }
+        },
+        required: ['site', 'preparationId']
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false }
     },
     {
       name: 'brand_complete_image_generation',
@@ -1365,7 +1480,7 @@ export function buildToolList(auth) {
     },
     {
       name: 'content_upload_media',
-      description: 'Sube y asocia una imagen en una llamada. Pasa preparationId y file; el CMS inspecciona y normaliza dimensiones compatibles y reutiliza item y canal de la preparación. Para un carrusel, assetIndex distingue cada slide. En Instagram el CMS renderiza sobre el fondo el texto guardado. Si no preparaste un item, incluye textContent o la imagen quedará pendiente de asociar.',
+      description: 'Publish: sube con preparationId. composeMode=cms (default social) monta tipografía/logo; passthrough deja tu PNG. La respuesta incluye composedPreviewUrl, originalSha256 y finalSha256: enseña el render final, no solo el PNG del chat. kind=reference es moodboard y no se asocia a variantes.',
       inputSchema: {
         type: 'object',
         $defs: openaiFileDefs(),
@@ -1374,7 +1489,7 @@ export function buildToolList(auth) {
           workspaceId: { type: 'string' },
           site: { type: 'string' },
           filename: { type: 'string' },
-          kind: { type: 'string', enum: ['post', 'social', 'reference'], description: 'Opcional con preparationId: el CMS lo deriva del assetType.' },
+          kind: { type: 'string', enum: ['post', 'social', 'reference'], description: 'Opcional con preparationId: el CMS lo deriva del assetType. reference = moodboard no asociable.' },
           alt: { type: 'string' },
           imageAlt: { type: 'string', description: 'Alias compatible de alt.' },
           file: { $ref: '#/$defs/OpenAIFile' },
@@ -1386,6 +1501,7 @@ export function buildToolList(auth) {
           chunkIndex: { type: 'string' },
           chunkCount: { type: 'string' },
           preparationId: { type: 'string' },
+          composeMode: { type: 'string', enum: ['cms', 'passthrough'], description: 'cms = tipografía/logo del kit (default social). passthrough = guardar el PNG tal cual (blog o final del agente).' },
           brandKitVersionId: { type: 'string' },
           brandKitSnapshotHash: { type: 'string' },
           channel: { type: 'string' },
@@ -1412,7 +1528,7 @@ export function buildToolList(auth) {
     },
     {
       name: 'content_attach_media',
-      description: 'Asocia un pendingMediaId ya subido a las variantes de un item. Conserva el alt en la variante, comprueba que todos los canales estén completos y marca el item como generated cuando esté listo para revisión. Nunca aprueba ni publica.',
+      description: 'Asocia un pendingMediaId (post/social con preparationId) a variantes. Rechaza kind=reference y medios sin grounding. Marca generated (= pendiente de revisión) cuando esté completo. Nunca aprueba ni publica.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1662,6 +1778,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           })
           return textResult({ ...published, writesBrandKit: true, currentRole: access.currentRole })
         }
+        case 'brand_get_style_board':
         case 'brand_prepare_image_generation': {
           const site = resolveToolSite(auth, args)
           let scope = null
@@ -1698,7 +1815,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             channel: args.channel
           })
           console.info(JSON.stringify({
-            event: 'brand_image_preparation_created',
+            event: name === 'brand_get_style_board' ? 'brand_style_board_created' : 'brand_image_preparation_created',
             preparationId: prepared.brandPreparation?.preparationId,
             site: scope.siteHandle,
             brandKitVersionId: prepared.brandKitVersionId,
@@ -1706,6 +1823,41 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             expectedAssetCount: Number(prepared.brandPreparation?.expectedAssetCount || 1)
           }))
           return preparedImageResult(prepared, { referenceIndex: args.referenceIndex })
+        }
+        case 'brand_recap_image_preparation': {
+          const site = resolveToolSite(auth, args)
+          const scope = await resolveContentScope(auth, { ...args, site })
+          const preparation = await getImagePreparation(args.preparationId)
+          if (!preparation) throw Object.assign(new Error('No existe la preparación visual.'), { status: 404, code: 'PREPARATION_NOT_FOUND' })
+          if (preparation.site !== scope.siteHandle || preparation.workspaceId !== scope.workspaceId || (preparation.siteId && preparation.siteId !== scope.siteId)) {
+            throw Object.assign(new Error('La preparación no pertenece a esta marca.'), { status: 409, code: 'PREPARATION_SITE_MISMATCH' })
+          }
+          const payload = preparedPayloadFromStoredPreparation(preparation)
+          return textResult({
+            preparationId: preparation.preparationId,
+            site: preparation.site,
+            assetType: preparation.assetType,
+            route: preparation.route,
+            expectedAssetCount: Number(preparation.expectedAssetCount || 1),
+            brandKitVersionId: preparation.brandKitVersionId,
+            brandKitSnapshotHash: preparation.brandKitSnapshotHash,
+            references: (preparation.expectedReferences || []).map((reference, position) => ({
+              index: Number.isInteger(reference.index) ? reference.index : position,
+              filename: reference.filename,
+              sha256: reference.sha256 || '',
+              required: reference.required !== false
+            })),
+            generationPrompt: payload.generationPrompt || '',
+            negativeRules: payload.negativeRules || [],
+            canonicalPalette: payload.canonicalPalette || null,
+            composition: payload.composition || null,
+            deliveryMode: 'style_board',
+            imageBlocks: 0,
+            nextToolCall: preparation.itemId
+              ? { tool: 'content_upload_media', arguments: { site: preparation.site, preparationId: preparation.preparationId, itemId: preparation.itemId } }
+              : { tool: 'content_upload_media', arguments: { site: preparation.site, preparationId: preparation.preparationId } },
+            instruction: 'Sin binarios. Si necesitas el style board otra vez, llama brand_prepare_image_generation con preparationId.'
+          })
         }
         case 'brand_update_file': {
           const site = resolveToolSite(auth, args)
@@ -1755,11 +1907,14 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           const itemId = brandGroundingOverride?.itemId || args.itemId || null
           const channels = brandGroundingOverride?.channels || args.channels || []
           const alt = args.alt || args.imageAlt || brandGroundingOverride?.socialTextContent?.headline || ''
+          const composeMode = String(args.composeMode || brandGroundingOverride?.composeMode || (kind === 'social' ? 'cms' : 'passthrough')).toLowerCase()
+          if (brandGroundingOverride) brandGroundingOverride.composeMode = ['cms', 'passthrough'].includes(composeMode) ? composeMode : (kind === 'social' ? 'cms' : 'passthrough')
           const uploaded = await cms.uploadMedia({
             ...args,
             alt,
             site,
             kind,
+            composeMode: brandGroundingOverride?.composeMode || composeMode,
             brandGroundingOverride,
             requireBrandGrounding: ['post', 'social'].includes(kind),
             membershipUserId: scopedAuth.userId || ''
@@ -1796,29 +1951,43 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           const assetIndex = Number(brandGroundingOverride?.assetIndex ?? args.assetIndex ?? 0)
           const moreSlidesPending = Boolean(attachment && assetIndex + 1 < expectedAssetCount)
           const { suggestedPostPatch, suggestedTool, nextStep, reviewHint, ...safeUpload } = uploaded
+          const previewUrl = attachment?.contentComplete && itemId
+            ? contentItemPreviewUrl(itemId, attachment.batchId)
+            : null
+          const composedPreviewUrl = absoluteMediaUrl(uploaded.media?.previewPath || uploaded.media?.previewUrl || uploaded.media?.path || uploaded.media?.url || '')
+          const originalSha256 = uploaded.media?.metadata?.originalSha256 || uploaded.originalSha256 || null
+          const finalSha256 = uploaded.media?.sha256 || uploaded.finalSha256 || null
           return textResult({
             ...safeUpload,
             mediaAsset: asset,
             mediaAssetId: asset.id,
+            composeMode: uploaded.composeMode || brandGroundingOverride?.composeMode || composeMode,
+            originalSha256,
+            finalSha256,
+            textRendered: Boolean(uploaded.media?.brandGrounding?.textRendered || uploaded.textRendered),
+            logoApplied: Boolean(uploaded.logoApplied),
+            composedPreviewUrl: composedPreviewUrl || null,
             ...(kind !== 'reference' && !itemId ? { pendingMediaId: asset.id } : {}),
             attachment,
             operationStatus: kind === 'reference' ? 'complete' : attachment?.contentComplete ? 'ready_for_review' : moreSlidesPending ? 'in_progress' : attachment ? 'needs_completion' : 'upload_complete_attachment_pending',
             readyForReview: Boolean(attachment?.contentComplete),
-            ...(brandGroundingOverride?.assetType === 'social_image' ? { textRendered: Boolean(uploaded.media?.brandGrounding?.textRendered) } : {}),
+            ...(previewUrl ? { previewUrl, dashboardUrl: dashboardUrl() } : {}),
             nextStep: kind === 'reference'
-              ? 'Referencia guardada en el almacenamiento de la marca.'
+              ? 'Referencia (moodboard) guardada. No la asocies a blog/Instagram.'
               : attachment?.contentComplete
-                ? 'Todas las variantes y medios están completos. El item quedó en generated, listo para revisión humana.'
+                ? `Pendiente de revisión humana. Comparte ${previewUrl}. La URL final puede ser el render CMS (composedPreviewUrl), no tu PNG del chat.`
                 : moreSlidesPending
                   ? `Slide ${assetIndex + 1} de ${expectedAssetCount} asociada. Sube las slides restantes con el mismo preparationId.`
                 : attachment
                   ? `Medio asociado. Faltan estos campos antes de revisión: ${(attachment.incomplete || []).map((entry) => `${entry.channel}: ${entry.fields.join(', ')}`).join('; ')}`
-              : `Medio guardado como pendingMediaId. Cuando exista el item, asócialo con content_attach_media usando mediaId "${asset.id}".`,
+              : `Medio guardado como pendingMediaId. Cuando exista el item, asócialo con content_attach_media usando mediaId "${asset.id}" (solo post/social con preparationId).`,
             suggestedTool: kind === 'reference' || attachment?.contentComplete || moreSlidesPending ? null : attachment ? 'content_get_batch' : 'content_attach_media',
             nextAction: attachment && !attachment.contentComplete && !moreSlidesPending
               ? { tool: 'content_get_batch', arguments: { batchId: attachment.batchId }, then: 'Recupera los bodies completos y usa content_update_item por canal para guardar cada body completo. No envíes solo los campos que faltan.' }
-              : null,
-            reviewHint: kind === 'reference' ? 'Referencia guardada.' : attachment ? 'Medio asociado al item y a sus variantes.' : 'Medio guardado, pendiente de asociar a un item.'
+              : attachment?.contentComplete
+                ? { tool: null, then: `Revisión humana en ${previewUrl}. No apruebes sin confirmación.` }
+                : null,
+            reviewHint: kind === 'reference' ? 'Moodboard guardado (no publicable).' : attachment?.contentComplete ? `Listo para revisión: ${previewUrl}` : attachment ? 'Medio asociado al item y a sus variantes.' : 'Medio guardado, pendiente de asociar a un item.'
           })
         }
         case 'content_attach_media': {

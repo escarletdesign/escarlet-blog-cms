@@ -1,76 +1,56 @@
 {
-  "$schema": "../schemas/brand.schema.json",
   "id": "escarlet",
-  "version": "2.2.0",
+  "version": "3.0.0",
   "identity": {
     "name": "Escarlet",
-    "editorialTone": "claro, humano, crítico y práctico",
-    "visualTone": "editorial contemporáneo, cálido, táctil y con criterio",
+    "tagline": "Ideas humanas que dejan huella",
+    "editorialTone": "cercana, humana, estratégica y simple",
+    "visualTone": "editorial, humano, conceptual, profesional y luminoso",
     "contrast": "medio-alto",
-    "photography": "luz natural o interior cálido; materia real; encuadres honestos; evitar stock genérico",
-    "people": "usar personas solo cuando aporten oficio, decisión o tensión narrativa; evitar rostros posados",
+    "photography": "luz natural expresiva; acentos naturales; sin stock genérico ni poses forzadas",
+    "people": "personas reales en contexto; priorizar manos, detalle y acción; rostros solo con personaje elegido",
     "embeddedText": false
   },
   "fixed": {
     "palette": {
-      "primary": "#47A4E7",
-      "cyan": "#12B8D6",
-      "teal": "#12B8D6",
-      "greenSoft": "#62B38A",
-      "gold": "#E8B73A",
-      "charcoal": "#1E1E1E",
+      "primary": "#1B87D6",
+      "cyan": "#1B87D6",
+      "teal": "#1B87D6",
+      "greenSoft": "#78A97C",
+      "gold": "#E7B73A",
+      "charcoal": "#1F1F1F",
+      "cream": "#EFE8D7",
       "gray": "#6D6D6D",
       "white": "#FFFFFF"
     },
     "typography": {
-      "heading": "Montserrat, Arial, sans-serif",
-      "body": "Montserrat, Arial, sans-serif",
+      "heading": "Montserrat Bold/Semibold, Arial, sans-serif",
+      "body": "Montserrat Regular, Arial, sans-serif",
       "label": "Montserrat, Arial, sans-serif",
-      "note": "Montserrat es la fuente del sistema web; el layout conserva Arial como fallback."
+      "note": "Titulares con contraste; cuerpo legible. El CMS monta tipografía en slides sociales."
     },
     "webGradients": {
       "heroCta": {
         "enabled": true,
-        "from": "#12B8D6",
-        "to": "#E8B73A",
-        "direction": "teal-to-gold",
-        "usage": ["web heroes", "web CTAs"]
+        "from": "#1B87D6",
+        "to": "#E7B73A",
+        "direction": "turquoise-to-gold",
+        "usage": ["web heroes", "web CTAs", "brand background texture"]
       }
     },
-    "spacing": { "unit": 8, "page": 88, "safe": 72, "radius": 20 },
-    "imageRules": [
-      "La portada nunca contiene texto, letras, números, logos ni marcas de agua.",
-      "Evitar escritorio + portátil + taza como composición por defecto.",
-      "Preferir una idea visual única y espacio negativo limpio.",
-      "No usar robots, cerebros con circuitos, collages 3D ni gradientes genéricos.",
-      "Las referencias aprobadas orientan materia, luz y encuadre; no se copian literalmente.",
-      "No usar guiones horizontales, rayas, em dash, en dash ni separadores de guiones como decoración en textos visibles.",
-      "En imágenes con texto no añadir borde, contorno, trazo, outline, halo ni sombra pegada al texto."
-    ]
-  },
-  "variableAxes": [
-    "archetype",
-    "framing",
-    "personPresence",
-    "background",
-    "visualMetaphor",
-    "abstraction",
-    "supportStyle"
-  ],
-  "decisionRules": {
-    "recentPostsToInspect": 6,
-    "maxConsecutiveArchetype": 1,
-    "forceDifferentWhenTopicSimilarity": 0.62,
-    "referenceCountCover": { "automatic": "route", "exploration": 0 },
-    "referenceCountSocial": 1,
-    "modeAutomatic": "la política determinista resuelve una única ruta",
-    "modeExploration": "no se permite explorar rutas en generación automática",
-    "referenceSelectionPolicy": {
-      "mode": "deterministic",
-      "assistantMayChoose": false,
-      "assistantMaySubstitute": false,
-      "priority": ["abstract_or_background", "introspective_or_tense", "human_or_work", "positive_or_inspirational"]
+    "spacing": {
+      "unit": 8,
+      "page": 88,
+      "safe": 72,
+      "radius": 20
     },
-    "mariaMorales": "reutilizar las reglas de decisión, pero cargar el brand core del sitio solicitado; nunca heredar paleta o referencias de Escarlet"
+    "imageRules": [
+      "Grounding visual: style-board.png (tablero maestro).",
+      "Personajes: character-board.png o character-silvia/charly solo si el usuario lo pide.",
+      "Logo PNG solo si el agente lo necesita como referencia; SVG para composición CMS.",
+      "Portadas y fondos sin texto, letras, números ni logos dibujados.",
+      "Regla de tercios, espacio negativo amplio, luz natural, coherencia de paleta.",
+      "Prohibido: stock genérico, saturación excesiva, poses forzadas, plantas sin sentido."
+    ]
   }
 }

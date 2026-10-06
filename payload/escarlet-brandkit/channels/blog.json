@@ -1,0 +1,8 @@
+{
+  "channel": "blog",
+  "assetType": "blog_cover",
+  "dimensions": "1200x800",
+  "aspectRatio": "3:2",
+  "styleBoard": "style",
+  "notes": "Portada sin texto. Grounding: style-board."
+}

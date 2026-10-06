@@ -28,7 +28,7 @@ export function contentPreviewPath(item: Pick<ContentItem, "id" | "batchId" | "b
 
 export const statusLabels: Record<string, string> = {
   draft: "Borrador",
-  generated: "Generado",
+  generated: "Pendiente de revisión",
   needs_review: "Requiere revisión",
   approved: "Aprobado",
   scheduled: "Programado",
@@ -43,7 +43,8 @@ export function statusLabel(status?: ContentStatus | string) {
   return statusLabels[String(status || "draft")] || String(status || "Borrador").replace(/_/g, " ");
 }
 
-const approvableStatuses = new Set(["draft", "generated", "needs_review"]);
+/** draft incompleto no se aprueba; generated = listo para revisión humana. */
+const approvableStatuses = new Set(["generated", "needs_review"]);
 
 export function canApproveStatus(status?: string) {
   return approvableStatuses.has(String(status || ""));

@@ -1,8 +1,6 @@
 # Escarlet — Identidad verbal unificada
 
-Fuente de verdad para cualquier copy de marca. Combina el **ADN estratégico** (`escarlet-identidad-verbal-adn-marca.md`) con la **guía de estilo directo** (`escarlet-guia-voz-copy-directo-completo.md`).
-
-Referencia creativa interna de tono oral y comercial. No copiar frases literales de autores.
+Fuente de verdad para copy de marca. Tagline visual: Ideas humanas que dejan huella.
 
 ---
 

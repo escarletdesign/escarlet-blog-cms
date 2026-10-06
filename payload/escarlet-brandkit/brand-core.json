@@ -1,0 +1,56 @@
+{
+  "id": "escarlet",
+  "version": "3.0.0",
+  "identity": {
+    "name": "Escarlet",
+    "tagline": "Ideas humanas que dejan huella",
+    "editorialTone": "cercana, humana, estratégica y simple",
+    "visualTone": "editorial, humano, conceptual, profesional y luminoso",
+    "contrast": "medio-alto",
+    "photography": "luz natural expresiva; acentos naturales; sin stock genérico ni poses forzadas",
+    "people": "personas reales en contexto; priorizar manos, detalle y acción; rostros solo con personaje elegido",
+    "embeddedText": false
+  },
+  "fixed": {
+    "palette": {
+      "primary": "#1B87D6",
+      "cyan": "#1B87D6",
+      "teal": "#1B87D6",
+      "greenSoft": "#78A97C",
+      "gold": "#E7B73A",
+      "charcoal": "#1F1F1F",
+      "cream": "#EFE8D7",
+      "gray": "#6D6D6D",
+      "white": "#FFFFFF"
+    },
+    "typography": {
+      "heading": "Montserrat Bold/Semibold, Arial, sans-serif",
+      "body": "Montserrat Regular, Arial, sans-serif",
+      "label": "Montserrat, Arial, sans-serif",
+      "note": "Titulares con contraste; cuerpo legible. El CMS monta tipografía en slides sociales."
+    },
+    "webGradients": {
+      "heroCta": {
+        "enabled": true,
+        "from": "#1B87D6",
+        "to": "#E7B73A",
+        "direction": "turquoise-to-gold",
+        "usage": ["web heroes", "web CTAs", "brand background texture"]
+      }
+    },
+    "spacing": {
+      "unit": 8,
+      "page": 88,
+      "safe": 72,
+      "radius": 20
+    },
+    "imageRules": [
+      "Grounding visual: style-board.png (tablero maestro).",
+      "Personajes: character-board.png o character-silvia/charly solo si el usuario lo pide.",
+      "Logo PNG solo si el agente lo necesita como referencia; SVG para composición CMS.",
+      "Portadas y fondos sin texto, letras, números ni logos dibujados.",
+      "Regla de tercios, espacio negativo amplio, luz natural, coherencia de paleta.",
+      "Prohibido: stock genérico, saturación excesiva, poses forzadas, plantas sin sentido."
+    ]
+  }
+}

@@ -1,17 +1,74 @@
 {
   "site": "escarlet",
-  "version": "2.2.0",
+  "version": "3.0.0",
   "selectionPolicy": {
     "mode": "deterministic",
     "assistantMayChoose": false,
     "assistantMaySubstitute": false,
-    "priority": ["abstract_or_background", "introspective_or_tense", "human_or_work", "positive_or_inspirational"]
+    "priority": ["default"]
+  },
+  "styleBoards": {
+    "style": { "filename": "style-board.png", "description": "Tablero visual maestro de la marca" },
+    "character": { "filename": "character-board.png", "description": "Tablero de personajes (Silvia y Charly)" },
+    "logo": { "filename": "logo-official-blue.png", "description": "Logo PNG para grounding del agente cuando lo pide" }
+  },
+  "logos": {
+    "png": { "filename": "logo-official-blue.png", "usage": "agent_reference" },
+    "svgWhite": { "filename": "logo-official-white.svg", "usage": "cms_compose" },
+    "svgBlue": { "filename": "logo-official-blue.svg", "usage": "cms_compose" }
+  },
+  "routes": {
+    "default": ["style-board.png"],
+    "with_character": ["style-board.png", "character-board.png"],
+    "character": ["character-board.png"],
+    "logo": ["logo-official-blue.png"]
   },
   "references": [
-    { "id": "esc-style-board", "role": "visual-authority", "filename": "05-tablero-visual.png", "mediaId": "media-1789658372305-0", "approved": true, "required": true },
-    { "id": "esc-background", "role": "background-authority", "filename": "fondo-escarlet.jpg", "mediaId": "media-1789662894828", "approved": true, "required": true },
-    { "id": "esc-scene-work", "role": "scene-reference", "filename": "reference-blog-example.png", "mediaId": "media-1789658372371-1", "approved": true, "required": false },
-    { "id": "esc-scene-tense", "role": "scene-reference", "filename": "reference-visual-style-01.png", "mediaId": "media-1789658372405-2", "approved": true, "required": false },
-    { "id": "esc-scene-positive", "role": "scene-reference", "filename": "reference-visual-style-02.png", "mediaId": "media-1789658372446-3", "approved": true, "required": false }
+    {
+      "id": "esc-style-board",
+      "role": "style-board",
+      "filename": "style-board.png",
+      "approved": true,
+      "required": true,
+      "alt": "Sistema visual Escarlet: paleta, tipografía, composición y biblioteca visual"
+    },
+    {
+      "id": "esc-character-board",
+      "role": "character-board",
+      "filename": "character-board.png",
+      "approved": true,
+      "required": false,
+      "usage": "character",
+      "alt": "Tablero de personajes Escarlet"
+    },
+    {
+      "id": "esc-character-silvia",
+      "role": "character",
+      "filename": "character-silvia.png",
+      "approved": true,
+      "required": false,
+      "usage": "character",
+      "characterId": "silvia",
+      "alt": "Personaje Silvia"
+    },
+    {
+      "id": "esc-character-charly",
+      "role": "character",
+      "filename": "character-charly.png",
+      "approved": true,
+      "required": false,
+      "usage": "character",
+      "characterId": "charly",
+      "alt": "Personaje Charly"
+    },
+    {
+      "id": "esc-logo-png",
+      "role": "logo",
+      "filename": "logo-official-blue.png",
+      "approved": true,
+      "required": false,
+      "usage": "logo",
+      "alt": "Logo Escarlet PNG (wordmark sobre azul)"
+    }
   ]
 }

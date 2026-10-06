@@ -152,7 +152,8 @@ test('el upload conserva los bytes de ChatGPT y valida la preparación, sin rece
 })
 
 test('las referencias deben coincidir en identidad, hash y orden', async () => {
-  const prepared = prepareImageGeneration('escarlet', { assetType: 'blog_cover', title: `references-${Date.now()}` })
+  const prepared = prepareImageGeneration('escarlet', { assetType: 'blog_cover', title: `references-${Date.now()}`, useCharacter: true })
+  assert.ok(prepared.resolvedReferences.length >= 2)
   clearPreparation(prepared.brandPreparation.preparationId)
   await persistImagePreparation(prepared)
   const evidence = referenceEvidence(prepared)
