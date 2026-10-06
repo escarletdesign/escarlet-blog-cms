@@ -43,6 +43,12 @@ export function statusLabel(status?: ContentStatus | string) {
   return statusLabels[String(status || "draft")] || String(status || "Borrador").replace(/_/g, " ");
 }
 
+const approvableStatuses = new Set(["draft", "generated", "needs_review"]);
+
+export function canApproveStatus(status?: string) {
+  return approvableStatuses.has(String(status || ""));
+}
+
 export function aggregateStatus(item: ContentItem): ContentStatus {
   const statuses = (item.variants || []).map((variant) => variant.scheduleStatus || variant.status).filter(Boolean);
   if (statuses.includes("action_required")) return "action_required";

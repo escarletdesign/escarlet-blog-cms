@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import type { ContentChannel, ContentItem, ContentVariant } from "./types";
-import { itemTitle } from "./content-format";
+import { canApproveStatus, itemTitle } from "./content-format";
 import { createVideoCapture } from "./portrait-recorder";
 import type { VideoCapture, VideoFormat } from "./portrait-recorder";
 import { Badge, Button, Card, ChannelBadge, EmptyState, Field, IconButton, Inline, Select, Stack, StatusBadge, TeleprompterLineControls, Textarea } from "./ui";
@@ -88,7 +88,7 @@ export function ContentPackPreview({ site, item, busy, autoRecord = false, buffe
   const instagramStory = variants.find((variant) => variant.channel === "instagram_story");
   const video = variants.find((variant) => variant.channel === "video");
   const availablePublishChannels = publishChannels.filter((channel) => variants.some((variant) => variant.channel === channel));
-  const pendingPublishChannels = availablePublishChannels.filter((channel) => variants.some((variant) => variant.channel === channel && (variant.scheduleStatus || variant.status) === "approved"));
+  const pendingPublishChannels = availablePublishChannels.filter((channel) => variants.some((variant) => { const status = variant.scheduleStatus || variant.status; return variant.channel === channel && (status === "approved" || canApproveStatus(status)); }));
   const slides = slidesFor(instagram);
   const { socialPack } = bodyFor(instagram);
   const contentTitle = itemTitle(item);
@@ -193,7 +193,8 @@ export function ContentPackPreview({ site, item, busy, autoRecord = false, buffe
 }
 
 function PackActions({ variant, busy, onCopy, onPublish }: { variant: ContentVariant; busy: boolean; onCopy: () => void; onPublish: () => void }) {
-  return <Inline gap="sm"><Button variant="ghost" size="sm" onClick={onCopy}>Copiar</Button><Button variant="primary" size="sm" disabled={busy || variant.status !== "approved"} loading={busy} onClick={onPublish}>Publicar en Buffer</Button></Inline>;
+  const status = variant.scheduleStatus || variant.status;
+  return <Inline gap="sm"><Button variant="ghost" size="sm" onClick={onCopy}>Copiar</Button><Button variant="primary" size="sm" disabled={busy || !(status === "approved" || canApproveStatus(status))} loading={busy} onClick={onPublish}>Publicar en Buffer</Button></Inline>;
 }
 
 function TeleprompterModal({ script, itemId, site, canPublish, publishChannels, busy, onUploaded, onNotify, onPublish, onClose }: { script: string; itemId: string; site: string; canPublish: boolean; publishChannels: ContentChannel[]; busy: boolean; onUploaded?: (replacedPrevious: boolean) => void; onNotify?: (message: string, kind?: "success" | "error" | "info") => void; onPublish: (channel: ContentChannel, copy?: string) => void; onClose: () => void }) {
