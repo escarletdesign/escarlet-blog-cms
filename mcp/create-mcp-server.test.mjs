@@ -2,7 +2,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { buildToolList, createMcpServer, invokeMcpTool, normalizeImagePreparationArgs, preparedImageResult } from './create-mcp-server.mjs'
+import { buildToolList, createMcpServer, invokeMcpTool, normalizeImagePreparationArgs, preparedImageResult, assertPreparationUploadMatch } from './create-mcp-server.mjs'
+import { prepareImageGeneration } from '../lib/brand-kit.mjs'
 import { MCP_INSTRUCTIONS, MCP_SERVER_VERSION } from '../lib/media-upload-contract.mjs'
 import { assertSafeToolArguments } from '../lib/ai-security.mjs'
 
@@ -39,6 +40,7 @@ test('el contrato MCP expone media y contenido v2, sin operaciones de posts lega
   assert.ok(tools.find((tool) => tool.name === 'brand_create_draft').inputSchema.properties.idempotencyKey)
   assert.ok(tools.find((tool) => tool.name === 'brand_publish_draft').inputSchema.properties.expectedActiveVersionId)
   assert.equal(tools.find((tool) => tool.name === 'brand_prepare_image_generation').inputSchema.properties.expectedAssetCount.type, 'integer')
+  assert.match(tools.find((tool) => tool.name === 'brand_prepare_image_generation').description, /como máximo una referencia binaria/)
   assert.match(upload.description, /normaliza dimensiones/i)
   for (const field of ['preparationId', 'itemId', 'channels', 'assetIndex']) assert.ok(upload.inputSchema.properties[field], field)
   assert.deepEqual(upload.inputSchema.required, ['site', 'filename'])
@@ -63,7 +65,7 @@ test('el contrato MCP expone media y contenido v2, sin operaciones de posts lega
   const publicContract = JSON.stringify(tools)
   assert.doesNotMatch(publicContract, /generationReceiptId|brand_complete_image_generation|brand_register_generation|content-system\/instagram-renderer/)
   assert.equal(buildToolList({ role: 'editor' }).some((tool) => tool.name === 'brand_update_file'), true)
-  assert.equal(MCP_SERVER_VERSION, '3.6.0')
+  assert.equal(MCP_SERVER_VERSION, '3.6.1')
   for (const name of ['video_create_job', 'video_get_job', 'video_update_job', 'video_upload_media', 'video_import_external_media', 'video_list_jobs']) {
     assert.ok(tools.some((tool) => tool.name === name), name)
   }
@@ -116,7 +118,8 @@ test('createMcpServer anuncia el contrato v2 y la selección explícita de marca
   assert.match(MCP_INSTRUCTIONS, /content_upload_media/)
   assert.match(MCP_INSTRUCTIONS, /petición de imagen singular.*una sola imagen/i)
   assert.match(MCP_INSTRUCTIONS, /assetIndex comienza en 0/i)
-  assert.match(MCP_INSTRUCTIONS, /versión 3\.6\.0/)
+  assert.match(MCP_INSTRUCTIONS, /versión 3\.6\.1/)
+  assert.match(MCP_INSTRUCTIONS, /una sola referencia binaria/)
   assert.match(MCP_INSTRUCTIONS, /video_upload_media/)
 })
 
@@ -126,29 +129,61 @@ test('LinkedIn usa la portada del blog salvo petición explícita de otra pieza'
   assert.equal(normalizeImagePreparationArgs({ channel: 'linkedin', assetType: 'social_image' }).assetType, 'social_image')
 })
 
-test('la preparación entrega todas las referencias binarias en una llamada y conserva el orden', async () => {
-  const resolvedReferences = ['05-tablero-visual.png', 'fondo-escarlet.jpg', 'reference-blog-example.png'].map((filename, index) => ({
-    filename,
-    attachmentIndex: index + 1,
-    path: `/media/escarlet/reference/${filename}`
-  }))
-  const payload = {
-    generationBlocked: false,
-    resolvedReferences,
-    brandPreparation: { preparationId: 'preparation-test', site: 'escarlet', assetType: 'blog_cover' },
-    composition: { dimensions: '1536x1024', allowedAspectRatios: ['3:2'] },
-    generationCardinality: { maxImageCount: 1 }
-  }
-  const first = await preparedImageResult(payload)
-  const firstText = JSON.parse(first.content[0].text)
+function imageBlocks(result) {
+  return (result.content || []).filter((block) => block.type === 'image')
+}
+
+test('Escarlet entrega una referencia por llamada y no mete el binario en el JSON', async () => {
+  const prepared = prepareImageGeneration('escarlet', { assetType: 'social_image', title: 'fondo editorial', expectedAssetCount: 8 })
+  assert.equal(prepared.resolvedReferences.length, 2)
+  const first = await preparedImageResult(prepared)
+  const delivery = first.structuredContent.referenceDelivery
   assert.equal(first.isError, false)
-  assert.equal(first.content.length, 4)
-  assert.equal(firstText.referenceCount, 3)
-  assert.equal(firstText.readyForGeneration, true)
-  assert.equal(first.structuredContent.referenceDelivery.complete, true)
-  assert.equal(first.structuredContent.resolvedReferences.length, 3)
-  assert.equal(first.structuredContent.preparationId, 'preparation-test')
-  assert.equal(first.structuredContent.expectedDimensions, '1536x1024')
+  assert.equal(delivery.total, 2)
+  assert.equal(delivery.currentIndex, 0)
+  assert.equal(delivery.nextReferenceIndex, 1)
+  assert.equal(delivery.complete, false)
+  assert.equal(imageBlocks(first).length, 1)
+  assert.equal(first.structuredContent.preparationId, prepared.brandPreparation.preparationId)
+  assert.equal(first.structuredContent.expectedAssetCount, 8)
+  const metadata = JSON.stringify(first.structuredContent)
+  assert.ok(Buffer.byteLength(metadata) < 100_000)
+  assert.doesNotMatch(metadata, /iVBOR|\/9j\/|data:image/)
+  const blob = imageBlocks(first)[0].data
+  assert.equal(JSON.stringify(first).split(blob).length - 1, 1)
+  assert.doesNotMatch(first.content[0].text, /iVBOR|\/9j\//)
+
+  const repeat = await preparedImageResult(prepared, { referenceIndex: 0 })
+  assert.equal(imageBlocks(repeat)[0].data, blob)
+  assert.equal(repeat.structuredContent.preparationId, first.structuredContent.preparationId)
+
+  const second = await preparedImageResult(prepared, { referenceIndex: 1 })
+  assert.equal(imageBlocks(second).length, 1)
+  assert.equal(second.structuredContent.referenceDelivery.currentIndex, 1)
+  assert.equal(second.structuredContent.referenceDelivery.nextReferenceIndex, null)
+  assert.equal(second.structuredContent.referenceDelivery.complete, true)
+  assert.notEqual(imageBlocks(second)[0].data, blob)
+  assert.doesNotMatch(JSON.stringify(second.structuredContent), /iVBOR|\/9j\/|data:image/)
+  assert.ok(Buffer.byteLength(JSON.stringify(second.structuredContent)) < 100_000)
+
+  await assert.rejects(
+    () => preparedImageResult(prepared, { referenceIndex: 2 }),
+    (error) => error.code === 'INVALID_REFERENCE_INDEX'
+  )
+  await assert.rejects(
+    () => preparedImageResult(prepared, { referenceIndex: -1 }),
+    (error) => error.code === 'INVALID_REFERENCE_INDEX'
+  )
+})
+
+test('la subida rechaza una preparación distinta', () => {
+  const preparation = { preparationId: 'prep-1', brandKitVersionId: 'kit-1', brandKitSnapshotHash: 'hash-1', expectedAssetCount: 8, channel: 'instagram' }
+  assert.doesNotThrow(() => assertPreparationUploadMatch(preparation, { brandKitVersionId: 'kit-1', brandKitSnapshotHash: 'hash-1', expectedAssetCount: 8, channel: 'instagram', channels: ['instagram'] }))
+  assert.throws(() => assertPreparationUploadMatch(preparation, { brandKitVersionId: 'kit-2' }), (error) => error.code === 'PREPARATION_MISMATCH')
+  assert.throws(() => assertPreparationUploadMatch(preparation, { brandKitSnapshotHash: 'other' }), (error) => error.code === 'PREPARATION_MISMATCH')
+  assert.throws(() => assertPreparationUploadMatch(preparation, { expectedAssetCount: 3 }), (error) => error.code === 'PREPARATION_MISMATCH')
+  assert.throws(() => assertPreparationUploadMatch(preparation, { channel: 'blog' }), (error) => error.code === 'PREPARATION_MISMATCH')
+  assert.throws(() => assertPreparationUploadMatch(preparation, { channels: ['linkedin'] }), (error) => error.code === 'PREPARATION_MISMATCH')
 })
 
 test('el MCP no elige una marca por defecto cuando el acceso incluye varias', async () => {
@@ -192,7 +227,7 @@ test('las respuestas de preparación exponen la versión MCP activa', async () =
   const result = await invokeMcpTool('brand_prepare_image_generation', { site: 'escarlet', assetType: 'generic', title: 'versión MCP' }, { role: 'admin' })
   const value = payload(result)
   assert.equal(value.mcpServer.name, 'escarlet-cms-v2')
-  assert.equal(value.mcpServer.version, '3.6.0')
+  assert.equal(value.mcpServer.version, '3.6.1')
   assert.equal(value.mcpServer.contract, 'v2')
 })
 

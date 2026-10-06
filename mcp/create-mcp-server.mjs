@@ -12,7 +12,8 @@ import {
 } from '../lib/media-upload-contract.mjs'
 import { openaiFileDefs, connectorFileMeta } from '../lib/openai-file.mjs'
 import { assertSiteAccess, assertSuperAdmin, allowedSiteHandles, isSiteScopedRole, workspaceRoleForAuth } from '../lib/auth.mjs'
-import { brandFilesForAuth, SECRET_BRAND_FILES, prepareImageGeneration, loadActiveBrandKitSnapshot, compositionForAssetType, brandKitWriteAccess, assertBrandKitWritable } from '../lib/brand-kit.mjs'
+import { brandFilesForAuth, SECRET_BRAND_FILES, prepareImageGeneration, loadActiveBrandKitSnapshot, compositionForAssetType, archetypeForRoute, brandKitWriteAccess, assertBrandKitWritable } from '../lib/brand-kit.mjs'
+import { generatePreviewBuffer, generateThumbBuffer } from '../lib/media-optimize.mjs'
 import { CANONICAL_CMS_URL, canonicalCmsPublicUrl } from '../lib/cms-url.mjs'
 import { assertChatToolAllowed, assertSafeToolArguments } from '../lib/ai-security.mjs'
 import { loadSiteConfig, isSocialMediaOnlySite } from '../lib/site-config.mjs'
@@ -344,7 +345,7 @@ async function brandContextResult(payload) {
       imageBlocks: 0,
       inspectable: false,
       binaryDeliveryTool: 'brand_prepare_image_generation',
-      instruction: 'El contexto solo cataloga referencias. Llama brand_prepare_image_generation para recibir exclusivamente los ImageContent de la ruta elegida.'
+      instruction: 'El contexto solo cataloga referencias. Llama brand_prepare_image_generation para recibir un ImageContent por llamada.'
     },
     brandIsolation: brandIsolationFor(safePayload)
   }
@@ -353,166 +354,171 @@ async function brandContextResult(payload) {
   }
 }
 
-export async function preparedImageResult(payload) {
-  const prepared = redactWorkflowLinks(payload)
+// One image per call. OpenAI's MCP bridge copies ImageContent into content_items, and grpc.aio
+// rejects the message once it passes the default 4MiB max_receive_message_length (AioRpcError).
+// 1.2MB raw stays under that limit even after base64 and the client-side copy. Do not raise the gRPC limit.
+const MAX_REFERENCE_BYTES = 1_200_000
+
+function referenceOrdinal(reference, position) {
+  const index = Number(reference?.index)
+  if (Number.isInteger(index) && index >= 0) return index
+  const attachment = Number(reference?.attachmentIndex || reference?.order || 0)
+  return attachment > 0 ? attachment - 1 : position
+}
+
+async function deliverReferenceBytes(disk, mimeType) {
+  const original = readFileSync(disk)
+  const originalSha = createHash('sha256').update(original).digest('hex')
+  if (original.length <= MAX_REFERENCE_BYTES) return { bytes: original, mimeType, originalSha, sizeBytes: original.length, optimized: false }
+  const preview = await generatePreviewBuffer(original, 1200)
+  if (preview.ok && preview.buffer?.length && preview.buffer.length <= MAX_REFERENCE_BYTES) {
+    return { bytes: preview.buffer, mimeType: 'image/jpeg', originalSha, sizeBytes: preview.buffer.length, optimized: true, originalSizeBytes: original.length }
+  }
+  const thumb = await generateThumbBuffer(original, 800)
+  if (thumb.ok && thumb.buffer?.length && thumb.buffer.length <= MAX_REFERENCE_BYTES) {
+    return { bytes: thumb.buffer, mimeType: 'image/jpeg', originalSha, sizeBytes: thumb.buffer.length, optimized: true, originalSizeBytes: original.length }
+  }
+  throw Object.assign(new Error('La referencia visual supera el tamaño seguro de transporte.'), { status: 413, code: 'REFERENCE_TOO_LARGE', extra: { sizeBytes: original.length } })
+}
+
+export async function preparedImageResult(payload, options = {}) {
   const refs = Array.isArray(payload?.resolvedReferences)
-    ? [...payload.resolvedReferences].sort((a, b) => Number(a.attachmentIndex || 0) - Number(b.attachmentIndex || 0))
+    ? [...payload.resolvedReferences].sort((left, right) => referenceOrdinal(left, 0) - referenceOrdinal(right, 0))
     : []
-  const selectedReferences = refs
-  const preparationId = String(payload?.brandPreparation?.preparationId || '')
-  const attachments = []
-  const attachmentHashes = []
-  const missing = []
-  for (const reference of selectedReferences) {
+  for (const reference of refs) {
+    if (reference.sha256) continue
     const disk = referenceDiskPath(reference)
-    const mimeType = imageMimeType(reference?.filename)
-    if (!disk || !mimeType) {
-      missing.push(String(reference?.filename || 'referencia-desconocida'))
-      continue
-    }
-    try {
-      const bytes = readFileSync(disk)
-      const sha256 = createHash('sha256').update(bytes).digest('hex')
-      attachments.push({
-        type: 'image',
-        data: bytes.toString('base64'),
-        mimeType
-      })
-      attachmentHashes.push({ filename: reference.filename, sha256 })
-    } catch {
-      missing.push(String(reference?.filename || 'referencia-desconocida'))
-    }
+    if (!disk) continue
+    reference.sha256 = createHash('sha256').update(readFileSync(disk)).digest('hex')
   }
-  const referenceHashes = new Map(attachmentHashes.map((entry) => [entry.filename, entry.sha256]))
-  prepared.preparationId = preparationId
-  prepared.resolvedReferences = refs.map((reference) => {
-    const { path, storageKey, ...safeReference } = reference
-    return {
-      ...safeReference,
-      ...(referenceHashes.has(reference.filename) ? { sha256: referenceHashes.get(reference.filename) } : {})
-    }
-  })
-  const allReferencesAvailable = !payload?.generationBlocked && refs.length > 0 && missing.length === 0 && attachments.length === selectedReferences.length
-  const complete = allReferencesAvailable
-  const readyForGeneration = complete
-  const referenceDelivery = {
-    expected: refs.length,
-    attached: attachments.length,
-    missing,
-    exactReferenceOrder: refs.map((reference) => reference.filename),
-    hashes: attachmentHashes.map((entry) => entry.sha256),
-    readyForGeneration,
-    mode: 'all_references_in_one_call',
-    complete,
-    nextReferenceIndex: null
-  }
-  const textPayload = {
-    ...prepared,
+  const total = refs.length
+  const rawIndex = options.referenceIndex
+  const index = rawIndex === undefined || rawIndex === null || rawIndex === '' ? 0 : Number(rawIndex)
+  const preparationId = String(payload?.brandPreparation?.preparationId || '')
+  const catalog = refs.map((reference, position) => ({
+    index: referenceOrdinal(reference, position),
+    filename: String(reference?.filename || ''),
+    sha256: String(reference?.sha256 || ''),
+    required: reference?.required !== false
+  }))
+  const metadata = {
     preparationId,
-    assetType: payload?.brandPreparation?.assetType || null,
+    brandKitVersionId: payload?.brandKitVersionId || payload?.brandPreparation?.brandKitVersionId || null,
+    brandKitSnapshotHash: payload?.brandKitSnapshotHash || payload?.brandPreparation?.brandKitSnapshotHash || null,
+    assetType: payload?.brandPreparation?.assetType || payload?.assetType || null,
     expectedDimensions: payload?.composition?.dimensions || null,
-    mcpServer: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION, contract: 'v2', canonicalUrl: MCP_CANONICAL_URL },
-    generationBlocked: Boolean(payload?.generationBlocked) || selectedReferences.length === 0 || attachments.length !== selectedReferences.length,
-    brandPreparation: prepared.brandPreparation,
-    readyForGeneration,
-    referenceDelivery,
-    brandIsolation: {
-      mode: 'versioned_snapshot',
-      conversationIndependent: true,
-      snapshotReadOnly: true,
-      instruction: 'Usa únicamente este snapshot y sus ImageContent. La preparación no modifica el brand kit. Si el usuario pide editarlo, usa brand_update_file cuando writesBrandKit sea true.'
-    },
-    brandGroundingContract: {
-      requiredForUpload: true,
-      preparationIdField: 'brandPreparation.preparationId',
-      finalAssetRequiresText: Boolean(payload?.brandPreparation?.finalAssetRequiresText),
-      finalTextRenderer: payload?.brandPreparation?.finalTextRenderer || 'ChatGPT',
-      allowedSocialAspectRatios: payload.composition?.allowedAspectRatios || ['4:5'],
-      generationCardinality: payload?.generationCardinality || {
-        defaultImageCount: 1,
-        maxImageCount: 1,
-        unit: 'final_image'
-      },
-      exactReferenceOrder: referenceDelivery.exactReferenceOrder,
-      instruction: complete
-        ? 'Todas las referencias exactas están adjuntas en el orden indicado. Genera la imagen final y súbela con content_upload_media.'
-        : 'No generes ninguna imagen. La preparación no pudo adjuntar todas las referencias.'
+    expectedAssetCount: Number(payload?.brandPreparation?.expectedAssetCount || payload?.generationCardinality?.maxImageCount || 1),
+    route: payload?.route || payload?.brandPreparation?.route || null,
+    archetype: payload?.archetype || null,
+    references: catalog,
+    referenceDelivery: { total, currentIndex: Number.isInteger(index) ? index : null, nextReferenceIndex: null, complete: false },
+    mcpServer: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION, contract: 'v2', canonicalUrl: MCP_CANONICAL_URL }
+  }
+  if (!total || payload?.generationBlocked) {
+    return {
+      isError: true,
+      content: [{ type: 'text', text: `Preparation ${preparationId || 'blocked'}. No references delivered.` }],
+      structuredContent: { ...metadata, generationBlocked: true }
     }
   }
-  return {
-    isError: Boolean(payload?.generationBlocked) || selectedReferences.length === 0 || attachments.length !== selectedReferences.length,
-    content: [
-      { type: 'text', text: JSON.stringify({
-        preparationId,
-        assetType: textPayload.assetType,
-        expectedDimensions: textPayload.expectedDimensions,
-        readyForGeneration,
-        generationBlocked: textPayload.generationBlocked,
-        referenceCount: attachments.length,
-        instruction: textPayload.brandGroundingContract.instruction
-      }) },
-      ...attachments
-    ],
-    structuredContent: {
-      preparationId,
-      assetType: payload?.brandPreparation?.assetType || null,
-      expectedDimensions: payload?.composition?.dimensions || null,
-      resolvedReferences: textPayload.resolvedReferences,
-      ...textPayload
+  if (!Number.isInteger(index) || index < 0 || index >= total) {
+    const error = Object.assign(new Error(`referenceIndex fuera de rango. Hay ${total} referencias.`), { status: 400, code: 'INVALID_REFERENCE_INDEX' })
+    console.info(JSON.stringify({ event: 'brand_image_reference_delivery_failed', preparationId, referenceIndex: rawIndex, error: error.message, payloadBytes: 0 }))
+    throw error
+  }
+  const reference = refs[index]
+  const disk = referenceDiskPath(reference)
+  const mimeType = imageMimeType(reference?.filename)
+  if (!disk || !mimeType) {
+    console.info(JSON.stringify({ event: 'brand_image_reference_delivery_failed', preparationId, referenceIndex: index, filename: reference?.filename || '', error: 'missing file', payloadBytes: 0 }))
+    return {
+      isError: true,
+      content: [{ type: 'text', text: `Preparation ${preparationId}. Reference ${index + 1} of ${total} is missing.` }],
+      structuredContent: { ...metadata, code: 'REFERENCE_FILE_MISSING' }
     }
+  }
+  let delivered
+  try {
+    delivered = await deliverReferenceBytes(disk, mimeType)
+  } catch (err) {
+    console.info(JSON.stringify({ event: 'brand_image_reference_delivery_failed', preparationId, referenceIndex: index, filename: reference?.filename || '', error: err.message, payloadBytes: err.extra?.sizeBytes || 0 }))
+    throw err
+  }
+  const nextReferenceIndex = index + 1 < total ? index + 1 : null
+  const referenceDelivery = { total, currentIndex: index, nextReferenceIndex, complete: nextReferenceIndex === null }
+  const references = catalog.map((entry) => entry.index === index && delivered.originalSha ? { ...entry, sha256: delivered.originalSha } : entry)
+  const summary = `Preparation ${preparationId}. Reference ${index + 1} of ${total}. Next referenceIndex: ${nextReferenceIndex === null ? 'none' : nextReferenceIndex}.`
+  console.info(JSON.stringify({
+    event: 'brand_image_reference_delivered',
+    preparationId,
+    referenceIndex: index,
+    filename: reference.filename,
+    mimeType: delivered.mimeType,
+    sizeBytes: delivered.sizeBytes
+  }))
+  return {
+    isError: false,
+    content: [
+      { type: 'text', text: summary },
+      { type: 'image', data: delivered.bytes.toString('base64'), mimeType: delivered.mimeType }
+    ],
+    structuredContent: { ...metadata, references, referenceDelivery }
   }
 }
 
-function preparedPayloadFromStoredPreparation(preparation, canonicalSnapshot) {
-  const byFilename = new Map((canonicalSnapshot.references || []).map((reference) => [reference.filename, reference]))
-  const resolvedReferences = (preparation.expectedReferences || []).map((expected) => {
-    const current = byFilename.get(expected.filename) || {}
-    return {
-      ...current,
-      id: expected.id || current.id,
-      mediaId: expected.mediaId || current.mediaId || null,
-      filename: expected.filename,
-      attachmentIndex: expected.attachmentIndex,
-      sha256: expected.sha256 || current.sha256 || ''
-    }
-  })
+function preparedPayloadFromStoredPreparation(preparation) {
   const assetType = preparation.assetType || 'blog_cover'
+  const resolvedReferences = (preparation.expectedReferences || []).map((expected, position) => ({
+    index: Number.isInteger(expected.index) ? expected.index : position,
+    id: expected.id,
+    mediaId: expected.mediaId || null,
+    filename: expected.filename,
+    attachmentIndex: expected.attachmentIndex || position + 1,
+    sha256: expected.sha256 || '',
+    required: expected.required !== false,
+    path: expected.path || expected.storageKey || (preparation.site && expected.filename ? `/media/${preparation.site}/reference/${expected.filename}` : ''),
+    storageKey: expected.storageKey || expected.path || ''
+  }))
   return {
-    schemaVersion: '1.0.0',
     site: preparation.site,
     brandKitVersionId: preparation.brandKitVersionId,
     brandKitSnapshotHash: preparation.brandKitSnapshotHash,
     generationBlocked: preparation.generationBlocked,
     route: preparation.route,
+    archetype: archetypeForRoute(preparation.route),
     composition: compositionForAssetType(assetType),
-    generationCardinality: {
-      defaultImageCount: Number(preparation.expectedAssetCount || 1),
-      maxImageCount: Number(preparation.expectedAssetCount || 1),
-      unit: 'final_image'
-    },
     brandPreparation: {
-      version: '1.0.0',
       preparationId: preparation.preparationId,
       site: preparation.site,
       brandKitVersionId: preparation.brandKitVersionId,
       brandKitSnapshotHash: preparation.brandKitSnapshotHash,
       route: preparation.route,
       assetType,
-      expectedAssetCount: Number(preparation.expectedAssetCount || 1),
-      finalAssetRequiresText: ['social_image', 'instagram_story'].includes(assetType),
-      finalTextRenderer: assetType === 'social_image' ? 'content-system/instagram-renderer' : assetType === 'instagram_story' ? 'ChatGPT' : null
+      expectedAssetCount: Number(preparation.expectedAssetCount || 1)
     },
     resolvedReferences
   }
 }
 
+export function assertPreparationUploadMatch(preparation, args = {}) {
+  const fail = (message) => { throw Object.assign(new Error(message), { status: 409, code: 'PREPARATION_MISMATCH' }) }
+  if (args.brandKitVersionId && String(args.brandKitVersionId) !== String(preparation.brandKitVersionId)) fail('brandKitVersionId no coincide con la preparación.')
+  if (args.brandKitSnapshotHash && String(args.brandKitSnapshotHash) !== String(preparation.brandKitSnapshotHash)) fail('brandKitSnapshotHash no coincide con la preparación.')
+  if (args.expectedAssetCount !== undefined && args.expectedAssetCount !== null && args.expectedAssetCount !== '' && Number(args.expectedAssetCount) !== Number(preparation.expectedAssetCount || 1)) fail('expectedAssetCount no coincide con la preparación.')
+  const channel = String(args.channel || '').trim().toLowerCase()
+  if (channel && preparation.channel && channel !== String(preparation.channel).toLowerCase()) fail('channel no coincide con la preparación.')
+  const channels = Array.isArray(args.channels) ? args.channels.map((value) => String(value).toLowerCase()) : []
+  if (preparation.channel && channels.length && channels.some((value) => value !== String(preparation.channel).toLowerCase())) fail('channels no coincide con la preparación.')
+}
+
 async function preparedUploadGrounding(site, scope, args) {
   const preparation = await getImagePreparation(args.preparationId)
-  if (!preparation) throw Object.assign(new Error('No existe la preparación visual.'), { status: 409, code: 'BRAND_PREPARATION_REQUIRED' })
-  if (preparation.site !== site || (preparation.siteId && preparation.siteId !== scope.siteId) || preparation.workspaceId !== scope.workspaceId) throw Object.assign(new Error('La preparación no pertenece a esta marca.'), { status: 409, code: 'SITE_MISMATCH' })
+  if (!preparation) throw Object.assign(new Error('No existe la preparación visual.'), { status: 404, code: 'PREPARATION_NOT_FOUND' })
+  if (preparation.site !== site || (preparation.siteId && preparation.siteId !== scope.siteId) || preparation.workspaceId !== scope.workspaceId) throw Object.assign(new Error('La preparación no pertenece a esta marca.'), { status: 409, code: 'PREPARATION_SITE_MISMATCH' })
   if (preparation.generationBlocked || preparation.state === 'blocked') throw Object.assign(new Error('La preparación visual está bloqueada.'), { status: 409, code: 'GENERATION_BLOCKED' })
-  if (preparation.expiresAt && new Date(preparation.expiresAt).getTime() <= Date.now()) throw Object.assign(new Error('La preparación visual ha expirado.'), { status: 409, code: 'BRAND_PREPARATION_EXPIRED' })
+  if (preparation.expiresAt && new Date(preparation.expiresAt).getTime() <= Date.now()) throw Object.assign(new Error('La preparación visual ha expirado.'), { status: 409, code: 'PREPARATION_EXPIRED' })
   if (preparation.itemId && args.itemId && preparation.itemId !== args.itemId) throw Object.assign(new Error('La preparación pertenece a otro item.'), { status: 409, code: 'ITEM_MISMATCH' })
+  assertPreparationUploadMatch(preparation, args)
   const itemId = args.itemId || preparation.itemId || null
   const assetType = String(preparation.assetType || '')
   const inferredKind = assetType === 'blog_cover' ? 'post' : ['social_image', 'instagram_story'].includes(assetType) ? 'social' : ''
@@ -536,8 +542,6 @@ async function preparedUploadGrounding(site, scope, args) {
   const index = Number(args.assetIndex ?? 0)
   if (!Number.isInteger(index) || index < 0 || index >= Number(preparation.expectedAssetCount || 1)) throw Object.assign(new Error('assetIndex no pertenece a esta preparación.'), { status: 409, code: 'ASSET_INDEX_MISMATCH' })
   const attachment = itemId ? await preflightContentMediaAttachment({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId, channels, assetIndex: index }) : null
-  const active = await getActiveBrandKit({ workspaceId: scope.workspaceId, siteId: scope.siteId })
-  if (active.id !== preparation.brandKitVersionId) throw Object.assign(new Error('El brand kit cambió desde la preparación. Vuelve a preparar la imagen.'), { status: 409, code: 'BRAND_VERSION_MISMATCH' })
   return {
     provenanceVersion: '3',
     brandPreparationId: preparation.preparationId,
@@ -989,7 +993,7 @@ export function buildToolList(auth) {
     {
       name: 'blog_get_brand_context',
       description:
-        'Devuelve el contexto general canónico y versionado, pero no reemplaza brand_prepare_image_generation. Para cualquier imagen llama primero a brand_prepare_image_generation, que devuelve preparationId, expectedDimensions, assetType y todas las referencias exactas en una sola respuesta. Está prohibido escoger, sustituir referencias o usar Pillow; si generationBlocked es true, detén la generación.',
+        'Devuelve el contexto general canónico y versionado, pero no reemplaza brand_prepare_image_generation. Para cualquier imagen llama brand_prepare_image_generation: cada llamada entrega una sola referencia. Repite con preparationId y referenceDelivery.nextReferenceIndex hasta que complete sea true. Está prohibido escoger, sustituir referencias o usar Pillow; si generationBlocked es true, detén la generación.',
       inputSchema: {
         type: 'object',
         properties: { site: { type: 'string' } },
@@ -1270,7 +1274,7 @@ export function buildToolList(auth) {
     },
     {
       name: 'brand_prepare_image_generation',
-      description: 'Prepara una imagen y entrega juntas todas las referencias exactas. Para contenido ya guardado, pasa itemId y channel; en Instagram, prepara el carrusel una vez con expectedAssetCount igual al número de slides. El CMS reutiliza esos datos al subir. No preguntes por personajes salvo que el usuario pida uno. Después sube con preparationId.',
+      description: 'Crea o continúa una preparación visual. Cada llamada entrega como máximo una referencia binaria. En la primera llamada omite preparationId. Si referenceDelivery.nextReferenceIndex no es null, vuelve a llamar con el mismo preparationId y ese referenceIndex. Genera imágenes únicamente cuando referenceDelivery.complete sea true y hayas recibido todas las referencias requeridas. Después sube con content_upload_media y preparationId. Para contenido ya guardado, pasa itemId y channel; en Instagram indica expectedAssetCount. No preguntes por personajes salvo que el usuario pida uno.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1287,7 +1291,7 @@ export function buildToolList(auth) {
           useCharacter: { type: 'boolean', description: 'Usa un personaje solo si el usuario lo pide explícitamente. Por defecto no se usa.' },
           characterId: { type: 'string', description: 'ID o filename del personaje elegido cuando la marca tiene más de uno.' },
           preparationId: { type: 'string', description: 'Preparación existente para entregar la siguiente referencia binaria sin crear otra preparación.' },
-          referenceIndex: { type: 'integer', minimum: 0, description: 'Campo de compatibilidad. Las referencias se devuelven juntas en una sola respuesta.' }
+          referenceIndex: { type: 'integer', minimum: 0, description: 'Índice 0-based de la única referencia binaria de esta llamada. Omítelo para recibir la 0. Repetir el mismo índice devuelve la misma referencia.' }
         },
         required: ['site']
       },
@@ -1382,6 +1386,10 @@ export function buildToolList(auth) {
           chunkIndex: { type: 'string' },
           chunkCount: { type: 'string' },
           preparationId: { type: 'string' },
+          brandKitVersionId: { type: 'string' },
+          brandKitSnapshotHash: { type: 'string' },
+          channel: { type: 'string' },
+          expectedAssetCount: { type: 'integer', minimum: 1, maximum: 20 },
           textContent: { type: 'object', properties: { headline: { type: 'string', minLength: 1, maxLength: 90 }, body: { type: 'string', minLength: 1, maxLength: 240 } }, required: ['headline', 'body'], description: 'Texto de slide solo si no se preparó con un item existente.' },
           itemId: { type: 'string' },
           channels: { type: 'array', uniqueItems: true, items: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] } },
@@ -1661,15 +1669,12 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           if (!scope) throw Object.assign(new Error('La preparación visual requiere Postgres.'), { status: 503, code: 'postgres_required' })
           if (args.preparationId) {
             const preparation = await getImagePreparation(args.preparationId)
-            if (!preparation) throw Object.assign(new Error('No existe la preparación visual.'), { status: 409, code: 'BRAND_PREPARATION_REQUIRED' })
+            if (!preparation) throw Object.assign(new Error('No existe la preparación visual.'), { status: 404, code: 'PREPARATION_NOT_FOUND' })
             if (preparation.site !== scope.siteHandle || preparation.workspaceId !== scope.workspaceId || (preparation.siteId && preparation.siteId !== scope.siteId)) {
-              throw Object.assign(new Error('La preparación no pertenece a esta marca.'), { status: 409, code: 'SITE_MISMATCH' })
+              throw Object.assign(new Error('La preparación no pertenece a esta marca.'), { status: 409, code: 'PREPARATION_SITE_MISMATCH' })
             }
-            if (preparation.expiresAt && new Date(preparation.expiresAt).getTime() <= Date.now()) throw Object.assign(new Error('La preparación visual ha expirado.'), { status: 409, code: 'BRAND_PREPARATION_EXPIRED' })
-            const activeBrandKit = await getActiveBrandKit({ workspaceId: scope.workspaceId, siteId: scope.siteId })
-            const canonicalSnapshot = loadActiveBrandKitSnapshot(scope.siteHandle, { manifest: activeBrandKit.manifest, assets: activeBrandKit.assets, brandKitVersionId: activeBrandKit.id, version: activeBrandKit.version })
-            if (preparation.brandKitVersionId !== activeBrandKit.id || preparation.brandKitSnapshotHash !== canonicalSnapshot.snapshotHash) throw Object.assign(new Error('El brand kit cambió desde la preparación. Vuelve a preparar la imagen.'), { status: 409, code: 'BRAND_VERSION_MISMATCH' })
-            return preparedImageResult(preparedPayloadFromStoredPreparation(preparation, canonicalSnapshot), { referenceIndex: args.referenceIndex })
+            if (preparation.expiresAt && new Date(preparation.expiresAt).getTime() <= Date.now()) throw Object.assign(new Error('La preparación visual ha expirado.'), { status: 409, code: 'PREPARATION_EXPIRED' })
+            return preparedImageResult(preparedPayloadFromStoredPreparation(preparation), { referenceIndex: args.referenceIndex })
           }
           const activeBrandKit = await getActiveBrandKit({ workspaceId: scope.workspaceId, siteId: scope.siteId })
           const canonicalSnapshot = loadActiveBrandKitSnapshot(scope.siteHandle, { manifest: activeBrandKit.manifest, assets: activeBrandKit.assets, brandKitVersionId: activeBrandKit.id, version: activeBrandKit.version })
@@ -1692,6 +1697,14 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             batchId: args.batchId,
             channel: args.channel
           })
+          console.info(JSON.stringify({
+            event: 'brand_image_preparation_created',
+            preparationId: prepared.brandPreparation?.preparationId,
+            site: scope.siteHandle,
+            brandKitVersionId: prepared.brandKitVersionId,
+            referenceCount: Array.isArray(prepared.resolvedReferences) ? prepared.resolvedReferences.length : 0,
+            expectedAssetCount: Number(prepared.brandPreparation?.expectedAssetCount || 1)
+          }))
           return preparedImageResult(prepared, { referenceIndex: args.referenceIndex })
         }
         case 'brand_update_file': {
