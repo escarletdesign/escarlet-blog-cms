@@ -41,9 +41,15 @@ Antes de generar cualquier imagen, llama `brand_prepare_image_generation` despu�
 
 ## Carrusel Instagram (blog)
 
-Si el site tiene `instagramCarousel` activo, el agente genera 4–7 slides (1080×1350), las sube al CMS con `kind` `social` (`{slug}-ig-01.jpg` …) y las enlaza en `socialPack.instagramSlides`. ChatGPT envía el PNG en `contentBase64` o a trozos. El CMS comprime. El pack admin solo descarga las URLs del CMS.
+Si el site tiene `instagramCarousel` activo, el agente genera 4–7 slides finales (1080×1350) con el texto integrado, las sube al CMS con `kind` `social` (`{slug}-ig-01.png` …) y las enlaza en `socialPack.instagramSlides`. Cada slide declara `textRendered`, `textContent`, `templateId` y `renderedBy: "chatgpt-image-generation"`. ChatGPT envía el PNG en `contentBase64` o a trozos. El CMS valida y almacena el archivo sin añadir overlays ni cambiar sus píxeles. El pack admin solo descarga las URLs del CMS.
 
-Regla visual del carrusel: la primera y la última slide pueden usar colores de marca o gradientes suaves. Las slides centrales usan fondos blancos, grises o desaturados y evitan colores saturados. No uses papel crema. Genera los fondos de Instagram sin texto. El CMS renderiza el `headline` y `body` guardados, con ortografía exacta, jerarquía clara y tamaño legible en móvil. Si el copy no cabe, acórtalo o divídelo entre slides.
+Regla visual del carrusel: la primera y la última slide pueden usar colores de marca o gradientes suaves. Las slides centrales usan fondos blancos, grises o desaturados y evitan colores saturados. No uses papel crema. Genera la pieza final con el `headline` y `body` guardados, con ortografía exacta, jerarquía clara y tamaño legible en móvil. Si el copy no cabe, acórtalo o divídelo entre slides antes de generar la imagen.
+
+## Stories de Instagram
+
+La fuente canónica es `socialPack.instagramStory.frames[]`. Cada frame es una imagen final de 1080×1920 con su copy integrado, `alt`, `templateId`, `textContent`, `textRendered: true` y `renderedBy: "chatgpt-image-generation"`. Sube cada frame con `assetIndex` y el mismo `preparationId` de la Story. `imageUrl`, `text` y `alt` en el objeto Story raíz se mantienen solo para lectura histórica.
+
+El CMS usa `passthrough` para carruseles y Stories. No renderiza titulares, cuerpos, logos, overlays ni tipografía sobre una imagen recibida.
 
 ## Lead magnets
 

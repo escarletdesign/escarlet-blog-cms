@@ -5,7 +5,7 @@ Fase P3 del plan agentes: OAuth de usuario para el MCP, sin PAT compartido. No b
 ## Objetivo
 
 1. **Brand Consult** — ChatGPT (u otro cliente MCP) lee voz, reglas y style board con el token del usuario/marca.
-2. **Publish Workflow** — widget Apps SDK con preview composed + Approve + Schedule; la PWA sigue siendo fuente de verdad operativa.
+2. **Publish Workflow**: widget Apps SDK con preview de la imagen final + Approve + Schedule; la PWA sigue siendo fuente de verdad operativa.
 
 ## Auth0
 
@@ -29,7 +29,7 @@ Claims útiles en el access token: `sub` (usuario Auth0), `https://escarlet.desi
 ## ChatGPT Apps SDK
 
 1. Connector MCP con OAuth (login una vez).
-2. Widget embebido: muestra `composedPreviewUrl` + botones Approve / Schedule que llaman `content_approve` / `content_schedule`.
+2. Widget embebido: muestra `previewUrl` + botones Approve / Schedule que llaman `content_approve` / `content_schedule`.
 3. Consulta de marca sigue siendo tools de lectura (`brand_get_context`, `brand_get_style_board`); no obliga a publicar.
 
 ## Orden de implementación

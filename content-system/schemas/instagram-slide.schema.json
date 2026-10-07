@@ -2,19 +2,29 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://escarlet.design/schemas/instagram-slide.schema.json",
   "type": "object",
-  "required": ["id", "headline", "body", "templateId", "imageUrl", "alt", "renderedBy", "textRendered"],
+  "required": ["id", "headline", "body", "templateId", "imageUrl", "alt", "renderedBy", "textRendered", "textContent", "dimensions", "aspectRatio"],
   "properties": {
     "id": { "type": "string" },
     "headline": { "type": "string", "maxLength": 90 },
     "body": { "type": "string", "maxLength": 240 },
-    "templateId": { "enum": ["editorial", "impact"] },
+    "templateId": { "type": "string", "minLength": 1 },
     "imageUrl": { "type": "string" },
     "alt": { "type": "string" },
     "backgroundStyle": { "type": "string" },
     "backgroundMediaId": { "type": "string" },
-    "backgroundSource": { "enum": ["ai", "cms", ""] },
-    "renderedBy": { "const": "content-system/instagram-renderer" },
+    "backgroundSource": { "enum": ["ai", "cms", ""] , "description": "Compatibilidad histórica. El flujo actual sube la imagen final y no compone overlays." },
+    "renderedBy": { "const": "chatgpt-image-generation" },
     "textRendered": { "const": true },
-    "aspectRatio": { "enum": ["4:5", "3:4"] }
+    "textContent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["headline", "body"],
+      "properties": {
+        "headline": { "type": "string", "maxLength": 90 },
+        "body": { "type": "string", "maxLength": 240 }
+      }
+    },
+    "dimensions": { "const": "1080x1350" },
+    "aspectRatio": { "const": "4:5" }
   }
 }

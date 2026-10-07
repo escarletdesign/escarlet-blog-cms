@@ -1,6 +1,6 @@
 {
   "schema_version": "2.2.0",
-  "system_role": "Transformar artículos y briefs de Escarlet en imágenes editoriales coherentes con el CMS, separando fondo generado de texto renderizado.",
+  "system_role": "Transformar artículos y briefs de Escarlet en piezas editoriales finales. ChatGPT genera las piezas sociales completas con el texto integrado y el CMS solo valida, almacena y asocia los archivos.",
   "brand": {
     "name": "Escarlet",
     "slug": "escarlet",
@@ -220,13 +220,13 @@
     "negative_space": "mínimo 25% sin detalle crítico"
   },
   "hard_rules": [
-    "No texto, letras, números, logos ni marcas de agua dentro de fotografías generadas.",
+    "No texto, letras, números, logos ni marcas de agua dentro de fotografías de portada o fondos que no sean piezas sociales finales.",
     "No redibujar logos con IA.",
     "ChatGPT genera cada pieza final de Instagram con el texto ya integrado.",
     "Llamar brand_prepare_image_generation antes de generar cualquier imagen.",
     "Entregar exactamente sus resolvedReferences como ImageContent y detenerse si generationBlocked es true.",
     "No transferir la identidad de una referencia a otra marca.",
-    "Revisar manos, anatomía, perspectiva, producto y texto accidental.",
+    "Revisar manos, anatomía, perspectiva, producto y texto accidental. En piezas sociales, revisar también que el copy aprobado aparezca completo y legible.",
     "No presentar una escena como garantía de resultados.",
     "Mantener una sola paleta por pieza según la ruta determinista resuelta."
   ],
@@ -242,10 +242,24 @@
       "palette": "editorial_gradient_preset",
       "reference_count": "route"
     },
-    "instagram_background": {
+    "instagram_carousel_slide": {
       "width": 1080,
       "height": 1350,
-      "allow_text": false,
+      "allow_text": true,
+      "text_renderer": "chatgpt-image-generation",
+      "upload_mode": "passthrough",
+      "cms_composes_text": false,
+      "required_metadata": ["textRendered", "textContent", "templateId", "renderedBy"],
+      "reference_count": 1
+    },
+    "instagram_story_frame": {
+      "width": 1080,
+      "height": 1920,
+      "allow_text": true,
+      "text_renderer": "chatgpt-image-generation",
+      "upload_mode": "passthrough",
+      "cms_composes_text": false,
+      "required_metadata": ["textRendered", "textContent", "templateId", "renderedBy"],
       "reference_count": 1
     },
     "visual_board": {
@@ -261,7 +275,7 @@
       "Elegir un arquetipo que no repita el anterior para redactar el brief, sin usarlo para seleccionar referencias.",
       "Usar referencias aprobadas para materia, luz y encuadre, sin copiarlas literalmente.",
       "Aplicar la ruta y la paleta que devuelve brand_prepare_image_generation; no elegir un preset manualmente.",
-      "Generar una imagen conceptual, horizontal y sin texto."
+      "Generar la portada conceptual, horizontal y sin texto. Para Instagram, usar el copy aprobado y generar la pieza final con texto integrado en las dimensiones del canal."
     ],
     "prompt_template": "Create a single horizontal editorial image for Escarlet. Article title: {{title}}. Core message: {{core_message}}. Emotional core: {{primary_emotion}}. Visual metaphor: {{best_visual_metaphor}}. Use the {{archetype}} family and the {{palette_preset}} palette. Use warm natural side light, visible real materials, a clear subject and at least 25% clean negative space. The image must feel human, editorial and non-stock. Do not include text, letters, numbers, logos, watermarks, readable UI or generic corporate scenes."
   },
@@ -270,15 +284,16 @@
     "Arquetipo no repetido y decisión guardada",
     "Referencias aprobadas consultadas y entregadas al generador",
     "Paleta y contraste coherentes",
-    "Sin texto o logo incrustado",
+    "Portadas y fondos sin texto o logo incrustado. Las piezas sociales finales incluyen el copy aprobado de forma legible.",
     "Anatomía, manos, perspectiva y producto correctos",
     "Nombre de archivo y alt descriptivos",
-    "Carrusel renderizado con un único template y texto legible en móvil"
+    "Carrusel generado con un único template y texto legible en móvil"
   ],
   "version": "2.2.0",
   "system": "content-system",
   "global": {
     "avoidEmbeddedText": true,
+    "socialFinalAssetsAllowText": true,
     "referenceFidelity": "high",
     "altText": "Describe la escena de forma breve, concreta y fiel a la pieza.",
     "fixedIdentity": {
@@ -330,11 +345,11 @@
     "dimensions": "1080x1350",
     "allowText": true,
     "textSource": "ChatGPT",
-    "textRenderer": "ChatGPT",
-    "backgroundGeneration": {
-      "allowText": true,
-      "role": "final-social-asset"
-    },
+    "textRenderer": "chatgpt-image-generation",
+    "assetType": "social_image",
+    "uploadMode": "passthrough",
+    "cmsComposesText": false,
+    "requiredMetadata": ["textRendered", "textContent", "templateId", "renderedBy"],
     "templates": [],
     "firstSlide": {
       "background": "brand-color",
@@ -360,6 +375,16 @@
     "aspectRatio": "9:16",
     "allowText": true,
     "textSource": "ChatGPT",
+    "textRenderer": "chatgpt-image-generation",
+    "assetType": "instagram_story",
+    "uploadMode": "passthrough",
+    "cmsComposesText": false,
+    "requiredMetadata": ["textRendered", "textContent", "templateId", "renderedBy"],
+    "frames": {
+      "min": 1,
+      "max": 10,
+      "default": 1
+    },
     "publicationMode": "buffer-notification"
   }
 }

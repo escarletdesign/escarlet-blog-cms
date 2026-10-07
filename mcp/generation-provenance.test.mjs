@@ -71,8 +71,10 @@ async function readyReceipt(assetType = 'presentation') {
     generatedFileHash: createHash('sha256').update(output).digest('hex'),
     assetType,
     route: prepared.route,
-    ...(assetType === 'social_image' || assetType === 'instagram_background'
-      ? { textRendered: true, templateId: 'editorial', renderedBy: 'content-system/instagram-renderer', textContent: { headline: 'Test', body: 'Texto de prueba.' } }
+    ...(assetType === 'social_image' || assetType === 'instagram_story'
+      ? { textRendered: true, templateId: 'editorial', renderedBy: 'chatgpt-image-generation', textContent: { headline: 'Test', body: 'Texto de prueba.' } }
+      : assetType === 'instagram_background'
+        ? { textRendered: true, templateId: 'editorial', renderedBy: 'content-system/instagram-renderer', textContent: { headline: 'Test', body: 'Texto de prueba.' } }
       : {})
   })
   return { prepared, receipt, output }

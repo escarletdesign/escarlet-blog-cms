@@ -87,7 +87,7 @@ Luego completa el brand kit en `/app/admin` → Brand kit.
 4. `.gitignore` → `src/data/blog.generated.js` y `.escarlet-blog-runtime/`
 5. Monta rutas `/blog` y `/blog/:slug` leyendo `getBlogIndex` / `getPostBySlug` (como en escarlet002)
 6. **Contenido v2**. La app sincroniza publicaciones por canal desde las campañas
-   de contenido. ChatGPT genera el copy y los fondos, `content_create_batch`
+   de contenido. ChatGPT genera el copy y las imágenes finales con texto integrado, `content_create_batch`
    crea o reutiliza la campaña y `content_list_items` permite seguir la revisión. No se usan
    posts ni Social Packs del modelo anterior.
 7. **Interruptor**. CMS `/app/admin` → Sitio → Blog en la web pública. Encendido publica `/blog`. Apagado lo quita en el siguiente rebuild. Los posts siguen en el CMS.

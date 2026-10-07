@@ -9,7 +9,7 @@ La interfaz usa cuatro conceptos visibles:
 
 ## Flujo de revisión
 
-`brand_get_context → brand_prepare_image_generation → ChatGPT genera → content_create_batch/upload → Revisión → aprobación → agenda → outbox → Buffer/Coolify`.
+`brand_list → brand_get_context → content_create_batch → brand_prepare_image_generation → ChatGPT genera → content_upload_media → content_get_batch → Revisión → aprobación → agenda → outbox → Buffer/Coolify`.
 
 La PWA no muestra creación por defecto. `creation_ui_enabled` y `manual_creation_enabled` viven en Postgres con override por espacio o marca; `CREATION_UI_KILL_SWITCH=true` fuerza ambos valores a `false`. MCP no usa ese encabezado y conserva la creación.
 
@@ -27,15 +27,21 @@ La PWA no muestra creación por defecto. `creation_ui_enabled` y `manual_creatio
 
 El MCP v2 usa Postgres como única fuente de contenido. `content_batches`, `/batches` y los nombres históricos de algunas tools son identificadores técnicos internos del modelo que la app presenta como campañas. No se exponen tools de posts ni Social Packs del modelo anterior.
 
-Contrato MCP 3.7.0 — Brand Consult + Publish Workflow:
+Contrato MCP 3.8.0: Brand Consult + Publish Workflow:
 
 - `content_list_items` devuelve un resumen (id, campaña, título, topic corto, estado, canales, estado por variante, cantidad de medios y fechas). El body y los medios se leen con `content_get_item` o `content_get_batch`.
 - `content` de cada tool es un resumen. El objeto va en `structuredContent`, en camelCase, con fechas ISO 8601.
 - `brand_list` sin `workspaceId` devuelve los workspaces y marcas visibles. Con un solo workspace mantiene también `workspace`, `brands` y `handles`.
-- `readyForReview` lee `socialPack.instagramSlides` y lo compara con `expectedAssetCount` y los `assetIndex` 0..n-1. Una imagen suelta no exige carrusel. La respuesta MCP incluye `previewUrl` de `/app/plans/{id}/preview`.
+- `readyForReview` lee `socialPack.instagramSlides` o `socialPack.instagramStory.frames[]` y lo compara con `expectedAssetCount` y los `assetIndex` 0..n-1. Cada asset social exige `textRendered`, `textContent`, `templateId` y `renderedBy: "chatgpt-image-generation"`.
 - `content_update_item` sustituye el body de esa variante por el JSON recibido. `visualBrief` sin body solo actualiza esa clave. No acepta `kind=reference` ni medios sin `brandPreparationId`.
-- Reintentar `content_upload_media` con el mismo sha256, preparationId, assetIndex, itemId y canal devuelve el asset ya guardado. Respuesta: `composeMode`, `originalSha256`, `finalSha256`, `composedPreviewUrl`.
-- `brand_get_style_board` / `brand_prepare_image_generation` entregan un style board (un ImageContent). `referenceIndex` solo es compatibilidad legacy.
+- Reintentar `content_upload_media` con el mismo sha256, preparationId, assetIndex, itemId y canal devuelve el asset ya guardado. La subida social es siempre `passthrough`: devuelve `originalSha256` y `finalSha256` iguales, sin componer overlays y con `previewUrl` del PNG final.
+- `brand_get_style_board` / `brand_prepare_image_generation` entregan las referencias exactas y el prompt de generación. `referenceIndex` solo es compatibilidad histórica.
+
+Flujo único de generación social:
+
+`brand_list → brand_get_context → content_create_batch → brand_prepare_image_generation → ChatGPT genera la imagen final con texto → content_upload_media passthrough → content_get_batch → revisión`.
+
+La matriz de formatos es determinista. `instagram` usa `social_image` a 1080×1350. `instagram_story` usa `instagram_story` a 1080×1920 y guarda sus piezas en `socialPack.instagramStory.frames[]`. El canal no se infiere a partir de palabras del prompt. Los campos históricos de Story se leen, pero no son la estructura de escritura.
 
 ## Planable
 

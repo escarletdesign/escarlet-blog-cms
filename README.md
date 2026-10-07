@@ -132,7 +132,6 @@ Comandos útiles:
 npm run visual:audit -- --site=escarlet --json=/tmp/assets.json
 npm run visual:cover -- --site=escarlet --title="Título" --summary="Resumen" --mode=automatic
 npm run visual:render -- --input=content-system/examples/sample-carousel-output.json --output=tmp/carousel
-npm run visual:regenerate -- --site=escarlet --slug=mi-post --dry-run
 ```
 
 ## Escritura más humana

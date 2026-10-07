@@ -78,7 +78,7 @@ flowchart TB
 
 - Brand kit, sitios/páginas, settings (deploy WP/plugin, claves sistema)
 - Usuarios + magic link / reenvio
-- Posts (listado + regenerar social pack vía API)
+- Posts (listado + revisión del social pack vía MCP)
 - Calendario
 - Sin biblioteca de medios como producto
 
@@ -139,7 +139,7 @@ Chat + tools CMS + memoria por sitio + selector modelo. Preview compartido con e
 
 ### Fase 3 — Social pack + schedule UX
 
-Pantallas post-preview según pizarra; regenerar social pack desde detalle de post (admin y cliente con permiso).
+Pantallas post-preview según pizarra; revisar el social pack desde el detalle de post mediante el flujo MCP canónico.
 
 ### Fase 4 — Admin + usuarios
 

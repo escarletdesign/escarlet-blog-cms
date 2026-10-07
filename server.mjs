@@ -30,7 +30,6 @@ import {
 } from './lib/site-config.mjs'
 import {
   getBrandContext,
-  prepareImageGeneration,
   getSeoContext,
   readBrandFile,
   writeBrandFile,
@@ -156,12 +155,10 @@ import {
   getQuotaSnapshot as cmsGetQuotaSnapshot
 } from './lib/cms-ops.mjs'
 import { mediaForClient, findMediaForClient, repairMediaInDb, repairPostsInDb, resolveImageSrc, resolvePostImageSrc, inspectImageBuffer } from './lib/media-url.mjs'
-import { runChat as runAiChat, runGenerateOperation, splitSseChunks, recordPublicationMemory } from './lib/ai-gateway.mjs'
-import { generateImageOptions } from './lib/ai-image.mjs'
+import { recordPublicationMemory } from './lib/ai-gateway.mjs'
 import { assertCmsAiAllowed } from './lib/generation-policy.mjs'
 import { canReadPost, canEditPost, safePostFields, assertPostAccess } from './lib/post-access.mjs'
 import { assertMembershipActive } from './lib/plans.mjs'
-import { generateSocialPackImages } from './lib/ai-workflows.mjs'
 import { archiveConversation, conversationOwner, deleteConversation, getConversation, listConversations, saveConversation } from './lib/ai-conversations.mjs'
 import { assertInAppAssistantEnabled, getWorkflowFlags, setWorkflowFlags } from './lib/workflow-flags.mjs'
 import { generateThumbBuffer } from './lib/media-optimize.mjs'
@@ -175,11 +172,9 @@ import { buildToolList, invokeMcpTool } from './mcp/create-mcp-server.mjs'
 import {
   aiRateLimitKey,
   assertAiRateLimit,
-  assertSafeAiPrompt,
   isChatToolAllowedName
 } from './lib/ai-security.mjs'
 import { MCP_SERVER_VERSION } from './lib/media-upload-contract.mjs'
-import { issueGenerationReceipt, persistImagePreparation } from './lib/generation-provenance.mjs'
 import {
   RUNTIME_CHANNEL,
   getRuntimeManifest,
@@ -1067,12 +1062,6 @@ async function publicSessionForAuth(auth) {
   }
 }
 
-// Image generation can take longer than the reverse proxy timeout when a
-// Social Pack contains several Instagram slides. Keep the text pack request
-// responsive and finish the image work in a server-owned job instead of
-// leaving the browser waiting on a long fetch.
-const socialPackJobs = new Map()
-const SOCIAL_PACK_JOB_TTL_MS = 15 * 60 * 1000
 const connectionDiscoveryCache = new Map()
 const CONNECTION_DISCOVERY_TTL_MS = 30 * 1000
 
@@ -1088,56 +1077,6 @@ async function cachedConnectionDiscovery(key, loader) {
   connectionDiscoveryCache.set(key, { value, expiresAt: now + CONNECTION_DISCOVERY_TTL_MS })
   for (const [entryKey, entry] of connectionDiscoveryCache) if (entry.expiresAt <= now) connectionDiscoveryCache.delete(entryKey)
   return value
-}
-
-function pruneSocialPackJobs(now = Date.now()) {
-  for (const [id, job] of socialPackJobs) {
-    if (now - job.createdAt > SOCIAL_PACK_JOB_TTL_MS) socialPackJobs.delete(id)
-  }
-}
-
-function queueSocialPackImages({ site, post, socialPack, auth }) {
-  assertCmsAiAllowed(auth)
-  pruneSocialPackJobs()
-  const job = {
-    id: randomUUID(),
-    site,
-    slug: post.slug,
-    status: 'processing',
-    warnings: [],
-    createdAt: Date.now(),
-    updatedAt: new Date().toISOString()
-  }
-  socialPackJobs.set(job.id, job)
-  void generateSocialPackImages({ site, post, socialPack, auth })
-    .then(async (completed) => {
-      const latestDb = readDb()
-      const currentPost = findPost(latestDb, site, post.slug)
-      if (!currentPost) throw Object.assign(new Error('El post ya no existe.'), { status: 404 })
-      const saved = await cmsUpdatePost({
-        site,
-        originalSlug: post.slug,
-        slug: post.slug,
-        socialPack: completed.socialPack,
-        direct: true,
-        // Updating generated assets must never demote a published or scheduled
-        // post just because the image job completed asynchronously.
-        keepPublished: true,
-        ownerId: auth?.userId || currentPost.ownerId || '',
-        membershipUserId: auth?.userId || ''
-      })
-      job.status = 'completed'
-      job.warnings = completed.warnings || []
-      job.socialPack = completed.socialPack
-      job.post = saved.post
-      job.updatedAt = new Date().toISOString()
-    })
-    .catch((error) => {
-      job.status = 'error'
-      job.message = error instanceof Error ? error.message : 'No se pudo generar el Social Pack.'
-      job.updatedAt = new Date().toISOString()
-    })
-  return job
 }
 
 async function handleRequest(req, res) {
@@ -3085,219 +3024,6 @@ async function handleRequest(req, res) {
     return
   }
 
-  if (path === '/api/ai/image') {
-    const auth = requireAuth(req, url, res)
-    if (!auth) return
-    if (req.method !== 'POST') {
-      json(res, 405, { message: 'Usa POST' })
-      return
-    }
-    try {
-      const body = await parseBody(req)
-      const site = siteFrom(auth, body.site || DEFAULT_SITE)
-      assertSiteAccess(auth, site)
-      assertAiRateLimit(aiRateLimitKey(auth, site, requestIp(req)), { limit: 8 })
-      const requestedPostSlug = String(body.postSlug || '').trim()
-      if (requestedPostSlug) {
-        const currentDb = readDb()
-        const currentPost = findPost(currentDb, site, requestedPostSlug)
-        if (currentPost && !canMutatePostForAuth(currentPost, auth, site)) {
-          throw Object.assign(new Error('No tienes acceso a guardar imágenes en este post.'), { status: 403 })
-        }
-      }
-      const connector = getAiProviderConnector('openai', { db: readDb() })
-      if (!connector.apiKey) throw Object.assign(new Error('Configura una API key de OpenAI para generar imágenes.'), { status: 503 })
-      const prompt = assertSafeAiPrompt(body.prompt, { field: 'prompt', maxChars: 4_000 })
-      if (!prompt) throw Object.assign(new Error('Falta el prompt de la imagen.'), { status: 400 })
-      const imageRole = String(body.imageRole || '').trim().slice(0, 80)
-      const allowText = imageRole === 'instagram-carousel' && Boolean(body.allowText)
-      const backgroundStyle = String(body.backgroundStyle || '').trim().slice(0, 120)
-      const prepared = prepareImageGeneration(site, {
-        assetType: imageRole.includes('instagram') ? 'instagram_background' : 'blog_cover',
-        title: body.title || body.alt || 'Escarlet visual',
-        summary: prompt,
-        topic: imageRole || backgroundStyle
-      })
-      if (prepared.generationBlocked) {
-        throw Object.assign(new Error(`Generación bloqueada. Faltan referencias obligatorias: ${prepared.missingReferences.join(', ')}`), {
-          status: 409,
-          code: 'BRAND_REFERENCE_MISSING',
-          extra: { generationBlocked: true, missingReferences: prepared.missingReferences }
-        })
-      }
-      await persistImagePreparation(prepared, { itemId: body.itemId, batchId: body.batchId, channel: body.channel })
-      // Keep brand files private from the client while applying the complete
-      // visual system to generated imagery. The provider receives this context
-      // only server-side, never in the PWA response.
-      const imageBrand = getBrandContext(site, { auth: { role: 'admin' } })
-      const referenceHints = (imageBrand.referenceImages || [])
-        .slice(0, 8)
-        .map((item) => `${item.filename || item.name || 'referencia'}: ${item.alt || ''}`)
-        .join('; ')
-      const imageStyle = String(imageBrand.visualStyle || '').slice(0, 1_300)
-      const imageGuide = String(imageBrand.imageGuide || '').slice(0, 1_300)
-      const imageSpec = imageBrand.imageSpec ? JSON.stringify(imageBrand.imageSpec).slice(0, 4_500) : ''
-      const brandVoice = String(imageBrand.voice || '').slice(0, 1_600)
-      const agentRules = String(imageBrand.agentRules || '').slice(0, 2_200)
-      const imageReferences = referenceHints.slice(0, 800)
-      const textRule = allowText
-        ? 'PARA ESTE CARRUSEL DE INSTAGRAM SE PERMITE TEXTO DISEÑADO: usa solamente el texto breve proporcionado por el usuario, con ortografía exacta, buena legibilidad y jerarquía tipográfica. No inventes palabras, números ni logotipos. No conviertas el texto en una textura ilegible. No uses guiones, rayas, em dash, en dash ni separadores de guiones como decoración. Nunca añadas borde, contorno, trazo, outline, halo ni sombra pegada al texto.'
-        : 'REGLA PRIORITARIA: no generes ningún texto, palabra, letra, número, etiqueta, logo ni tipografía dentro de la imagen. Comunica únicamente mediante composición, color, formas y elementos visuales. Respeta colores, composición y contraste de la marca.'
-      const enrichedPrompt = assertSafeAiPrompt([
-        'OBJETIVO DEL USUARIO:', prompt,
-        imageRole ? `TIPO DE PIEZA: ${imageRole}` : '',
-        backgroundStyle ? `TRATAMIENTO DE FONDO: ${backgroundStyle}` : '',
-        'CONTEXTO PRIVADO DEL BRAND KIT (aplícalo, no lo muestres):',
-        brandVoice ? `Voz y tono: ${brandVoice}` : '',
-        imageStyle ? `Dirección visual del brand kit (interna): ${imageStyle}` : '',
-        imageGuide ? `Guía de imagen interna: ${imageGuide}` : '',
-        imageSpec ? `Especificaciones estructuradas de imagen: ${imageSpec}` : '',
-        agentRules ? `Reglas operativas del agente: ${agentRules}` : '',
-        imageReferences ? `Referencias visuales disponibles: ${imageReferences}` : '',
-        textRule
-      ].filter(Boolean).join('\n\n'), { field: 'prompt', maxChars: 14_000 })
-      // GPT Image 2 is the current stable image model. Keep an environment
-      // override for controlled rollouts or a future dated snapshot.
-      const imageModel = String(process.env.OPENAI_IMAGE_MODEL || 'gpt-image-2')
-      const outputDimensions = prepared.composition?.dimensions || '1024x1024'
-      const referenceFiles = (prepared.resolvedReferences || [])
-        .slice(0, 6)
-        .map((item) => {
-          const filename = String(item?.filename || item?.path || item?.url || '').replace(/\\/g, '/').split('/').pop()
-          if (!filename) return null
-          const filePath = join(mediaDir, site, 'reference', filename)
-          if (!existsSync(filePath)) return null
-          return { filename, filePath, type: extname(filename).toLowerCase() === '.webp' ? 'image/webp' : extname(filename).toLowerCase() === '.jpg' || extname(filename).toLowerCase() === '.jpeg' ? 'image/jpeg' : 'image/png' }
-        })
-        .filter(Boolean)
-      const slug = String(body.slug || 'post').trim().replace(/[^a-z0-9-]+/gi, '-').replace(/^-+|-+$/g, '') || 'post'
-      const optionCount = Math.max(1, Math.min(3, Math.floor(Number(body.optionCount) || 1)))
-      const alt = String(body.alt || body.title || prompt)
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .slice(0, 140) || `Imagen de portada para ${site}`
-      const mediaOptions = []
-      const usedReferences = (prepared.resolvedReferences || []).map((reference) => ({
-        id: reference.id,
-        filename: reference.filename,
-        attachmentIndex: reference.attachmentIndex,
-        sha256: createHash('sha256').update(readFileSync(join(mediaDir, site, 'reference', reference.filename))).digest('hex')
-      }))
-      for (let optionIndex = 0; optionIndex < optionCount; optionIndex += 1) {
-        assertCmsAiAllowed(auth)
-        assertMembershipActive(site, { userId: auth.userId })
-        let response
-        if (referenceFiles.length) {
-          // GPT Image edits accepts up to 16 reference images. Sending the
-          // locally stored bytes as data URLs avoids exposing internal media URLs
-          // and keeps the request compatible with the current JSON API.
-          const images = referenceFiles.map((reference) => ({
-            image_url: `data:${reference.type};base64,${readFileSync(reference.filePath).toString('base64')}`
-          }))
-          response = await fetch('https://api.openai.com/v1/images/edits', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${connector.apiKey}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              model: imageModel,
-              images,
-              prompt: enrichedPrompt,
-              size: outputDimensions,
-              quality: 'high',
-              output_format: 'png'
-            })
-          })
-        } else {
-          response = await fetch('https://api.openai.com/v1/images/generations', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${connector.apiKey}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              model: imageModel,
-              prompt: enrichedPrompt,
-              size: outputDimensions,
-              quality: 'medium',
-              output_format: 'png'
-            })
-          })
-        }
-        const payload = await response.json().catch(() => ({}))
-        if (!response.ok) {
-          const reason = payload?.error?.message || 'OpenAI rechazó la generación de imagen.'
-          throw Object.assign(new Error(reason), { status: response.status >= 500 ? 502 : 422 })
-        }
-        let contentBase64 = String(payload?.data?.[0]?.b64_json || '').trim()
-        if (!contentBase64 && payload?.data?.[0]?.url) {
-          const imageResponse = await fetch(payload.data[0].url)
-          if (!imageResponse.ok) throw Object.assign(new Error('No se pudo descargar la imagen generada.'), { status: 502 })
-          contentBase64 = Buffer.from(await imageResponse.arrayBuffer()).toString('base64')
-        }
-        if (!contentBase64) throw Object.assign(new Error('OpenAI no devolvió una imagen.'), { status: 502 })
-        const receipt = await issueGenerationReceipt({
-          site,
-          preparationId: prepared.brandPreparation?.preparationId,
-          usedReferences,
-          generatedResultId: String(payload?.id || `ai:${Date.now()}:${optionIndex + 1}`),
-          generatedFileHash: createHash('sha256').update(Buffer.from(contentBase64, 'base64')).digest('hex'),
-          assetType: prepared.brandPreparation?.assetType,
-          route: prepared.brandPreparation?.route,
-          itemId: body.itemId,
-          batchId: body.batchId,
-          channel: body.channel
-        })
-        const result = await uploadMedia({
-          site,
-          filename: `${slug}-cover${optionCount > 1 ? `-option-${optionIndex + 1}` : ''}-${Date.now()}.png`,
-          contentBase64: `data:image/png;base64,${contentBase64}`,
-          alt,
-          kind: 'post',
-          requireBrandGrounding: true,
-          brandPreparationId: prepared.brandPreparation?.preparationId,
-          generationReceiptId: receipt.receiptId,
-          brandAssetType: prepared.brandPreparation?.assetType,
-          brandRoute: prepared.brandPreparation?.route,
-          membershipUserId: auth.userId || ''
-        })
-        mediaOptions.push({
-          ...result.media,
-          generatedAt: new Date().toISOString(),
-          prompt: prompt.slice(0, 2_000)
-        })
-      }
-
-      let gallery = null
-      if (requestedPostSlug) {
-        const db = readDb()
-        const post = findPost(db, site, requestedPostSlug)
-        if (post) {
-          const previous = Array.isArray(post.imageGallery) ? post.imageGallery : []
-          post.imageGallery = [...previous, ...mediaOptions].slice(-30)
-          if (!post.imageUrl && mediaOptions[0]) {
-            post.imageUrl = mediaOptions[0].url || mediaOptions[0].path || ''
-            post.imageThumbUrl = mediaOptions[0].thumbUrl || mediaOptions[0].thumbPath || ''
-            post.imageAlt = mediaOptions[0].alt || alt
-          }
-          post.dateModified = new Date().toISOString().slice(0, 10)
-          upsertPost(db, post)
-          writeDb(db)
-          gallery = post.imageGallery
-        }
-      }
-      // Never return the internal brand context to the browser; it is only
-      // used while preparing the provider request.
-      json(res, 200, {
-        ok: true,
-        media: mediaOptions[0],
-        mediaOptions,
-        gallery,
-        persisted: Boolean(gallery),
-        prompt
-      })
-    } catch (error) {
-      json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
-    }
-    return
-  }
-
   if (path === '/api/ai/transcribe') {
     const auth = requireAuth(req, url, res)
     if (!auth) return
@@ -3345,176 +3071,6 @@ async function handleRequest(req, res) {
     return
   }
 
-  const socialPackJobMatch = path.match(/^\/api\/ai\/social-pack\/jobs\/([^/]+)$/)
-  if (socialPackJobMatch) {
-    const auth = requireAuth(req, url, res)
-    if (!auth) return
-    if (req.method !== 'GET') {
-      json(res, 405, { message: 'Usa GET' })
-      return
-    }
-    try {
-      const jobId = decodeURIComponent(socialPackJobMatch[1])
-      const job = socialPackJobs.get(jobId)
-      if (!job) {
-        json(res, 404, { message: 'Generación de Social Pack no encontrada.' })
-        return
-      }
-      assertSiteAccess(auth, job.site)
-      assertAiRateLimit(aiRateLimitKey(auth, job.site, requestIp(req)), { limit: 120 })
-      json(res, 200, {
-        jobId: job.id,
-        site: job.site,
-        slug: job.slug,
-        status: job.status,
-        warnings: job.warnings || [],
-        message: job.message || '',
-        ...(job.socialPack ? { socialPack: job.socialPack } : {}),
-        ...(job.post ? { post: normalizePostForClient(job.post) } : {}),
-        updatedAt: job.updatedAt
-      })
-    } catch (error) {
-      json(res, error.status || 400, { message: error.message })
-    }
-    return
-  }
-
-  if (path === '/api/ai/chat' || path === '/api/ai/generate') {
-    const auth = requireAuth(req, url, res)
-    if (!auth) return
-    if (req.method !== 'POST') {
-      json(res, 405, { message: 'Usa POST' })
-      return
-    }
-    try {
-      const body = await parseBody(req)
-      const site = siteFrom(auth, body.site || DEFAULT_SITE)
-      assertSiteAccess(auth, site)
-      if (String(req.headers['x-escarlet-client'] || '').toLowerCase() === 'pwa' && isPostgresConfigured()) {
-        const canonical = await resolveWorkspaceContext({ userId: auth.userId || undefined, siteHandle: site })
-        const selected = canonical.sites.find((entry) => entry.handle === site) || canonical.sites[0]
-        const flags = await getWorkspaceFeatureFlags({ workspaceId: canonical.workspaceId, siteId: selected?.id })
-        if (creationUiGlobalKillSwitch() || !flags.creation_ui_enabled) throw Object.assign(new Error('La creación desde la aplicación está desactivada.'), { status: 403, code: 'creation_ui_disabled' })
-      }
-      assertAiRateLimit(aiRateLimitKey(auth, site, requestIp(req)), { limit: 30 })
-      if (path === '/api/ai/chat') {
-        const chatDb = readDb()
-        assertInAppAssistantEnabled({ cmsAiEnabled: isCmsAiEnabled({ db: chatDb }), workflow: getWorkflowFlags(chatDb) })
-      }
-
-      // Structured chat requests can create a persistent multi-channel batch in
-      // one turn. Free-form chat keeps the existing SSE contract below.
-      if (path === '/api/ai/chat' && Array.isArray(body.topics) && body.topics.length) {
-        if (!isPostgresConfigured()) throw Object.assign(new Error('La generación batch requiere Postgres.'), { status: 503, code: 'postgres_required' })
-        const rawScope = await resolveWorkspaceContext({ userId: auth.userId || undefined, siteHandle: site })
-        const siteRecord = rawScope.sites.find((entry) => entry.handle === site) || rawScope.sites[0]
-        if (!siteRecord) throw Object.assign(new Error('Sitio no migrado a Postgres.'), { status: 404 })
-        const workspaceRole = auth.role === 'admin' ? 'admin' : auth.userId ? rawScope.role || workspaceRoleForAuth(auth) : workspaceRoleForAuth(auth)
-        const result = await createContentBatch({ workspaceId: rawScope.workspaceId, siteId: siteRecord.id, userId: auth.userId || null, role: workspaceRole, title: body.title || 'Batch generado desde chat', topics: body.topics, channels: body.channels, metadata: { source: 'chat' }, idempotencyKey: req.headers['idempotency-key'], quotaExempt: Boolean(auth.systemAdmin) })
-        json(res, 201, { site, ...result })
-        return
-      }
-
-      if (path === '/api/ai/generate') {
-        const result = await runGenerateOperation({
-          site,
-          auth,
-          operation: body.operation,
-          prompt: body.prompt || body.message || '',
-          post: body.post && typeof body.post === 'object' ? body.post : {},
-          provider: body.provider,
-          model: body.model
-        })
-        if (String(body.operation || '').trim().toLowerCase() === 'social-pack') {
-          const requestedSlug = String(body.post?.slug || '').trim()
-          const currentDb = requestedSlug ? readDb() : null
-          const currentPost = requestedSlug ? findPost(currentDb, site, requestedSlug) : null
-          if (currentPost && !canMutatePostForAuth(currentPost, auth, site)) {
-            throw Object.assign(new Error('No tienes acceso a actualizar el Social Pack de este post.'), { status: 403 })
-          }
-          const articleUrl = String(body.post?.articleUrl || '').trim()
-          const canonicalPack = Object.fromEntries(
-            Object.entries(result.socialPack || {}).map(([key, value]) => [
-              key,
-              typeof value === 'string' && articleUrl && !value.includes(articleUrl)
-                ? `${value}\n\n${articleUrl}`
-                : value
-            ])
-          )
-          const asyncImages = body.asyncImages === true && Boolean(currentPost)
-          if (asyncImages) {
-            const job = queueSocialPackImages({
-              site,
-              post: currentPost,
-              socialPack: canonicalPack,
-              auth
-            })
-            result.socialPack = canonicalPack
-            result.socialPackWarnings = []
-            result.socialPackJobId = job.id
-            result.socialPackStatus = job.status
-            result.socialPackPersisted = false
-            result.post = normalizePostForClient(currentPost)
-          } else {
-            const completed = await generateSocialPackImages({
-              site,
-              post: currentPost || body.post || {},
-              socialPack: canonicalPack
-            })
-            result.socialPack = completed.socialPack
-            result.socialPackWarnings = completed.warnings
-            if (currentPost) {
-              const saved = await cmsUpdatePost({
-                site,
-                originalSlug: requestedSlug,
-                slug: requestedSlug,
-                socialPack: completed.socialPack,
-                direct: true,
-                keepPublished: true,
-                ownerId: auth.userId || '',
-                membershipUserId: auth.userId || ''
-              })
-              result.post = saved.post
-              result.socialPackPersisted = true
-            }
-          }
-        }
-        json(res, 200, { site, ...result })
-        return
-      }
-
-      // The provider may answer non-streaming upstream, but delivery to the PWA is
-      // always SSE so clients can render tokens incrementally and recover on done.
-      let clientClosed = false
-      req.once('close', () => { clientClosed = true })
-      const result = await runAiChat({
-        site,
-        auth,
-        message: body.message || body.prompt || '',
-        provider: body.provider,
-        model: body.model
-      })
-      if (clientClosed) return
-      applyCors(res, req)
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream; charset=utf-8',
-        'Cache-Control': 'no-cache, no-transform',
-        Connection: 'keep-alive',
-        'X-Accel-Buffering': 'no'
-      })
-      res.write(`event: meta\ndata: ${JSON.stringify({ site, provider: result.provider, mode: result.mode, quota: result.quota })}\n\n`)
-      for (const delta of splitSseChunks(result.content)) {
-        if (clientClosed) return
-        res.write(`event: delta\ndata: ${JSON.stringify({ delta })}\n\n`)
-      }
-      if (clientClosed) return
-      res.write(`event: done\ndata: ${JSON.stringify({ operation: result.operation, provider: result.provider, mode: result.mode, quota: result.quota })}\n\n`)
-      res.end()
-    } catch (error) {
-      json(res, error.status || 400, { message: error.message, ...(error.extra || {}) })
-    }
-    return
-  }
 
   if (path.startsWith('/api/admin')) {
     const auth = await requireAuthAsync(req, url, res)

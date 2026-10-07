@@ -11,7 +11,7 @@ node content-system/scripts/generate-cover-options.mjs \
 
 El resultado es un visual brief listo para pasarlo al prompt de imagen.
 
-## Renderizar un carrusel
+## Auditar un carrusel histórico
 
 ```bash
 node content-system/scripts/render-instagram-carousel.mjs \
@@ -19,7 +19,7 @@ node content-system/scripts/render-instagram-carousel.mjs \
   --output=tmp/carousel
 ```
 
-El renderer usa `@resvg/resvg-js`, no la tipografía del generador de imágenes.
+Este comando solo sirve para fixtures, históricos y migraciones. El flujo MCP actual recibe las imágenes finales con texto integrado y no renderiza overlays en el CMS.
 
 ## Analizar activos existentes
 
@@ -28,14 +28,6 @@ node content-system/scripts/analyze-existing-assets.mjs --site=escarlet --json=t
 ```
 
 Lee `data/db.json` por defecto y puede recibir `--db=/ruta/a/db.json`.
-
-## Regenerar un post
-
-```bash
-node content-system/scripts/regenerate-post-assets.mjs --site=escarlet --slug=mi-post --dry-run
-```
-
-Sin `--dry-run` usa el MCP local para actualizar metadata. La subida de imágenes v2 usa `content_upload_media` y, para post o social, la credencial de `brand_prepare_image_generation`.
 
 ## Agregar referencias
 

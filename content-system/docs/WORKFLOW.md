@@ -1,29 +1,37 @@
 # Workflow visual v2
 
 ```text
-post + resumen + historial reciente
+brand_list → brand_get_context
         ↓
-visual brief (arquetipo + referencias + reglas negativas)
+copy editorial + visual brief
         ↓
-IA → portada sin texto
-
-social copy → slides estructuradas
+content_create_batch
         ↓
-IA → fondos sin texto
+brand_prepare_image_generation por item y canal
         ↓
-renderer SVG/CSS → PNG 1080×1350
+ChatGPT genera la imagen final con texto
         ↓
-CMS → socialPack.instagramSlides[].imageUrl
+content_upload_media passthrough
+        ↓
+content_get_batch → revisión
 ```
 
 ## Modos
 
 - `automatic`: una ruta final, con metadata de decisión.
-- `exploration`: tres rutas de portada y dos templates de carrusel para elegir.
+- `exploration`: solo para portadas históricas y fixtures. El flujo social publicado usa una única ruta determinista.
 
 ## Repetición
 
-Inspecciona seis posts publicados o recientes. No repitas el arquetipo anterior. Si la similitud temática supera 0,62, cambia también el tipo de encuadre y la presencia de persona. El script `analyze-existing-assets.mjs` marca repetición por filename, hash y metadata.
+Inspecciona seis posts publicados o recientes. No repitas el arquetipo anterior. Si la similitud temática supera 0,62, cambia también el tipo de encuadre y la presencia de persona. El script `analyze-existing-assets.mjs` marca repetición por filename, hash y metadata. Esta variedad no cambia el contrato de formato social.
+
+## Assets sociales
+
+`instagram` usa `social_image` a 1080×1350. Cada slide se genera con texto integrado y declara `textRendered`, `textContent`, `templateId` y `renderedBy: "chatgpt-image-generation"`.
+
+`instagram_story` usa `instagram_story` a 1080×1920. La estructura canónica es `socialPack.instagramStory.frames[]`. Los campos antiguos de Story se conservan solo para lectura histórica.
+
+El CMS no compone overlays, tipografía ni logos. Comprueba dimensiones, metadata, preparación, hash e idempotencia, y conserva los píxeles recibidos.
 
 ## María Morales
 

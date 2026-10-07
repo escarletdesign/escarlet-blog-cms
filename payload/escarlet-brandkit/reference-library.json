@@ -14,8 +14,8 @@
   },
   "logos": {
     "png": { "filename": "logo-official-blue.png", "usage": "agent_reference" },
-    "svgWhite": { "filename": "logo-official-white.svg", "usage": "cms_compose" },
-    "svgBlue": { "filename": "logo-official-blue.svg", "usage": "cms_compose" }
+    "svgWhite": { "filename": "logo-official-white.svg", "usage": "agent_reference" },
+    "svgBlue": { "filename": "logo-official-blue.svg", "usage": "agent_reference" }
   },
   "routes": {
     "default": ["style-board.png"],

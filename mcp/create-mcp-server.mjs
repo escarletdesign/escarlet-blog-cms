@@ -73,7 +73,8 @@ import {
 import {
   getImagePreparation,
   persistImagePreparation,
-  assertAssetTypeForMediaKind
+  assertAssetTypeForMediaKind,
+  assertSocialTextMetadata
 } from '../lib/generation-provenance.mjs'
 
 const DEFAULT_SITE = process.env.DEFAULT_SITE || 'escarlet'
@@ -319,7 +320,31 @@ export function normalizeImagePreparationArgs(args = {}) {
   const next = { ...args }
   if (board && ['style', 'character', 'logo', 'default'].includes(board)) next.board = board
   if (channel === 'linkedin' && (!assetType || assetType === 'generic')) next.assetType = 'blog_cover'
+  if (channel === 'instagram' && (!assetType || assetType === 'generic')) next.assetType = 'social_image'
+  if (channel === 'instagram_story' && (!assetType || assetType === 'generic')) next.assetType = 'instagram_story'
+  assertChannelAssetType(next.channel, next.assetType)
   return next
+}
+
+const CHANNEL_ASSET_TYPES = Object.freeze({
+  instagram: 'social_image',
+  instagram_story: 'instagram_story'
+})
+
+export function assertChannelAssetType(channel, assetType) {
+  const normalizedChannel = String(channel || '').trim().toLowerCase()
+  const normalizedAssetType = String(assetType || '').trim().toLowerCase()
+  const expectedAssetType = CHANNEL_ASSET_TYPES[normalizedChannel]
+  if (expectedAssetType && normalizedAssetType !== expectedAssetType) {
+    throw Object.assign(new Error(`${normalizedChannel} solo admite ${expectedAssetType}.`), {
+      status: 409,
+      code: 'ASSET_TYPE_CHANNEL_MISMATCH',
+      channel: normalizedChannel,
+      assetType: normalizedAssetType,
+      expectedAssetType
+    })
+  }
+  return true
 }
 
 async function brandContextResult(payload) {
@@ -458,7 +483,7 @@ export async function preparedImageResult(payload, options = {}) {
       board = { ...board, sizeBytes: board.buffer.length }
     }
     const referenceDelivery = { total: 1, currentIndex: 0, nextReferenceIndex: null, complete: true, sourceReferenceCount: total }
-    const summary = `Preparation ${preparationId}. Style board ready (${total} source refs). Generate backgrounds now.`
+    const summary = `Preparation ${preparationId}. Style board ready (${total} source refs). Generate the final image with approved text now.`
     console.info(JSON.stringify({
       event: 'brand_image_style_board_delivered',
       preparationId,
@@ -587,8 +612,10 @@ export function assertPreparationUploadMatch(preparation, args = {}) {
   if (args.expectedAssetCount !== undefined && args.expectedAssetCount !== null && args.expectedAssetCount !== '' && Number(args.expectedAssetCount) !== Number(preparation.expectedAssetCount || 1)) fail('expectedAssetCount no coincide con la preparación.')
   const channel = String(args.channel || '').trim().toLowerCase()
   if (channel && preparation.channel && channel !== String(preparation.channel).toLowerCase()) fail('channel no coincide con la preparación.')
+  if (channel && preparation.assetType) assertChannelAssetType(channel, preparation.assetType)
   const channels = Array.isArray(args.channels) ? args.channels.map((value) => String(value).toLowerCase()) : []
   if (preparation.channel && channels.length && channels.some((value) => value !== String(preparation.channel).toLowerCase())) fail('channels no coincide con la preparación.')
+  if (preparation.assetType) for (const value of channels) assertChannelAssetType(value, preparation.assetType)
 }
 
 async function preparedUploadGrounding(site, scope, args) {
@@ -612,9 +639,7 @@ async function preparedUploadGrounding(site, scope, args) {
     throw Object.assign(new Error('channels contiene un canal no reconocido.'), { status: 400, code: 'MEDIA_CHANNEL_INVALID' })
   }
   if (itemId && !channels.length) throw Object.assign(new Error('Indica el canal al preparar la imagen o envía channels al subirla.'), { status: 400, code: 'MEDIA_CHANNELS_REQUIRED' })
-  if (channels.length && (preparation.assetType === 'instagram_story'
-    ? channels.some((channel) => channel !== 'instagram_story')
-    : channels.includes('instagram_story'))) throw Object.assign(new Error('La preparación y los canales no coinciden.'), { status: 409, code: 'ASSET_TYPE_MISMATCH' })
+  for (const channel of channels) assertChannelAssetType(channel, preparation.assetType)
   const expectedDimensions = compositionForAssetType(preparation.assetType).dimensions
   if (args.expectedDimensions && String(args.expectedDimensions) !== expectedDimensions) {
     throw Object.assign(new Error(`expectedDimensions debe ser ${expectedDimensions} para ${preparation.assetType}.`), { status: 409, code: 'EXPECTED_DIMENSIONS_MISMATCH', expectedDimensions })
@@ -622,6 +647,15 @@ async function preparedUploadGrounding(site, scope, args) {
   const index = Number(args.assetIndex ?? 0)
   if (!Number.isInteger(index) || index < 0 || index >= Number(preparation.expectedAssetCount || 1)) throw Object.assign(new Error('assetIndex no pertenece a esta preparación.'), { status: 409, code: 'ASSET_INDEX_MISMATCH' })
   const attachment = itemId ? await preflightContentMediaAttachment({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId, channels, assetIndex: index }) : null
+  const socialText = ['social_image', 'instagram_story'].includes(preparation.assetType)
+    ? assertSocialTextMetadata({
+        assetType: preparation.assetType,
+        textRendered: args.textRendered,
+        templateId: args.templateId,
+        renderedBy: args.renderedBy,
+        textContent: attachment?.socialTextContent || args.textContent
+      })
+    : null
   return {
     provenanceVersion: '3',
     brandPreparationId: preparation.preparationId,
@@ -636,7 +670,7 @@ async function preparedUploadGrounding(site, scope, args) {
     channels,
     assetIndex: index,
     expectedAssetCount: Number(preparation.expectedAssetCount || 1),
-    socialTextContent: attachment?.socialTextContent || args.textContent || null,
+    ...(socialText || {}),
     generatedAt: new Date().toISOString()
   }
 }
@@ -1363,6 +1397,7 @@ export function buildToolList(auth) {
           title: { type: 'string' },
           summary: { type: 'string' },
           topic: { type: 'string' },
+          textContent: { type: 'object', properties: { headline: { type: 'string', minLength: 1, maxLength: 90 }, body: { type: 'string', minLength: 1, maxLength: 240 } }, required: ['headline', 'body'], description: 'Copy aprobado que ChatGPT debe integrar en la imagen social final.' },
           tone: { type: 'string' },
           channel: { type: 'string' },
           expectedAssetCount: { type: 'integer', minimum: 1, maximum: 20, description: 'Cantidad de imágenes finales. Usa 1 o el total de slides del carrusel.' },
@@ -1480,7 +1515,7 @@ export function buildToolList(auth) {
     },
     {
       name: 'content_upload_media',
-      description: 'Publish: sube con preparationId. composeMode=cms (default social) monta tipografía/logo; passthrough deja tu PNG. La respuesta incluye composedPreviewUrl, originalSha256 y finalSha256: enseña el render final, no solo el PNG del chat. kind=reference es moodboard y no se asocia a variantes.',
+      description: 'Publish: sube con preparationId la imagen final generada por ChatGPT, con texto integrado. El CMS valida, almacena y asocia el PNG tal cual, sin overlays ni composición. kind=reference es moodboard y no se asocia a variantes.',
       inputSchema: {
         type: 'object',
         $defs: openaiFileDefs(),
@@ -1501,22 +1536,25 @@ export function buildToolList(auth) {
           chunkIndex: { type: 'string' },
           chunkCount: { type: 'string' },
           preparationId: { type: 'string' },
-          composeMode: { type: 'string', enum: ['cms', 'passthrough'], description: 'cms = tipografía/logo del kit (default social). passthrough = guardar el PNG tal cual (blog o final del agente).' },
           brandKitVersionId: { type: 'string' },
           brandKitSnapshotHash: { type: 'string' },
           channel: { type: 'string' },
           expectedAssetCount: { type: 'integer', minimum: 1, maximum: 20 },
-          textContent: { type: 'object', properties: { headline: { type: 'string', minLength: 1, maxLength: 90 }, body: { type: 'string', minLength: 1, maxLength: 240 } }, required: ['headline', 'body'], description: 'Texto de slide solo si no se preparó con un item existente.' },
+          textRendered: { type: 'boolean', const: true, description: 'La imagen final ya contiene el texto.' },
+          templateId: { type: 'string', enum: ['editorial', 'impact'] },
+          renderedBy: { type: 'string', const: 'chatgpt-image-generation' },
+          textContent: { type: 'object', properties: { headline: { type: 'string', minLength: 1, maxLength: 90 }, body: { type: 'string', minLength: 1, maxLength: 240 } }, required: ['headline', 'body'], description: 'Copy exacto que ya está integrado en la imagen final.' },
           itemId: { type: 'string' },
           channels: { type: 'array', uniqueItems: true, items: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] } },
           assetIndex: { type: 'integer', minimum: 0, maximum: 19, default: 0 },
           expectedDimensions: { type: 'string', description: 'Opcional. El CMS la deriva de preparationId y, si se envía, comprueba que coincida.' },
-          autoNormalize: { type: 'boolean', default: true },
+          autoNormalize: { type: 'boolean', default: false, description: 'Compatibilidad para portadas. Las imágenes sociales finales siempre se almacenan sin normalizar.' },
           idempotencyKey: { type: 'string', maxLength: 300 }
         },
         required: ['site', 'filename'],
         allOf: [
-          { if: { not: { properties: { kind: { const: 'reference' } }, required: ['kind'] } }, then: { required: ['preparationId'] } }
+          { if: { not: { properties: { kind: { const: 'reference' } }, required: ['kind'] } }, then: { required: ['preparationId'] } },
+          { if: { properties: { kind: { const: 'social' } }, required: ['kind'] }, then: { required: ['textRendered', 'templateId', 'renderedBy', 'textContent'] } }
         ]
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
@@ -1899,6 +1937,9 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
         }
         case 'content_upload_media': {
           const site = resolveToolSite(auth, args)
+          if (Object.prototype.hasOwnProperty.call(args, 'composeMode')) {
+            throw Object.assign(new Error('composeMode ya no forma parte del contrato. El CMS guarda siempre la imagen final tal cual.'), { status: 409, code: 'CMS_COMPOSITION_DISABLED' })
+          }
           const scope = await resolveContentScope(auth, { ...args, site })
           const requestedKind = String(args.kind || '').toLowerCase()
           if (requestedKind && !['post', 'social', 'reference'].includes(requestedKind)) throw Object.assign(new Error('kind debe ser post, social o reference.'), { status: 400, code: 'MEDIA_KIND_INVALID' })
@@ -1906,17 +1947,15 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           const kind = requestedKind || brandGroundingOverride.kind
           const itemId = brandGroundingOverride?.itemId || args.itemId || null
           const channels = brandGroundingOverride?.channels || args.channels || []
-          const alt = args.alt || args.imageAlt || brandGroundingOverride?.socialTextContent?.headline || ''
-          const composeMode = String(args.composeMode || brandGroundingOverride?.composeMode || (kind === 'social' ? 'cms' : 'passthrough')).toLowerCase()
-          if (brandGroundingOverride) brandGroundingOverride.composeMode = ['cms', 'passthrough'].includes(composeMode) ? composeMode : (kind === 'social' ? 'cms' : 'passthrough')
+          const alt = args.alt || args.imageAlt || ''
           const uploaded = await cms.uploadMedia({
             ...args,
             alt,
             site,
             kind,
-            composeMode: brandGroundingOverride?.composeMode || composeMode,
             brandGroundingOverride,
             requireBrandGrounding: ['post', 'social'].includes(kind),
+            autoNormalize: kind === 'social' ? false : args.autoNormalize !== false,
             membershipUserId: scopedAuth.userId || ''
           })
           if (uploaded?.awaitingChunks) return textResult(uploaded)
@@ -1954,19 +1993,17 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           const previewUrl = attachment?.contentComplete && itemId
             ? contentItemPreviewUrl(itemId, attachment.batchId)
             : null
-          const composedPreviewUrl = absoluteMediaUrl(uploaded.media?.previewPath || uploaded.media?.previewUrl || uploaded.media?.path || uploaded.media?.url || '')
+          const mediaPreviewUrl = absoluteMediaUrl(uploaded.media?.previewPath || uploaded.media?.previewUrl || uploaded.media?.path || uploaded.media?.url || '')
           const originalSha256 = uploaded.media?.metadata?.originalSha256 || uploaded.originalSha256 || null
           const finalSha256 = uploaded.media?.sha256 || uploaded.finalSha256 || null
           return textResult({
             ...safeUpload,
             mediaAsset: asset,
             mediaAssetId: asset.id,
-            composeMode: uploaded.composeMode || brandGroundingOverride?.composeMode || composeMode,
             originalSha256,
             finalSha256,
             textRendered: Boolean(uploaded.media?.brandGrounding?.textRendered || uploaded.textRendered),
-            logoApplied: Boolean(uploaded.logoApplied),
-            composedPreviewUrl: composedPreviewUrl || null,
+            previewUrl: mediaPreviewUrl || null,
             ...(kind !== 'reference' && !itemId ? { pendingMediaId: asset.id } : {}),
             attachment,
             operationStatus: kind === 'reference' ? 'complete' : attachment?.contentComplete ? 'ready_for_review' : moreSlidesPending ? 'in_progress' : attachment ? 'needs_completion' : 'upload_complete_attachment_pending',
@@ -1975,7 +2012,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             nextStep: kind === 'reference'
               ? 'Referencia (moodboard) guardada. No la asocies a blog/Instagram.'
               : attachment?.contentComplete
-                ? `Pendiente de revisión humana. Comparte ${previewUrl}. La URL final puede ser el render CMS (composedPreviewUrl), no tu PNG del chat.`
+                ? `Pendiente de revisión humana. Comparte ${previewUrl}. La imagen guardada es el PNG final generado por ChatGPT.`
                 : moreSlidesPending
                   ? `Slide ${assetIndex + 1} de ${expectedAssetCount} asociada. Sube las slides restantes con el mismo preparationId.`
                 : attachment
@@ -2324,7 +2361,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             blogWizardEnabled: cmsAiEnabled && workflow.blogWizardEnabled,
             appBaseUrl: appUrl('/'),
             routes: { preview: appUrl('/preview/{slug}'), posts: `${appUrl('/posts')}?site=${encodeURIComponent(site)}` },
-            steps: ['Lee brand_get_context.', 'Escribe y guarda los textos completos con content_create_batch.', 'Prepara y sube imágenes con brand_prepare_image_generation y content_upload_media.', 'En Instagram, genera fondos sin texto y deja que el CMS renderice la variante guardada.', 'Espera la revisión humana antes de aprobar o programar.'],
+            steps: ['Lee brand_get_context.', 'Escribe y guarda los textos completos con content_create_batch.', 'Prepara imágenes con brand_prepare_image_generation.', 'Genera en ChatGPT cada imagen final con el copy exacto integrado y súbela con content_upload_media.', 'Espera la revisión humana antes de aprobar o programar.'],
             modes: { easy: { steps: ['Genera textos e imágenes en un flujo directo', 'Guarda los medios y revisa readyForReview'] }, guided: { steps: ['Guarda el borrador', 'Revísalo en la app antes de aprobar'] } },
             appUrl: `${appUrl('/posts')}?site=${encodeURIComponent(site)}`,
             rule: 'Nunca llames APIs de IA del CMS. Si no puedes transferir una imagen, conserva el borrador y pide carga manual.'

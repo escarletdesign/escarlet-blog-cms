@@ -46,8 +46,10 @@ test('el contrato MCP expone media y contenido v2, sin operaciones de posts lega
   assert.equal(tools.find((tool) => tool.name === 'brand_prepare_image_generation').inputSchema.properties.expectedAssetCount.type, 'integer')
   assert.match(tools.find((tool) => tool.name === 'brand_prepare_image_generation').description, /style board/i)
   assert.match(tools.find((tool) => tool.name === 'brand_get_style_board').description, /ImageContent/i)
-  assert.match(upload.description, /composeMode|composedPreviewUrl/i)
-  for (const field of ['preparationId', 'itemId', 'channels', 'assetIndex', 'composeMode']) assert.ok(upload.inputSchema.properties[field], field)
+  assert.match(upload.description, /imagen final|sin overlays/i)
+  for (const field of ['preparationId', 'itemId', 'channels', 'assetIndex', 'textRendered', 'textContent', 'templateId', 'renderedBy']) assert.ok(upload.inputSchema.properties[field], field)
+  assert.equal(upload.inputSchema.properties.composeMode, undefined)
+  assert.equal(upload.inputSchema.properties.renderedBy.const, 'chatgpt-image-generation')
   assert.deepEqual(upload.inputSchema.required, ['site', 'filename'])
   assert.deepEqual(upload.inputSchema.allOf[0].then.required, ['preparationId'])
   assert.equal(upload.inputSchema.properties.expectedDimensions.description.includes('Opcional'), true)
@@ -68,9 +70,9 @@ test('el contrato MCP expone media y contenido v2, sin operaciones de posts lega
   }
   assert.equal(tools.some((tool) => /^blog_|^social_/.test(tool.name)), false)
   const publicContract = JSON.stringify(tools)
-  assert.doesNotMatch(publicContract, /generationReceiptId|brand_complete_image_generation|brand_register_generation|content-system\/instagram-renderer/)
+  assert.doesNotMatch(publicContract, /generationReceiptId|brand_complete_image_generation|brand_register_generation|content-system\/instagram-renderer|composeMode/)
   assert.equal(buildToolList({ role: 'editor' }).some((tool) => tool.name === 'brand_update_file'), true)
-  assert.equal(MCP_SERVER_VERSION, '3.7.0')
+  assert.equal(MCP_SERVER_VERSION, '3.8.0')
   for (const name of ['video_create_job', 'video_get_job', 'video_update_job', 'video_upload_media', 'video_import_external_media', 'video_list_jobs']) {
     assert.ok(tools.some((tool) => tool.name === name), name)
   }
@@ -123,8 +125,8 @@ test('createMcpServer anuncia el contrato v2 y la selección explícita de marca
   assert.match(MCP_INSTRUCTIONS, /content_upload_media/)
   assert.match(MCP_INSTRUCTIONS, /style board/i)
   assert.match(MCP_INSTRUCTIONS, /assetIndex empieza en 0/i)
-  assert.match(MCP_INSTRUCTIONS, /versión 3\.7\.0/)
-  assert.match(MCP_INSTRUCTIONS, /composedPreviewUrl/)
+  assert.match(MCP_INSTRUCTIONS, /versión 3\.8\.0/)
+  assert.match(MCP_INSTRUCTIONS, /chatgpt-image-generation/)
   assert.match(MCP_INSTRUCTIONS, /video_\*/)
 })
 
@@ -132,6 +134,10 @@ test('LinkedIn usa la portada del blog salvo petición explícita de otra pieza'
   assert.equal(normalizeImagePreparationArgs({ channel: 'linkedin', title: 'Trabajo fraccional' }).assetType, 'blog_cover')
   assert.equal(normalizeImagePreparationArgs({ channel: 'linkedin', assetType: 'generic' }).assetType, 'blog_cover')
   assert.equal(normalizeImagePreparationArgs({ channel: 'linkedin', assetType: 'social_image' }).assetType, 'social_image')
+  assert.equal(normalizeImagePreparationArgs({ channel: 'instagram' }).assetType, 'social_image')
+  assert.equal(normalizeImagePreparationArgs({ channel: 'instagram_story' }).assetType, 'instagram_story')
+  assert.throws(() => normalizeImagePreparationArgs({ channel: 'instagram', assetType: 'instagram_story' }), (error) => error.code === 'ASSET_TYPE_CHANNEL_MISMATCH')
+  assert.throws(() => normalizeImagePreparationArgs({ channel: 'instagram_story', assetType: 'social_image' }), (error) => error.code === 'ASSET_TYPE_CHANNEL_MISMATCH')
 })
 
 function imageBlocks(result) {
@@ -235,7 +241,7 @@ test('legacy: una preparación puede pedir referenceIndex suelto', async () => {
 })
 
 test('la subida rechaza una preparación distinta', () => {
-  const preparation = { preparationId: 'prep-1', brandKitVersionId: 'kit-1', brandKitSnapshotHash: 'hash-1', expectedAssetCount: 8, channel: 'instagram' }
+  const preparation = { preparationId: 'prep-1', brandKitVersionId: 'kit-1', brandKitSnapshotHash: 'hash-1', expectedAssetCount: 8, channel: 'instagram', assetType: 'social_image' }
   assert.doesNotThrow(() => assertPreparationUploadMatch(preparation, { brandKitVersionId: 'kit-1', brandKitSnapshotHash: 'hash-1', expectedAssetCount: 8, channel: 'instagram', channels: ['instagram'] }))
   assert.throws(() => assertPreparationUploadMatch(preparation, { brandKitVersionId: 'kit-2' }), (error) => error.code === 'PREPARATION_MISMATCH')
   assert.throws(() => assertPreparationUploadMatch(preparation, { brandKitSnapshotHash: 'other' }), (error) => error.code === 'PREPARATION_MISMATCH')
@@ -285,7 +291,7 @@ test('las respuestas de preparación exponen la versión MCP activa', async () =
   const result = await invokeMcpTool('brand_prepare_image_generation', { site: 'escarlet', assetType: 'generic', title: 'versión MCP' }, { role: 'admin' })
   const value = payload(result)
   assert.equal(value.mcpServer.name, 'escarlet-cms-v2')
-  assert.equal(value.mcpServer.version, '3.7.0')
+  assert.equal(value.mcpServer.version, '3.8.0')
   assert.equal(value.mcpServer.contract, 'v2')
 })
 
@@ -299,6 +305,12 @@ test('la subida de medios del MCP usa exclusivamente el runtime v2', async () =>
   assert.equal(result.isError, true)
   const value = payload(result)
   assert.equal(value.code, 'postgres_required')
+})
+
+test('el MCP rechaza composeMode y no ofrece composición CMS', async () => {
+  const result = await invokeMcpTool('content_upload_media', { site: 'escarlet', composeMode: 'cms' }, { role: 'admin' })
+  assert.equal(result.isError, true)
+  assert.equal(payload(result).code, 'CMS_COMPOSITION_DISABLED')
 })
 
 test('los recursos MCP solo anuncian archivos que el rol puede leer', async () => {
