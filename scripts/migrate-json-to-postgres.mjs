@@ -5,6 +5,7 @@ import { dataDir, readDb } from '../lib/db.mjs'
 import { getPgPool, runCoreMigrations, withPgTransaction } from '../lib/pg.mjs'
 import { loadSiteConfig } from '../lib/site-config.mjs'
 import { encryptSecret } from '../lib/secret-crypto.mjs'
+import { isApprovedBrandAsset } from '../lib/brand-asset-policy.mjs'
 
 const clean = (value, max = 500) => String(value ?? '').trim().slice(0, max)
 const json = (value) => JSON.stringify(value && typeof value === 'object' ? value : {})
@@ -179,11 +180,12 @@ export async function repairBrandAssets({ siteHandle = '' } = {}) {
       const knownNames = new Set(existingAssets.rows.map((asset) => asset.name).filter(Boolean))
       const allowedNames = canonicalNames.size ? canonicalNames : knownNames
       for (const assetPath of brandAssetFiles(site.handle)) {
+        if (!isApprovedBrandAsset(site.handle, assetPath.split('/').pop())) continue
         if (allowedNames.size && !allowedNames.has(assetPath.split('/').pop())) continue
         const stat = statSync(assetPath)
         await client.query(
-          'INSERT INTO brand_assets (id,brand_kit_version_id,name,storage_key,size_bytes,sha256,visibility) VALUES ($1,$2,$3,$4,$5,$6,\'private\') ON CONFLICT (id) DO UPDATE SET brand_kit_version_id=EXCLUDED.brand_kit_version_id,name=EXCLUDED.name,storage_key=EXCLUDED.storage_key,size_bytes=EXCLUDED.size_bytes,sha256=EXCLUDED.sha256',
-          [`brand-asset-${site.id}-${hash(assetPath).slice(0, 16)}`, site.activeVersionId, assetPath.split('/').pop(), assetPath, stat.size, createHash('sha256').update(readFileSync(assetPath)).digest('hex')]
+          'INSERT INTO brand_assets (id,brand_kit_version_id,name,storage_key,public_url,size_bytes,sha256,visibility) VALUES ($1,$2,$3,$4,$5,$6,$7,\'private\') ON CONFLICT (id) DO UPDATE SET brand_kit_version_id=EXCLUDED.brand_kit_version_id,name=EXCLUDED.name,storage_key=EXCLUDED.storage_key,public_url=EXCLUDED.public_url,size_bytes=EXCLUDED.size_bytes,sha256=EXCLUDED.sha256',
+          [`brand-asset-${site.id}-${hash(assetPath).slice(0, 16)}`, site.activeVersionId, assetPath.split('/').pop(), assetPath, publicMediaUrl(`/media/${site.handle}/reference/${assetPath.split('/').pop()}`), stat.size, createHash('sha256').update(readFileSync(assetPath)).digest('hex')]
         )
         counts.assets++
       }
@@ -286,8 +288,9 @@ export async function migrateJsonToPostgres({ db = readDb(), users = readJson('u
         `, [randomUUID(), workspaceId, siteId, encrypted, json({ domain: legacyConfig.domain || null, rebuildWebhookUrl: legacyConfig.rebuildWebhookUrl || null })])
       }
       for (const assetPath of brandAssetFiles(site.handle)) {
+        if (!isApprovedBrandAsset(site.handle, assetPath.split('/').pop())) continue
         const stat = statSync(assetPath)
-        await client.query('INSERT INTO brand_assets (id,brand_kit_version_id,name,storage_key,size_bytes,sha256,visibility) VALUES ($1,$2,$3,$4,$5,$6,\'private\') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name,storage_key=EXCLUDED.storage_key,size_bytes=EXCLUDED.size_bytes,sha256=EXCLUDED.sha256', [`brand-asset-${siteId}-${hash(assetPath).slice(0, 16)}`, versionId, assetPath.split('/').pop(), assetPath, stat.size, createHash('sha256').update(readFileSync(assetPath)).digest('hex')])
+        await client.query('INSERT INTO brand_assets (id,brand_kit_version_id,name,storage_key,public_url,size_bytes,sha256,visibility) VALUES ($1,$2,$3,$4,$5,$6,$7,\'private\') ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name,storage_key=EXCLUDED.storage_key,public_url=EXCLUDED.public_url,size_bytes=EXCLUDED.size_bytes,sha256=EXCLUDED.sha256', [`brand-asset-${siteId}-${hash(assetPath).slice(0, 16)}`, versionId, assetPath.split('/').pop(), assetPath, publicMediaUrl(`/media/${site.handle}/reference/${assetPath.split('/').pop()}`), stat.size, createHash('sha256').update(readFileSync(assetPath)).digest('hex')])
       }
     }
     const posts = Array.isArray(db.posts) ? db.posts : []

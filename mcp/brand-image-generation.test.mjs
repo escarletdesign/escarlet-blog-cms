@@ -29,7 +29,7 @@ function activeKit() {
   return { manifest, assets, id: 'brand-escarlet-active-v3', version: 3 }
 }
 
-test('contexto y preparación usan el mismo snapshot activo y sus 11 referencias', () => {
+test('contexto y preparación usan el mismo snapshot activo y sus 5 referencias aprobadas', () => {
   const active = activeKit()
   active.manifest['brand-core.json'] = {
     ...active.manifest['brand-core.json'],
@@ -44,13 +44,12 @@ test('contexto y preparación usan el mismo snapshot activo y sus 11 referencias
   assert.equal(context.brandKitVersionId, active.id)
   assert.equal(prepared.brandKitVersionId, active.id)
   assert.equal(context.brandKitSnapshotHash, prepared.brandKitSnapshotHash)
-  assert.equal(context.referenceImages.length, active.assets.length)
-  assert.equal(context.referenceImages.length, 11)
-  assert.equal(context.canonicalPalette.cream, undefined)
+  assert.equal(context.referenceImages.length, 5)
+  assert.equal(context.canonicalPalette.cream, '#EFE8D7')
   assert.match(context.brandCore.fixed.typography.heading, /Montserrat/)
   assert.doesNotMatch(context.files['visual-style.md'], /#F4F1EA|#1F4D3A/)
   assert.doesNotMatch(context.files['image-guide.md'], /#F4F1EA|#1F4D3A/)
-  assert.match(context.files['visual-style.md'], /#47A4E7|#12B8D6|#62B38A|#E8B73A/)
+  assert.equal(context.brandCore.fixed.palette.primary, '#1B87D6')
 })
 
 test('la preparación fija dimensiones finales y cardinalidad sin receipts', () => {
@@ -68,13 +67,14 @@ test('la preparación fija dimensiones finales y cardinalidad sin receipts', () 
 
 test('un personaje elegido se adjunta y conserva su identidad facial', () => {
   const active = activeKit()
-  active.assets[0] = { ...active.assets[0], metadata: { usage: 'character', alt: 'Maria Morales' } }
+  const characterAsset = active.assets.find((asset) => asset.name.endsWith('character-charly.png'))
+  characterAsset.metadata = { usage: 'character', characterId: 'charly', alt: 'Charly' }
   const snapshot = loadActiveBrandKitSnapshot('escarlet', { manifest: active.manifest, assets: active.assets, brandKitVersionId: active.id, version: active.version })
-  const prepared = prepareImageGeneration('escarlet', { assetType: 'blog_cover', title: 'Maria presenta el nuevo servicio', useCharacter: true }, { canonicalSnapshot: snapshot })
+  const prepared = prepareImageGeneration('escarlet', { assetType: 'blog_cover', title: 'Charly presenta el nuevo servicio', useCharacter: true, characterId: 'charly' }, { canonicalSnapshot: snapshot })
   const character = prepared.resolvedReferences.find((reference) => reference.usage === 'character')
   assert.ok(character)
-  assert.equal(character.filename, active.assets[0].name.split('/').pop())
-  assert.match(prepared.generationPrompt, /rasgos faciales/)
+  assert.equal(character.filename, 'character-board.png')
+  assert.match(prepared.generationPrompt, /identidad facial y rasgos/)
   assert.match(prepared.negativeRules.join(' '), /character identity or facial features/)
 })
 

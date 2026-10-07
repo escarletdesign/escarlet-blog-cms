@@ -43,6 +43,7 @@ import {
   brandLabelsForAuth
 } from './lib/brand-kit.mjs'
 import { validatePostSeo } from './lib/seo-validator.mjs'
+import { isApprovedBrandAsset } from './lib/brand-asset-policy.mjs'
 import {
   resolveRequestAuth,
   resolveAuth,
@@ -264,6 +265,7 @@ import {
   createBrandKitVersion,
   publishBrandKitVersion,
   getActiveBrandKit,
+  cleanupBrandKitAssets,
   updateBrandAsset,
   enqueueJob,
   enqueueRemotePublicationStatusSync,
@@ -2281,57 +2283,19 @@ async function handleRequest(req, res) {
         const scope = await requireV2Context(req, url, res, { ...body, siteId: decodeURIComponent(brandKitLegacyCleanupMatch[1]) })
         if (!scope) return
         assertWorkspaceRole(scope.context.role, ['owner', 'admin'])
-        const siteHandles = new Set([scope.context.siteHandle, scope.siteId].filter(Boolean))
+        const cleaned = await cleanupBrandKitAssets({ workspaceId: scope.workspaceId, siteId: scope.siteId })
+        const siteHandles = new Set([cleaned.site, scope.context.siteHandle, scope.siteId].filter(Boolean))
         const dbNow = readDb()
         const before = Array.isArray(dbNow.media) ? dbNow.media : []
-        const removed = before.filter((media) => siteHandles.has(media?.site) && media?.kind === 'reference')
+        const removed = before.filter((media) => siteHandles.has(media?.site) && media?.kind === 'reference' && !isApprovedBrandAsset(cleaned.site, media.filename || media.path || media.url))
         if (removed.length) {
-          dbNow.media = before.filter((media) => !(siteHandles.has(media?.site) && media?.kind === 'reference'))
+          const removedMedia = new Set(removed)
+          dbNow.media = before.filter((media) => !removedMedia.has(media))
           // Keep the files on disk: post content and canonical v2 assets may
           // still point to the same storage key.
           writeDb(dbNow)
         }
-        const activeKit = await getActiveBrandKit({ workspaceId: scope.workspaceId, siteId: scope.siteId })
-        const activeAssets = Array.isArray(activeKit.assets) ? activeKit.assets : []
-        const manifestText = Object.values(activeKit.manifest || {}).map((value) => typeof value === 'string' ? value : JSON.stringify(value)).join('\n')
-        const canonicalNames = new Set(activeAssets.map((asset) => asset.name).filter((name) => name && manifestText.includes(name)))
-        const pool = await getPgPool()
-        const contentMedia = await pool.query(`
-          SELECT DISTINCT ma.storage_key AS "storageKey"
-          FROM media_assets ma
-          JOIN content_variant_media cvm ON cvm.media_asset_id=ma.id
-          JOIN content_variants cv ON cv.id=cvm.variant_id
-          JOIN content_items ci ON ci.id=cv.item_id
-          WHERE ci.workspace_id=$1 AND ci.site_id=$2
-        `, [scope.workspaceId, scope.siteId])
-        const contentStorageKeys = new Set(contentMedia.rows.map((row) => row.storageKey).filter(Boolean))
-        const taggedNames = new Set(activeAssets
-          .filter((asset) => asset.metadata?.source === 'brand-kit')
-          .map((asset) => asset.name)
-          .filter(Boolean))
-        const requestedKeepNames = new Set((Array.isArray(body.keepNames) ? body.keepNames : []).map((name) => String(name || '').trim()).filter(Boolean))
-        const protectedNames = requestedKeepNames.size ? requestedKeepNames : taggedNames
-        const nonContentNames = new Set(activeAssets.map((asset) => asset).filter((asset) => !contentStorageKeys.has(asset.storageKey)).map((asset) => asset.name).filter(Boolean))
-        const allowedNames = new Set([...canonicalNames, ...nonContentNames])
-        const seenNames = new Set()
-        const staleAssets = activeAssets.filter((asset) => {
-          const name = String(asset.name || '')
-          if (protectedNames.size) {
-            if (!protectedNames.has(name) || seenNames.has(name)) return true
-            seenNames.add(name)
-            return false
-          }
-          const isCanonicalAsset = asset.metadata?.source === 'brand-kit' || canonicalNames.has(name)
-          if (!isCanonicalAsset && contentStorageKeys.has(asset.storageKey)) return true
-          if (allowedNames.size && !allowedNames.has(name)) return true
-          if (seenNames.has(name)) return true
-          seenNames.add(name)
-          return false
-        })
-        if (staleAssets.length) {
-          await pool.query('DELETE FROM brand_assets WHERE brand_kit_version_id=$1 AND id=ANY($2::text[])', [activeKit.id, staleAssets.map((asset) => asset.id)])
-        }
-        json(res, 200, { ok: true, site: scope.context.siteHandle || scope.siteId, removed: removed.length, removedBrandAssets: staleAssets.length, keptBrandAssets: activeAssets.length - staleAssets.length, filesPreserved: true })
+        json(res, 200, { ...cleaned, removed: removed.length, filesPreserved: true })
         return
       }
       if (req.method === 'GET' && path === '/api/v2/context') {
@@ -3968,6 +3932,7 @@ async function handleRequest(req, res) {
       let items = (db.media || []).filter((m) => !m.site || m.site === site)
       if (kind) {
         items = items.filter((m) => m.kind === kind)
+        if (kind === 'reference') items = items.filter((m) => isApprovedBrandAsset(site, m.filename || m.path || m.url))
       } else {
         // Brand-kit reference assets stay out of the library unless kind=reference.
         items = items.filter((m) => m.kind !== 'reference')
