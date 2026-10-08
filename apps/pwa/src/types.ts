@@ -66,6 +66,27 @@ export interface ContentItem {
   variants: ContentVariant[];
   error?: string | null;
 }
+export interface BrandOsFinding {
+  code: string;
+  severity: "blocker" | "warning" | "suggestion" | string;
+  message: string;
+  rule?: string;
+}
+export interface BrandOsMetadata {
+  brandContext?: {
+    site?: string;
+    brandKitVersionId?: string;
+    brandKitVersion?: number | string | null;
+    brandKitSnapshotHash?: string;
+    identity?: { name?: string };
+    audience?: string[];
+    editorialPillars?: string[];
+    requiresHumanApproval?: boolean;
+  };
+  contentBrief?: Record<string, any>;
+  findings?: BrandOsFinding[];
+  generationPolicy?: { provider?: string; serverSideGeneration?: boolean; approval?: string };
+}
 export interface ContentBatch {
   id: string;
   workspace_id?: string;
@@ -76,6 +97,7 @@ export interface ContentBatch {
   generated_items: number;
   failed_items: number;
   items: ContentItem[];
+  metadata?: { brandOs?: BrandOsMetadata; [key: string]: any };
 }
 
 export interface ContentPlanSummary {

@@ -2,7 +2,7 @@
 
 Plan de reestructuración. Rama propuesta: `feature/pwa-agent` desde `master`.
 
-**Resumen.** Nueva PWA Vite+React mobile-first (shell tipo ChatGPT), gateway IA en el CMS Node existente, flujos duales AI/manual hasta preview → publicar/programar, billing Stripe y admin interno. El MCP externo comparte los mismos flujos y operaciones server-side.
+**Resumen.** PWA Vite+React mobile-first, control plane Escarlet OS, flujos manuales hasta preview → revisar → publicar/programar, billing Stripe y admin interno. El MCP v3 externo comparte la misma identidad, Brand Kernel y Publisher.
 
 ## Checklist
 
@@ -17,7 +17,7 @@ Plan de reestructuración. Rama propuesta: `feature/pwa-agent` desde `master`.
 
 ## Decisiones cerradas
 
-- **Producto:** PWA instalable + MCP externo. La conexión ChatGPT usa `POST /mcp` y las mismas operaciones server-side; `/app` es la superficie de revisión humana.
+- **Producto:** PWA instalable + MCP v3 externo. La conexión ChatGPT usa `POST /mcp/v3`; `/app` es la superficie de revisión humana.
 - **Frontend:** **Vite + React + TypeScript** en `apps/pwa/`, servido por el CMS en producción. El backend sigue siendo [`server.mjs`](../server.mjs) + `lib/*` (APIs, brand kit, publish, Stripe). Evitamos Next fullstack en esta fase para no reescribir ops/sync/webhook.
 - **Auth cliente:** magic link (Resend) + sesión cookie. Sin “Login with ChatGPT”. Las keys de OpenAI/Gemini/Grok son **del servidor Escarlet**, no del usuario final.
 - **Medios:** sin nav “Medios” para el cliente. Los ficheros viven **dentro del post** (y social pack del post). Admin puede reutilizar helpers existentes de media sin exponer biblioteca como producto.
@@ -66,7 +66,7 @@ flowchart TB
 
 ## IA de producto (dos perfiles)
 
-**Cliente (no técnico)** — menú mínimo estilo ChatGPT:
+**Cliente (no técnico)** - menú mínimo estilo ChatGPT:
 
 - Home: elegir **AI** o **crear post manual**
 - Chat con historial de conversaciones/posts
@@ -74,7 +74,7 @@ flowchart TB
 - Calendario
 - Menú usuario (abajo izq.): settings, selector de modelo, packs/créditos, logout
 
-**Admin Escarlet** — mismas pantallas de posts + capas ops:
+**Admin Escarlet** - mismas pantallas de posts + capas ops:
 
 - Brand kit, sitios/páginas, settings (deploy WP/plugin, claves sistema)
 - Usuarios + magic link / reenvio
@@ -125,31 +125,31 @@ flowchart TB
 
 ## Fases en la rama
 
-### Fase 0 — Repo y shell
+### Fase 0 - Repo y shell
 
 Crear rama, scaffold `apps/pwa`, servir dist desde `server.mjs`, login magic link, nav mínima Posts/Calendario/User.
 
-### Fase 1 — Post manual simplificado
+### Fase 1 - Post manual simplificado
 
 Sustituir wizard 3 pasos por un formulario único mobile-first → Preview → Publicar/Programar → lista. IA puntual (título/cuerpo/imagen) vía gateway.
 
-### Fase 2 — Agente in-app
+### Fase 2 - Agente in-app
 
 Chat + tools CMS + memoria por sitio + selector modelo. Preview compartido con el flujo manual.
 
-### Fase 3 — Social pack + schedule UX
+### Fase 3 - Social pack + schedule UX
 
 Pantallas post-preview según pizarra; revisar el social pack desde el detalle de post mediante el flujo MCP canónico.
 
-### Fase 4 — Admin + usuarios
+### Fase 4 - Admin + usuarios
 
 Brand kit, sitios, settings deploy/WP, usuarios + magic link resend. Ocultar Medios del producto.
 
-### Fase 5 — Stripe packs
+### Fase 5 - Stripe packs
 
 Catálogo, checkout, portal, gates en gateway y publicación.
 
-### Fase 6 — PWA polish
+### Fase 6 - PWA polish
 
 Instalable, safe areas y desktop max-width en formularios; las rutas históricas ya redirigen a la PWA.
 

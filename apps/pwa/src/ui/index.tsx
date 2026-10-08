@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import type { ButtonHTMLAttributes, InputHTMLAttributes, PointerEvent as ReactPointerEvent, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
+import type { ButtonHTMLAttributes, InputHTMLAttributes, PointerEvent as ReactPointerEvent, ReactNode, RefObject, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 
 export type Tone = "neutral" | "info" | "success" | "warning" | "danger" | "review" | "published";
 
@@ -99,16 +99,35 @@ export function PageHeader({ eyebrow, title, description, actions, back }: { eye
 export function ChannelBadge({ channel }: { channel: string }) { const labels: Record<string, string> = { blog: "Blog", instagram: "Instagram", instagram_story: "Instagram Story", linkedin: "LinkedIn", x: "X", video: "Vídeo", substack: "Substack" }; return <span className={`ui-badge ui-channel-badge ui-channel-${channel}`}>{labels[channel] || channel}</span>; }
 export function ContentPlanCard({ title, total, generated, failed, status, channels, onClick }: { title: string; total: number; generated?: number; failed?: number; status?: string; channels?: string[]; onClick?: () => void }) { const content = <><div className="ui-card-head"><div><span className="ui-eyebrow">Campaña</span><h2>{title}</h2></div><StatusBadge status={status} /></div><Progress value={generated || 0} max={total || 1} /><div className="ui-card-meta"><span>{generated || 0}/{total} {total === 1 ? "publicación generada" : "publicaciones generadas"}</span>{failed ? <span className="ui-danger-text">{failed} con error</span> : null}</div>{channels?.length ? <div className="ui-channel-list">{channels.map((channel) => <ChannelBadge key={channel} channel={channel} />)}</div> : null}</>; return onClick ? <button type="button" className="ui-card ui-plan-card" onClick={onClick}>{content}</button> : <Card className="ui-plan-card">{content}</Card>; }
 export function PublicationCard({ topic, status, channels, error, actions }: { topic: string; status?: string; channels?: string[]; error?: string | null; actions?: ReactNode }) { return <Card className="ui-publication-card"><div className="ui-card-head"><div><h3>{topic}</h3>{channels?.length ? <div className="ui-channel-list">{channels.map((channel) => <ChannelBadge key={channel} channel={channel} />)}</div> : null}</div><StatusBadge status={status} /></div>{error && <p className="ui-field-error">{error}</p>}{actions && <div className="ui-card-actions">{actions}</div>}</Card>; }
-export function Modal({ open, title, onClose, children, closeLabel = "Cerrar", className = "" }: { open: boolean; title: string; onClose: () => void; children: ReactNode; closeLabel?: string; className?: string }) {
-  const titleId = `ui-modal-title-${useId().replace(/:/g, "")}`;
+function useDialogFocus(open: boolean, containerRef: RefObject<HTMLElement | null>, onClose: () => void) {
   useEffect(() => {
     if (!open) return undefined;
-    const handleKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    const previous = document.activeElement as HTMLElement | null;
+    const container = containerRef.current;
+    const focusable = () => Array.from(container?.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])') || []).filter((element) => !element.hasAttribute("disabled"));
+    focusable()[0]?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { onClose(); return; }
+      if (event.key !== "Tab") return;
+      const elements = focusable();
+      if (!elements.length) return;
+      const first = elements[0]; const last = elements[elements.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
     document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [open, onClose]);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      previous?.focus();
+    };
+  }, [open, containerRef, onClose]);
+}
+export function Modal({ open, title, onClose, children, closeLabel = "Cerrar", className = "" }: { open: boolean; title: string; onClose: () => void; children: ReactNode; closeLabel?: string; className?: string }) {
+  const titleId = `ui-modal-title-${useId().replace(/:/g, "")}`;
+  const modalRef = useRef<HTMLElement | null>(null);
+  useDialogFocus(open, modalRef, onClose);
   if (!open) return null;
-  return <div className="ui-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className={`ui-modal ${className}`.trim()} role="dialog" aria-modal="true" aria-labelledby={titleId}><div className="ui-modal-head"><h2 id={titleId}>{title}</h2><IconButton label={closeLabel} onClick={onClose}>×</IconButton></div>{children}</section></div>;
+  return <div className="ui-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section ref={modalRef} className={`ui-modal ${className}`.trim()} role="dialog" aria-modal="true" aria-labelledby={titleId}><div className="ui-modal-head"><h2 id={titleId}>{title}</h2><IconButton label={closeLabel} onClick={onClose}>×</IconButton></div>{children}</section></div>;
 }
 export function ReviewToolbar({ children }: { children: ReactNode }) { return <div className="ui-review-toolbar">{children}</div>; }
 export function ConnectionCard({ provider, status, account, actions }: { provider: string; status?: string; account?: string; actions?: ReactNode }) { return <Card className="ui-connection-card"><div className="ui-card-head"><div><span className="ui-eyebrow">Conexión</span><h3>{provider}</h3>{account && <p>{account}</p>}</div><StatusBadge status={status || "draft"} label={status === "connected" ? "Conectada" : status || "Sin conectar"} /></div>{actions && <div className="ui-card-actions">{actions}</div>}</Card>; }
@@ -127,13 +146,9 @@ export function Tabs<T extends string>({ items, value, onChange, className = "",
 }
 export function Drawer({ open, title, onClose, children, closeLabel = "Cerrar" }: { open: boolean; title: string; onClose: () => void; children: ReactNode; closeLabel?: string }) {
   const titleId = `ui-drawer-title-${useId().replace(/:/g, "")}`;
-  useEffect(() => {
-    if (!open) return undefined;
-    const handleKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [open, onClose]);
-  return open ? <div className="ui-drawer-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><aside className="ui-drawer" role="dialog" aria-modal="true" aria-labelledby={titleId}><div className="ui-modal-head"><h2 id={titleId}>{title}</h2><IconButton label={closeLabel} onClick={onClose}>×</IconButton></div>{children}</aside></div> : null;
+  const drawerRef = useRef<HTMLElement | null>(null);
+  useDialogFocus(open, drawerRef, onClose);
+  return open ? <div className="ui-drawer-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><aside ref={drawerRef} className="ui-drawer" role="dialog" aria-modal="true" aria-labelledby={titleId}><div className="ui-modal-head"><h2 id={titleId}>{title}</h2><IconButton label={closeLabel} onClick={onClose}>×</IconButton></div>{children}</aside></div> : null;
 }
 export function Toast({ message, tone = "info", className = "", onClose, closeLabel = "Cerrar" }: { message: string; tone?: Tone; className?: string; onClose?: () => void; closeLabel?: string }) { return <div className={`ui-toast ui-toast-${tone} ${className}`.trim()} role={tone === "danger" ? "alert" : "status"}><span className="ui-toast-message">{message}</span>{onClose && <IconButton label={closeLabel} onClick={onClose}>×</IconButton>}</div>; }
 export function DataTable({ headers, rows, empty = "Sin datos" }: { headers: string[]; rows: ReactNode[][]; empty?: string }) { return rows.length ? <div className="ui-table-wrap"><table className="ui-table"><thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody></table></div> : <EmptyState title={empty} />; }

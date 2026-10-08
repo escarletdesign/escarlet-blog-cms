@@ -1,4 +1,4 @@
-# Onboarding — añadir blog a un proyecto
+# Onboarding - añadir blog a un proyecto
 
 Guía personal para crear un site nuevo o enchufar el blog a una landing ya existente.
 Un solo CMS v2 (`cms.escarlet.design`). Cada web es un **handle** con su brand kit y su webhook.
@@ -61,11 +61,11 @@ npm run site:init -- --handle demo --domain https://demo.escarlet.cc \
   --copy-frontend ../mi-landing/scripts
 ```
 
-También puedes consultar las marcas y el contenido v2 por MCP (Hermes / Cursor con el CMS conectado).
+También puedes descubrir capabilities y recetas por MCP v3 (Hermes / Cursor con Escarlet OS conectado).
 
 ```
-brand_list {}
-content_list_plans { site: "mares24" }
+capability.search { query: "brand reel publication" }
+brand.context.get { site: "mares24" }
 ```
 
 Luego completa el brand kit en `/app/admin` → Brand kit.
@@ -86,10 +86,8 @@ Luego completa el brand kit en `/app/admin` → Brand kit.
 
 4. `.gitignore` → `src/data/blog.generated.js` y `.escarlet-blog-runtime/`
 5. Monta rutas `/blog` y `/blog/:slug` leyendo `getBlogIndex` / `getPostBySlug` (como en escarlet002)
-6. **Contenido v2**. La app sincroniza publicaciones por canal desde las campañas
-   de contenido. ChatGPT genera el copy y las imágenes finales con texto integrado, `content_create_batch`
-   crea o reutiliza la campaña y `content_list_items` permite seguir la revisión. No se usan
-   posts ni Social Packs del modelo anterior.
+6. **Contenido**. La app sincroniza publicaciones aprobadas por canal. El agente usa
+   `copy.validate`, una capability de producción y el Publisher. No se usan aliases MCP legacy.
 7. **Interruptor**. CMS `/app/admin` → Sitio → Blog en la web pública. Encendido publica `/blog`. Apagado lo quita en el siguiente rebuild. Los posts siguen en el CMS.
 
 ### Env en Coolify (app del frontend)
@@ -171,7 +169,7 @@ SSO. El plugin llama `POST /api/embed/session` y redirige a `/api/embed/consume?
 {
   "mcpServers": {
     "escarlet-blog": {
-      "url": "https://cms.escarlet.design/mcp",
+      "url": "https://cms.escarlet.design/mcp/v3",
       "headers": {
         "Authorization": "Bearer TU_PAT_PERSONAL_user_..."
       }
@@ -180,25 +178,25 @@ SSO. El plugin llama `POST /api/embed/session` y redirige a `/api/embed/consume?
 }
 ```
 
-ChatGPT. Connectors → Create → URL `https://cms.escarlet.design/mcp` → OAuth. Es el mismo conector para todos los roles. También puedes usar un PAT personal (`user_...`) en clientes que acepten Bearer. El MCP conserva rol, usuario y marcas asignadas; no concede acceso adicional. El panel también ofrece el PNG del favicon (<10 KB) en `/media/{handle}/agent-icon.png`.
+ChatGPT. Connectors → Create → URL `https://cms.escarlet.design/mcp/v3` → OAuth. Es el mismo conector para todos los roles. También puedes usar un PAT personal (`user_...`) en clientes que acepten Bearer. El MCP conserva rol, usuario y marcas asignadas; no concede acceso adicional. El panel también ofrece el PNG del favicon (<10 KB) en `/media/{handle}/agent-icon.png`.
 
-Claude. Customize → Connectors → Add custom connector → URL `https://cms.escarlet.design/mcp` → OAuth. Usa los mismos tokens y el mismo alcance por rol. Puede usar el mismo icono PNG.
+Claude. Customize → Connectors → Add custom connector → URL `https://cms.escarlet.design/mcp/v3` → OAuth. Usa los mismos tokens y el mismo alcance por rol. Puede usar el mismo icono PNG.
 
 2. Copia `templates/frontend/blog-via-mcp.mdc` al proyecto web y cambia `{{handle}}`
 3. Skill del repo. `.cursor/skills/escarlet-blog-cms/SKILL.md`
-4. Tool de ayuda. `brand_list` descubre las marcas y las herramientas `content_*` explican el flujo v2
+4. Tool de ayuda. `capability.search` descubre primitives y recipes autorizadas
 
 ### Flujo de contenido
 
 | Acción | Tools |
 |--------|-------|
-| Crear | ChatGPT genera textos e imágenes → `content_create_batch` → generación asíncrona |
-| Revisar | `content_list_plans` / `content_list_items` (resumen) → `content_get_item` → `content_update_item` → `content_approve` |
-| Programar | `content_schedule` con `publicationDate` y `timezone` |
-| Cancelar | `content_cancel` antes de la publicación |
-| Calendario | App → Calendario, o `content_list_calendar` |
-| Detalle | `content_get_batch` devuelve la campaña, publicaciones y variantes |
-| Marcas | `brand_list` → elegir una marca → `brand_get_context` |
+| Crear | `copy.validate` → capability de producción → resultado para revisión |
+| Revisar | App → preview → aprobación humana |
+| Programar | `publication.route` → `publication.schedule` con `publicationDate` y `timezone` |
+| Cancelar | App o control plane antes de la publicación |
+| Calendario | App → Calendario, o estado del Publisher |
+| Detalle | `publication.status.get` devuelve estado interno y externo |
+| Marcas | `capability.search` → elegir una marca → `brand.context.get` |
 
 **Acceso MCP.** OAuth y los PAT personales comparten la identidad del usuario. El contexto normalizado de la marca incluye voz, keywords, paleta, tipografías, composición, arquetipos, templates y referencias aprobadas. Los archivos fuente privados no se solicitan ni se entregan al MCP.
 
@@ -229,8 +227,8 @@ Prohibido. Commitear posts al git del frontend. Usar `create_draft` para editar.
 - [ ] Frontend Vite. sync en prebuild + env Coolify **o** WordPress. plugin + webhook de sync
 - [ ] Webhook + secreto del proveedor en tab Sitio (probado)
 - [ ] Interruptor Blog en la web pública encendido
-- [ ] MCP `/mcp` + selección explícita de marca con `brand_list`
-- [ ] Crear una campaña de prueba con `content_create_batch` y aprobar sus publicaciones desde la app v2
+- [ ] MCP `/mcp/v3` + descubrimiento de capabilities y selección explícita de marca
+- [ ] Ejecutar una receta de prueba, revisar el artefacto y aprobarlo desde la app
 
 ---
 

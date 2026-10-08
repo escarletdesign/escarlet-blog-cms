@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
+import { join, resolve as resolvePath } from 'node:path'
 import { getPgPool, runCoreMigrations, closePgPool } from './lib/pg.mjs'
 import { claimJobs, finishJob, claimOutbox, finishOutbox, touchJob, touchOutbox, recordUsage, enqueueJob, resolveBufferChannelId } from './lib/workspace-domain.mjs'
 import { decryptSecret } from './lib/secret-crypto.mjs'
@@ -11,6 +12,9 @@ import { blogPublicationIsLive, blogPublicationSlug, blogPublicationTitle, blogP
 import { blogPublishJobKey, dueBlogJobAction } from './lib/blog-publish.mjs'
 import { fetchRemote } from './lib/remote-fetch.mjs'
 import { nextProviderPollAt, providerRowNeedsRemoteSync } from './lib/provider-poll.mjs'
+import { ingestVideoUpload, motionRenderAvailability, VIDEO_RENDER_JOB_TYPE } from './lib/video-jobs.mjs'
+import { mediaDir } from './lib/db.mjs'
+import { renderMotionVideo } from './lib/motion-renderer.mjs'
 
 function loadEnv() {
   const path = new URL('./.env', import.meta.url)
@@ -456,6 +460,100 @@ async function processBufferSyncJob(job) {
   return { synced }
 }
 
+async function processMotionCompositionJob(job) {
+  const pool = await getPgPool()
+  if (!pool) throw new Error('Postgres no está configurado.')
+  const videoJobId = String(job.payload?.videoJobId || '').trim()
+  if (!videoJobId) throw new Error(`${VIDEO_RENDER_JOB_TYPE} requiere videoJobId.`)
+  const result = await pool.query(`
+    SELECT vj.id,vj.workspace_id,vj.site_id,vj.provider,vj.status,vj.metadata,vj.format,vj.topic,vj.content_item_id,
+           s.handle AS site_handle,
+           source.storage_key AS source_storage_key,source.content_type AS source_content_type,
+           audio.storage_key AS audio_storage_key,audio.content_type AS audio_content_type
+    FROM video_jobs vj
+    JOIN sites s ON s.id=vj.site_id
+    LEFT JOIN media_assets source ON source.id=vj.source_media_id
+    LEFT JOIN media_assets audio ON audio.id=(vj.metadata->>'audioAssetId')
+    WHERE vj.id=$1 AND vj.workspace_id=$2
+    LIMIT 1
+  `, [videoJobId, job.workspace_id])
+  if (!result.rowCount) throw new Error('Video job no encontrado.')
+  const video = result.rows[0]
+  if (video.status !== 'queued') return { videoJobId, status: video.status, skipped: true }
+
+  const availability = motionRenderAvailability(video.provider)
+  if (availability.provider === 'local' && availability.configured) {
+    const storedPath = (value) => {
+      const clean = String(value || '').replace(/^\/+/, '')
+      const relative = clean.replace(/^media\//, '')
+      const root = resolvePath(mediaDir)
+      const candidate = resolvePath(join(root, relative))
+      return candidate === root || candidate.startsWith(`${root}/`) ? candidate : ''
+    }
+    try {
+      const sourcePath = storedPath(video.source_storage_key)
+      const audioPath = storedPath(video.audio_storage_key)
+      const buffer = await renderMotionVideo({
+        sourcePath,
+        audioPath,
+        site: video.site_handle,
+        title: video.topic || video.metadata?.title || 'Reel de marca',
+        text: video.metadata?.text || video.topic || '',
+        durationSeconds: video.metadata?.durationSeconds || 8
+      })
+      const uploaded = await ingestVideoUpload({
+        workspaceId: video.workspace_id,
+        siteId: video.site_id,
+        siteHandle: video.site_handle,
+        userId: null,
+        role: 'editor',
+        payload: { buffer, filename: `escarlet-${video.id}.mp4`, mimeType: 'video/mp4' },
+        mediaRole: 'final_video',
+        format: video.format === 'landscape' ? 'landscape' : 'portrait',
+        contentItemId: video.content_item_id,
+        videoJobId: video.id
+      })
+      const processing = { state: 'ready_for_review', code: 'local_renderer_completed', retryable: false, provider: 'local', rendered: true, mediaAssetId: uploaded.mediaAssetId, updatedAt: new Date().toISOString() }
+      await pool.query('UPDATE video_jobs SET metadata=metadata || jsonb_build_object(\'processing\',$3::jsonb),updated_at=NOW() WHERE id=$1 AND workspace_id=$2', [video.id, video.workspace_id, JSON.stringify(processing)])
+      return { videoJobId, status: 'ready_for_review', provider: 'local', rendered: true, mediaAssetId: uploaded.mediaAssetId, retryable: false, code: 'local_renderer_completed' }
+    } catch (error) {
+      const processing = { state: 'awaiting_provider', code: error.code || 'local_renderer_failed', retryable: true, provider: 'local', rendered: false, message: String(error.message || '').slice(0, 500), updatedAt: new Date().toISOString() }
+      await pool.query("UPDATE video_jobs SET status='awaiting_provider',metadata=metadata || jsonb_build_object('processing',$3::jsonb),updated_at=NOW() WHERE id=$1 AND workspace_id=$2", [video.id, video.workspace_id, JSON.stringify(processing)])
+      return { videoJobId, status: 'awaiting_provider', provider: 'local', rendered: false, retryable: true, code: processing.code }
+    }
+  }
+  const processing = {
+    state: availability.status,
+    code: availability.code,
+    retryable: availability.retryable,
+    provider: availability.provider,
+    rendered: false,
+    updatedAt: new Date().toISOString()
+  }
+  const updated = await pool.query(`
+    UPDATE video_jobs
+    SET status='awaiting_provider',
+        metadata=metadata || jsonb_build_object('processing',$3::jsonb),
+        updated_at=NOW()
+    WHERE id=$1 AND workspace_id=$2 AND status='queued'
+    RETURNING id,status,provider
+  `, [videoJobId, job.workspace_id, JSON.stringify(processing)])
+  if (updated.rowCount) {
+    await pool.query(`
+      INSERT INTO audit_log (workspace_id,site_id,user_id,action,entity_type,entity_id,metadata)
+      VALUES ($1,$2,NULL,$3,$4,$5,$6)
+    `, [job.workspace_id, video.site_id, 'video.render_waiting_provider', 'video_job', videoJobId, JSON.stringify(processing)])
+  }
+  return {
+    videoJobId,
+    status: updated.rows[0]?.status || 'awaiting_provider',
+    provider: updated.rows[0]?.provider || availability.provider,
+    rendered: false,
+    retryable: availability.retryable,
+    code: availability.code
+  }
+}
+
 async function processJob(job) {
   if (job.type === 'content.publish_blog') return processBlogPublishJob(job)
   if (job.type === 'content.verify_blog') return processBlogVerifyJob(job)
@@ -463,6 +561,7 @@ async function processJob(job) {
   if (job.type === 'planable.sync') return processPlanableSyncJob(job)
   if (job.type === 'postiz.sync') return processPostizSyncJob(job)
   if (job.type === 'buffer.sync') return processBufferSyncJob(job)
+  if (job.type === VIDEO_RENDER_JOB_TYPE) return processMotionCompositionJob(job)
   throw new Error(`Tipo de job no soportado: ${job.type}`)
 }
 

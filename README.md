@@ -37,7 +37,7 @@ ejecuta como recurso gestionado aparte (en local lo levanta `docker-compose`). A
 roles cliente y endpoints de IA/Stripe. Las claves `OPENAI_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY` y `STRIPE_SECRET_KEY`
 se quedan siempre en el servidor. `ADMIN_TOKEN` es obligatorio (no hay token por defecto). Para guardar claves desde **Administración → IA y Billing**, configura también `AI_CONNECTOR_ENCRYPTION_KEY` con un secreto aleatorio de al menos 32 bytes; las claves se cifran con AES-256-GCM en `data/db.json`, que se escribe con modo `0600`. Para producción v2 configura `DATABASE_URL` y `CMS_SECRET_KEY`; ejecuta `npm run db:migrate` una única vez con el CMS en modo escritura congelada. Consulta `.env.example` para el catálogo de precios y la migración explícita de instalaciones antiguas.
 
-El CMS mantiene desactivada de forma permanente la generación de IA server-side. Las rutas REST de IA, conectores, transcripción, imágenes y créditos devuelven `403 CMS_AI_DISABLED`; `/mcp`, la membresía MCP y el editor manual siguen disponibles. ChatGPT genera el texto y los píxeles finales mediante el MCP canónico.
+El CMS mantiene desactivada de forma permanente la generación de IA server-side. Las rutas REST de IA, conectores, transcripción, imágenes y créditos devuelven `403 CMS_AI_DISABLED`; `/mcp/v3`, la membresía MCP y el editor manual siguen disponibles. ChatGPT genera el texto y los píxeles finales mediante el MCP canónico.
 
 ### Sistema de diseño de la PWA
 
@@ -64,29 +64,29 @@ npm run site:init -- --handle demo --domain https://demo.example \
   --copy-frontend ../mi-landing/scripts
 ```
 
-Por MCP, usa `brand_list` para descubrir las marcas y las herramientas `content_*` para el flujo v2.
+Por MCP v3, usa `capability.search` y después fija la marca con `brand.context.get`. El endpoint anterior `/mcp` está retirado.
 
 Deploy producción. [docs/DEPLOY.md](docs/DEPLOY.md).
 
-## MCP tools
+## MCP v3 tools
 
 | Tool | Uso |
 |------|-----|
-| `brand_list` | Marcas v2 accesibles para el token; si hay varias, el asistente debe preguntar |
-| `brand_get_context` | Contexto normalizado canónico de la marca por membresía |
-| `brand_prepare_image_generation` | Política determinista y referencias permitidas para generar imágenes |
-| `content_list_plans` | Campañas, progreso, canales y publicaciones |
-| `content_list_items` | Publicaciones v2, incluidas las generadas y pendientes de revisión |
-| `content_get_batch` | Detalle de una campaña, publicaciones y variantes |
-| `content_create_batch` | Añadir publicaciones a una campaña existente o crear una nueva tras confirmación |
-| `content_update_item` | Editar tema, variante y media enlazada |
-| `content_approve` | Aprobación de publicaciones |
-| `content_schedule` / `content_cancel` | Agendar o cancelar publicaciones v2 |
-| `content_list_calendar` | Calendario v2 por rango de fechas |
-| `content_upload_media` | Almacenamiento canónico v2 para PNG/JPG en `contentBase64` o `blob` (2–3 MB valen). `kind` `post`, `social` o `reference`. Si recorta, `uploadId` a trozos |
-| `brand kit` en la app v2 | Importar y versionar el brand kit desde Administración, sin una tool legacy |
+| `capability.search` / `recipe.get` / `recipe.run` | Descubrir y ejecutar recipes compuestas hasta revisión |
+| `brand.context.get` / `brand.voice.get` | Leer contexto y voz del snapshot activo |
+| `brand.visual_style.get` / `brand.rules.get` | Leer estilo visual y reglas publicables |
+| `brand.references.resolve` | Fijar referencias visuales permitidas |
+| `brand.generation.prepare` | Crear una preparación versionada para un agente externo |
+| `copy.validate` | Validar copy contra el Brand Kernel |
+| `production.motion.compose` | Composición vertical local con FFmpeg o handoff explícito a un proveedor externo |
+| `production.image.product.transform` | Composición local determinista con Brand Kit y procedencia, o preparación para generación externa |
+| `publication.destination.list` / `publication.route` | Elegir canal y proveedor compatibles |
+| `publication.schedule` / `publication.publish` | Programar o publicar solo después de aprobación humana |
+| `publication.status.get` | Consultar estado interno y externo |
 
-Resources. `brand://{handle}/context` devuelve el contexto normalizado completo. Los archivos fuente privados solo se gestionan desde la app por owner/admin; `AGENT.md` y `keywords.md` quedan como adaptadores de compatibilidad.
+La PWA incluye las micro apps `/app/production/food-to-reel` y `/app/publication/publisher`. Con `MOTION_RENDERER_LOCAL=true` el worker produce un MP4 local revisable; `PRODUCT_RENDERER_LOCAL=true` habilita la transformación determinista de producto. Ambos valores pueden desactivarse para exigir un proveedor externo.
+
+Resources. `escarlet://capabilities/index`, `escarlet://recipes/index` y `escarlet://brand/kernel` exponen el índice y el contrato. Los archivos fuente privados solo se gestionan desde la app por owner/admin.
 
 Contratos HTTP v2: `/api/v2/content/batches`, `/api/v2/content/items` (incluye revisión, cancelación y agenda), `/api/v2/usage`, `/api/v2/brand-kits` y `/api/v2/brands/:id/connections` (Buffer, Postiz, Metricool, Planable y web). App y MCP llaman al mismo servicio de dominio; `/api/sites/:handle/posts` permanece como read adapter público.
 
@@ -96,7 +96,7 @@ Hermes (otro servidor) no clona el CMS. En su `mcp.json`:
 {
   "mcpServers": {
     "escarlet-blog": {
-      "url": "https://cms.escarlet.design/mcp",
+      "url": "https://cms.escarlet.design/mcp/v3",
       "headers": {
         "Authorization": "Bearer TU_PAT_PERSONAL_user_..."
       }
@@ -105,9 +105,9 @@ Hermes (otro servidor) no clona el CMS. En su `mcp.json`:
 }
 ```
 
-ChatGPT (Developer Mode / Connectors). URL `https://cms.escarlet.design/mcp`, autenticación **OAuth**. Es el mismo conector para todos los roles. Autoriza con tu usuario o usa un PAT personal (`user_...`). El rol y las marcas se resuelven desde las membresías actuales en cada solicitud; `ADMIN_TOKEN` queda reservado al servidor. `/app/admin` genera un PNG del favicon (<10 KB) para el icono del conector.
+ChatGPT (Developer Mode / Connectors). URL `https://cms.escarlet.design/mcp/v3`, autenticación **OAuth**. Es el mismo conector para todos los roles. Autoriza con tu usuario o usa un PAT personal (`user_...`). El rol y las marcas se resuelven desde las membresías actuales en cada solicitud; `ADMIN_TOKEN` queda reservado al servidor. `/app/admin` genera un PNG del favicon (<10 KB) para el icono del conector.
 
-Claude (Customize / Connectors). URL `https://cms.escarlet.design/mcp`, autenticación **OAuth**. Usa el mismo PAT personal y alcance por membresía que ChatGPT. Puede usar el mismo icono PNG.
+Claude (Customize / Connectors). URL `https://cms.escarlet.design/mcp/v3`, autenticación **OAuth**. Usa el mismo PAT personal y alcance por membresía que ChatGPT. Puede usar el mismo icono PNG.
 
 ## Integración frontend
 
@@ -137,8 +137,8 @@ npm run visual:render -- --input=content-system/examples/sample-carousel-output.
 ## Escritura más humana
 
 La política editorial compartida vive en [`lib/human-writing.mjs`](lib/human-writing.mjs)
-y el MCP la entrega en `MCP_INSTRUCTIONS` y en `sharedEditorialPolicy` dentro de
-`brand_get_context`. Así se aplica a todos los sitios junto con su voz y
+y el MCP v3 la entrega en `sharedEditorialPolicy` dentro de
+`brand.context.get`. Así se aplica a todos los sitios junto con su voz y
 restricciones locales, sin duplicarla en cada `AGENT.md`. El editor `/app`
 también ofrece «Hacer más humano» para borradores existentes.
 

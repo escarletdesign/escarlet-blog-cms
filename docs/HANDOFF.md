@@ -1,13 +1,13 @@
-# Handoff — Escarlet Blog CMS
+# Handoff: Escarlet Blog CMS
 
 Documento para retomar el proyecto desde otro chat o workspace Cursor.
 
 ## Qué es
 
-CMS headless central + MCP para agentes (Hermes). Los posts **no van a git** de escarlet002. El frontend hace pull en build.
+Escarlet OS central + MCP v3 para agentes (Hermes). Los posts **no van a git** de escarlet002. El frontend hace pull en build.
 
 ```
-Hermes → HTTPS /mcp (mismo servicio CMS)
+Hermes → HTTPS /mcp/v3 (mismo servicio Escarlet OS)
                     ↓
               data/db.json + brand kit
                     ↓ publish
@@ -24,7 +24,7 @@ Para dar de alta otro proyecto. [ONBOARDING.md](./ONBOARDING.md)
 npm run site:init -- --handle CLIENTE --domain https://...
 ```
 
-MCP v2. `brand_list` y herramientas `content_*`. Plantillas en `templates/`.
+MCP v3. `capability.search`, Brand Kernel, producción y Publisher. Plantillas en `templates/`.
 
 ## Repos
 
@@ -33,7 +33,7 @@ MCP v2. `brand_list` y herramientas `content_*`. Plantillas en `templates/`.
 | CMS + MCP | `/Users/carlosbrugiafredo/Documents/Escarlet/_Landigs/escarlet-blog-cms` |
 | Web Escarlet | `/Users/carlosbrugiafredo/Documents/Escarlet/_Landigs/escarlet002` |
 
-## Estado implementado (sep 2026)
+## Estado implementado (rama v3)
 
 - MCP con 10 tools + 4 resources brand kit
 - SEO validator + tests
@@ -42,6 +42,8 @@ MCP v2. `brand_list` y herramientas `content_*`. Plantillas en `templates/`.
 - 21 posts migrados al CMS
 - escarlet002 sync en `prebuild` y `dev`
 - Regla `.cursor/rules/blog-via-mcp.mdc` en escarlet002
+- Registro OS namespaced, recipes `food-to-reel` y `menu-to-reel`, Publisher por canal/proveedor y Brand Kernel versionado
+- Worker local FFmpeg para Reels revisables y transformación determinista de producto con procedencia
 
 ## Arranque local
 
@@ -60,7 +62,7 @@ App. http://localhost:3040/app
 
 ## MCP Cursor
 
-El MCP es el endpoint `POST https://cms.escarlet.design/mcp` del mismo servicio. Hermes solo pone `url` + `Authorization` Bearer. Ver `docs/mcp.json.example`.
+El MCP v3 es el endpoint `POST https://cms.escarlet.design/mcp/v3` del mismo servicio. Hermes solo pone `url` + `Authorization` Bearer. Ver `docs/mcp.json.example`.
 
 ## Deploy pendiente (Carlos)
 

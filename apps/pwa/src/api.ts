@@ -289,10 +289,10 @@ const baseApi = {
     request<ContentBatch>(
       `/api/v2/content/batches/${encodeURIComponent(batchId)}${site ? `?site=${encodeURIComponent(site)}` : ""}`,
     ),
-  createContentBatch: (input: { site?: string; title: string; topics: string[]; channels: string[]; brandKitVersionId?: string; idempotencyKey?: string }) =>
+  createContentBatch: (input: { site?: string; title: string; topics: string[]; channels: string[]; brandKitVersionId?: string; idempotencyKey?: string; brief?: Record<string, any> }) =>
     request<{ batchId: string; itemIds: string[]; status: "draft"; totalItems: number }>(
       "/api/v2/content/batches",
-      { method: "POST", headers: { "X-Escarlet-Client": "pwa", "Idempotency-Key": input.idempotencyKey || crypto.randomUUID() }, body: JSON.stringify(input) },
+      { method: "POST", headers: { "X-Escarlet-Client": "pwa", "Idempotency-Key": input.idempotencyKey || crypto.randomUUID() }, body: JSON.stringify({ ...input, metadata: { contentBrief: input.brief } }) },
     ),
   updateContentItem: (itemId: string, input: { site?: string; topic?: string; contentTitle?: string; channel?: string; body?: Record<string, any>; visualBrief?: Record<string, any>; mediaAssetIds?: string[]; readyForReview?: boolean; keepPublished?: boolean }) =>
     request<ContentItem>(
@@ -329,6 +329,23 @@ const baseApi = {
       `/api/v2/content/items/${encodeURIComponent(itemId)}/publish-buffer`,
       { method: "POST", body: JSON.stringify({ site, channels, copy }) },
     ),
+  productionAssets: (site?: string) =>
+    request<{ assets: MediaItem[] }>(`/api/v2/assets${site ? `?site=${encodeURIComponent(site)}` : ""}`),
+  uploadProductionAsset: (input: { site?: string; filename: string; contentBase64: string; alt?: string; idempotencyKey?: string }) =>
+    request<{ asset: Record<string, unknown>; media: MediaItem }>("/api/v2/assets/upload", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  runRecipe: (input: { site?: string; recipeId: string; sourceMediaId: string; audioAssetId?: string; text: string; formatProfile?: string; channel?: string; provider?: string; createContentIfMissing?: boolean; idempotencyKey?: string }) =>
+    request<Record<string, any>>("/api/v3/recipes/run", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  publicationOperation: (input: { site?: string; operation: "destination.list" | "route" | "prepare" | "status.get"; channel?: string; provider?: string; assetIds?: string[]; text?: string; runId?: string; publicationId?: string }) =>
+    request<Record<string, any>>("/api/v3/publication", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   listVideoJobs: (site?: string, contentItemId?: string, status?: string) => {
     const params = new URLSearchParams();
     if (site) params.set("site", site);
@@ -337,6 +354,27 @@ const baseApi = {
     const query = params.toString();
     return request<{ jobs: Array<Record<string, unknown>> }>(`/api/v2/video/jobs${query ? `?${query}` : ""}`);
   },
+  createVideoJob: (input: {
+    site?: string;
+    contentItemId?: string;
+    sourceMediaId: string;
+    provider?: string;
+    channel?: string;
+    format?: string;
+    objective?: string;
+    topic?: string;
+    metadata?: Record<string, unknown>;
+    idempotencyKey?: string;
+    createContentIfMissing?: boolean;
+  }) =>
+    request<{ videoJobId?: string; job?: Record<string, unknown> }>(
+      "/api/v2/video/jobs",
+      {
+        method: "POST",
+        headers: { "X-Escarlet-Client": "pwa" },
+        body: JSON.stringify(input),
+      },
+    ),
   getVideoJob: (videoJobId: string, site?: string) =>
     request<{ job: Record<string, unknown> }>(
       `/api/v2/video/jobs/${encodeURIComponent(videoJobId)}${site ? `?site=${encodeURIComponent(site)}` : ""}`,

@@ -31,6 +31,8 @@ import { createVideoCapture } from "./portrait-recorder";
 import type { VideoCapture, VideoFormat } from "./portrait-recorder";
 import { ContentBatches as ContentPlans } from "./ContentBatches";
 import { DesignSystem } from "./DesignSystem";
+import { FoodToReel } from "./FoodToReel";
+import { Publisher } from "./Publisher";
 import { Badge, Button, Card, ChannelBadge, Checkbox, ConnectionCard, Drawer, EmptyState as UiEmptyState, Field, IconButton, Inline, Modal, MultiSelectPills, PageHeader, Select, Stack, StatusBadge, Tabs, TeleprompterLineControls, TextField, Toast as UiToast } from "./ui";
 
 type Draft = Partial<Post> & { title: string; slug?: string };
@@ -554,6 +556,8 @@ function App() {
                 </>
               ) : <Route element={<Shell />}>
                 <Route path="/" element={<Home />} />
+                <Route path="/production/food-to-reel" element={<FoodToReel site={site} t={t} />} />
+                <Route path="/publication/publisher" element={<Publisher site={site} t={t} />} />
                 {workflowFlags.assistantEnabled && brandCapabilities.content_publishing !== false && <Route path="/chat" element={<Chat />} />}
                 {workflowFlags.manualCreationEnabled && workflowFlags.blogWizardEnabled && brandCapabilities.content_publishing !== false && <Route path="/quick-create" element={<QuickCreate />} />}
                 {workflowFlags.manualCreationEnabled && brandCapabilities.content_publishing !== false && <>
@@ -573,6 +577,7 @@ function App() {
                 <Route path="/brands" element={<AdminTabRedirect tab="brands"><BrandsView /></AdminTabRedirect>} />
                 <Route path="/brands/new" element={<NewBrandView />} />
                 <Route path="/brands/:brandId" element={<BrandDetailView />} />
+                <Route path="/brands/:brandId/setup" element={<BrandSetupWizard />} />
                 <Route path="/brands/:brandId/identity" element={<BrandIdentityView />} />
                 <Route path="/brands/:brandId/channels" element={<BrandChannelsView />} />
                 <Route path="/brands/:brandId/connections" element={<BrandConnectionsView />} />
@@ -904,6 +909,8 @@ function Shell() {
   const links = [
     { to: "/", label: t("nav.home", "Resumen"), icon: "home" },
     { to: "/plans", label: t("nav.plans", "Contenido"), icon: "plans" },
+    { to: "/production/food-to-reel", label: t("nav.foodToReel", "Food to Reel"), icon: "video" },
+    ...(publishingEnabled ? [{ to: "/publication/publisher", label: t("nav.publisher", "Publisher"), icon: "send" }] : []),
     ...(publishingEnabled ? [{ to: "/calendar", label: t("nav.calendar", "Calendario"), icon: "calendar" }] : []),
     ...(!adminUser ? [
       { to: "/brands", label: t("nav.brands", "Marcas"), icon: "brands" },
@@ -1125,6 +1132,8 @@ function NavIcon({ kind }: { kind: string }) {
   if (kind === "home") return <svg {...common}><path d="m3.5 9 6.5-5 6.5 5v6.2a1.3 1.3 0 0 1-1.3 1.3H4.8a1.3 1.3 0 0 1-1.3-1.3Z" /><path d="M8 16.5v-4h4v4" /></svg>;
   if (kind === "review") return <svg {...common}><rect x="3" y="2.8" width="14" height="14.4" rx="2" /><path d="m6 7.5 1.2 1.2L9.6 6M11 7.5h3M6 12l1.2 1.2L9.6 10.5M11 12h3" /></svg>;
   if (kind === "plans") return <svg {...common}><rect x="4" y="4" width="11" height="12" rx="1.5" /><path d="M7 2.5h8.5A1.5 1.5 0 0 1 17 4v10.5M7 8h5M7 11h5" /></svg>;
+  if (kind === "video") return <svg {...common}><rect x="3" y="5" width="14" height="10" rx="2" /><path d="m8 8 4 2-4 2Z" /></svg>;
+  if (kind === "send") return <svg {...common}><path d="m3 3 14 7-14 7 3.5-7Z" /><path d="M6.5 10H17" /></svg>;
   if (kind === "calendar") return <svg {...common}><rect x="3" y="4.5" width="14" height="12" rx="2" /><path d="M6.5 2.5v4M13.5 2.5v4M3 8h14M7 11h.01M10 11h.01M13 11h.01M7 14h.01M10 14h.01" /></svg>;
   if (kind === "brands") return <svg {...common}><path d="M3 16.5V5.2a1.7 1.7 0 0 1 1.7-1.7h10.6A1.7 1.7 0 0 1 17 5.2v11.3M2 16.5h16M6 8h2M12 8h2M6 11h2M12 11h2M8 16.5v-2.7h4v2.7" /></svg>;
   if (kind === "connections") return <svg {...common}><path d="M7.4 12.6 5.7 14.3a2.8 2.8 0 0 1-4-4l2.6-2.6a2.8 2.8 0 0 1 4 0M12.6 7.4l1.7-1.7a2.8 2.8 0 0 1 4 4l-2.6 2.6a2.8 2.8 0 0 1-4 0M6.5 13.5l7-7" /></svg>;
@@ -7163,7 +7172,7 @@ function NewBrandView() {
   if (!isWorkspaceAdmin(session)) return <main className="ui-page ui-page-narrow"><UiEmptyState title="No tienes permisos para crear marcas" description="Solicita acceso a un administrador del espacio." action={<Button onClick={() => nav("/brands")}>Volver a marcas</Button>} /></main>;
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true); setError("");
-    try { const result = await api.createBrand(form); await refresh(); nav(`/brands/${encodeURIComponent(result.brand.id)}`); }
+    try { const result = await api.createBrand(form); await refresh(); nav(`/brands/${encodeURIComponent(result.brand.id)}/setup`); }
     catch (err: any) { setError(err?.message || "No se pudo crear la marca."); }
     finally { setBusy(false); }
   };
@@ -7332,7 +7341,66 @@ function BrandDetailView() {
   useEffect(() => { api.brandV2(brandId).then((result) => setBrand(result.brand)).catch((err) => setError(err?.message || "No se pudo cargar la marca.")); }, [brandId]);
   if (error) return <main className="ui-page"><Card><p className="ui-field-error">{error}</p></Card></main>;
   if (!brand) return <main className="ui-page"><Card><p className="ui-muted">Cargando marca…</p></Card></main>;
-  return <main className="ui-page"><PageHeader eyebrow="Marca" title={brand.name || brand.handle || "Marca"} description={brand.domain || "Configura identidad, capacidades y canales."} back={<NavLink to="/brands">← Volver a marcas</NavLink>} actions={<Button variant="ghost" onClick={() => nav("/brands")}>Todas las marcas</Button>} /><div className="ui-brand-detail-grid"><Card><span className="ui-eyebrow">Capacidades</span><h2>Usos de la marca</h2><div className="ui-capability-list">{brand.capabilities && Object.entries(brand.capabilities).filter(([, enabled]) => enabled).map(([key]) => <Badge key={key} tone="info">{key.replace(/_/g, " ")}</Badge>)}</div><div className="ui-card-actions"><Button variant="secondary" onClick={() => nav(`/brands/${brand.id}/identity`)}>Identidad y brand kit</Button></div></Card><Card><span className="ui-eyebrow">Canales</span><h2>Canales activos</h2><div className="ui-channel-list">{(brand.channels || []).filter((channel) => channel.enabled).map((channel) => <ChannelBadge key={channel.channel} channel={channel.channel} />)}</div><div className="ui-card-actions"><Button variant="secondary" onClick={() => nav(`/brands/${brand.id}/channels`)}>Gestionar canales</Button></div></Card></div></main>;
+  return <main className="ui-page"><PageHeader eyebrow="Marca" title={brand.name || brand.handle || "Marca"} description={brand.domain || "Configura identidad, capacidades y canales."} back={<NavLink to="/brands">← Volver a marcas</NavLink>} actions={<Button variant="ghost" onClick={() => nav("/brands")}>Todas las marcas</Button>} /><div className="ui-brand-detail-grid"><Card><span className="ui-eyebrow">Primer paso</span><h2>Define cómo comunica</h2><p className="ui-muted">Completa el asistente y la marca quedará lista para generar campañas consistentes.</p><div className="ui-card-actions"><Button onClick={() => nav(`/brands/${brand.id}/setup`)}>Configurar marca</Button><Button variant="secondary" onClick={() => nav(`/brands/${brand.id}/identity`)}>Abrir identidad avanzada</Button></div></Card><Card><span className="ui-eyebrow">Capacidades</span><h2>Usos de la marca</h2><div className="ui-capability-list">{brand.capabilities && Object.entries(brand.capabilities).filter(([, enabled]) => enabled).map(([key]) => <Badge key={key} tone="info">{key.replace(/_/g, " ")}</Badge>)}</div></Card><Card><span className="ui-eyebrow">Canales</span><h2>Canales activos</h2><div className="ui-channel-list">{(brand.channels || []).filter((channel) => channel.enabled).map((channel) => <ChannelBadge key={channel.channel} channel={channel.channel} />)}</div><div className="ui-card-actions"><Button variant="secondary" onClick={() => nav(`/brands/${brand.id}/channels`)}>Gestionar canales</Button></div></Card></div></main>;
+}
+
+function BrandSetupWizard() {
+  const { brandId = "" } = useParams();
+  const nav = useNavigate();
+  const { session } = useApp();
+  const { showToast } = useToast();
+  const [brand, setBrand] = useState<BrandSummary | null>(null);
+  const [core, setCore] = useState<Record<string, any>>({});
+  const [step, setStep] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [form, setForm] = useState({ name: "", domain: "", audience: "", voice: "", pillars: "", prohibited: "", claims: "", language: "es" });
+  const canEdit = isWorkspaceAdmin(session);
+  const setField = (key: keyof typeof form, value: string) => setForm((current) => ({ ...current, [key]: value }));
+  useEffect(() => {
+    let active = true;
+    Promise.all([api.brandV2(brandId), api.brandKitV2(brandId)]).then(([brandResult, kit]) => {
+      if (!active) return;
+      const nextBrand = brandResult.brand;
+      const nextCore = parseBrandDocument(kit?.manifest?.["brand-core.json"] || kit?.manifest?.["brand-core"] || {});
+      const profile = nextCore.brandProfile || {};
+      setBrand(nextBrand); setCore(nextCore);
+      setForm({
+        name: String(nextBrand.name || nextCore.identity?.name || ""), domain: String(nextBrand.domain || ""),
+        audience: Array.isArray(profile.audience) ? profile.audience.join("\n") : String(profile.audience || ""),
+        voice: String(nextCore.identity?.editorialTone || profile.voice || ""),
+        pillars: Array.isArray(profile.pillars) ? profile.pillars.join("\n") : String(profile.pillars || ""),
+        prohibited: Array.isArray(profile.prohibitedTerms) ? profile.prohibitedTerms.join("\n") : "",
+        claims: Array.isArray(nextCore.claims) ? nextCore.claims.map((claim: any) => typeof claim === "string" ? claim : claim.text).filter(Boolean).join("\n") : "",
+        language: String(profile.language || "es")
+      });
+    }).catch((err) => { if (active) setError(err?.message || "No se pudo abrir el asistente."); });
+    return () => { active = false; };
+  }, [brandId]);
+  const save = async () => {
+    if (!brand?.handle || !canEdit) return;
+    setBusy(true); setError("");
+    const lines = (value: string) => value.split(/\r?\n|,/).map((entry) => entry.trim()).filter(Boolean);
+    try {
+      await api.updateBrandV2(brandId, { name: form.name.trim(), domain: form.domain.trim() || undefined });
+      const nextCore = {
+        ...core,
+        id: core.id || brand.handle,
+        version: core.version || "1.0.0",
+        identity: { ...(core.identity || {}), name: form.name.trim(), editorialTone: form.voice.trim(), embeddedText: false },
+        brandProfile: { ...(core.brandProfile || {}), audience: lines(form.audience), pillars: lines(form.pillars), prohibitedTerms: lines(form.prohibited), language: form.language },
+        claims: lines(form.claims).map((text) => ({ text, status: "draft", source: "" }))
+      };
+      await api.saveBrandFile(brand.handle, "brand-core.json", JSON.stringify(nextCore, null, 2));
+      showToast("Marca configurada. Ya puedes crear una campaña.");
+      nav(`/brands/${encodeURIComponent(brandId)}`);
+    } catch (err: any) { setError(err?.message || "No se pudo guardar la marca."); } finally { setBusy(false); }
+  };
+  const stepLabels = ["Identidad", "Audiencia", "Voz", "Revisión"];
+  if (error && !brand) return <main className="ui-page"><Card><p className="ui-field-error" role="alert">{error}</p></Card></main>;
+  if (!brand) return <main className="ui-page"><Card><p className="ui-muted">Cargando asistente…</p></Card></main>;
+  if (!canEdit) return <main className="ui-page"><PageHeader eyebrow="Configuración de marca" title="No tienes permisos para editar esta marca" back={<Button variant="ghost" onClick={() => nav(`/brands/${brandId}`)}>Volver</Button>} /><Card><p className="ui-muted">Pide a un administrador que complete el sistema de comunicación de la marca.</p></Card></main>;
+  return <main className="ui-page ui-page-narrow"><PageHeader eyebrow="Asistente de marca" title="Haz que la marca se explique sola" description="Responde estas preguntas una vez. Después, el sistema usará las respuestas para mantener el mismo criterio en cada campaña." back={<Button variant="ghost" onClick={() => nav(`/brands/${brandId}`)}>Volver</Button>} /><Card><div className="ui-step-list" aria-label="Pasos del asistente">{stepLabels.map((label, index) => <Badge key={label} tone={index === step ? "info" : index < step ? "success" : "neutral"}>{index + 1}. {label}</Badge>)}</div>{step === 0 && <Stack gap="md"><Field label="Nombre de la marca" hint="Cómo quieres que aparezca en el contenido." required><TextField value={form.name} onChange={(event) => setField("name", event.target.value)} autoFocus required /></Field><Field label="Dominio web" hint="Opcional. Ayuda a enlazar y citar la marca."><TextField type="url" value={form.domain} onChange={(event) => setField("domain", event.target.value)} placeholder="https://tumarca.com" /></Field></Stack>}{step === 1 && <Stack gap="md"><Field label="¿A quién habla la marca?" hint="Una audiencia por línea. Puedes escribir perfiles, sectores o situaciones." required><Textarea value={form.audience} onChange={(event) => setField("audience", event.target.value)} rows={6} autoFocus required placeholder="Personas que están empezando\nEquipos de marketing pequeños" /></Field><Field label="Idioma principal"><Select value={form.language} onChange={(event) => setField("language", event.target.value)}><option value="es">Español</option><option value="en">English</option></Select></Field></Stack>}{step === 2 && <Stack gap="md"><Field label="¿Cómo debe sonar?" hint="Describe el tono con palabras concretas y ejemplos de actitud." required><Textarea value={form.voice} onChange={(event) => setField("voice", event.target.value)} rows={5} autoFocus required placeholder="Claro, cercano y exigente con los datos. Nunca grandilocuente." /></Field><Field label="Pilares de contenido" hint="Un tema prioritario por línea."><Textarea value={form.pillars} onChange={(event) => setField("pillars", event.target.value)} rows={4} placeholder="Educación práctica\nCasos reales\nDecisiones de producto" /></Field><Field label="Palabras o enfoques que debemos evitar" hint="Opcional. Una entrada por línea."><Textarea value={form.prohibited} onChange={(event) => setField("prohibited", event.target.value)} rows={3} /></Field><Field label="Claims que requieren revisión" hint="Uno por línea. Se guardan como pendientes hasta que un responsable los apruebe."><Textarea value={form.claims} onChange={(event) => setField("claims", event.target.value)} rows={4} /></Field></Stack>}{step === 3 && <Stack gap="md"><h2>Comprueba el resumen</h2><p className="ui-muted">{form.name} hablará a {form.audience || "una audiencia todavía no definida"}, con un tono {form.voice || "todavía no definido"}.</p><p><strong>{form.pillars ? `${form.pillars.split(/\r?\n/).filter(Boolean).length} pilares` : "Sin pilares todavía"}</strong> · <strong>{form.claims ? `${form.claims.split(/\r?\n/).filter(Boolean).length} claims pendientes` : "Sin claims"}</strong></p>{error && <p className="ui-field-error" role="alert">{error}</p>}</Stack>}<Inline gap="md"><Button type="button" variant="ghost" disabled={busy || step === 0} onClick={() => setStep((current) => current - 1)}>Atrás</Button>{step < 3 ? <Button type="button" disabled={busy || (step === 0 && !form.name.trim()) || (step === 1 && !form.audience.trim()) || (step === 2 && !form.voice.trim())} onClick={() => setStep((current) => current + 1)}>Continuar</Button> : <Button type="button" loading={busy} onClick={() => void save()}>Guardar sistema de marca</Button>}</Inline></Card></main>;
 }
 
 function BrandIdentityView() {

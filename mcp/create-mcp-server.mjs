@@ -78,6 +78,22 @@ import {
 } from '../lib/generation-provenance.mjs'
 
 const DEFAULT_SITE = process.env.DEFAULT_SITE || 'escarlet'
+const CONTENT_BRIEF_SCHEMA = {
+  type: 'object',
+  description: 'Brief común de la campaña.',
+  properties: {
+    objective: { type: 'string' },
+    audience: { type: 'string' },
+    idea: { type: 'string' },
+    channels: { type: 'array', items: { type: 'string' } },
+    format: { type: 'string' },
+    cta: { type: 'string' },
+    sources: { type: 'array', items: { type: 'string' } },
+    constraints: { type: 'array', items: { type: 'string' } },
+    language: { type: 'string' }
+  },
+  additionalProperties: false
+}
 const V2_CONTENT_TOOLS = new Set([
   'content_list_plans',
   'content_list_items',
@@ -1585,7 +1601,7 @@ export function buildToolList(auth) {
     { name: 'content_list_items', description: 'Resumen de publicaciones, sin body. El detalle está en content_get_item.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, batchId: { type: 'string' }, status: { type: 'string' }, channel: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] }, query: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 500 } } }, annotations: { readOnlyHint: true } },
     { name: 'content_get_item', description: 'Body, medios y readiness de una publicación.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' } }, required: ['itemId'] }, annotations: { readOnlyHint: true } },
     { name: 'content_list_calendar', description: 'Lista el calendario v2 con publicaciones programadas, sincronizando, publicadas o con error.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, from: { type: 'string' }, to: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 1000 } } }, annotations: { readOnlyHint: true } },
-    { name: 'content_create_batch', description: 'Guarda primero los textos completos de una o varias publicaciones. Crea una campaña nueva automáticamente; pasa batchId solo si el usuario pidió añadir a una campaña existente. Si falta title de campaña, se toma del primer post. Conserva literalmente las variantes recibidas.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, title: { type: 'string', description: 'Opcional. Por defecto usa el título del primer post.' }, items: { type: 'array', minItems: 1, items: { type: 'object', properties: { title: { type: 'string', maxLength: 90, description: 'Título editorial breve. No incluyas el enfoque, contexto ni el brief.' }, brief: { type: 'string', minLength: 1, maxLength: 500 }, variants: { type: 'object', minProperties: 1, additionalProperties: { type: 'object' } } }, required: ['variants'], additionalProperties: false } }, batchId: { type: 'string', description: 'Solo si el usuario pidió añadir a una campaña existente.' }, createNewCampaign: { type: 'boolean', description: 'Compatibilidad anterior. No hace falta enviarlo para crear campaña nueva.' }, channels: { type: 'array', items: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] } }, brandKitVersionId: { type: 'string' }, idempotencyKey: { type: 'string', maxLength: 300 }, metadata: { type: 'object' } }, required: ['items'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
+    { name: 'content_create_batch', description: 'Guarda primero los textos completos de una o varias publicaciones. Crea una campaña nueva automáticamente y registra el brief, el contexto de marca y los hallazgos de consistencia.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, title: { type: 'string', description: 'Opcional. Por defecto usa el título del primer post.' }, brief: CONTENT_BRIEF_SCHEMA, items: { type: 'array', minItems: 1, items: { type: 'object', properties: { title: { type: 'string', maxLength: 90, description: 'Título editorial breve. No incluyas el enfoque, contexto ni el brief.' }, brief: { type: 'string', minLength: 1, maxLength: 500 }, variants: { type: 'object', minProperties: 1, additionalProperties: { type: 'object' } } }, required: ['variants'], additionalProperties: false } }, batchId: { type: 'string', description: 'Solo si el usuario pidió añadir a una campaña existente.' }, createNewCampaign: { type: 'boolean', description: 'Compatibilidad anterior. No hace falta enviarlo para crear campaña nueva.' }, channels: { type: 'array', items: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] } }, brandKitVersionId: { type: 'string' }, idempotencyKey: { type: 'string', maxLength: 300 }, metadata: { type: 'object', description: 'Puede incluir contentBrief si el cliente no usa el campo brief.' } }, required: ['items'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_get_batch', description: 'Detalle de una campaña. La readiness usa la misma lectura que readyForReview.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, batchId: { type: 'string' } }, required: ['batchId'] }, annotations: { readOnlyHint: true } },
     { name: 'content_update_item', description: 'Reemplaza sin reescritura el body de esa variante. Lee content_get_item antes y reenvía el body completo. readyForReview=true valida expectedAssetCount y assetIndex.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, topic: { type: 'string' }, channel: { type: 'string', enum: ['blog', 'instagram', 'instagram_story', 'linkedin', 'x', 'video', 'substack'] }, body: { type: 'object' }, visualBrief: { type: 'object' }, mediaAssetIds: { type: 'array', items: { type: 'string' } }, readyForReview: { type: 'boolean' } }, required: ['itemId'] }, annotations: { readOnlyHint: false, destructiveHint: false } },
     { name: 'content_approve', description: 'Aprueba un item o todos los items de un batch.', inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, site: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' } }, oneOf: [{ required: ['itemId'] }, { required: ['batchId'] }] }, annotations: { readOnlyHint: false, destructiveHint: false } },
@@ -2137,7 +2153,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             ...item,
             variants: Object.fromEntries(Object.entries(item?.variants || {}).filter(([channel]) => activeChannels.includes(channel.toLowerCase())))
           }))
-          const result = await createContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: auth.userId || null, role: scope.role, title: args.title, topics: args.topics, items: activeItems, batchId: args.batchId, channels: activeChannels, brandKitVersionId: args.brandKitVersionId, metadata: args.metadata, idempotencyKey: args.idempotencyKey })
+          const result = await createContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: auth.userId || null, role: scope.role, title: args.title, topics: args.topics, items: activeItems, batchId: args.batchId, channels: activeChannels, brandKitVersionId: args.brandKitVersionId, metadata: { ...(args.metadata || {}), contentBrief: args.brief || args.metadata?.contentBrief }, idempotencyKey: args.idempotencyKey })
           return textResult({
             ...result,
             unavailableChannels,

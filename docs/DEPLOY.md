@@ -44,7 +44,7 @@ En producción crea dos recursos dentro del mismo proyecto/red de Coolify:
 - Tipo. **Dockerfile** (raíz del repo)
 - Puerto expuesto. `3040`
 - Health check. `GET /api/health`
-- Rama. `v2`
+- Rama. `v3` para el control plane MCP namespaced y las micro apps de producción
 - No configures un proceso/servicio adicional `node worker.mjs`: el entrypoint ya lo
   inicia en el mismo contenedor cuando `WORKER_ENABLED=1`.
 
@@ -109,6 +109,13 @@ WORKER_ENABLED=1
 PRODUCT_RESTRUCTURE_V1=1
 ```
 
+Auth0 para MCP v3 es opcional. Si se activa, configura el bloque completo de
+`AUTH0_ENABLED`, `AUTH0_ISSUER`, `AUTH0_AUDIENCE` y `AUTH0_JWKS_URL`, además de
+los claims de identidad indicados en [AUTH0-CHATGPT-MCP.md](./AUTH0-CHATGPT-MCP.md).
+No dejes una configuración parcial: los JWT externos se rechazan y no se
+transforman en sesiones locales. El `user_id` emitido por Auth0 debe existir en
+`users.id` y tener membresía vigente en PostgreSQL.
+
 Añade además las variables de la funcionalidad que actives: `STRIPE_SECRET_KEY`,
 `STRIPE_WEBHOOK_SECRET`, `PWA_STRIPE_PRICE_*`, `RESEND_API_KEY` y las claves de
 proveedores de IA. `CMS_SECRET_KEY` es necesaria para cifrar credenciales de
@@ -124,7 +131,7 @@ Con `PRODUCT_RESTRUCTURE_V1=1`:
 4. Env: `STRIPE_WEBHOOK_SECRET`, `DATABASE_URL` y `CMS_SECRET_KEY` (32 bytes o más). Postgres es obligatorio para `/api/v2`, membresías workspace y jobs; el ledger Stripe conserva compatibilidad JSON solo durante la importación.
 5. Agency: `GET /api/admin/payment-links` muestra el contrato de metadata.
 
-La generación server-side permanece desactivada. No hace falta un flag adicional: las rutas REST de IA, conectores, transcripción, imágenes y créditos están bloqueadas; `/mcp` y el editor manual siguen operativos. ChatGPT genera el contenido final mediante `https://cms.escarlet.design/mcp`.
+La generación server-side permanece desactivada. No hace falta un flag adicional: las rutas REST de IA, conectores, transcripción, imágenes y créditos están bloqueadas; `/mcp/v3` y el editor manual siguen operativos. ChatGPT genera el contenido final mediante `https://cms.escarlet.design/mcp/v3`.
 
 Si montaste el volumen en otra ruta:
 
@@ -233,7 +240,7 @@ El MCP corre **dentro del CMS**. Hermes no clona el repo. Solo apunta a la URL.
 {
   "mcpServers": {
     "escarlet-blog": {
-      "url": "https://cms.escarlet.design/mcp",
+      "url": "https://cms.escarlet.design/mcp/v3",
       "headers": {
         "Authorization": "Bearer TU_PAT_PERSONAL_user_..."
       }
@@ -242,16 +249,16 @@ El MCP corre **dentro del CMS**. Hermes no clona el repo. Solo apunta a la URL.
 }
 ```
 
-Local. `http://localhost:3040/mcp` con un PAT personal de usuario. Reserva `ADMIN_TOKEN` para el servidor.
+Local. `http://localhost:3040/mcp/v3` con un PAT personal de usuario. Reserva `ADMIN_TOKEN` para el servidor.
 
-Reinicia el servidor MCP en Cursor. Prueba `brand_list` y después `content_list_plans` con site `escarlet`.
+Reinicia el servidor MCP en Cursor. Prueba `capability.search` y después `brand.context.get` con site `escarlet`.
 
 ### ChatGPT (Developer Mode)
 
 ChatGPT solo ofrece OAuth (o sin autenticación). El CMS incluye un OAuth 2.1 mínimo en el mismo host.
 
 1. En ChatGPT. Settings → Connectors → Create
-2. URL. `https://cms.escarlet.design/mcp`
+2. URL. `https://cms.escarlet.design/mcp/v3`
 3. Autenticación. **OAuth**
 4. Nombre. `escarlet-blog` (o el del cliente)
 5. Al conectar, ChatGPT abre la pantalla del CMS. Usa OAuth o pega tu PAT personal y autoriza una vez.
@@ -264,7 +271,7 @@ Cursor y Hermes siguen con Bearer directo. No hace falta migrarlos a OAuth.
 Claude también puede usar el mismo endpoint OAuth del CMS.
 
 1. En Claude. `Customize → Connectors → Add custom connector`
-2. URL. `https://cms.escarlet.design/mcp`
+2. URL. `https://cms.escarlet.design/mcp/v3`
 3. Autenticación. **OAuth**
 4. Nombre. `escarlet-blog` (o el del cliente)
 5. Al conectar, Claude abre la pantalla del CMS. Usa OAuth o pega tu PAT personal y autoriza una vez.
@@ -274,7 +281,7 @@ ChatGPT y Claude comparten el mismo OAuth del CMS. Cursor y Hermes siguen con Be
 
 ---
 
-## 4. Webhook rebuild + activar sync — paso a paso
+## 4. Webhook rebuild + activar sync - paso a paso
 
 Objetivo. Cuando publicas en el CMS, escarlet.design se reconstruye solo con los posts nuevos.
 
@@ -314,7 +321,7 @@ Redeploy de escarlet002.
 
 ### D. Comprueba el flujo
 
-1. Aprueba y agenda una publicación desde la app v2 o con `content_approve` y `content_schedule`
+1. Revisa y aprueba una pieza desde la app, enrútala con `publication.route` y agenda con `publication.schedule`
 2. El CMS hace `POST` al webhook
 3. Coolify reconstruye escarlet002
 4. En build, `escarlet-blog.mjs` baja el runtime del CMS y descarga posts

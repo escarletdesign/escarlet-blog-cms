@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "escarlet-blog": {
-      "url": "https://cms.escarlet.design/mcp",
+      "url": "https://cms.escarlet.design/mcp/v3",
       "headers": {
         "Authorization": "Bearer TU_PAT_PERSONAL_user_..."
       }

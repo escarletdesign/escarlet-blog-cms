@@ -132,6 +132,7 @@ import {
 import {
   notifyRebuild,
   uploadMedia,
+  saveUploadedMedia,
   saveUploadedVideoMedia,
   receiveImageDrop,
   publishPost as cmsPublishPost,
@@ -166,7 +167,9 @@ import { parseMultipart, isMultipartRequest } from './lib/multipart.mjs'
 import { blogPublicationSlug, blogPublicationTitle } from './lib/blog-publication.mjs'
 import { withPostLinks } from './lib/preview-url.mjs'
 import { escapeHtml } from './lib/content-render.mjs'
-import { handleMcpHttp, sendMcpCors } from './mcp/http-handler.mjs'
+import { sendMcpCors } from './mcp/http-handler.mjs'
+import { handleMcpV3Http, sendMcpV3Cors } from './mcp/v3/http-handler.mjs'
+import { invokeMcpToolV3 } from './mcp/v3/server.mjs'
 import { applyCors } from './lib/cors.mjs'
 import { buildToolList, invokeMcpTool } from './mcp/create-mcp-server.mjs'
 import {
@@ -192,6 +195,7 @@ import {
 } from './lib/favicon.mjs'
 import {
   authorizationServerMetadata,
+  getAuth0Config,
   handleAuthorizeGet,
   handleAuthorizePost,
   handleRegister,
@@ -366,8 +370,8 @@ function rejectDeprecatedMcpHost(req, res) {
   if (!DEPRECATED_CMS_HOSTS.includes(requestHostname(req))) return false
   json(res, 410, {
     code: 'deprecated_mcp_host',
-    message: 'Este endpoint MCP fue retirado. Reconecta usando el MCP v2 canónico.',
-    canonicalUrl: `${CANONICAL_CMS_URL}/mcp`,
+    message: 'Este endpoint MCP fue retirado. Reconecta usando el MCP v3 canónico.',
+    canonicalUrl: `${CANONICAL_CMS_URL}/mcp/v3`,
     reconnect: true
   })
   return true
@@ -1122,10 +1126,11 @@ async function handleRequest(req, res) {
 
   if (
     path === '/.well-known/oauth-protected-resource' ||
-    path === '/.well-known/oauth-protected-resource/mcp'
+    path === '/.well-known/oauth-protected-resource/mcp' ||
+    path === '/.well-known/oauth-protected-resource/mcp/v3'
   ) {
     if (rejectDeprecatedMcpHost(req, res)) return
-    json(res, 200, protectedResourceMetadata())
+    json(res, 200, protectedResourceMetadata({ resourcePath: '/mcp/v3' }))
     return
   }
 
@@ -1183,7 +1188,7 @@ async function handleRequest(req, res) {
     return
   }
 
-  if (path === '/mcp') {
+  if (path === '/mcp/v3') {
     if (rejectDeprecatedMcpHost(req, res)) return
     let auth
     try {
@@ -1193,7 +1198,7 @@ async function handleRequest(req, res) {
       return
     }
     if (!auth) {
-      sendMcpCors(res, req)
+      sendMcpV3Cors(res, req)
       res.writeHead(401, {
         'Content-Type': 'application/json; charset=utf-8',
         'WWW-Authenticate': wwwAuthenticateHeader(),
@@ -1201,20 +1206,26 @@ async function handleRequest(req, res) {
           'Authorization, Content-Type, Mcp-Session-Id, MCP-Protocol-Version, Last-Event-Id',
         'Access-Control-Expose-Headers': 'Mcp-Session-Id, WWW-Authenticate'
       })
-      res.end(
-        JSON.stringify({
-          message: 'No autorizado. Usa Bearer con tu PAT personal u OAuth (ChatGPT/Claude). ADMIN_TOKEN solo sirve para operaciones internas del servidor.'
-        })
-      )
+      res.end(JSON.stringify({ message: 'No autorizado. Usa Bearer con tu PAT personal u OAuth.' }))
       return
     }
     try {
       assertAiRateLimit(aiRateLimitKey(auth, url.searchParams.get('site') || '', requestIp(req)), { limit: 120 })
       const parsedBody = req.method === 'POST' ? await parseBody(req) : undefined
-      await handleMcpHttp(req, res, parsedBody, auth)
+      await handleMcpV3Http(req, res, parsedBody, auth)
     } catch (error) {
-      if (!res.headersSent) json(res, 400, { message: error.message })
+      if (!res.headersSent) json(res, error.status || 400, { message: error.message })
     }
+    return
+  }
+
+  if (path === '/mcp') {
+    sendMcpCors(res, req)
+    res.writeHead(410, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+    res.end(JSON.stringify({
+      error: 'mcp_v3_required',
+      message: 'El contrato MCP anterior fue retirado. Conecta con /mcp/v3 y usa tools namespaced.'
+    }))
     return
   }
 
@@ -1914,6 +1925,89 @@ async function handleRequest(req, res) {
     return
   }
 
+  if (req.method === 'POST' && path === '/api/v3/recipes/run') {
+    let body = {}
+    try {
+      body = await parseBody(req, MAX_BODY_BYTES)
+      const scope = await requireV2Context(req, url, res, body)
+      if (!scope) return
+      const auth = {
+        ...scope.auth,
+        workspaceId: scope.workspaceId,
+        siteId: scope.siteId,
+        site: scope.context.siteHandle,
+        role: scope.context.role
+      }
+      const result = await invokeMcpToolV3('recipe.run', {
+        ...body,
+        workspaceId: scope.workspaceId,
+        siteId: scope.siteId,
+        site: scope.context.siteHandle
+      }, auth)
+      if (result.isError) {
+        const error = result.structuredContent?.error || {}
+        json(res, Number(error.status) || 500, error)
+        return
+      }
+      json(res, 202, result.structuredContent)
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message, code: error.code })
+    }
+    return
+  }
+
+  if (req.method === 'POST' && path === '/api/v3/publication') {
+    let body = {}
+    try {
+      body = await parseBody(req, MAX_BODY_BYTES)
+      const scope = await requireV2Context(req, url, res, body)
+      if (!scope) return
+      const operation = String(body.operation || '').trim().toLowerCase()
+      const operationName = {
+        list: 'publication.destination.list',
+        'destination.list': 'publication.destination.list',
+        route: 'publication.route',
+        prepare: 'publication.prepare',
+        status: 'publication.status.get',
+        'status.get': 'publication.status.get'
+      }[operation]
+      if (!operationName) {
+        json(res, 422, { code: 'publication_operation_required', message: 'operation debe ser list, route, prepare o status.get.' })
+        return
+      }
+      const auth = { ...scope.auth, workspaceId: scope.workspaceId, siteId: scope.siteId, site: scope.context.siteHandle, role: scope.context.role }
+      const connections = await listBrandConnections({ workspaceId: scope.workspaceId, siteId: scope.siteId })
+      let assets = body.assets
+      const assetIds = Array.isArray(body.assetIds) ? [...new Set(body.assetIds.map((value) => String(value || '').trim()).filter(Boolean))] : []
+      if ((!Array.isArray(assets) || !assets.length) && assetIds.length) {
+        const pool = await getPgPool()
+        const assetRows = await pool.query('SELECT id,content_type AS "mimeType",sha256,metadata FROM media_assets WHERE workspace_id=$1 AND site_id=$2 AND id=ANY($3::text[])', [scope.workspaceId, scope.siteId, assetIds])
+        if (assetRows.rowCount !== assetIds.length) {
+          json(res, 404, { code: 'publication_asset_not_found', message: 'Uno de los assets no pertenece a esta marca.' })
+          return
+        }
+        assets = assetRows.rows.map((asset) => ({ assetId: asset.id, mimeType: asset.mimeType, sha256: asset.sha256, metadata: asset.metadata }))
+      }
+      const result = await invokeMcpToolV3(operationName, {
+        ...body,
+        workspaceId: scope.workspaceId,
+        siteId: scope.siteId,
+        site: scope.context.siteHandle,
+        connections,
+        ...(assets ? { assets } : {})
+      }, auth)
+      if (result.isError) {
+        const error = result.structuredContent?.error || {}
+        json(res, Number(error.status) || 500, error)
+        return
+      }
+      json(res, 200, result.structuredContent)
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message, code: error.code })
+    }
+    return
+  }
+
   // Canonical multi-tenant content API. The legacy /api/admin routes remain
   // available as compatibility adapters while new app/MCP clients converge on
   // this Postgres-backed service.
@@ -1921,7 +2015,8 @@ async function handleRequest(req, res) {
     let body = {}
     const videoUploadRequest = req.method === 'POST' && /^\/api\/v2\/content\/items\/[^/]+\/video$/.test(path)
     const brandKitImportRequest = req.method === 'POST' && /^\/api\/v2\/brands\/[^/]+\/brand-kit\/import$/.test(path)
-    try { if (req.method !== 'GET') body = await parseBody(req, videoUploadRequest || brandKitImportRequest ? 60 * 1024 * 1024 : MAX_BODY_BYTES) } catch (error) {
+    const productionAssetUploadRequest = req.method === 'POST' && path === '/api/v2/assets/upload'
+    try { if (req.method !== 'GET') body = await parseBody(req, videoUploadRequest || brandKitImportRequest || productionAssetUploadRequest ? 60 * 1024 * 1024 : MAX_BODY_BYTES) } catch (error) {
       json(res, error.status || 400, { message: error.message })
       return
     }
@@ -1943,6 +2038,59 @@ async function handleRequest(req, res) {
     const bufferChannelsMatch = path.match(/^\/api\/v2\/brands\/([^/]+)\/connections\/buffer\/channels$/)
     const connectionActionMatch = path.match(/^\/api\/v2\/connections\/([^/]+)\/(test|disconnect)$/)
     try {
+      if (req.method === 'GET' && path === '/api/v2/assets') {
+        const scope = await requireV2Context(req, url, res)
+        if (!scope) return
+        const pool = await getPgPool()
+        const result = await pool.query(`
+          SELECT id, storage_key AS "path", public_url AS "url", content_type AS "mimeType",
+                 size_bytes AS "storedBytes", sha256, metadata, created_at AS "createdAt"
+          FROM media_assets
+          WHERE workspace_id=$1 AND site_id=$2
+            AND (content_type LIKE 'image/%' OR metadata->>'kind' IN ('reference','post','social'))
+          ORDER BY created_at DESC
+          LIMIT 100
+        `, [scope.workspaceId, scope.siteId])
+        const assets = result.rows.map((asset) => ({
+          ...asset,
+          url: asset.url || (asset.path ? `/${String(asset.path).replace(/^\//, '')}` : ''),
+          path: asset.path ? `/${String(asset.path).replace(/^\//, '')}` : '',
+          filename: asset.metadata?.filename || asset.metadata?.fileName || asset.id,
+          alt: asset.metadata?.alt || '',
+          metadata: asset.metadata || {}
+        }))
+        json(res, 200, { assets })
+        return
+      }
+      if (req.method === 'POST' && path === '/api/v2/assets/upload') {
+        const scope = await requireV2Context(req, url, res, body)
+        if (!scope) return
+        assertWorkspaceRole(scope.context.role, ['owner', 'admin', 'editor', 'author'])
+        const siteHandle = scope.context.siteHandle || scope.siteId
+        const stored = await saveUploadedMedia({
+          site: siteHandle,
+          filename: body.filename || 'food-to-reel-image.jpg',
+          contentBase64: body.contentBase64,
+          imageUrl: body.imageUrl,
+          filePath: body.filePath,
+          alt: body.alt || '',
+          kind: 'reference'
+        })
+        const asset = await registerContentMedia({
+          workspaceId: scope.workspaceId,
+          siteId: scope.siteId,
+          userId: scope.auth.userId,
+          role: scope.context.role,
+          media: stored,
+          idempotencyKey: body.idempotencyKey || '',
+          idempotencyFingerprint: `${body.filename || ''}:${stored.sha256 || ''}`
+        })
+        json(res, 201, {
+          asset,
+          media: { ...stored, id: asset.id, url: asset.publicUrl || stored.url, path: asset.storageKey ? `/${String(asset.storageKey).replace(/^\//, '')}` : stored.path }
+        })
+        return
+      }
       if (req.method === 'GET' && path === '/api/v2/brands') {
         const scope = await requireV2Context(req, url, res)
         if (!scope) return
@@ -2716,6 +2864,7 @@ async function handleRequest(req, res) {
     const migrationsReady = !isPostgresConfigured() || await coreMigrationPromise
     const live = true
     const ready = persistence.writable && migrationsReady
+    const auth0 = getAuth0Config()
     json(res, ready ? 200 : 503, {
       ok: ready,
       live,
@@ -2723,13 +2872,15 @@ async function handleRequest(req, res) {
       migrationsReady,
       requestId: res._requestId,
       version: MCP_SERVER_VERSION,
-      mcpServerName: 'escarlet-cms-v2',
-      mcp: '/mcp',
-      mcpContract: 'v2',
-      deploymentTrack: 'v2',
-      canonicalMcpUrl: `${CANONICAL_CMS_URL}/mcp`,
+      mcpServerName: 'escarlet-os',
+      mcp: '/mcp/v3',
+      mcpContract: 'os.production.v1',
+      mcpLegacy: '/mcp',
+      deploymentTrack: 'v3',
+      canonicalMcpUrl: `${CANONICAL_CMS_URL}/mcp/v3`,
       deprecatedMcpHosts: [...DEPRECATED_CMS_HOSTS],
-      mcpUpload: 'content_upload_media',
+      mcpUpload: 'brand.generation.prepare',
+      auth0: { configured: auth0.configured, enabled: auth0.enabled, issuer: auth0.enabled ? auth0.issuer : null, audience: auth0.enabled ? auth0.audience : null, error: auth0.error },
       postgres: { configured: isPostgresConfigured(), migrationsStarted: isPostgresConfigured(), migrationError: coreMigrationError?.message || null },
       persistence
     })
@@ -4168,7 +4319,7 @@ if (process.env.NODE_ENV === 'production' && !persistence.likelyDockerVolume) {
 
 server.listen(PORT, () => {
   console.log(`Escarlet blog CMS en http://localhost:${PORT}/app`)
-  console.log(`MCP remoto (Hermes) en http://localhost:${PORT}/mcp`)
+  console.log(`MCP remoto (Hermes) en http://localhost:${PORT}/mcp/v3`)
   if (isLocalDevAutoLogin()) console.log('Login local automático como admin (solo loopback). LOCAL_AUTO_LOGIN=0 para desactivarlo.')
 })
 
