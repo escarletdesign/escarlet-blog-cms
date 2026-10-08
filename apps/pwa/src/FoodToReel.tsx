@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api } from "./api";
 import type { MediaItem } from "./types";
 import {
@@ -49,6 +49,9 @@ function errorText(error: unknown, fallback: string) {
   return error instanceof ApiError || error instanceof Error ? error.message : fallback;
 }
 
+const MAX_DEVICE_IMAGE_BYTES = 12 * 1024 * 1024;
+const DEVICE_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+
 export function FoodToReel({ site, t }: FoodToReelProps) {
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [mediaLoading, setMediaLoading] = useState(true);
@@ -56,6 +59,7 @@ export function FoodToReel({ site, t }: FoodToReelProps) {
   const [selectedMediaId, setSelectedMediaId] = useState("");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadPreview, setUploadPreview] = useState("");
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const [text, setText] = useState("");
   const [status, setStatus] = useState<FoodToReelStatus>("idle");
   const [error, setError] = useState("");
@@ -115,8 +119,17 @@ export function FoodToReel({ site, t }: FoodToReelProps) {
 
   const chooseFile = (file?: File) => {
     if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      setError(t("foodReel.imageTypeError", "Elige un archivo de imagen."));
+    if (!DEVICE_IMAGE_TYPES.has(file.type.toLowerCase())) {
+      setError(t("foodReel.imageTypeError", "Usa una imagen JPG, PNG, WebP o GIF."));
+      setUploadFile(null);
+      setSelectedMediaId("");
+      setStatus("error");
+      return;
+    }
+    if (file.size > MAX_DEVICE_IMAGE_BYTES) {
+      setError(t("foodReel.imageSizeError", "La imagen no puede superar 12 MB."));
+      setUploadFile(null);
+      setSelectedMediaId("");
       setStatus("error");
       return;
     }
@@ -175,13 +188,18 @@ export function FoodToReel({ site, t }: FoodToReelProps) {
     }
   };
 
-  const reset = () => {
+  const clearUpload = () => {
+    if (uploadInputRef.current) uploadInputRef.current.value = "";
     setUploadFile(null);
     setSelectedMediaId("");
-    setText("");
-    setJob(null);
     setError("");
     setStatus("idle");
+    setJob(null);
+  };
+
+  const reset = () => {
+    clearUpload();
+    setText("");
   };
 
   return (
@@ -236,10 +254,15 @@ export function FoodToReel({ site, t }: FoodToReelProps) {
             ) : (
               <EmptyState title={t("foodReel.emptyTitle", "Aún no hay imágenes")} description={t("foodReel.emptyDescription", "Sube una imagen para crear el primer Reel de esta marca.")} />
             )}
-            <Field label={t("foodReel.upload", "Subir imagen")} hint={t("foodReel.uploadHelp", "Formatos de imagen habituales, hasta el límite configurado del espacio.")}>
-              <TextField type="file" accept="image/*" onChange={(event) => chooseFile(event.target.files?.[0])} />
-            </Field>
-            {uploadFile && <Inline gap="sm"><Badge tone="info">{t("foodReel.newImage", "Nueva imagen")}</Badge><span className="ui-muted">{uploadFile.name}</span></Inline>}
+            <Stack gap="sm">
+              <Field label={t("foodReel.upload", "Subir imagen")} hint={t("foodReel.uploadHelp", "Elige un JPG, PNG, WebP o GIF de hasta 12 MB desde tu dispositivo.")}>
+                <TextField ref={uploadInputRef} className="ui-file-input-hidden" type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={(event) => chooseFile(event.target.files?.[0])} />
+              </Field>
+              <Button type="button" variant="secondary" onClick={() => { if (uploadInputRef.current) { uploadInputRef.current.value = ""; uploadInputRef.current.click(); } }}>
+                {t("foodReel.uploadButton", "Elegir imagen del dispositivo")}
+              </Button>
+            </Stack>
+            {uploadFile && <Inline gap="sm"><Badge tone="info">{t("foodReel.newImage", "Nueva imagen")}</Badge><span className="ui-muted">{uploadFile.name}</span><Button type="button" variant="ghost" size="sm" onClick={clearUpload}>{t("foodReel.removeImage", "Quitar")}</Button></Inline>}
             {selectedSource && <img src={selectedSource} alt={t("foodReel.previewAlt", "Vista previa de la imagen seleccionada")} loading="lazy" decoding="async" />}
           </Stack>
         </Card>

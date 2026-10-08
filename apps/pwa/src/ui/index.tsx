@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { forwardRef, useEffect, useId, useRef, useState } from "react";
 import type { ButtonHTMLAttributes, InputHTMLAttributes, PointerEvent as ReactPointerEvent, ReactNode, RefObject, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 
 export type Tone = "neutral" | "info" | "success" | "warning" | "danger" | "review" | "published";
@@ -79,7 +79,7 @@ export function Field({ label, hint, error, children, required = false }: { labe
   return <label className="ui-field">{label && <span className="ui-field-label">{label}{required && <span aria-hidden="true"> *</span>}</span>}{children}{hint && !error && <span className="ui-field-hint">{hint}</span>}{error && <span className="ui-field-error" role="alert">{error}</span>}</label>;
 }
 
-export function TextField({ className = "", ...props }: InputHTMLAttributes<HTMLInputElement>) { return <input className={`ui-input ${className}`.trim()} {...props} />; }
+export const TextField = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function TextField({ className = "", ...props }, ref) { return <input ref={ref} className={`ui-input ${className}`.trim()} {...props} />; });
 export function Textarea({ className = "", ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) { return <textarea className={`ui-input ui-textarea ${className}`.trim()} {...props} />; }
 export function Select({ children, className = "", ...props }: SelectHTMLAttributes<HTMLSelectElement>) { return <select className={`ui-input ui-select ${className}`.trim()} {...props}>{children}</select>; }
 export function Checkbox({ label, className = "", ...props }: InputHTMLAttributes<HTMLInputElement> & { label?: ReactNode }) { return <label className="ui-checkbox"><input type="checkbox" className={className} {...props} /><span>{label}</span></label>; }

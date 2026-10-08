@@ -5123,6 +5123,8 @@ function Settings() {
   const [hasPersonalToken, setHasPersonalToken] = useState(Boolean(session.hasLoginToken));
   const [personalTokenHint, setPersonalTokenHint] = useState(session.loginTokenHint || "");
   const [tokenAction, setTokenAction] = useState<"regenerate" | "revoke" | null>(null);
+  const [mcpInfo, setMcpInfo] = useState<{ mcpUrl?: string; mcpAuthHint?: string } | null>(null);
+  const [mcpInfoLoading, setMcpInfoLoading] = useState(false);
   const [delegates, setDelegates] = useState<Array<Record<string, any>>>([]);
   const [delegateBusy, setDelegateBusy] = useState("");
   const assistantEnabled = workflowFlags.assistantEnabled;
@@ -5151,6 +5153,16 @@ function Settings() {
     setHasPersonalToken(Boolean(session.hasLoginToken));
     setPersonalTokenHint(session.loginTokenHint || "");
   }, [session.hasLoginToken, session.loginTokenHint]);
+  useEffect(() => {
+    if (!session.userId || !site) return;
+    let active = true;
+    setMcpInfoLoading(true);
+    api.mcpConnection(site)
+      .then((result) => { if (active) setMcpInfo(result); })
+      .catch(() => { if (active) setMcpInfo(null); })
+      .finally(() => { if (active) setMcpInfoLoading(false); });
+    return () => { active = false; };
+  }, [session.userId, site]);
   const save = () => {
     localStorage.setItem("escarlet_model", model);
     setError("");
@@ -5196,6 +5208,14 @@ function Settings() {
     if (!personalToken) return;
     await navigator.clipboard?.writeText(personalToken).catch(() => {});
     showToast(t("settings.mcpTokenCopied"));
+  };
+  const copyMcpConnectionUrl = async () => {
+    if (!mcpInfo?.mcpUrl) return;
+    await navigator.clipboard?.writeText(mcpInfo.mcpUrl).catch(() => {});
+    showToast(t("settings.mcpUrlCopied"));
+  };
+  const openChatGpt = () => {
+    window.open("https://chatgpt.com/", "_blank", "noopener,noreferrer");
   };
   const mintPersonalToken = async () => {
     setPersonalTokenBusy(true);
@@ -5335,6 +5355,20 @@ function Settings() {
             </button>
             {hasPersonalToken && <button type="button" className="ui-danger-link" onClick={() => void revokePersonalToken()} disabled={personalTokenBusy}>{t("settings.mcpTokenRevoke")}</button>}
           </div>
+        </section>
+      )}
+      {session.userId && (
+        <section className="ui-card ui-settings-card ui-mcp-card">
+          <p className="ui-eyebrow">{t("settings.mcpConnectEyebrow")}</p>
+          <h2>{t("settings.mcpConnectTitle")}</h2>
+          <p className="ui-muted">{t("settings.mcpConnectHelp")}</p>
+          {mcpInfoLoading ? <p className="ui-field-hint">{t("settings.mcpConnectLoading")}</p> : mcpInfo?.mcpUrl ? <div className="ui-mcp-value"><div><span className="ui-field-label">{t("settings.mcpUrlLabel")}</span><code>{mcpInfo.mcpUrl}</code></div><Button type="button" variant="ghost" size="sm" onClick={() => void copyMcpConnectionUrl()}>{t("settings.mcpUrlCopy")}</Button></div> : <p className="ui-field-error">{t("settings.mcpConnectUnavailable")}</p>}
+          <Stack gap="sm">
+            <p className="ui-field-hint">{t("settings.mcpConnectStep1")}</p>
+            <p className="ui-field-hint">{t("settings.mcpConnectStep2")}</p>
+            <p className="ui-field-hint">{t("settings.mcpConnectStep3")}</p>
+          </Stack>
+          <Inline gap="sm"><Button type="button" variant="secondary" onClick={openChatGpt}>{t("settings.mcpOpenChatGpt")}</Button><span className="ui-field-hint">{mcpInfo?.mcpAuthHint || t("settings.mcpConnectAuthHint")}</span></Inline>
         </section>
       )}
       {session.userId && (

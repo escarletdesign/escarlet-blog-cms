@@ -711,6 +711,7 @@
 .ui-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; } .ui-card h2, .ui-card h3 { margin: 4px 0 0; } .ui-card-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 10px; color: var(--ui-muted); font-size: .83rem; }
 .ui-card-actions { justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .ui-input { width: 100%; min-height: 44px; padding: 10px 12px; color: var(--ui-text); background: var(--ui-surface-control); border: 1px solid var(--ui-border-strong); border-radius: var(--ui-radius-sm); font: inherit; transition: border-color .2s, box-shadow .2s; }
+.ui-file-input-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .ui-input[type="datetime-local"]::-webkit-calendar-picker-indicator { filter: invert(1); opacity: 1; cursor: pointer; }
 .ui-textarea { min-height: 120px; resize: vertical; } .ui-select { appearance: none; }
 .ui-input:focus, .ui-button:focus-visible, .ui-icon-button:focus-visible, .ui-checkbox input:focus-visible { outline: none; box-shadow: var(--ui-focus-ring); border-color: var(--ui-accent); }
