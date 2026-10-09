@@ -502,6 +502,7 @@ async function processMotionCompositionJob(job) {
     video.source_media_id,
     video.metadata?.audioAssetId,
     video.metadata?.logoAssetId,
+    video.metadata?.backgroundAssetId,
     ...motionAssets.map((asset) => asset?.assetId)
   ].filter(Boolean))]
   const motionAssetRows = motionAssetIds.length
@@ -528,13 +529,16 @@ async function processMotionCompositionJob(job) {
   const availability = motionRenderAvailability(video.provider)
   if (availability.provider === 'local' && availability.configured) {
     try {
-      const background = assetForRole('background') || assetForRole('source') || mediaById.get(video.source_media_id)
+      const sourceAsset = assetForRole('source') || assetForRole('foreground') || mediaById.get(video.source_media_id) || assetForRole('background')
+      const background = assetForRole('background') || mediaById.get(video.metadata?.backgroundAssetId)
       const audio = assetForRole('audio') || mediaById.get(video.metadata?.audioAssetId)
       const logo = assetForRole('logo') || mediaById.get(video.metadata?.logoAssetId)
-      const sourceKey = background?.storage_key || background?.storageKey || background?.path || video.source_storage_key
+      const sourceKey = sourceAsset?.storage_key || sourceAsset?.storageKey || sourceAsset?.path || video.source_storage_key
+      const backgroundKey = background?.storage_key || background?.storageKey || background?.path
       const audioKey = audio?.storage_key || audio?.storageKey || audio?.path || video.audio_storage_key
       const logoKey = logo?.storage_key || logo?.storageKey || logo?.path
-      const sourcePath = await assertMotionAssetFile(sourceKey, { root: mediaDir, assetId: background?.id || video.source_media_id })
+      const sourcePath = await assertMotionAssetFile(sourceKey, { root: mediaDir, assetId: sourceAsset?.id || video.source_media_id })
+      const backgroundPath = backgroundKey ? await assertMotionAssetFile(backgroundKey, { root: mediaDir, assetId: background?.id || video.metadata?.backgroundAssetId, required: false }) : ''
       const audioPath = video.metadata?.audioMode === 'none'
         ? ''
         : await assertMotionAssetFile(audioKey, { root: mediaDir, assetId: audio?.id || video.metadata?.audioAssetId, required: Boolean(audioKey || video.metadata?.audioAssetId) })
@@ -549,18 +553,25 @@ async function processMotionCompositionJob(job) {
         const sceneAsset = mediaById.get(scene.assetId) || virtualBrandById.get(scene.assetId)
         const sceneKey = sceneAsset?.storage_key || sceneAsset?.storageKey || sceneAsset?.path
         const scenePath = await assertMotionAssetFile(sceneKey, { root: mediaDir, assetId: scene.assetId || `scene-${index + 1}` })
-        scenes.push({ ...scene, path: scenePath })
+        const sceneBackgroundAsset = scene.backgroundAssetId ? (mediaById.get(scene.backgroundAssetId) || virtualBrandById.get(scene.backgroundAssetId)) : null
+        const sceneBackgroundKey = sceneBackgroundAsset?.storage_key || sceneBackgroundAsset?.storageKey || sceneBackgroundAsset?.path
+        const sceneBackgroundPath = sceneBackgroundKey ? await assertMotionAssetFile(sceneBackgroundKey, { root: mediaDir, assetId: scene.backgroundAssetId, required: false }) : ''
+        scenes.push({ ...scene, path: scenePath, ...(sceneBackgroundPath ? { backgroundPath: sceneBackgroundPath } : {}) })
       }
       const buffer = await renderMotionVideo({
         sourcePath,
         scenes,
         audioPath,
         logoPath,
+        backgroundPath,
         site: video.site_handle,
         title: firstCopy?.headline || video.topic || video.metadata?.title || 'Reel de marca',
         text: firstCopy?.body || video.metadata?.text || video.topic || '',
         durationSeconds: video.metadata?.durationSeconds || 8,
-        renderMode
+        renderMode,
+        backgroundMode: video.metadata?.backgroundMode || 'blurred_source',
+        motionPreset: video.metadata?.motionPreset || 'subtle_editorial',
+        transition: video.metadata?.transition || { type: 'crossfade', durationMs: 400 }
       })
       const currentStatus = await pool.query('SELECT status FROM video_jobs WHERE id=$1 AND workspace_id=$2', [video.id, video.workspace_id])
       if (currentStatus.rows[0]?.status !== 'running') return { videoJobId, status: currentStatus.rows[0]?.status || 'cancelled', skipped: true }
@@ -580,7 +591,7 @@ async function processMotionCompositionJob(job) {
       await pool.query('UPDATE video_jobs SET metadata=metadata || jsonb_build_object(\'processing\',$3::jsonb),updated_at=NOW() WHERE id=$1 AND workspace_id=$2', [video.id, video.workspace_id, JSON.stringify(processing)])
       return { videoJobId, status: 'ready_for_review', provider: 'local', rendered: true, mediaAssetId: uploaded.mediaAssetId, retryable: false, code: 'local_renderer_completed' }
     } catch (error) {
-      const processing = { state: 'failed', code: error.code || 'local_renderer_failed', retryable: true, provider: 'local', rendered: false, message: String(error.message || '').slice(0, 500), updatedAt: new Date().toISOString() }
+      const processing = { state: error.code === 'motion_qa_failed' ? 'qa_failed' : 'failed', code: error.code || 'local_renderer_failed', retryable: true, provider: 'local', rendered: false, message: String(error.message || '').slice(0, 500), updatedAt: new Date().toISOString() }
       await pool.query("UPDATE video_jobs SET status='failed',metadata=metadata || jsonb_build_object('processing',$3::jsonb),updated_at=NOW() WHERE id=$1 AND workspace_id=$2", [video.id, video.workspace_id, JSON.stringify(processing)])
       return { videoJobId, status: 'failed', provider: 'local', rendered: false, retryable: true, code: processing.code, error: processing.message }
     }

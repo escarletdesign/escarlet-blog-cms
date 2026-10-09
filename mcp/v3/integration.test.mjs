@@ -301,6 +301,9 @@ test('motion puede construir un timeline de varias escenas con modo flat_slides'
     site: 'escarlet',
     formatProfile: 'instagram_reel',
     renderMode: 'flat_slides',
+    backgroundMode: 'brand_color',
+    motionPreset: 'none',
+    transition: { type: 'crossfade', durationMs: 600 },
     motionAssets: [
       { assetId: 'slide-01', role: 'source', kind: 'image' },
       { assetId: 'slide-02', role: 'source', kind: 'image' },
@@ -317,6 +320,9 @@ test('motion puede construir un timeline de varias escenas con modo flat_slides'
   assert.equal(result.structuredContent.job.metadata.renderMode, 'flat_slides')
   assert.deepEqual(result.structuredContent.job.metadata.scenes.map((scene) => scene.assetId), ['slide-01', 'slide-02', 'slide-03'])
   assert.deepEqual(result.structuredContent.job.metadata.scenes.map((scene) => scene.durationMs), [4000, 4000, 4500])
+  assert.equal(result.structuredContent.job.metadata.backgroundMode, 'brand_color')
+  assert.equal(result.structuredContent.job.metadata.motionPreset, 'none')
+  assert.deepEqual(result.structuredContent.job.metadata.transition, { type: 'crossfade', durationMs: 600 })
 })
 
 test('motion no declara audio suministrado sin un asset de audio', async () => {
