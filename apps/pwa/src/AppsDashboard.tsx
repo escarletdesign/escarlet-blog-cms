@@ -14,6 +14,7 @@ type CatalogEntry = Record<string, any> & {
 
 const appRoutes: Record<string, string> = {
   "recipe.food-to-reel": "/production/food-to-reel",
+  "recipe.reel-from-image": "/production/reel-from-image",
   "recipe.menu-to-reel": "/production/menu-to-reel",
   "recipe.product-to-social": "/production/product-to-social",
   "publication.destination.list": "/publication/publisher",
@@ -21,6 +22,7 @@ const appRoutes: Record<string, string> = {
 
 const appLabels: Record<string, string> = {
   "recipe.food-to-reel": "Food to Reel",
+  "recipe.reel-from-image": "Imagen y guion a Reel",
   "recipe.menu-to-reel": "Menú del día a Reel",
   "recipe.product-to-social": "Producto a publicación social",
   "publication.destination.list": "Publisher",

@@ -56,6 +56,7 @@ const DEVICE_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "im
 
 export function FoodToReel({ site, t, recipeId = "recipe.food-to-reel" }: FoodToReelProps) {
   const isMenuRecipe = recipeId === "recipe.menu-to-reel";
+  const isGenericRecipe = recipeId === "recipe.reel-from-image";
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [mediaLoading, setMediaLoading] = useState(true);
   const [mediaError, setMediaError] = useState("");
@@ -160,7 +161,7 @@ export function FoodToReel({ site, t, recipeId = "recipe.food-to-reel" }: FoodTo
         const contentBase64 = await fileAsDataUrl(uploadFile);
         const uploaded = await api.uploadProductionAsset({
           site,
-          filename: uploadFile.name || "food-to-reel-image",
+          filename: uploadFile.name || (isGenericRecipe ? "reel-from-image" : "food-to-reel-image"),
           contentBase64,
           alt: text.slice(0, 160),
         });
@@ -175,7 +176,7 @@ export function FoodToReel({ site, t, recipeId = "recipe.food-to-reel" }: FoodTo
         formatProfile,
         text: text.trim().slice(0, 500),
         createContentIfMissing: true,
-        idempotencyKey: `pwa-food-to-reel:${site}:${sourceMediaId}:${text.trim()}`,
+        idempotencyKey: `pwa-${isGenericRecipe ? "reel-from-image" : "food-to-reel"}:${site}:${sourceMediaId}:${text.trim()}`,
       });
       const motion = (result.motion || {}) as Record<string, unknown>;
       const createdJob = (motion.job || {}) as Record<string, unknown>;
@@ -184,7 +185,7 @@ export function FoodToReel({ site, t, recipeId = "recipe.food-to-reel" }: FoodTo
       setJob(createdJob);
       if (!videoJobId) throw new Error(t("foodReel.jobIdError", "El trabajo se creó sin identificador."));
       let currentStatus = String(motion.status || result.status || "queued").toLowerCase();
-      for (let attempt = 0; attempt < 15 && !["ready_for_review", "failed", "cancelled"].includes(currentStatus); attempt += 1) {
+      for (let attempt = 0; attempt < 15 && !["ready_for_review", "failed", "cancelled", "awaiting_provider"].includes(currentStatus); attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 1200));
         const current = await api.getVideoJob(videoJobId, site);
         setJob(current.job || createdJob);
@@ -216,8 +217,8 @@ export function FoodToReel({ site, t, recipeId = "recipe.food-to-reel" }: FoodTo
     <main className="ui-page">
       <PageHeader
         eyebrow={t("foodReel.eyebrow", "MICRO APP · PRODUCCIÓN")}
-        title={isMenuRecipe ? t("menuReel.title", "Menú del día a Reel o Story") : t("foodReel.title", "Imagen y texto a Reel")}
-        description={isMenuRecipe ? t("menuReel.description", "Convierte la imagen y el texto del menú del día en un Reel o Story revisable con la identidad de tu marca.") : t("foodReel.description", "Combina una imagen de comida y su explicación para preparar un Reel de Instagram con la identidad de tu marca.")}
+        title={isMenuRecipe ? t("menuReel.title", "Menú del día a Reel o Story") : isGenericRecipe ? t("reelFromImage.title", "Imagen y guion a Reel") : t("foodReel.title", "Imagen y texto a Reel")}
+        description={isMenuRecipe ? t("menuReel.description", "Convierte la imagen y el texto del menú del día en un Reel o Story revisable con la identidad de tu marca.") : isGenericRecipe ? t("reelFromImage.description", "Combina una imagen, un guion y el Brand Kit para preparar un Reel revisable.") : t("foodReel.description", "Combina una imagen de comida y su explicación para preparar un Reel de Instagram con la identidad de tu marca.")}
       />
       <div className="ui-brand-detail-grid">
         <Card>
@@ -280,11 +281,11 @@ export function FoodToReel({ site, t, recipeId = "recipe.food-to-reel" }: FoodTo
           <Stack gap="md">
             <div>
               <span className="ui-eyebrow">{t("foodReel.copyEyebrow", "CONTEXTO")}</span>
-              <h2>{t("foodReel.copyTitle", "Explica el plato")}</h2>
-              <p className="ui-muted">{t("foodReel.copyHelp", "Describe el plato, sus ingredientes o el mensaje que debe acompañar al vídeo.")}</p>
+              <h2>{isGenericRecipe ? t("reelFromImage.copyTitle", "Escribe el guion") : t("foodReel.copyTitle", "Explica el plato")}</h2>
+              <p className="ui-muted">{isGenericRecipe ? t("reelFromImage.copyHelp", "Describe la idea, el mensaje y las escenas que debe animar el motor.") : t("foodReel.copyHelp", "Describe el plato, sus ingredientes o el mensaje que debe acompañar al vídeo.")}</p>
             </div>
-            <Field label={t("foodReel.copyLabel", "Texto del plato")} required hint={t("foodReel.copyHint", "El texto se conservará como contexto del trabajo y quedará disponible para revisión.")}>
-              <Textarea value={text} onChange={(event) => setText(event.target.value)} maxLength={4000} placeholder={t("foodReel.copyPlaceholder", "Ej. Paella de verduras con producto de temporada, servida al momento...")} aria-describedby="food-reel-copy-count" />
+            <Field label={isGenericRecipe ? t("reelFromImage.copyLabel", "Guion o idea") : t("foodReel.copyLabel", "Texto del plato")} required hint={t("foodReel.copyHint", "El texto se conservará como contexto del trabajo y quedará disponible para revisión.")}>
+              <Textarea value={text} onChange={(event) => setText(event.target.value)} maxLength={4000} placeholder={isGenericRecipe ? t("reelFromImage.copyPlaceholder", "Ej. Tres escenas sobre cómo una marca se vuelve reconocible...") : t("foodReel.copyPlaceholder", "Ej. Paella de verduras con producto de temporada, servida al momento...")} aria-describedby="food-reel-copy-count" />
               <span id="food-reel-copy-count" className="ui-field-hint">{text.length}/4000</span>
             </Field>
             {isMenuRecipe && <Field label={t("menuReel.format", "Formato de salida")} hint={t("menuReel.formatHelp", "Elige si el menú se prepara como Reel o Story. La revisión humana se mantiene en ambos casos.")}>
@@ -296,7 +297,7 @@ export function FoodToReel({ site, t, recipeId = "recipe.food-to-reel" }: FoodTo
             {error && <p className="ui-field-error" role="alert">{error}</p>}
             <Inline gap="sm">
               <Button variant="primary" loading={status === "loading"} disabled={!canSubmit} onClick={() => void launch()}>
-                {isMenuRecipe ? t("menuReel.launch", `Preparar ${outputLabel}`) : t("foodReel.launch", "Lanzar Reel")}
+                {isMenuRecipe ? t("menuReel.launch", `Preparar ${outputLabel}`) : isGenericRecipe ? t("reelFromImage.launch", "Preparar Reel") : t("foodReel.launch", "Lanzar Reel")}
               </Button>
               {(status === "review" || status === "error") && <Button variant="ghost" onClick={reset}>{t("foodReel.reset", "Crear otro")}</Button>}
             </Inline>
@@ -304,7 +305,7 @@ export function FoodToReel({ site, t, recipeId = "recipe.food-to-reel" }: FoodTo
         </Card>
       </div>
       {status === "loading" && <Card role="status" aria-live="polite"><Inline gap="sm"><StatusBadge status="syncing" label={t("foodReel.processing", "Preparando")}/><span>{t("foodReel.processingHelp", "Guardando la entrada y creando el trabajo...")}</span></Inline></Card>}
-      {status === "queued" && <Card role="status" aria-live="polite"><Inline gap="sm"><StatusBadge status={String(job?.status || "queued")} label={String(job?.status || "queued") === "awaiting_provider" ? t("foodReel.awaitingProvider", "Esperando proveedor") : t("foodReel.queued", "En cola")}/><span>{String(job?.status || "queued") === "awaiting_provider" ? t("foodReel.awaitingProviderHelp", "El trabajo está listo para que un proveedor de motion lo procese.") : t("foodReel.queuedHelp", "El trabajo se ha creado y está esperando al motor de motion.")}</span></Inline></Card>}
+      {status === "queued" && <Card role="status" aria-live="polite"><Inline gap="sm"><StatusBadge status={String(job?.status || "queued")} label={String(job?.status || "queued") === "awaiting_provider" ? t("foodReel.awaitingProvider", "Esperando proveedor") : String(job?.status || "queued") === "running" ? t("foodReel.running", "Procesando") : t("foodReel.queued", "En cola")}/><span>{String(job?.status || "queued") === "awaiting_provider" ? t("foodReel.awaitingProviderHelp", "El trabajo está listo para que un proveedor de motion lo procese.") : String(job?.status || "queued") === "running" ? t("foodReel.runningHelp", "El motor local está renderizando el Reel.") : t("foodReel.queuedHelp", "El trabajo se ha creado y está esperando al motor de motion.")}</span></Inline></Card>}
       {status === "review" && <Card role="status" aria-live="polite"><Inline gap="sm"><StatusBadge status="needs_review" label={t("foodReel.review", "Revisión humana")}/><span>{t("foodReel.reviewHelp", "El Reel queda pendiente de revisión antes de publicar.")}</span></Inline>{job?.id && <p className="ui-field-hint">{t("foodReel.jobId", "Trabajo")}: {String(job.id)}</p>}</Card>}
       {status === "error" && !error && <Card role="alert"><p className="ui-field-error">{t("foodReel.launchError", "No se pudo lanzar el Reel.")}</p></Card>}
     </main>

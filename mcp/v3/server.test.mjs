@@ -158,7 +158,7 @@ test('tools/call rechaza cualquier nombre legacy incluso si no está catalogado'
 
 test('el catálogo inicial mantiene los contratos de Brand Kernel y Publisher', () => {
   const ids = new Set(BUILTIN_CAPABILITIES.map((entry) => entry.id))
-  for (const id of ['brand.context.get', 'brand.voice.get', 'brand.visual_style.get', 'brand.rules.get', 'brand.references.resolve', 'brand.generation.prepare', 'brand.generation.receipt.issue', 'asset.upload', 'production.image.product.transform', 'publication.destination.list', 'publication.validate', 'publication.route', 'publication.prepare', 'publication.schedule', 'publication.publish', 'publication.status.get']) assert.ok(ids.has(id), id)
+  for (const id of ['brand.context.get', 'brand.voice.get', 'brand.visual_style.get', 'brand.rules.get', 'brand.references.resolve', 'brand.generation.prepare', 'brand.generation.receipt.issue', 'asset.upload', 'production.image.product.transform', 'production.motion.status.get', 'production.motion.retry', 'production.motion.cancel', 'publication.destination.list', 'publication.validate', 'publication.route', 'publication.prepare', 'publication.schedule', 'publication.publish', 'publication.status.get']) assert.ok(ids.has(id), id)
 })
 
 test('las respuestas reales de Brand Kernel y Publisher cumplen sus manifests', async () => {

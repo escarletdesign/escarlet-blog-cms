@@ -5,7 +5,7 @@ import { buildBrandOsMetadata } from '../../lib/brand-os.mjs'
 import { assertAssetTypeForMediaKind, assertSocialTextMetadata, getImagePreparation, issueGenerationReceipt, persistImagePreparation } from '../../lib/generation-provenance.mjs'
 import { getActiveBrandKit, resolveWorkspaceContext } from '../../lib/workspace-domain.mjs'
 import { getPgPool } from '../../lib/pg.mjs'
-import { createVideoJob, updateVideoJob } from '../../lib/video-jobs.mjs'
+import { cancelVideoJob, createVideoJob, getVideoJob, retryVideoJob, updateVideoJob } from '../../lib/video-jobs.mjs'
 import { uploadMedia } from '../../lib/cms-ops.mjs'
 import { attachContentMedia, registerContentMedia } from '../../lib/workspace-domain.mjs'
 import { mediaDir } from '../../lib/db.mjs'
@@ -478,7 +478,8 @@ async function composeMotionJob(args, auth, runtime) {
   const audioAssetId = String(args.audioAssetId || motionAssets.find((asset) => asset.role === 'audio')?.assetId || '').trim()
   const logoAssetId = String(args.logoAssetId || motionAssets.find((asset) => asset.role === 'logo')?.assetId || '').trim()
   const copyBlocks = normalizeMotionCopyBlocks(args.copyBlocks)
-  const brand = getBrandContext(scope.site, { auth: { ...auth, role: auth.role === 'agent' ? 'editor' : auth.role } })
+  const brandOptions = await activeBrandOptions(scope.site, args, auth)
+  const brand = getBrandContext(scope.site, { auth: { ...auth, role: auth.role === 'agent' ? 'editor' : auth.role }, ...brandOptions })
   const profile = motionProfile(args.formatProfile)
   const text = String(args.text || args.script || args.topic || copyBlocks.map((block) => [block.headline, block.body].filter(Boolean).join('\n')).filter(Boolean).join('\n') || '').trim()
   const copy = text
@@ -505,7 +506,11 @@ async function composeMotionJob(args, auth, runtime) {
     provider: args.provider || process.env.DEFAULT_MOTION_PROVIDER || 'local',
     channel: args.channel || profile.channel,
     format: args.format || profile.format,
-    objective: args.objective || 'food-to-reel',
+    objective: args.objective || ({
+      'recipe.reel-from-image': 'reel-from-image',
+      'recipe.food-to-reel': 'food-to-reel',
+      'recipe.menu-to-reel': 'menu-to-reel'
+    }[args.recipeId] || 'motion'),
     topic: args.topic || text,
     metadata: {
       contractVersion: 'os.production.v1',
@@ -529,13 +534,15 @@ async function composeMotionJob(args, auth, runtime) {
     idempotencyKey: motionIdempotencyKey(args, scope.site, sourceMediaId),
     createContentIfMissing: args.createContentIfMissing === true
   })
-  const queued = await updateJob({
-    ...scope,
-    videoJobId: result.videoJobId,
-    userId: auth.userId,
-    role: auth.role === 'agent' ? 'editor' : auth.role,
-    status: 'queued'
-  })
+  const queued = result.idempotentReplay
+    ? { job: result.job }
+    : await updateJob({
+      ...scope,
+      videoJobId: result.videoJobId,
+      userId: auth.userId,
+      role: auth.role === 'agent' ? 'editor' : auth.role,
+      status: 'queued'
+    })
   return {
     contractVersion: 'os.production.v1',
     capability: 'production.motion.compose',
@@ -548,6 +555,50 @@ async function composeMotionJob(args, auth, runtime) {
     brandKitSnapshotHash: brand.brandKitSnapshotHash,
     review: { required: true, status: 'pending' },
     effects: { jobCreated: true, providerExecution: false, mutatesProvider: false }
+  }
+}
+
+async function motionJobAction(args, auth, runtime, action) {
+  const videoJobId = String(args.videoJobId || args.jobId || args.runId || '').trim()
+  if (!videoJobId) throw Object.assign(new Error('videoJobId, jobId o runId es obligatorio.'), { code: 'motion_job_required', status: 422 })
+  const scope = await motionScope(args, auth, runtime)
+  const input = { ...scope, videoJobId, siteHandle: scope.siteHandle, userId: auth.userId, role: auth.role === 'agent' ? 'editor' : auth.role }
+  if (action === 'status') {
+    const readJob = typeof runtime?.getVideoJob === 'function' ? runtime.getVideoJob : getVideoJob
+    const job = await readJob(input)
+    const processing = job.processing || job.metadata?.processing || {}
+    return {
+      contractVersion: 'os.production.v1',
+      capability: 'production.motion.status.get',
+      runId: videoJobId,
+      jobId: videoJobId,
+      status: job.status,
+      job,
+      outputs: job.outputs || [],
+      processing,
+      terminal: job.terminal === true,
+      retryable: job.retryable === true || processing.retryable === true,
+      nextAction: job.nextAction || (processing.retryable ? 'retry' : 'check_status')
+    }
+  }
+  const mutate = action === 'retry'
+    ? (typeof runtime?.retryVideoJob === 'function' ? runtime.retryVideoJob : retryVideoJob)
+    : (typeof runtime?.cancelVideoJob === 'function' ? runtime.cancelVideoJob : cancelVideoJob)
+  const result = await mutate(input)
+  const job = result.job || result
+  return {
+    contractVersion: 'os.production.v1',
+    capability: `production.motion.${action}`,
+    runId: videoJobId,
+    jobId: videoJobId,
+    status: job.status,
+    job,
+    outputs: job.outputs || [],
+    processing: job.processing || job.metadata?.processing || {},
+    terminal: job.terminal === true || (action === 'cancel' && job.status === 'cancelled'),
+    retryable: job.retryable === true,
+    nextAction: action === 'cancel' ? 'none' : 'check_status',
+    ...(result.previousStatus ? { previousStatus: result.previousStatus } : {})
   }
 }
 
@@ -682,7 +733,7 @@ async function runRecipe(args, auth, runtime) {
   if (!text) throw Object.assign(new Error('La recipe necesita text o menuText.'), { code: 'recipe_text_required', status: 422 })
   const site = siteFor(args, auth)
   const context = await invokeBuiltinCapability('brand.context.get', { site, brandKitVersionId: args.brandKitVersionId }, { auth })
-  const copy = await invokeBuiltinCapability('copy.validate', { ...args, site, text, purpose: args.purpose || id }, { auth })
+  const copy = validateCopy({ ...args, site, text, purpose: args.purpose || id }, context)
   if (!copy.valid) {
     return {
       contractVersion: 'os.production.v1',
@@ -808,6 +859,9 @@ export async function invokeBuiltinCapability(name, args = {}, { auth = {}, runt
   if (name === 'asset.upload') return uploadGeneratedAsset(args, auth, runtime)
   if (name === 'production.image.product.transform') return prepareProductTransform(args, auth, runtime)
   if (name === 'production.motion.compose') return composeMotionJob(args, auth, runtime)
+  if (name === 'production.motion.status.get') return motionJobAction(args, auth, runtime, 'status')
+  if (name === 'production.motion.retry') return motionJobAction(args, auth, runtime, 'retry')
+  if (name === 'production.motion.cancel') return motionJobAction(args, auth, runtime, 'cancel')
 
   return undefined
 }

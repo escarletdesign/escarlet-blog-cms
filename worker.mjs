@@ -467,7 +467,7 @@ async function processMotionCompositionJob(job) {
   const videoJobId = String(job.payload?.videoJobId || '').trim()
   if (!videoJobId) throw new Error(`${VIDEO_RENDER_JOB_TYPE} requiere videoJobId.`)
   const result = await pool.query(`
-    SELECT vj.id,vj.workspace_id,vj.site_id,vj.provider,vj.status,vj.metadata,vj.format,vj.topic,vj.content_item_id,
+    SELECT vj.id,vj.workspace_id,vj.site_id,vj.provider,vj.status,vj.metadata,vj.format,vj.topic,vj.content_item_id,vj.source_media_id,
            s.handle AS site_handle,
            source.storage_key AS source_storage_key,source.content_type AS source_content_type,
            audio.storage_key AS audio_storage_key,audio.content_type AS audio_content_type
@@ -481,6 +481,19 @@ async function processMotionCompositionJob(job) {
   if (!result.rowCount) throw new Error('Video job no encontrado.')
   const video = result.rows[0]
   if (video.status !== 'queued') return { videoJobId, status: video.status, skipped: true }
+
+  const startedAt = new Date().toISOString()
+  const claimed = await pool.query(`
+    UPDATE video_jobs
+    SET status='running',
+        metadata=metadata || jsonb_build_object('processing',$3::jsonb),
+        updated_at=NOW()
+    WHERE id=$1 AND workspace_id=$2 AND status='queued'
+    RETURNING id,status,metadata
+  `, [videoJobId, job.workspace_id, JSON.stringify({ state: 'running', code: 'local_render_started', retryable: false, provider: video.provider, rendered: false, startedAt })])
+  if (!claimed.rowCount) return { videoJobId, status: 'running', skipped: true }
+  video.status = 'running'
+  video.metadata = claimed.rows[0].metadata
 
   const motionAssets = Array.isArray(video.metadata?.motionAssets)
     ? video.metadata.motionAssets
@@ -538,6 +551,8 @@ async function processMotionCompositionJob(job) {
         text: firstCopy?.body || video.metadata?.text || video.topic || '',
         durationSeconds: video.metadata?.durationSeconds || 8
       })
+      const currentStatus = await pool.query('SELECT status FROM video_jobs WHERE id=$1 AND workspace_id=$2', [video.id, video.workspace_id])
+      if (currentStatus.rows[0]?.status !== 'running') return { videoJobId, status: currentStatus.rows[0]?.status || 'cancelled', skipped: true }
       const uploaded = await ingestVideoUpload({
         workspaceId: video.workspace_id,
         siteId: video.site_id,
@@ -554,9 +569,9 @@ async function processMotionCompositionJob(job) {
       await pool.query('UPDATE video_jobs SET metadata=metadata || jsonb_build_object(\'processing\',$3::jsonb),updated_at=NOW() WHERE id=$1 AND workspace_id=$2', [video.id, video.workspace_id, JSON.stringify(processing)])
       return { videoJobId, status: 'ready_for_review', provider: 'local', rendered: true, mediaAssetId: uploaded.mediaAssetId, retryable: false, code: 'local_renderer_completed' }
     } catch (error) {
-      const processing = { state: 'awaiting_provider', code: error.code || 'local_renderer_failed', retryable: true, provider: 'local', rendered: false, message: String(error.message || '').slice(0, 500), updatedAt: new Date().toISOString() }
-      await pool.query("UPDATE video_jobs SET status='awaiting_provider',metadata=metadata || jsonb_build_object('processing',$3::jsonb),updated_at=NOW() WHERE id=$1 AND workspace_id=$2", [video.id, video.workspace_id, JSON.stringify(processing)])
-      return { videoJobId, status: 'awaiting_provider', provider: 'local', rendered: false, retryable: true, code: processing.code }
+      const processing = { state: 'failed', code: error.code || 'local_renderer_failed', retryable: true, provider: 'local', rendered: false, message: String(error.message || '').slice(0, 500), updatedAt: new Date().toISOString() }
+      await pool.query("UPDATE video_jobs SET status='failed',metadata=metadata || jsonb_build_object('processing',$3::jsonb),updated_at=NOW() WHERE id=$1 AND workspace_id=$2", [video.id, video.workspace_id, JSON.stringify(processing)])
+      return { videoJobId, status: 'failed', provider: 'local', rendered: false, retryable: true, code: processing.code, error: processing.message }
     }
   }
   const processing = {
@@ -613,6 +628,14 @@ async function drainOnce() {
       await processJob(job)
       await finishJob(job.id, { workerId, ok: true })
     } catch (error) {
+      if (job.type === VIDEO_RENDER_JOB_TYPE && job.payload?.videoJobId) {
+        const pool = await getPgPool()
+        if (pool) {
+          const message = String(error.message || 'El worker no pudo procesar el render.').slice(0, 500)
+          const processing = { state: 'failed', code: error.code || 'worker_motion_failed', retryable: true, provider: 'local', rendered: false, message, updatedAt: new Date().toISOString() }
+          await pool.query("UPDATE video_jobs SET status='failed',metadata=metadata || jsonb_build_object('processing',$3::jsonb),updated_at=NOW() WHERE id=$1 AND workspace_id=$2 AND status IN ('queued','running','rendering')", [job.payload.videoJobId, job.workspace_id, JSON.stringify(processing)]).catch((recordError) => console.error('[worker] no se pudo registrar el fallo de motion', recordError.message))
+        }
+      }
       const deadLetter = job.attempts >= (job.type === 'content.verify_blog' ? blogVerifyAttempts : maxAttempts)
       await finishJob(job.id, { workerId, ok: false, error: error.message, retryAt: deadLetter ? null : (error.retryAt || retryAt(job.attempts)), deadLetter })
       if (deadLetter && ['content.publish_blog', 'content.verify_blog'].includes(job.type) && job.payload?.variantId) {

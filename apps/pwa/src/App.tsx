@@ -560,6 +560,7 @@ function App() {
                 <Route path="/" element={<Home />} />
                 <Route path="/apps" element={<AppsDashboard site={site} t={t} />} />
                 <Route path="/production/food-to-reel" element={<FoodToReel site={site} t={t} />} />
+                <Route path="/production/reel-from-image" element={<FoodToReel site={site} t={t} recipeId="recipe.reel-from-image" />} />
                 <Route path="/production/menu-to-reel" element={<FoodToReel site={site} t={t} recipeId="recipe.menu-to-reel" />} />
                 <Route path="/production/product-to-social" element={<ProductToSocial site={site} t={t} />} />
                 <Route path="/publication/publisher" element={<Publisher site={site} t={t} />} />

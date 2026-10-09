@@ -312,6 +312,34 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     tags: ['production', 'motion', 'video']
   }),
   manifest({
+    id: 'production.motion.status.get',
+    description: 'Consulta el estado real de un trabajo de motion y sus outputs, separado del estado de publicación.',
+    inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, siteId: { type: 'string' }, site: { type: 'string' }, videoJobId: { type: 'string' }, jobId: { type: 'string' }, runId: { type: 'string' } }, anyOf: [{ required: ['videoJobId'] }, { required: ['jobId'] }, { required: ['runId'] }], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, status: { type: 'string' }, terminal: { type: 'boolean' }, outputs: { type: 'array' } }, required: ['contractVersion', 'status', 'terminal'], additionalProperties: true },
+    permissions: ['production:motion'],
+    tags: ['production', 'motion', 'video', 'status']
+  }),
+  manifest({
+    id: 'production.motion.retry',
+    description: 'Reencola un trabajo de motion fallido o bloqueado y devuelve su estado actual.',
+    inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, siteId: { type: 'string' }, site: { type: 'string' }, videoJobId: { type: 'string' }, jobId: { type: 'string' }, runId: { type: 'string' } }, anyOf: [{ required: ['videoJobId'] }, { required: ['jobId'] }, { required: ['runId'] }], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, status: { type: 'string' }, terminal: { type: 'boolean' } }, required: ['contractVersion', 'status'], additionalProperties: true },
+    permissions: ['production:motion'],
+    sideEffects: 'write',
+    humanReviewRequired: true,
+    tags: ['production', 'motion', 'video', 'retry']
+  }),
+  manifest({
+    id: 'production.motion.cancel',
+    description: 'Cancela un trabajo de motion que todavía no ha terminado.',
+    inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, siteId: { type: 'string' }, site: { type: 'string' }, videoJobId: { type: 'string' }, jobId: { type: 'string' }, runId: { type: 'string' } }, anyOf: [{ required: ['videoJobId'] }, { required: ['jobId'] }, { required: ['runId'] }], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, status: { type: 'string', const: 'cancelled' }, terminal: { type: 'boolean' } }, required: ['contractVersion', 'status'], additionalProperties: true },
+    permissions: ['production:motion'],
+    sideEffects: 'destructive',
+    humanReviewRequired: true,
+    tags: ['production', 'motion', 'video', 'cancel']
+  }),
+  manifest({
     id: 'publication.destination.list',
     description: 'Lista destinos y proveedores de publicación compatibles con los assets aprobados.',
     inputSchema: { type: 'object', properties: { brandId: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, assetIds: { type: 'array', items: { type: 'string' } }, assets: { type: 'array', items: { type: 'object' } }, channel: { type: 'string' }, provider: { type: 'string' }, connections: { type: 'array', items: { type: 'object' } }, text: { type: 'string' } }, additionalProperties: false },
@@ -394,7 +422,7 @@ export const BUILTIN_RECIPES = Object.freeze([
     tags: ['recipe', 'reel', 'video', 'motion', 'image', 'content'],
     aliases: ['imagen y guion a reel', 'image to reel', 'generic reel'],
     useCases: ['Crear un Reel genérico desde una imagen y un script'],
-    metadata: { uiRoute: '/production/food-to-reel' }
+    metadata: { uiRoute: '/production/reel-from-image' }
   }),
   Object.freeze({
     id: 'food-to-reel',

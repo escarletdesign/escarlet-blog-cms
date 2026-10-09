@@ -121,6 +121,7 @@ test('las recipes producen resultados trazables con proveedores simulados y qued
     assert.equal(value.review.status, 'pending')
     assert.equal(value.review.next, 'human_approval')
     assert.ok(value.motion.job.metadata.brandKitVersionId)
+    if (recipeId === 'recipe.reel-from-image') assert.equal(value.motion.job.metadata.recipeId, 'recipe.reel-from-image')
     assert.ok(value.destinations.destinations.length > 0)
     assert.equal(runtime.calls.publish, 0)
   }

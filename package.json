@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --config apps/pwa/vite.config.ts",
-    "start": "node server.mjs",
+    "start": "node scripts/docker-entrypoint.mjs",
     "mcp": "node mcp/index.mjs",
     "test": "node --test lib/**/*.test.mjs mcp/**/*.test.mjs",
     "import:escarlet": "node scripts/import-escarlet.mjs",
