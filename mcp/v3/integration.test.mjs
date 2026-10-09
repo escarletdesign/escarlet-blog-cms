@@ -295,6 +295,43 @@ test('motion recibe assets creativos de ChatGPT con roles, copy por escena y log
   assert.deepEqual(metadata.copyBlocks[0], { sceneId: 'intro', headline: 'Una idea clara', body: 'La marca se reconoce cuando sostiene un criterio.', durationMs: 2400 })
 })
 
+test('motion puede construir un timeline de varias escenas con modo flat_slides', async () => {
+  const server = createMcpServerV3Sync({ role: 'agent', site: 'escarlet', workspaceId: 'test-workspace', siteId: 'test-site' }, { runtime: testRuntime() })
+  const result = await call(server, 'production.motion.compose', {
+    site: 'escarlet',
+    formatProfile: 'instagram_reel',
+    renderMode: 'flat_slides',
+    motionAssets: [
+      { assetId: 'slide-01', role: 'source', kind: 'image' },
+      { assetId: 'slide-02', role: 'source', kind: 'image' },
+      { assetId: 'slide-03', role: 'source', kind: 'image' }
+    ],
+    scenes: [
+      { sceneId: 'intro', assetId: 'slide-01', durationMs: 4000 },
+      { sceneId: 'middle', assetId: 'slide-02', durationMs: 4000 },
+      { sceneId: 'outro', assetId: 'slide-03', durationMs: 4500 }
+    ],
+    idempotencyKey: 'motion:flat-slides-test'
+  })
+  assert.equal(result.isError, false, JSON.stringify(result.structuredContent))
+  assert.equal(result.structuredContent.job.metadata.renderMode, 'flat_slides')
+  assert.deepEqual(result.structuredContent.job.metadata.scenes.map((scene) => scene.assetId), ['slide-01', 'slide-02', 'slide-03'])
+  assert.deepEqual(result.structuredContent.job.metadata.scenes.map((scene) => scene.durationMs), [4000, 4000, 4500])
+})
+
+test('motion no declara audio suministrado sin un asset de audio', async () => {
+  const server = createMcpServerV3Sync({ role: 'agent', site: 'escarlet', workspaceId: 'test-workspace', siteId: 'test-site' }, { runtime: testRuntime() })
+  const result = await call(server, 'production.motion.compose', {
+    site: 'escarlet',
+    formatProfile: 'instagram_reel',
+    sourceMediaId: 'slide-01',
+    audioMode: 'supplied',
+    idempotencyKey: 'motion:audio-required-test'
+  })
+  assert.equal(result.isError, true)
+  assert.equal(result.structuredContent.error.code, 'motion_audio_required')
+})
+
 test('las rutas de integración conservan errores accionables y permisos', async () => {
   const server = createMcpServerV3Sync({ role: 'agent', site: 'escarlet' }, { runtime: testRuntime() })
   const missingInput = await call(server, 'production.motion.compose', { site: 'escarlet', formatProfile: 'instagram_reel' })

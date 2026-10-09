@@ -535,17 +535,32 @@ async function processMotionCompositionJob(job) {
       const audioKey = audio?.storage_key || audio?.storageKey || audio?.path || video.audio_storage_key
       const logoKey = logo?.storage_key || logo?.storageKey || logo?.path
       const sourcePath = await assertMotionAssetFile(sourceKey, { root: mediaDir, assetId: background?.id || video.source_media_id })
-      const audioPath = await assertMotionAssetFile(audioKey, { root: mediaDir, assetId: audio?.id || video.metadata?.audioAssetId, required: Boolean(audioKey || video.metadata?.audioAssetId) })
-      const logoPath = await assertMotionAssetFile(logoKey, { root: mediaDir, assetId: logo?.id || video.metadata?.logoAssetId, required: Boolean(logoKey || video.metadata?.logoAssetId) })
+      const audioPath = video.metadata?.audioMode === 'none'
+        ? ''
+        : await assertMotionAssetFile(audioKey, { root: mediaDir, assetId: audio?.id || video.metadata?.audioAssetId, required: Boolean(audioKey || video.metadata?.audioAssetId) })
+      const renderMode = video.metadata?.renderMode === 'flat_slides' ? 'flat_slides' : 'layered_motion'
+      const logoPath = renderMode === 'flat_slides'
+        ? ''
+        : await assertMotionAssetFile(logoKey, { root: mediaDir, assetId: logo?.id || video.metadata?.logoAssetId, required: Boolean(logoKey || video.metadata?.logoAssetId) })
       const firstCopy = Array.isArray(video.metadata?.copyBlocks) ? video.metadata.copyBlocks[0] : null
+      const declaredScenes = Array.isArray(video.metadata?.scenes) ? video.metadata.scenes : []
+      const scenes = []
+      for (const [index, scene] of declaredScenes.entries()) {
+        const sceneAsset = mediaById.get(scene.assetId) || virtualBrandById.get(scene.assetId)
+        const sceneKey = sceneAsset?.storage_key || sceneAsset?.storageKey || sceneAsset?.path
+        const scenePath = await assertMotionAssetFile(sceneKey, { root: mediaDir, assetId: scene.assetId || `scene-${index + 1}` })
+        scenes.push({ ...scene, path: scenePath })
+      }
       const buffer = await renderMotionVideo({
         sourcePath,
+        scenes,
         audioPath,
         logoPath,
         site: video.site_handle,
         title: firstCopy?.headline || video.topic || video.metadata?.title || 'Reel de marca',
         text: firstCopy?.body || video.metadata?.text || video.topic || '',
-        durationSeconds: video.metadata?.durationSeconds || 8
+        durationSeconds: video.metadata?.durationSeconds || 8,
+        renderMode
       })
       const currentStatus = await pool.query('SELECT status FROM video_jobs WHERE id=$1 AND workspace_id=$2', [video.id, video.workspace_id])
       if (currentStatus.rows[0]?.status !== 'running') return { videoJobId, status: currentStatus.rows[0]?.status || 'cancelled', skipped: true }
