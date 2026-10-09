@@ -1,13 +1,13 @@
 import { createHash } from 'node:crypto'
 import { assertSiteAccess } from '../../lib/auth.mjs'
-import { getBrandContext, prepareImageGeneration } from '../../lib/brand-kit.mjs'
+import { getBrandContext, prepareImageGeneration, validateImagePreparation } from '../../lib/brand-kit.mjs'
 import { buildBrandOsMetadata } from '../../lib/brand-os.mjs'
-import { issueGenerationReceipt, persistImagePreparation } from '../../lib/generation-provenance.mjs'
+import { assertAssetTypeForMediaKind, assertSocialTextMetadata, getImagePreparation, issueGenerationReceipt, persistImagePreparation } from '../../lib/generation-provenance.mjs'
 import { resolveWorkspaceContext } from '../../lib/workspace-domain.mjs'
 import { getPgPool } from '../../lib/pg.mjs'
 import { createVideoJob, updateVideoJob } from '../../lib/video-jobs.mjs'
-import { saveUploadedMedia } from '../../lib/cms-ops.mjs'
-import { registerContentMedia } from '../../lib/workspace-domain.mjs'
+import { uploadMedia } from '../../lib/cms-ops.mjs'
+import { attachContentMedia, registerContentMedia } from '../../lib/workspace-domain.mjs'
 import { mediaDir } from '../../lib/db.mjs'
 import { renderProductTransform } from '../../lib/product-renderer.mjs'
 import { resolve as resolvePath, join } from 'node:path'
@@ -125,6 +125,129 @@ async function registerAssetReference(args, auth, runtime) {
     sha256: storedHash || requestedHash || null,
     mimeType: asset.mimeType || null,
     provenance: { workspaceId, siteId, storageKey: asset.storageKey || null, source: 'media_assets' }
+  }
+}
+
+async function uploadGeneratedAsset(args, auth, runtime) {
+  const site = siteFor(args, auth)
+  const requestedKind = String(args.kind || '').trim().toLowerCase()
+  const preparationId = String(args.preparationId || '').trim()
+  if (requestedKind !== 'reference' && !preparationId) throw Object.assign(new Error('asset.upload necesita preparationId para assets publicables.'), { code: 'brand_preparation_required', status: 422 })
+  const scope = await motionScope(args, auth, runtime)
+  let preparation = null
+  let brandGrounding = null
+
+  if (requestedKind !== 'reference') {
+    preparation = await getImagePreparation(preparationId)
+    if (!preparation) throw Object.assign(new Error('No existe la preparación visual.'), { code: 'preparation_not_found', status: 404 })
+    if (preparation.site !== site || (preparation.workspaceId && preparation.workspaceId !== scope.workspaceId) || (preparation.siteId && preparation.siteId !== scope.siteId)) {
+      throw Object.assign(new Error('La preparación no pertenece a esta marca.'), { code: 'preparation_site_mismatch', status: 409 })
+    }
+    if (preparation.generationBlocked || preparation.state === 'blocked') throw Object.assign(new Error('La preparación visual está bloqueada.'), { code: 'generation_blocked', status: 409 })
+    if (preparation.expiresAt && new Date(preparation.expiresAt).getTime() <= Date.now()) throw Object.assign(new Error('La preparación visual ha expirado.'), { code: 'preparation_expired', status: 409 })
+    const assetType = String(args.assetType || preparation.assetType || '').trim()
+    const validation = validateImagePreparation(site, preparationId, {
+      assetType,
+      route: preparation.route,
+      expectedAssetCount: preparation.expectedAssetCount,
+      itemId: preparation.itemId || args.itemId,
+      batchId: preparation.batchId || args.batchId,
+      channel: preparation.channel || args.channel
+    })
+    if (!validation.ok) throw Object.assign(new Error('La preparación no coincide con el Brand Kit actual.'), { code: validation.code || 'brand_grounding_stale', status: 409, details: validation })
+    const kind = requestedKind || (assetType === 'blog_cover' ? 'post' : ['social_image', 'instagram_story'].includes(assetType) ? 'social' : '')
+    if (!['post', 'social'].includes(kind)) throw Object.assign(new Error('kind debe ser post o social para una preparación visual.'), { code: 'media_kind_required', status: 422 })
+    assertAssetTypeForMediaKind(kind, assetType)
+    const assetIndex = Number(args.assetIndex ?? 0)
+    if (!Number.isInteger(assetIndex) || assetIndex < 0 || assetIndex >= Number(preparation.expectedAssetCount || 1)) throw Object.assign(new Error('assetIndex no pertenece a esta preparación.'), { code: 'asset_index_mismatch', status: 409 })
+    const channels = Array.isArray(args.channels) && args.channels.length
+      ? [...new Set(args.channels.map((value) => String(value || '').trim().toLowerCase()).filter(Boolean))]
+      : preparation.channel ? [String(preparation.channel).toLowerCase()] : []
+    const socialText = ['social_image', 'instagram_story'].includes(assetType)
+      ? assertSocialTextMetadata({ assetType, textRendered: args.textRendered, templateId: args.templateId, renderedBy: args.renderedBy, textContent: args.textContent })
+      : null
+    brandGrounding = {
+      provenanceVersion: '3',
+      brandPreparationId: preparation.preparationId,
+      brandKitVersionId: preparation.brandKitVersionId,
+      brandKitSnapshotHash: preparation.brandKitSnapshotHash,
+      brandRoute: preparation.route,
+      assetType,
+      kind,
+      resolvedReferenceIds: (preparation.expectedReferences || []).map((reference) => reference.id),
+      resolvedReferenceHashes: (preparation.expectedReferences || []).map((reference) => reference.sha256),
+      itemId: args.itemId || preparation.itemId || null,
+      channels,
+      assetIndex,
+      expectedAssetCount: Number(preparation.expectedAssetCount || 1),
+      ...(socialText || {}),
+      generatedAt: new Date().toISOString()
+    }
+  }
+
+  const kind = brandGrounding?.kind || requestedKind || 'reference'
+  const uploaded = await uploadMedia({
+    ...args,
+    site,
+    kind,
+    brandGroundingOverride: brandGrounding,
+    requireBrandGrounding: kind !== 'reference',
+    autoNormalize: false,
+    membershipUserId: auth.userId || ''
+  })
+  if (uploaded?.awaitingChunks) return { contractVersion: 'os.production.v1', ...uploaded, status: 'uploading' }
+  const asset = await registerContentMedia({
+    workspaceId: scope.workspaceId,
+    siteId: scope.siteId,
+    userId: auth.userId,
+    role: scope.role,
+    media: uploaded.media,
+    brandGrounding: uploaded.media?.brandGrounding || brandGrounding,
+    idempotencyKey: args.idempotencyKey || '',
+    idempotencyFingerprint: `${args.filename || ''}:${uploaded.finalSha256 || uploaded.media?.sha256 || ''}:${preparationId}:${args.assetIndex ?? 0}`
+  })
+  let attachment = null
+  if (brandGrounding?.itemId && brandGrounding.channels?.length) {
+    attachment = await attachContentMedia({
+      workspaceId: scope.workspaceId,
+      siteId: scope.siteId,
+      itemId: brandGrounding.itemId,
+      userId: auth.userId,
+      role: scope.role,
+      mediaAssetId: asset.id,
+      channels: brandGrounding.channels,
+      assetIndex: brandGrounding.assetIndex
+    })
+  }
+  const receipt = preparation
+    ? await issueGenerationReceipt({
+        site,
+        preparationId: preparation.preparationId,
+        usedReferences: preparation.expectedReferences || [],
+        generatedResultId: asset.id,
+        generatedFileHash: uploaded.finalSha256 || uploaded.media?.sha256,
+        itemId: brandGrounding.itemId || undefined,
+        batchId: preparation.batchId || undefined,
+        channel: preparation.channel || undefined,
+        assetType: preparation.assetType,
+        route: preparation.route,
+        textRendered: brandGrounding?.textRendered,
+        templateId: brandGrounding?.templateId,
+        renderedBy: brandGrounding?.renderedBy,
+        textContent: brandGrounding?.textContent
+      })
+    : null
+  return {
+    contractVersion: 'os.production.v1',
+    capability: 'asset.upload',
+    status: attachment?.contentComplete || !brandGrounding?.itemId ? 'ready_for_review' : 'uploaded',
+    assetId: asset.id,
+    asset,
+    media: uploaded.media,
+    attachment,
+    receipt,
+    provenance: brandGrounding ? { ...brandGrounding, receiptId: receipt?.receiptId || null } : null,
+    nextAction: attachment?.contentComplete || !brandGrounding?.itemId ? 'human_review' : 'attach_to_content_item'
   }
 }
 
@@ -516,6 +639,7 @@ export async function invokeBuiltinCapability(name, args = {}, { auth = {}, runt
     return getPublicationStatus(publication)
   }
   if (name === 'asset.register') return registerAssetReference(args, auth, runtime)
+  if (name === 'asset.upload') return uploadGeneratedAsset(args, auth, runtime)
   if (name === 'production.image.product.transform') return prepareProductTransform(args, auth, runtime)
   if (name === 'production.motion.compose') return composeMotionJob(args, auth, runtime)
 

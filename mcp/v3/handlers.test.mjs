@@ -49,3 +49,19 @@ test('product transform exige un asset fuente antes de preparar el proveedor', a
   assert.equal(result.isError, true)
   assert.equal(result.structuredContent.error.code, 'product_source_required')
 })
+
+test('asset.upload no permite guardar un asset publicable sin preparación', async () => {
+  const server = await createMcpServerV3({ role: 'admin', site: 'escarlet' })
+  const result = await call(server, 'asset.upload', {
+    site: 'escarlet',
+    filename: 'slide.png',
+    contentBase64: 'iVBORw0KGgo=',
+    kind: 'social',
+    textRendered: true,
+    templateId: 'editorial',
+    renderedBy: 'chatgpt-image-generation',
+    textContent: { headline: 'Titular', body: 'Cuerpo' }
+  })
+  assert.equal(result.isError, true)
+  assert.equal(result.structuredContent.error.code, 'brand_preparation_required')
+})

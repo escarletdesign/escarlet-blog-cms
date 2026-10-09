@@ -220,6 +220,49 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     tags: ['asset', 'provenance']
   }),
   manifest({
+    id: 'asset.upload',
+    description: 'Guarda el archivo final generado por el agente y valida dimensiones, copy, Brand Kit y procedencia antes de dejarlo para revisión.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site: { type: 'string' },
+        workspaceId: { type: 'string' },
+        siteId: { type: 'string' },
+        filename: { type: 'string', minLength: 1, maxLength: 300 },
+        mimeType: { type: 'string', maxLength: 120 },
+        contentBase64: { type: 'string', minLength: 1, maxLength: 30000000 },
+        blob: { type: 'string', minLength: 1, maxLength: 30000000 },
+        file: { type: 'object' },
+        kind: { type: 'string', enum: ['post', 'social', 'reference'] },
+        preparationId: { type: 'string' },
+        assetType: { type: 'string', enum: ['blog_cover', 'social_image', 'instagram_story', 'presentation', 'generic'] },
+        itemId: { type: 'string' },
+        batchId: { type: 'string' },
+        channel: { type: 'string' },
+        channels: { type: 'array', items: { type: 'string' } },
+        assetIndex: { type: 'integer', minimum: 0, maximum: 19 },
+        textRendered: { type: 'boolean' },
+        templateId: { type: 'string', enum: ['editorial', 'impact'] },
+        renderedBy: { type: 'string', const: 'chatgpt-image-generation' },
+        textContent: { type: 'object', properties: { headline: { type: 'string', minLength: 1, maxLength: 90 }, body: { type: 'string', minLength: 1, maxLength: 240 } }, required: ['headline', 'body'], additionalProperties: false },
+        alt: { type: 'string', maxLength: 1000 },
+        idempotencyKey: { type: 'string', maxLength: 300 }
+      },
+      oneOf: [
+        { required: ['preparationId', 'filename', 'contentBase64', 'textRendered', 'templateId', 'renderedBy', 'textContent'] },
+        { required: ['preparationId', 'filename', 'file', 'textRendered', 'templateId', 'renderedBy', 'textContent'] },
+        { required: ['kind', 'filename', 'contentBase64'] },
+        { required: ['kind', 'filename', 'file'] }
+      ],
+      additionalProperties: false
+    },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, assetId: { type: 'string' }, status: { type: 'string' }, asset: { type: 'object' }, media: { type: 'object' }, provenance: { type: ['object', 'null'] }, receipt: { type: ['object', 'null'] }, awaitingChunks: { type: 'boolean' } }, required: ['contractVersion', 'status'], oneOf: [{ required: ['assetId', 'asset'] }, { required: ['awaitingChunks'] }], additionalProperties: true },
+    permissions: ['asset:write', 'generation:provenance'],
+    sideEffects: 'write',
+    humanReviewRequired: true,
+    tags: ['asset', 'upload', 'generation', 'provenance']
+  }),
+  manifest({
     id: 'production.image.product.transform',
     description: 'Transforma un producto manteniendo el original y creando un asset derivado con procedencia.',
     inputSchema: { type: 'object', properties: { sourceAssetId: { type: 'string' }, sourceAsset: assetReferenceSchema, workspaceId: { type: 'string' }, siteId: { type: 'string' }, site: { type: 'string' }, brandId: { type: 'string' }, brandKitVersionId: { type: 'string' }, formatProfile: { type: 'string' }, preserveProduct: { type: 'boolean' }, title: { type: 'string' }, topic: { type: 'string' }, instructions: { type: 'string' } }, required: ['formatProfile'], oneOf: [{ required: ['sourceAssetId'] }, { required: ['sourceAsset'] }], additionalProperties: false },
