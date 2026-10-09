@@ -62,3 +62,16 @@ test('el handler HTTP conserva el auth del servidor y no eleva authInfo a admin'
   assert.equal(body.result.tools.some((tool) => tool.name === 'production.motion.compose'), false)
   assert.equal(body.result.tools.some((tool) => tool.name === 'publication.route'), false)
 })
+
+test('un agente nuevo puede pedir la guía mediante el transporte MCP real', async () => {
+  const response = await createMcpV3Handler({ registry: {}, auth: { role: 'agent', site: 'escarlet' } }).fetch(new Request('https://cms.escarlet.design/mcp/v3', {
+    method: 'POST',
+    headers: { ...headers, 'Mcp-Method': 'tools/call', 'Mcp-Name': 'capability.guide' },
+    body: JSON.stringify(request('tools/call', 2, { name: 'capability.guide', arguments: {} }))
+  }), { authInfo: { role: 'viewer' } })
+  assert.equal(response.status, 200)
+  const body = await response.json()
+  assert.equal(body.result.isError, false)
+  assert.ok(body.result.structuredContent.firstSteps.some((step) => step.includes('recipe.list')))
+  assert.ok(body.result.structuredContent.examples.some((example) => example.execute?.arguments?.formatProfile === 'instagram_story'))
+})

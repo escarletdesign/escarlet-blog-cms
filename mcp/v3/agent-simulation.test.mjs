@@ -10,6 +10,14 @@ async function call(server, name, arguments_ = {}) {
 }
 
 test('simulación de un agente nuevo: el MCP explica, descubre e inspecciona antes de ejecutar', async () => {
+  const user = await createMcpServerV3({ role: 'viewer', site: 'escarlet' })
+  const userGuide = await call(user, 'capability.guide')
+  assert.equal(userGuide.isError, false)
+  const userTools = await user._requestHandlers.get('tools/list')({ method: 'tools/list', params: {} })
+  assert.equal(userTools.tools.some((tool) => tool.name === 'recipe.run'), false)
+  const denied = await call(user, 'recipe.run', { recipeId: 'recipe.food-to-reel' })
+  assert.equal(denied.structuredContent.error.code, 'capability_permission_missing')
+
   const server = await createMcpServerV3({ role: 'agent', site: 'escarlet' })
   const listed = await server._requestHandlers.get('tools/list')({ method: 'tools/list', params: {} })
   assert.ok(listed.tools.some((tool) => tool.name === 'capability.guide'))
