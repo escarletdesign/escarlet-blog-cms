@@ -166,10 +166,26 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
   }),
   manifest({
     id: 'brand.generation.prepare',
-    description: 'Prepara un envelope versionado para generación externa, sin generar contenido ni revelar secretos.',
+    description: 'Prepara un envelope versionado para que el agente use su modelo de imágenes, sin generar píxeles en el CMS ni revelar secretos.',
     inputSchema: {
       type: 'object',
-      properties: { site: { type: 'string' }, brandId: { type: 'string' }, brandKitVersionId: { type: 'string' }, purpose: { type: 'string' }, formatProfile: { type: 'string' }, inputs: { type: 'array', items: assetReferenceSchema }, prompt: { type: 'string', maxLength: 12000 } },
+      properties: {
+        site: { type: 'string' },
+        brandId: { type: 'string' },
+        brandKitVersionId: { type: 'string' },
+        purpose: { type: 'string' },
+        formatProfile: { type: 'string' },
+        assetType: { type: 'string', enum: ['blog_cover', 'social_image', 'instagram_story', 'presentation', 'generic'] },
+        expectedAssetCount: { type: 'integer', minimum: 1, maximum: 20 },
+        channel: { type: 'string' },
+        itemId: { type: 'string' },
+        batchId: { type: 'string' },
+        inputs: { type: 'array', items: assetReferenceSchema },
+        prompt: { type: 'string', maxLength: 12000 },
+        title: { type: 'string', maxLength: 240 },
+        topic: { type: 'string', maxLength: 5000 },
+        textContent: { type: 'object', properties: { headline: { type: 'string', maxLength: 90 }, body: { type: 'string', maxLength: 240 } }, additionalProperties: false }
+      },
       oneOf: [{ required: ['site', 'purpose'] }, { required: ['brandId', 'purpose'] }],
       additionalProperties: false
     },

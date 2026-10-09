@@ -31,8 +31,27 @@ test('simulación de un agente nuevo: el MCP explica, descubre e inspecciona ant
   assert.equal(guide.isError, false)
   assert.equal(guide.structuredContent.goal, 'crear un reel del menú del día')
   assert.ok(guide.structuredContent.firstSteps.some((step) => step.includes('recipe.list')))
+  assert.ok(guide.structuredContent.firstSteps.some((step) => step.includes('brand.generation.prepare')))
+  assert.ok(guide.structuredContent.rules.some((rule) => rule.includes('no compone imágenes sociales')))
+  assert.ok(guide.structuredContent.rules.some((rule) => rule.includes('chatgpt-image-generation')))
   assert.ok(guide.structuredContent.examples.some((example) => example.execute?.tool === 'recipe.run'))
   assert.ok(guide.structuredContent.examples.some((example) => example.execute?.arguments?.formatProfile === 'instagram_story'))
+  const carousel = guide.structuredContent.examples.find((example) => example.intent === 'Crear un carrusel de Instagram')
+  assert.equal(carousel?.execute?.tool, 'brand.generation.prepare')
+  assert.equal(carousel?.execute?.arguments?.assetType, 'social_image')
+  const preparedCarousel = await call(server, 'brand.generation.prepare', {
+    site: 'escarlet',
+    purpose: 'instagram-carousel',
+    assetType: 'social_image',
+    formatProfile: 'instagram_post',
+    expectedAssetCount: 6,
+    channel: 'instagram',
+    topic: 'Una idea sobre diseño de marca'
+  })
+  assert.equal(preparedCarousel.isError, false)
+  assert.equal(preparedCarousel.structuredContent.preparation.expectedAssetCount, 6)
+  assert.equal(preparedCarousel.structuredContent.composition.dimensions, '1080x1350')
+  assert.equal(preparedCarousel.structuredContent.brandPreparation.finalTextRenderer, 'chatgpt-image-generation')
 
   const search = await call(server, 'capability.search', { query: 'food reel', type: 'recipe' })
   assert.equal(search.isError, false)

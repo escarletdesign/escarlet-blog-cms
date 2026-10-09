@@ -153,6 +153,7 @@ function agentGuide(catalog, auth, args = {}) {
     firstSteps: [
       'Llama capability.search o recipe.list para encontrar una capability autorizada. Si es tu primera vez, usa capability.get o recipe.get antes de ejecutar.',
       'Fija site o brandId y llama brand.context.get para trabajar con el Brand Kit versionado correcto.',
+      'Para una imagen de Instagram, llama brand.generation.prepare con assetType=social_image y usa el modelo de imágenes del host para crear cada slide final con el generationPrompt y las referencias resueltas. Esta capability solo prepara, no genera píxeles.',
       'Entrega referencias de artefactos con assetId y, cuando exista, sha256. No envíes blobs ni credenciales entre capabilities.',
       'Ejecuta una recipe solo con los inputs que indique su manifest. El resultado queda ready_for_review y no se publica automáticamente.',
       'Para publicar, usa publication.destination.list, publication.prepare y después espera aprobación humana antes de schedule o publish.'
@@ -160,11 +161,14 @@ function agentGuide(catalog, auth, args = {}) {
     rules: [
       'Las capabilities usan nombres namespaced y los IDs de recipes usan el prefijo recipe.',
       'Una respuesta con status blocked, awaiting_provider o failed requiere una acción explícita, no un reintento ciego.',
+      'El CMS no compone imágenes sociales finales. No uses SVG, HTML, CSS, plantillas locales ni content-system/instagram-renderer para sustituir la generación de imágenes de ChatGPT. Si el host no ofrece un modelo de imágenes, conserva awaiting_provider.',
+      'Cada slide social debe ser una imagen final de 1080x1350 con el headline y body aprobados integrados, textRendered=true, templateId y renderedBy=chatgpt-image-generation.',
       'La publicación es una frontera separada: ninguna capability creativa recibe credenciales de proveedores.'
     ],
     examples: [
       { intent: 'Crear un Reel de un plato', discover: { tool: 'recipe.list', arguments: { query: 'food reel' } }, inspect: { tool: 'recipe.get', arguments: { recipeId: 'recipe.food-to-reel' } }, execute: { tool: 'recipe.run', arguments: { recipeId: 'recipe.food-to-reel', site: '<site>', sourceMediaId: '<assetId>', text: '<descripción del plato>', formatProfile: 'instagram_reel' } } },
       { intent: 'Convertir el menú del día en Story', discover: { tool: 'recipe.list', arguments: { query: 'menu' } }, inspect: { tool: 'recipe.get', arguments: { recipeId: 'recipe.menu-to-reel' } }, execute: { tool: 'recipe.run', arguments: { recipeId: 'recipe.menu-to-reel', site: '<site>', sourceMediaId: '<assetId>', text: '<texto del menú>', formatProfile: 'instagram_story', channel: 'instagram_story' } } },
+      { intent: 'Crear un carrusel de Instagram', discover: { tool: 'capability.search', arguments: { query: 'social image', type: 'primitive' } }, inspect: { tool: 'capability.get', arguments: { capabilityId: 'brand.generation.prepare' } }, execute: { tool: 'brand.generation.prepare', arguments: { site: '<site>', purpose: 'instagram-carousel', assetType: 'social_image', formatProfile: 'instagram_post', expectedAssetCount: 6, channel: 'instagram', topic: '<tema del carrusel>' } }, afterPrepare: 'Usa el modelo de imágenes de ChatGPT con las referencias y generationPrompt devueltos. No uses un renderer del CMS y no cierres el flujo hasta tener una imagen final por slide.', },
       { intent: goal || 'Preparar una publicación', discover: { tool: 'capability.search', arguments: { query: 'publication' } }, inspect: { tool: 'capability.get', arguments: { capabilityId: 'publication.destination.list' } } }
     ],
     recipes
@@ -280,7 +284,7 @@ function createServer(auth, catalog, runtime = null) {
     { name: MCP_V3_SERVER_NAME, version: MCP_V3_SERVER_VERSION, title: 'Escarlet OS' },
     {
       capabilities: { tools: { listChanged: true }, resources: { subscribe: false, listChanged: true } },
-      instructions: 'Escarlet OS expone capabilities namespaced. Descubre primero, fija la marca y su Brand Kit, prepara el trabajo, registra procedencia y deja la publicación para el Publisher tras revisión humana.'
+      instructions: 'Escarlet OS expone capabilities namespaced. Descubre primero y fija la marca y su Brand Kit. Para imágenes sociales, brand.generation.prepare solo prepara referencias y prompts: el agente debe usar su modelo de imágenes para generar cada PNG final con texto integrado. El CMS no dibuja, no compone y no sustituye esa generación con SVG, HTML, CSS ni plantillas locales. Registra procedencia y deja la publicación para el Publisher tras revisión humana.'
     }
   )
 
