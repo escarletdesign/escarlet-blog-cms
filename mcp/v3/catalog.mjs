@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { ARTIFACT_REFERENCE_SCHEMA } from '../../lib/os/artifacts.mjs'
 
 export const MCP_V3_SERVER_NAME = 'escarlet-os'
 export const MCP_V3_SERVER_VERSION = '0.1.0'
@@ -10,23 +11,14 @@ const objectSchema = {
   additionalProperties: false
 }
 
-const assetReferenceSchema = {
-  type: 'object',
-  properties: {
-    assetId: { type: 'string', minLength: 1 },
-    role: { type: 'string', minLength: 1 },
-    sha256: { type: 'string', minLength: 1 }
-  },
-  required: ['assetId'],
-  additionalProperties: false
-}
+const assetReferenceSchema = ARTIFACT_REFERENCE_SCHEMA
 
 const runSchema = {
   type: 'object',
   properties: {
     contractVersion: { type: 'string', const: MCP_V3_CONTRACT },
     runId: { type: 'string' },
-    status: { type: 'string', enum: ['queued', 'running', 'awaiting_provider', 'ready_for_review', 'approved', 'scheduled', 'published', 'failed', 'cancelled', 'blocked'] },
+    status: { type: 'string', enum: ['queued', 'running', 'awaiting_provider', 'awaiting_human_approval', 'ready_for_review', 'approved', 'scheduled', 'published', 'failed', 'cancelled', 'blocked'] },
     capability: { type: 'string' },
     brandKitVersionId: { type: 'string' },
     outputs: { type: 'array', items: assetReferenceSchema },
@@ -82,6 +74,20 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     },
     outputSchema: { type: 'object', properties: { capabilities: { type: 'array' } }, required: ['capabilities'], additionalProperties: false },
     tags: ['discovery']
+  }),
+  manifest({
+    id: 'capability.get',
+    description: 'Devuelve el manifest completo de una capability autorizada, incluidos sus schemas y efectos.',
+    inputSchema: { type: 'object', properties: { capabilityId: { type: 'string', minLength: 1 }, version: { type: 'string' } }, required: ['capabilityId'], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { capability: { type: 'object' } }, required: ['capability'], additionalProperties: false },
+    tags: ['discovery']
+  }),
+  manifest({
+    id: 'recipe.list',
+    description: 'Lista recetas autorizadas sin ejecutar ningún paso.',
+    inputSchema: { type: 'object', properties: { query: { type: 'string', maxLength: 160 }, tag: { type: 'string', maxLength: 80 } }, additionalProperties: false },
+    outputSchema: { type: 'object', properties: { recipes: { type: 'array' } }, required: ['recipes'], additionalProperties: false },
+    tags: ['discovery', 'composition']
   }),
   manifest({
     id: 'recipe.get',
@@ -296,6 +302,24 @@ function registryValue(candidate) {
   return candidate
 }
 
+function canonicalRecipeId(value) {
+  const id = String(value || '').trim()
+  return id.startsWith('recipe.') ? id : `recipe.${id}`
+}
+
+function recipeKey(value) {
+  return canonicalRecipeId(value).slice('recipe.'.length)
+}
+
+function normalizedSideEffects(value) {
+  if (typeof value === 'string' && value.trim()) return value.trim()
+  const effects = Array.isArray(value) ? value.map((entry) => String(entry).toLowerCase()) : []
+  if (effects.some((entry) => entry === 'external' || entry.includes('external'))) return 'external'
+  if (effects.some((entry) => entry === 'write' || entry.includes('asset_write') || entry.includes('job_create'))) return 'write'
+  if (effects.length) return 'audit'
+  return 'none'
+}
+
 export function normalizeOsRegistry(candidate) {
   const source = registryValue(candidate)
   const capabilities = source.capabilities || source.tools || []
@@ -305,11 +329,27 @@ export function normalizeOsRegistry(candidate) {
   const normalizedCapabilities = capabilities.map((entry) => {
     if (!entry || typeof entry !== 'object') throw new TypeError('Cada capability del registro OS debe ser un objeto.')
     const id = namespaced(String(entry.id || entry.name || ''))
-    return { ...entry, id, type: entry.type || 'primitive', version: entry.version || '1.0.0' }
+    return {
+      ...entry,
+      id,
+      type: entry.type || entry.kind || 'primitive',
+      version: entry.version || '1.0.0',
+      sideEffects: normalizedSideEffects(entry.sideEffects),
+      humanReviewRequired: entry.humanReviewRequired === true || entry.reviewPolicy === 'human_required',
+      composesWith: Array.isArray(entry.composesWith) ? entry.composesWith : (Array.isArray(entry.dependencies) ? entry.dependencies : [])
+    }
   })
   const normalizedRecipes = recipes.map((entry) => {
     if (!entry || typeof entry !== 'object' || !entry.id) throw new TypeError('Cada recipe del registro OS debe tener id.')
-    return { ...entry, id: String(entry.id), type: 'recipe', version: entry.version || '1.0.0' }
+    return {
+      ...entry,
+      id: canonicalRecipeId(entry.id),
+      type: 'recipe',
+      version: entry.version || '1.0.0',
+      sideEffects: normalizedSideEffects(entry.sideEffects),
+      humanReviewRequired: entry.humanReviewRequired === true || entry.reviewPolicy === 'human_required',
+      composesWith: Array.isArray(entry.composesWith) ? entry.composesWith : (Array.isArray(entry.dependencies) ? entry.dependencies : [])
+    }
   })
   return {
     capabilities: normalizedCapabilities,
@@ -342,8 +382,8 @@ export function mergeCatalog({ registry = {}, capabilities = BUILTIN_CAPABILITIE
   const extra = normalizeOsRegistry(registry)
   const capabilitiesById = new Map(capabilities.map((entry) => [entry.id, entry]))
   for (const entry of extra.capabilities) capabilitiesById.set(entry.id, entry)
-  const recipesById = new Map(recipes.map((entry) => [entry.id, entry]))
-  for (const entry of extra.recipes) recipesById.set(entry.id, entry)
+  const recipesById = new Map(recipes.map((entry) => [recipeKey(entry.id), entry]))
+  for (const entry of extra.recipes) recipesById.set(recipeKey(entry.id), entry)
   return {
     capabilities: [...capabilitiesById.values()],
     recipes: [...recipesById.values()],

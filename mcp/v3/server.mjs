@@ -34,7 +34,8 @@ function findCapability(catalog, name) {
 }
 
 function findRecipe(catalog, recipeId) {
-  return catalog.recipes.find((entry) => entry.id === recipeId) || null
+  const requested = String(recipeId || '').trim().replace(/^recipe\./, '')
+  return catalog.recipes.find((entry) => String(entry.id).replace(/^recipe\./, '') === requested) || null
 }
 
 function canUseCapability(auth, capability) {
@@ -58,8 +59,28 @@ function searchCapabilities(catalog, auth, args = {}) {
     if (!query) return true
     const haystack = [entry.id, entry.description, ...(entry.tags || []), ...(entry.composesWith || [])].join(' ').toLowerCase()
     return queryTokens.every((token) => haystack.includes(token))
-  }).map(publicCapabilityManifest)
+  }).map((entry) => {
+    const publicEntry = publicCapabilityManifest(entry)
+    if (args.includeSchemas === true) return publicEntry
+    const { inputSchema, outputSchema, ...summary } = publicEntry
+    return { ...summary, inputKeys: Object.keys(inputSchema?.properties || {}), outputKeys: Object.keys(outputSchema?.properties || {}) }
+  })
   return { contractVersion: MCP_V3_CONTRACT, capabilities }
+}
+
+function listRecipes(catalog, auth, args = {}) {
+  const query = String(args.query || '').trim().toLowerCase()
+  const tag = String(args.tag || '').trim().toLowerCase()
+  const recipes = catalog.recipes
+    .filter((entry) => canUseCapability(auth, entry))
+    .filter((entry) => !tag || (entry.tags || []).some((value) => String(value).toLowerCase() === tag))
+    .filter((entry) => !query || [entry.id, entry.description, ...(entry.tags || [])].join(' ').toLowerCase().includes(query))
+    .map((entry) => {
+      const publicEntry = publicCapabilityManifest(entry)
+      const { inputSchema, outputSchema, ...summary } = publicEntry
+      return { ...summary, inputKeys: Object.keys(inputSchema?.properties || {}), outputKeys: Object.keys(outputSchema?.properties || {}) }
+    })
+  return { contractVersion: MCP_V3_CONTRACT, recipes }
 }
 
 async function invokeRegisteredCapability(catalog, capability, name, args, auth) {
@@ -77,6 +98,23 @@ async function invokeRegisteredCapability(catalog, capability, name, args, auth)
 
 async function callCapability(catalog, auth, name, args) {
   if (name === 'capability.search') return searchCapabilities(catalog, auth, args)
+  if (name === 'capability.get') {
+    const capability = findCapability(catalog, args?.capabilityId || args?.id)
+    if (!capability || (args?.version && String(capability.version) !== String(args.version))) {
+      const error = new Error(`Capability desconocida: ${args?.capabilityId || args?.id || ''}`)
+      error.code = 'capability_not_found'
+      error.status = 404
+      throw error
+    }
+    if (!canUseCapability(auth, capability)) {
+      const error = new Error(`El token no tiene permisos para ${args?.capabilityId || args?.id || ''}.`)
+      error.code = 'capability_permission_missing'
+      error.status = 403
+      throw error
+    }
+    return { contractVersion: MCP_V3_CONTRACT, capability: publicCapabilityManifest(capability) }
+  }
+  if (name === 'recipe.list') return listRecipes(catalog, auth, args)
   if (name === 'recipe.get') {
     const recipe = findRecipe(catalog, args?.recipeId)
     if (!recipe) {

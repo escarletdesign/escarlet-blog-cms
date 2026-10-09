@@ -148,6 +148,17 @@ Toda respuesta debe incluir:
 - coste o consumo si aplica;
 - error estable con `code`, `retryable` y mensaje accionable.
 
+### Descubrimiento progresivo
+
+El agente no necesita cargar todos los schemas ni conocer todas las recetas desde el primer mensaje. MCP v3 expone tres pasos pequeños:
+
+1. `capability.search` devuelve un resumen filtrable por propósito, tipo y etiqueta, con las claves de entrada y salida.
+2. `capability.get` devuelve el manifest completo de una capability autorizada, incluidos schemas, permisos, efectos y política de revisión.
+3. `recipe.list` y `recipe.get` permiten descubrir composiciones reutilizables sin ejecutar ningún paso.
+
+Los resultados se expresan como referencias de artefacto (`assetId`, `role`, `kind`, `sha256`) y nunca como blobs. Así una micro app puede consumir la salida de otra sin acoplarse al almacenamiento, y el control plane conserva procedencia, estado e idempotencia.
+Las recipes se publican con IDs canónicos `recipe.*`; las consultas antiguas sin ese prefijo se aceptan como alias de compatibilidad, pero no se duplican en el catálogo.
+
 Estados mínimos:
 
 ```text
