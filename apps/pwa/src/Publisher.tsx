@@ -20,10 +20,8 @@ function errorText(error: unknown, fallback: string) {
   return error instanceof ApiError || error instanceof Error ? error.message : fallback;
 }
 
-const assetUrl = (asset: MediaItem, resolution: "thumb" | "preview" = "thumb") => {
-  const candidates = resolution === "preview"
-    ? [asset.previewUrl, asset.previewPath, asset.thumbUrl, asset.thumbPath, asset.url, asset.publicUrl, asset.path]
-    : [asset.thumbUrl, asset.thumbPath, asset.previewUrl, asset.previewPath, asset.url, asset.publicUrl, asset.path];
+const assetUrl = (asset: MediaItem) => {
+  const candidates = [asset.thumbUrl, asset.thumbPath, asset.previewUrl, asset.previewPath, asset.url, asset.publicUrl, asset.path];
   const value = String(candidates.find(Boolean) || "").trim();
   return value.startsWith("/") || /^https?:\/\//i.test(value) ? value : "";
 };
