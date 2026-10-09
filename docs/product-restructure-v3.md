@@ -310,6 +310,10 @@ publication.publish
 publication.status.get
 ```
 
+Cuando el identificador no corresponde a un run persistido, la respuesta usa
+`status: "unknown"` y `terminal: false`. Significa que el control plane no ha
+confirmado el estado; no equivale a publicado, fallido ni cancelado.
+
 El agente podrá pedir una recomendación o elegir explícitamente. La UI mostrará únicamente las combinaciones habilitadas para la marca y compatibles con el asset. Ninguna capability creativa recibirá credenciales de proveedores ni publicará por su cuenta.
 
 La aprobación humana seguirá siendo obligatoria antes de `publication.schedule` o `publication.publish`, salvo una política explícita de la marca que se implemente más adelante.

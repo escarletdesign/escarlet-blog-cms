@@ -97,12 +97,15 @@ function publicationInput(args, auth) {
   }
 }
 
-async function registerAssetReference(args, auth) {
+async function registerAssetReference(args, auth, runtime) {
   const assetId = String(args.assetId || '').trim()
   if (!assetId) throw Object.assign(new Error('assetId es obligatorio.'), { code: 'asset_id_required', status: 422 })
   const workspaceId = String(args.workspaceId || auth.workspaceId || '').trim()
   const siteId = String(args.siteId || auth.siteId || '').trim()
   if (!workspaceId || !siteId) throw Object.assign(new Error('workspaceId y siteId son obligatorios para registrar la procedencia.'), { code: 'asset_scope_required', status: 422 })
+  if (typeof runtime?.registerAssetReference === 'function') {
+    return runtime.registerAssetReference({ ...args, assetId, workspaceId, siteId }, { auth })
+  }
   const pool = await getPgPool()
   if (!pool) throw Object.assign(new Error('Postgres no está configurado.'), { code: 'postgres_required', status: 503, retryable: true })
   const result = await pool.query(
@@ -125,9 +128,18 @@ async function registerAssetReference(args, auth) {
   }
 }
 
-async function persistPublicationIfScoped(contract, args, auth) {
+async function persistPublicationIfScoped(contract, args, auth, runtime) {
   const workspaceId = String(args.workspaceId || auth.workspaceId || '').trim()
   if (!workspaceId || !contract?.publicationId || !contract?.idempotencyKey) return contract
+  if (typeof runtime?.persistPublicationOperation === 'function') {
+    return runtime.persistPublicationOperation(contract, {
+      workspaceId,
+      siteId: args.siteId || auth.siteId,
+      siteHandle: args.site || args.brandId || auth.site,
+      userId: auth.userId || null,
+      metadata: { source: 'mcp.v3' }
+    })
+  }
   return persistPublicationOperation(contract, {
     workspaceId,
     siteId: args.siteId || auth.siteId,
@@ -172,11 +184,12 @@ function motionIdempotencyKey(args, site, sourceMediaId) {
   return `motion:${createHash('sha256').update(payload).digest('hex').slice(0, 32)}`
 }
 
-async function motionScope(args, auth) {
+async function motionScope(args, auth, runtime) {
   const site = siteFor(args, auth)
   const requestedWorkspaceId = String(args.workspaceId || auth.workspaceId || '').trim()
   const requestedSiteId = String(args.siteId || auth.siteId || '').trim()
-  const context = await resolveWorkspaceContext({
+  const resolveContext = typeof runtime?.resolveWorkspaceContext === 'function' ? runtime.resolveWorkspaceContext : resolveWorkspaceContext
+  const context = await resolveContext({
     userId: auth.userId || undefined,
     workspaceId: requestedWorkspaceId || undefined,
     siteId: requestedSiteId || undefined,
@@ -188,11 +201,11 @@ async function motionScope(args, auth) {
   return { site: selected.handle || site, workspaceId: context.workspaceId, siteId: selected.id, siteHandle: selected.handle || site }
 }
 
-async function composeMotionJob(args, auth) {
+async function composeMotionJob(args, auth, runtime) {
   const inputs = Array.isArray(args.inputs) ? args.inputs : []
   const sourceMediaId = String(args.sourceMediaId || inputs[0]?.assetId || '').trim()
   if (!sourceMediaId) throw Object.assign(new Error('production.motion.compose necesita al menos un asset de entrada.'), { code: 'motion_input_required', status: 422 })
-  const scope = await motionScope(args, auth)
+  const scope = await motionScope(args, auth, runtime)
   const audioAssetId = String(args.audioAssetId || '').trim()
   if (audioAssetId) {
     const pool = await getPgPool()
@@ -204,7 +217,9 @@ async function composeMotionJob(args, auth) {
   const brand = getBrandContext(scope.site, { auth: { ...auth, role: auth.role === 'agent' ? 'editor' : auth.role } })
   const profile = motionProfile(args.formatProfile)
   const text = String(args.text || args.script || args.topic || '').trim()
-  const result = await createVideoJob({
+  const createJob = typeof runtime?.createVideoJob === 'function' ? runtime.createVideoJob : createVideoJob
+  const updateJob = typeof runtime?.updateVideoJob === 'function' ? runtime.updateVideoJob : updateVideoJob
+  const result = await createJob({
     ...scope,
     userId: auth.userId,
     role: auth.role === 'agent' ? 'editor' : auth.role,
@@ -233,7 +248,7 @@ async function composeMotionJob(args, auth) {
     idempotencyKey: motionIdempotencyKey(args, scope.site, sourceMediaId),
     createContentIfMissing: args.createContentIfMissing === true
   })
-  const queued = await updateVideoJob({
+  const queued = await updateJob({
     ...scope,
     videoJobId: result.videoJobId,
     userId: auth.userId,
@@ -254,13 +269,13 @@ async function composeMotionJob(args, auth) {
   }
 }
 
-async function prepareProductTransform(args, auth) {
+async function prepareProductTransform(args, auth, runtime) {
   const sourceAsset = args.sourceAsset && typeof args.sourceAsset === 'object'
     ? args.sourceAsset
     : { assetId: args.sourceAssetId }
   const sourceAssetId = String(sourceAsset.assetId || '').trim()
   if (!sourceAssetId) throw Object.assign(new Error('production.image.product.transform necesita sourceAsset.assetId.'), { code: 'product_source_required', status: 422 })
-  const scope = await motionScope(args, auth)
+  const scope = await motionScope(args, auth, runtime)
   const brand = getBrandContext(scope.site, { auth: { ...auth, role: auth.role === 'agent' ? 'editor' : auth.role } })
   const pool = await getPgPool()
   let sourceRow = null
@@ -270,16 +285,60 @@ async function prepareProductTransform(args, auth) {
     sourceRow = owned.rows[0]
   }
   const prepared = prepareImageGeneration(scope.site, {
-    assetType: formatAssetType(args),
+    // Product transformation changes the visual treatment; publication copy
+    // remains a separate validated field and does not force text into the image.
+    assetType: args.assetType || 'generic',
     title: args.title || args.topic || 'product transform',
     topic: args.topic || args.instructions || 'Adaptar el producto al estilo visual de la marca',
-    expectedAssetCount: 1
+    expectedAssetCount: 1,
+    // Keep product preparations deterministic per caller key and source asset.
+    itemId: args.itemId,
+    batchId: args.batchId || args.idempotencyKey || `source:${sourceAssetId}`
   })
   const record = await persistImagePreparation(prepared, {
     workspaceId: scope.workspaceId,
     siteId: scope.siteId,
     channel: args.channel || args.formatProfile
   })
+  if (typeof runtime?.transformProduct === 'function') {
+    const generated = await runtime.transformProduct({
+      sourceAsset,
+      sourceAssetId,
+      scope,
+      brand,
+      prepared,
+      preparation: record,
+      args
+    })
+    const asset = generated?.asset || generated || {}
+    const generatedAssetId = String(asset.assetId || asset.id || '').trim()
+    const generatedHash = String(asset.sha256 || '').trim().toLowerCase()
+    if (!generatedAssetId || !/^[a-f0-9]{64}$/i.test(generatedHash)) {
+      throw Object.assign(new Error('El proveedor de transformación debe devolver assetId y sha256.'), { code: 'product_provider_result_invalid', status: 502, retryable: false })
+    }
+    const receipt = await issueGenerationReceipt({
+      site: scope.site,
+      preparationId: record.preparationId,
+      usedReferences: prepared.resolvedReferences || [],
+      generatedResultId: generatedAssetId,
+      generatedFileHash: generatedHash,
+      assetType: prepared.assetType,
+      route: prepared.route
+    })
+    return {
+      contractVersion: 'os.production.v1',
+      capability: 'production.image.product.transform',
+      runId: record.preparationId,
+      status: 'ready_for_review',
+      sourceAsset,
+      assets: [{ assetId: generatedAssetId, kind: asset.kind || 'image', mimeType: asset.mimeType || 'image/png', sha256: generatedHash }],
+      preparation: { ...record, state: 'receipted' },
+      receipt,
+      provenance: { sourceAssetId, brandKitVersionId: prepared.brandKitVersionId, brandKitSnapshotHash: prepared.brandKitSnapshotHash, preparationId: record.preparationId, receiptId: receipt.receiptId },
+      effects: { assetCreated: true, providerExecution: false, mutatesProvider: false },
+      nextAction: 'human_review'
+    }
+  }
   if (pool) {
     const existing = await pool.query("SELECT id,public_url AS \"publicUrl\",storage_key AS \"storageKey\",content_type AS \"mimeType\",sha256 FROM media_assets WHERE workspace_id=$1 AND site_id=$2 AND metadata->'brandGrounding'->>'preparationId'=$3 LIMIT 1", [scope.workspaceId, scope.siteId, record.preparationId])
     if (existing.rowCount) {
@@ -328,7 +387,7 @@ function recipeId(value) {
   return id.startsWith('recipe.') ? id.slice('recipe.'.length) : id
 }
 
-async function runRecipe(args, auth) {
+async function runRecipe(args, auth, runtime) {
   const id = recipeId(args.recipeId || args.recipe || 'food-to-reel')
   if (!['food-to-reel', 'menu-to-reel', 'reel-from-image', 'product-to-social'].includes(id)) {
     throw Object.assign(new Error(`La recipe ${id || '(vacía)'} todavía no tiene ejecutor.`), { code: 'recipe_executor_missing', status: 501 })
@@ -357,7 +416,7 @@ async function runRecipe(args, auth) {
       sourceAssetId: sourceMediaId,
       topic: text,
       formatProfile: args.formatProfile || 'instagram_post'
-    }, { auth })
+    }, { auth, runtime })
     const assetIds = (product.assets || []).map((asset) => asset.assetId || asset.id).filter(Boolean)
     const destinations = product.status === 'ready_for_review'
       ? await invokeBuiltinCapability('publication.destination.list', { ...args, site, assetIds, assets: product.assets || [], channel: args.channel || 'instagram_post', formatProfile: args.formatProfile || 'instagram_post' }, { auth })
@@ -380,7 +439,7 @@ async function runRecipe(args, auth) {
     text,
     brandKitVersionId: args.brandKitVersionId || context.brandKitVersionId,
     createContentIfMissing: args.createContentIfMissing !== false
-  }, auth)
+  }, auth, runtime)
   const destinations = await invokeBuiltinCapability('publication.destination.list', {
     channel: args.channel || (String(args.formatProfile || '').includes('story') ? 'instagram_story' : 'instagram_reel'),
     assetIds: [motion.job?.finalMediaId || motion.job?.sourceMediaId || args.sourceMediaId].filter(Boolean),
@@ -398,8 +457,8 @@ async function runRecipe(args, auth) {
   }
 }
 
-export async function invokeBuiltinCapability(name, args = {}, { auth = {} } = {}) {
-  if (name === 'recipe.run') return runRecipe(args, auth)
+export async function invokeBuiltinCapability(name, args = {}, { auth = {}, runtime = null } = {}) {
+  if (name === 'recipe.run') return runRecipe(args, auth, runtime)
   if (name.startsWith('brand.') || name === 'copy.validate') {
     const site = siteFor(args, auth)
     const context = getBrandContext(site, { auth: { ...auth, role: auth.role === 'agent' ? 'editor' : auth.role } })
@@ -438,21 +497,27 @@ export async function invokeBuiltinCapability(name, args = {}, { auth = {} } = {
     const compatibility = validatePublicationCompatibility(publication)
     return { ...compatibility, valid: compatibility.compatible, findings: compatibility.errors }
   }
-  if (name === 'publication.prepare') return persistPublicationIfScoped(preparePublication(publication), args, auth)
-  if (name === 'publication.route') return persistPublicationIfScoped(routePublication(publication), args, auth)
-  if (name === 'publication.schedule') return persistPublicationIfScoped(schedulePublication(publication), args, auth)
-  if (name === 'publication.publish') return persistPublicationIfScoped(publishPublication(publication), args, auth)
+  if (name === 'publication.prepare') return persistPublicationIfScoped(preparePublication(publication), args, auth, runtime)
+  if (name === 'publication.route') return persistPublicationIfScoped(routePublication(publication), args, auth, runtime)
+  if (name === 'publication.schedule') return persistPublicationIfScoped(schedulePublication(publication), args, auth, runtime)
+  if (name === 'publication.publish') return persistPublicationIfScoped(publishPublication(publication), args, auth, runtime)
   if (name === 'publication.status.get') {
     const workspaceId = String(args.workspaceId || auth.workspaceId || '').trim()
     if (workspaceId && (args.runId || args.publicationId)) {
-      const run = await getPublicationRun({ workspaceId, siteId: args.siteId || auth.siteId, runId: args.runId, publicationId: args.publicationId })
-      return { contractVersion: 'publication.v1', operation: 'publication.status.get', publicationId: run.publicationId, status: run.status, providerStatus: run.providerStatus, terminal: ['published', 'canceled', 'failed'].includes(run.status), persisted: true, run }
+      const getRun = typeof runtime?.getPublicationRun === 'function' ? runtime.getPublicationRun : getPublicationRun
+      try {
+        const run = await getRun({ workspaceId, siteId: args.siteId || auth.siteId, runId: args.runId, publicationId: args.publicationId })
+        return { contractVersion: 'publication.v1', operation: 'publication.status.get', publicationId: run.publicationId, status: run.status, providerStatus: run.providerStatus, terminal: ['published', 'canceled', 'failed'].includes(run.status), persisted: true, run }
+      } catch (error) {
+        if (error?.code !== 'publication_run_not_found' && error?.status !== 404) throw error
+        return { ...getPublicationStatus({ ...publication, publicationId: args.publicationId || null, runId: args.runId || null }), persisted: false, run: null }
+      }
     }
     return getPublicationStatus(publication)
   }
-  if (name === 'asset.register') return registerAssetReference(args, auth)
-  if (name === 'production.image.product.transform') return prepareProductTransform(args, auth)
-  if (name === 'production.motion.compose') return composeMotionJob(args, auth)
+  if (name === 'asset.register') return registerAssetReference(args, auth, runtime)
+  if (name === 'production.image.product.transform') return prepareProductTransform(args, auth, runtime)
+  if (name === 'production.motion.compose') return composeMotionJob(args, auth, runtime)
 
   return undefined
 }

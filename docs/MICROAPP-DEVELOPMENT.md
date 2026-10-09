@@ -6,7 +6,7 @@ Este documento es el contrato operativo para añadir una capability o una recipe
 
 - Una capability es una acción atómica con manifest, permisos, inputs, outputs y efectos.
 - Una recipe es una composición autorizada de capabilities. Su ID público usa el prefijo `recipe.`.
-- Un artefacto se referencia por `assetId`, `role`, `kind` y, si existe, `sha256`. Las apps no intercambian blobs.
+- Un artefacto se referencia por `assetId`; `role`, `kind` y `sha256` se incluyen cuando están disponibles. Las apps no intercambian blobs.
 - La UI es una superficie de una capability. El MCP y la API siguen siendo la fuente de verdad.
 
 ## Dónde tocar
@@ -57,6 +57,12 @@ La simulación de agente está en `mcp/v3/agent-simulation.test.mjs`. Comprueba 
 3. Inspeccionar dependencias antes de ejecutar.
 4. Fijar la marca y seguir la regla de referencias por `assetId`.
 5. Recibir un error accionable si faltan inputs.
+
+Las recetas y el Publisher tienen una prueba de integración aislada en
+`mcp/v3/integration.test.mjs`. Usa assets y proveedores simulados, verifica
+procedencia, revisión humana, permisos, idempotencia y el estado `unknown` para
+una publicación que todavía no tiene un run persistido. No contacta canales
+externos.
 
 Ejecuta:
 

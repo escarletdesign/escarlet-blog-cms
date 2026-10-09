@@ -112,6 +112,20 @@ test('adapta manifests OS a semántica MCP sin perder recetas ni efectos', async
   assert.ok(recipes.structuredContent.recipes.some((entry) => entry.id === 'recipe.food-to-reel'))
 })
 
+test('todos los manifests registrados tienen schemas MCP canónicos', () => {
+  const registry = normalizeOsRegistry(getOsRegistry())
+  const builtins = new Map(BUILTIN_CAPABILITIES.map((entry) => [entry.id, entry]))
+  for (const entry of [...registry.capabilities, ...registry.recipes]) {
+    assert.equal(entry.inputSchema?.type, 'object', entry.id)
+    assert.equal(entry.outputSchema?.type, 'object', entry.id)
+    if (builtins.has(entry.id)) {
+      assert.deepEqual(entry.inputSchema, builtins.get(entry.id).inputSchema, entry.id)
+      assert.deepEqual(entry.outputSchema, builtins.get(entry.id).outputSchema, entry.id)
+    }
+    if (entry.type === 'recipe') assert.ok(entry.outputSchema.required.includes('review'), entry.id)
+  }
+})
+
 test('tools/call delega en el registro OS sin dar acceso implícito a generación', async () => {
   const calls = []
   const server = createMcpServerV3Sync({ role: 'agent' }, {

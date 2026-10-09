@@ -171,11 +171,11 @@ function agentGuide(catalog, auth, args = {}) {
   }
 }
 
-async function invokeRegisteredCapability(catalog, capability, name, args, auth) {
-  if (typeof catalog.invoke === 'function') return catalog.invoke(name, args, { auth, capability, contractVersion: MCP_V3_CONTRACT })
+async function invokeRegisteredCapability(catalog, capability, name, args, auth, runtime) {
+  if (typeof catalog.invoke === 'function') return catalog.invoke(name, args, { auth, capability, runtime, contractVersion: MCP_V3_CONTRACT })
   if (typeof capability?.handler === 'function') return capability.handler(args, { auth, capability, contractVersion: MCP_V3_CONTRACT })
   if (typeof capability?.execute === 'function') return capability.execute(args, { auth, capability, contractVersion: MCP_V3_CONTRACT })
-  const builtin = await invokeBuiltinCapability(name, args, { auth, capability, contractVersion: MCP_V3_CONTRACT })
+  const builtin = await invokeBuiltinCapability(name, args, { auth, capability, runtime, contractVersion: MCP_V3_CONTRACT })
   if (builtin !== undefined) return builtin
   const error = new Error(`La capability ${name} está catalogada pero todavía necesita un ejecutor registrado.`)
   error.code = 'capability_executor_missing'
@@ -184,7 +184,7 @@ async function invokeRegisteredCapability(catalog, capability, name, args, auth)
   throw error
 }
 
-async function callCapability(catalog, auth, name, args) {
+async function callCapability(catalog, auth, name, args, runtime) {
   if (name === 'capability.guide') return validateCapabilityResult(catalog, name, agentGuide(catalog, auth, args))
   if (name === 'capability.search') return validateCapabilityResult(catalog, name, searchCapabilities(catalog, auth, args))
   if (name === 'capability.get') {
@@ -235,7 +235,7 @@ async function callCapability(catalog, auth, name, args) {
     throw error
   }
   if (name === 'recipe.get') return { contractVersion: MCP_V3_CONTRACT, recipe: publicCapabilityManifest(capability) }
-  const result = await invokeRegisteredCapability(catalog, capability, name, args, auth)
+  const result = await invokeRegisteredCapability(catalog, capability, name, args, auth, runtime)
   return validateCapabilityResult(catalog, name, result)
 }
 
@@ -275,7 +275,7 @@ function readResource(catalog, auth, uri) {
   throw Object.assign(new Error(`URI desconocida: ${uri}`), { code: 'resource_not_found', status: 404 })
 }
 
-function createServer(auth, catalog) {
+function createServer(auth, catalog, runtime = null) {
   const server = new Server(
     { name: MCP_V3_SERVER_NAME, version: MCP_V3_SERVER_VERSION, title: 'Escarlet OS' },
     {
@@ -291,7 +291,7 @@ function createServer(auth, catalog) {
     const name = String(request.params?.name || '')
     if (LEGACY_NAME.test(name) || !name.includes('.')) return errorResult(Object.assign(new Error(`La tool ${name} no pertenece al contrato MCP v3.`), { code: 'namespaced_tool_required', status: 400 }), 'namespaced_tool_required')
     try {
-      const result = await callCapability(catalog, auth, name, request.params?.arguments || {})
+      const result = await callCapability(catalog, auth, name, request.params?.arguments || {}, runtime)
       return jsonResult(result)
     } catch (error) {
       return errorResult(error)
@@ -300,8 +300,8 @@ function createServer(auth, catalog) {
   return server
 }
 
-export function createMcpServerV3Sync(auth = { role: 'admin' }, { registry = {}, capabilities, recipes, resources } = {}) {
-  return createServer(auth, mergeCatalog({ registry, capabilities, recipes, resources }))
+export function createMcpServerV3Sync(auth = { role: 'admin' }, { registry = {}, capabilities, recipes, resources, runtime = null } = {}) {
+  return createServer(auth, mergeCatalog({ registry, capabilities, recipes, resources }), runtime)
 }
 
 export async function createMcpServerV3(auth = { role: 'admin' }, options = {}) {
