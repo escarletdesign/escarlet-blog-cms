@@ -1011,17 +1011,34 @@ function creationUiGlobalKillSwitch() {
   return ['1', 'true', 'yes', 'on'].includes(String(process.env.CREATION_UI_KILL_SWITCH || '').trim().toLowerCase())
 }
 
-function sanitizeV2BrandKit(kit, auth) {
+function sanitizeV2BrandKit(kit, auth, { canonicalReferences = [] } = {}) {
   if (!kit) return kit
   const allowed = new Set(brandFilesForAuth(auth))
   const manifest = kit.manifest && typeof kit.manifest === 'object'
     ? Object.fromEntries(Object.entries(kit.manifest).filter(([name]) => allowed.has(name)))
     : {}
   const fullAccess = auth?.role === 'admin' || auth?.role === 'owner'
-  const assets = Array.isArray(kit.assets)
-    ? kit.assets
-      .filter((asset) => fullAccess || asset.visibility === 'public' || (asset.visibility === 'role_limited' && ['owner', 'admin', 'editor'].includes(auth?.role)))
-      .map((asset) => ({
+  const existingNames = new Set((Array.isArray(kit.assets) ? kit.assets : []).map((asset) => String(asset?.name || '').trim()).filter(Boolean))
+  const projectedReferences = (Array.isArray(canonicalReferences) ? canonicalReferences : [])
+    .filter((reference) => reference?.filename && !existingNames.has(reference.filename))
+    .map((reference) => ({
+      id: reference.mediaId || reference.id,
+      name: reference.filename,
+      publicUrl: reference.url || reference.path || null,
+      contentType: String(reference.filename).toLowerCase().endsWith('.svg') ? 'image/svg+xml' : 'image/*',
+      sizeBytes: null,
+      sha256: reference.sha256 || null,
+      visibility: 'role_limited',
+      metadata: {
+        source: 'canonical-reference',
+        alt: reference.alt || reference.filename,
+        usage: reference.role === 'logo' ? 'logo' : reference.role === 'style-board' ? 'style_board' : reference.usage === 'character' ? 'character' : 'reference',
+        ...(reference.characterId ? { characterId: reference.characterId } : {})
+      }
+    }))
+  const assets = [...(Array.isArray(kit.assets) ? kit.assets : []), ...projectedReferences]
+    .filter((asset) => fullAccess || asset.visibility === 'public' || (asset.visibility === 'role_limited' && ['owner', 'admin', 'editor'].includes(auth?.role)))
+    .map((asset) => ({
         id: asset.id,
         name: asset.name,
         publicUrl: asset.publicUrl || null,
@@ -1032,12 +1049,12 @@ function sanitizeV2BrandKit(kit, auth) {
         metadata: asset.metadata && typeof asset.metadata === 'object'
           ? {
               alt: String(asset.metadata.alt || ''),
+              ...(asset.metadata.source ? { source: String(asset.metadata.source) } : {}),
               ...(asset.metadata.usage ? { usage: String(asset.metadata.usage) } : {}),
               ...(asset.metadata.characterId ? { characterId: String(asset.metadata.characterId) } : {})
             }
           : {}
       }))
-    : []
   return { ...kit, manifest, assets }
 }
 
@@ -1546,6 +1563,7 @@ async function handleRequest(req, res) {
     const filePath = join(mediaDir, isRef ? join(site, 'reference') : site, filename)
     const ext = extname(filename).toLowerCase()
     const types = {
+      '.svg': 'image/svg+xml',
       '.webp': 'image/webp',
       '.jpg': 'image/jpeg',
       '.jpeg': 'image/jpeg',
@@ -2472,7 +2490,15 @@ async function handleRequest(req, res) {
       if (req.method === 'GET' && path === '/api/v2/brand-kits') {
         const scope = await requireV2Context(req, url, res)
         if (!scope) return
-        json(res, 200, sanitizeV2BrandKit(await getActiveBrandKit({ workspaceId: scope.workspaceId, siteId: scope.siteId }), scope.auth))
+        const activeBrandKit = await getActiveBrandKit({ workspaceId: scope.workspaceId, siteId: scope.siteId })
+        const brandContext = getBrandContext(scope.context.siteHandle || scope.siteId, {
+          auth: scope.auth,
+          canonicalManifest: activeBrandKit?.manifest,
+          canonicalAssets: activeBrandKit?.assets,
+          brandKitVersionId: activeBrandKit?.id,
+          brandKitVersion: activeBrandKit ? { version: activeBrandKit.version } : undefined
+        })
+        json(res, 200, sanitizeV2BrandKit(activeBrandKit, scope.auth, { canonicalReferences: brandContext.referenceImages }))
         return
       }
       if (req.method === 'PATCH' && brandAssetMatch) {

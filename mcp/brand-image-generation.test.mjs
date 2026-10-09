@@ -44,7 +44,7 @@ test('contexto y preparación usan el mismo snapshot activo y sus referencias ap
   assert.equal(context.brandKitVersionId, active.id)
   assert.equal(prepared.brandKitVersionId, active.id)
   assert.equal(context.brandKitSnapshotHash, prepared.brandKitSnapshotHash)
-  assert.equal(context.referenceImages.length, 7)
+  assert.equal(context.referenceImages.length, 9)
   assert.equal(context.canonicalPalette.cream, '#EFE8D7')
   assert.match(context.brandCore.fixed.typography.heading, /Montserrat/)
   assert.doesNotMatch(context.files['visual-style.md'], /#F4F1EA|#1F4D3A/)
