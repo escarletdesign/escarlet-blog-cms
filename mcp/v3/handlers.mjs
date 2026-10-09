@@ -200,7 +200,7 @@ async function uploadGeneratedAsset(args, auth, runtime) {
     workspaceId: scope.workspaceId,
     siteId: scope.siteId,
     userId: auth.userId,
-    role: scope.role,
+    role: auth.role === 'agent' ? 'editor' : auth.role,
     media: uploaded.media,
     brandGrounding: uploaded.media?.brandGrounding || brandGrounding,
     idempotencyKey: args.idempotencyKey || '',
@@ -213,7 +213,7 @@ async function uploadGeneratedAsset(args, auth, runtime) {
       siteId: scope.siteId,
       itemId: brandGrounding.itemId,
       userId: auth.userId,
-      role: scope.role,
+      role: auth.role === 'agent' ? 'editor' : auth.role,
       mediaAssetId: asset.id,
       channels: brandGrounding.channels,
       assetIndex: brandGrounding.assetIndex
