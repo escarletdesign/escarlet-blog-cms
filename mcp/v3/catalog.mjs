@@ -118,7 +118,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     id: 'recipe.run',
     description: 'Ejecuta una recipe compuesta y devuelve sus trabajos, validaciones y siguiente revisión.',
     inputSchema: { type: 'object', properties: { recipeId: { type: 'string' }, site: { type: 'string' }, brandId: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, brandKitVersionId: { type: 'string' }, inputs: { type: 'array', items: assetReferenceSchema }, sourceMediaId: { type: 'string' }, audioAssetId: { type: 'string' }, contentItemId: { type: 'string' }, text: { type: 'string', maxLength: 50000 }, script: { type: 'string', maxLength: 50000 }, menuText: { type: 'string', maxLength: 50000 }, purpose: { type: 'string' }, audience: { type: 'string' }, cta: { type: 'string' }, formatProfile: { type: 'string' }, channel: { type: 'string' }, provider: { type: 'string' }, idempotencyKey: { type: 'string' }, createContentIfMissing: { type: 'boolean' } }, additionalProperties: false },
-    outputSchema: { type: 'object', required: ['recipe', 'runId', 'status', 'review'], additionalProperties: true },
+    outputSchema: { type: 'object', properties: { recipe: { type: 'string' }, runId: { type: ['string', 'null'] }, status: { type: 'string' }, review: { type: 'object' } }, required: ['recipe', 'runId', 'status', 'review'], additionalProperties: true },
     permissions: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'production:motion', 'publication:read'],
     sideEffects: 'write',
     humanReviewRequired: true,
@@ -144,7 +144,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     id: 'brand.visual_style.get',
     description: 'Lee la proyección de estilo visual de marca del snapshot seleccionado.',
     inputSchema: { type: 'object', properties: { site: { type: 'string' }, brandId: { type: 'string' }, brandKitVersionId: { type: 'string' } }, oneOf: [{ required: ['site'] }, { required: ['brandId'] }], additionalProperties: false },
-    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, site: { type: 'string' }, brandKitVersionId: { type: 'string' }, brandKitSnapshotHash: { type: 'string' }, visualStyle: { type: 'object' } }, required: ['contractVersion', 'site', 'brandKitVersionId', 'brandKitSnapshotHash', 'visualStyle'], additionalProperties: true },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, site: { type: 'string' }, brandKitVersionId: { type: 'string' }, brandKitSnapshotHash: { type: 'string' }, visualStyle: { type: ['string', 'object'] } }, required: ['contractVersion', 'site', 'brandKitVersionId', 'brandKitSnapshotHash', 'visualStyle'], additionalProperties: true },
     permissions: ['brand:read'],
     tags: ['brand', 'kernel', 'read']
   }),
@@ -173,15 +173,15 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
       oneOf: [{ required: ['site', 'purpose'] }, { required: ['brandId', 'purpose'] }],
       additionalProperties: false
     },
-    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, preparationId: { type: 'string' }, brandKitVersionId: { type: 'string' }, resolvedReferences: { type: 'array' }, generationBlocked: { type: 'boolean' }, preparation: { type: 'object' } }, required: ['contractVersion', 'brandKitVersionId', 'generationBlocked'], additionalProperties: true },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, preparationId: { type: 'string' }, brandKitVersionId: { type: 'string' }, resolvedReferences: { type: 'array' }, generationBlocked: { type: 'boolean' }, preparation: { type: 'object' } }, required: ['contractVersion', 'brandKitVersionId', 'generationBlocked', 'preparation'], additionalProperties: true },
     permissions: ['brand:read', 'generation:prepare'],
     tags: ['brand', 'kernel', 'preparation', 'provenance']
   }),
   manifest({
     id: 'brand.generation.receipt.issue',
     description: 'Registra la procedencia de un resultado generado por un agente externo.',
-    inputSchema: { type: 'object', properties: { preparationId: { type: 'string' }, outputAssetId: { type: 'string' }, outputSha256: { type: 'string' }, provider: { type: 'string' }, metadata: { type: 'object' } }, required: ['preparationId', 'outputAssetId', 'outputSha256'], additionalProperties: false },
-    outputSchema: { type: 'object', properties: { receiptId: { type: 'string' }, preparationId: { type: 'string' } }, required: ['receiptId', 'preparationId'], additionalProperties: false },
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, preparationId: { type: 'string' }, outputAssetId: { type: 'string' }, outputSha256: { type: 'string' }, usedReferences: { type: 'array' }, provider: { type: 'string' }, metadata: { type: 'object' } }, required: ['preparationId', 'outputAssetId', 'outputSha256', 'usedReferences'], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, receipt: { type: 'object' } }, required: ['contractVersion', 'receipt'], additionalProperties: true },
     permissions: ['generation:provenance'],
     sideEffects: 'audit',
     tags: ['brand', 'kernel', 'provenance']
@@ -190,14 +190,15 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     id: 'copy.validate',
     description: 'Valida copy frente a las reglas del snapshot de marca antes de producir un artefacto.',
     inputSchema: { type: 'object', properties: { site: { type: 'string' }, brandId: { type: 'string' }, brandKitVersionId: { type: 'string' }, text: { type: 'string', maxLength: 50000 }, channel: { type: 'string' }, purpose: { type: 'string' }, audience: { type: 'string' }, cta: { type: 'string' } }, required: ['text'], additionalProperties: false },
-    outputSchema: { type: 'object', properties: { valid: { type: 'boolean' }, findings: { type: 'array' } }, required: ['valid', 'findings'], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string' }, valid: { type: 'boolean' }, findings: { type: 'array' } }, required: ['contractVersion', 'valid', 'findings'], additionalProperties: true },
     permissions: ['brand:read'],
     tags: ['copy', 'validation']
   }),
   manifest({
     id: 'asset.register',
     description: 'Registra una referencia de asset ya autorizada por el control plane.',
-    inputSchema: { type: 'object', properties: { assetId: { type: 'string' }, brandId: { type: 'string' }, sha256: { type: 'string' }, mimeType: { type: 'string' } }, required: ['assetId'], additionalProperties: false },
+    inputSchema: { type: 'object', properties: { assetId: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, brandId: { type: 'string' }, sha256: { type: 'string' }, mimeType: { type: 'string' } }, required: ['assetId'], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, assetId: { type: 'string' }, sha256: { type: ['string', 'null'] }, mimeType: { type: ['string', 'null'] }, provenance: { type: 'object' } }, required: ['contractVersion', 'assetId', 'sha256', 'provenance'], additionalProperties: true },
     permissions: ['asset:write'],
     sideEffects: 'write',
     tags: ['asset', 'provenance']
@@ -224,7 +225,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     id: 'publication.destination.list',
     description: 'Lista destinos y proveedores de publicación compatibles con los assets aprobados.',
     inputSchema: { type: 'object', properties: { brandId: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, assetIds: { type: 'array', items: { type: 'string' } }, assets: { type: 'array', items: { type: 'object' } }, channel: { type: 'string' }, provider: { type: 'string' }, connections: { type: 'array', items: { type: 'object' } }, text: { type: 'string' } }, additionalProperties: false },
-    outputSchema: { type: 'object', properties: { destinations: { type: 'array' } }, required: ['destinations'], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string' }, operation: { type: 'string' }, destinations: { type: 'array' }, count: { type: 'number' }, filters: { type: 'object' }, permissions: { type: 'object' }, metadata: { type: 'object' } }, required: ['contractVersion', 'destinations'], additionalProperties: true },
     permissions: ['publication:read'],
     metadata: {
       uiApps: [
@@ -238,7 +239,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     id: 'publication.validate',
     description: 'Comprueba compatibilidad, permisos y aprobación antes de enrutar una publicación.',
     inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, siteId: { type: 'string' }, assetIds: { type: 'array', items: { type: 'string' } }, assets: { type: 'array', items: { type: 'object' } }, channel: { type: 'string' }, provider: { type: 'string' }, runId: { type: 'string' }, text: { type: 'string' }, connections: { type: 'array', items: { type: 'object' } } }, required: ['assetIds', 'channel'], additionalProperties: false },
-    outputSchema: { type: 'object', properties: { valid: { type: 'boolean' }, findings: { type: 'array' } }, required: ['valid', 'findings'], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string' }, compatible: { type: 'boolean' }, errors: { type: 'array' }, valid: { type: 'boolean' }, findings: { type: 'array' } }, required: ['contractVersion', 'compatible', 'errors'], additionalProperties: true },
     permissions: ['publication:read'],
     tags: ['publication', 'publisher', 'validation']
   }),
@@ -246,7 +247,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     id: 'publication.route',
     description: 'Selecciona explícita o recomendadamente el proveedor para un canal.',
     inputSchema: { type: 'object', properties: { channel: { type: 'string' }, provider: { type: 'string' }, assetIds: { type: 'array', items: { type: 'string' } }, runId: { type: 'string' } }, required: ['channel', 'assetIds'], additionalProperties: false },
-    outputSchema: { type: 'object', properties: { channel: { type: 'string' }, provider: { type: 'string' }, destinationId: { type: 'string' } }, required: ['channel', 'provider'], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string' }, operation: { type: 'string' }, state: { type: 'string' }, destinationId: { type: 'string' }, channel: { type: ['string', 'object'] }, provider: { type: ['string', 'object'] }, candidates: { type: 'array' }, permissions: { type: 'object' }, effects: { type: 'object' } }, required: ['contractVersion', 'operation', 'state'], additionalProperties: true },
     permissions: ['publication:write'],
     sideEffects: 'audit',
     humanReviewRequired: true,
@@ -256,7 +257,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     id: 'publication.prepare',
     description: 'Construye y persiste un bundle listo para revisión humana sin contactar proveedores.',
     inputSchema: { type: 'object', properties: { runId: { type: 'string' }, channel: { type: 'string' }, provider: { type: 'string' }, assetIds: { type: 'array', items: { type: 'string' } }, text: { type: 'string' } }, required: ['channel', 'provider', 'assetIds'], additionalProperties: false },
-    outputSchema: { type: 'object', properties: { publicationId: { type: 'string' }, state: { type: 'string' }, bundle: { type: 'object' } }, required: ['publicationId', 'state'], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { publicationId: { type: 'string' }, state: { type: 'string' }, bundle: { type: 'object' } }, required: ['publicationId', 'state'], additionalProperties: true },
     permissions: ['publication:write'],
     sideEffects: 'audit',
     humanReviewRequired: true,
@@ -265,7 +266,8 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
   manifest({
     id: 'publication.schedule',
     description: 'Programa un bundle aprobado usando el adaptador de destino seleccionado.',
-    inputSchema: { type: 'object', properties: { runId: { type: 'string' }, channel: { type: 'string' }, provider: { type: 'string' }, publicationDate: { type: 'string' }, timezone: { type: 'string' } }, required: ['runId', 'channel', 'provider', 'publicationDate'], additionalProperties: false },
+    inputSchema: { type: 'object', properties: { runId: { type: 'string' }, publicationId: { type: 'string' }, channel: { type: 'string' }, provider: { type: 'string' }, publicationDate: { type: 'string' }, timezone: { type: 'string' }, assets: { type: 'array' }, assetIds: { type: 'array' }, text: { type: 'string' }, content: { type: 'object' }, approval: { type: 'object' }, permissions: { type: 'array' }, connections: { type: 'array' } }, required: ['channel', 'provider', 'publicationDate'], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { publicationId: { type: 'string' }, state: { type: 'string' }, status: { type: 'string' } }, required: ['publicationId', 'state', 'status'], additionalProperties: true },
     permissions: ['publication:write'],
     sideEffects: 'external',
     humanReviewRequired: true,
@@ -274,7 +276,8 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
   manifest({
     id: 'publication.publish',
     description: 'Publica un bundle aprobado mediante el adaptador seleccionado.',
-    inputSchema: { type: 'object', properties: { runId: { type: 'string' }, channel: { type: 'string' }, provider: { type: 'string' } }, required: ['runId', 'channel', 'provider'], additionalProperties: false },
+    inputSchema: { type: 'object', properties: { runId: { type: 'string' }, publicationId: { type: 'string' }, idempotencyKey: { type: 'string' }, channel: { type: 'string' }, provider: { type: 'string' }, assets: { type: 'array' }, assetIds: { type: 'array' }, text: { type: 'string' }, content: { type: 'object' }, approval: { type: 'object' }, permissions: { type: 'array' }, connections: { type: 'array' } }, required: ['channel', 'provider'], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { publicationId: { type: 'string' }, state: { type: 'string' }, status: { type: 'string' } }, required: ['publicationId', 'state', 'status'], additionalProperties: true },
     permissions: ['publication:write'],
     sideEffects: 'external',
     humanReviewRequired: true,
@@ -359,6 +362,28 @@ function canonicalRecipeId(value) {
   return id.startsWith('recipe.') ? id : `recipe.${id}`
 }
 
+const recipeRunOutputSchema = {
+  type: 'object',
+  properties: {
+    contractVersion: { type: 'string' },
+    recipe: { type: 'string' },
+    runId: { type: ['string', 'null'] },
+    status: { type: 'string' },
+    review: { type: 'object' }
+  },
+  required: ['contractVersion', 'recipe', 'runId', 'status', 'review'],
+  additionalProperties: true
+}
+
+function alignRegisteredManifest(entry) {
+  const builtin = BUILTIN_CAPABILITIES.find((candidate) => candidate.id === entry.id)
+  if (builtin) return { ...entry, inputSchema: builtin.inputSchema, outputSchema: builtin.outputSchema }
+  if (entry.type === 'recipe') {
+    return { ...entry, outputSchema: recipeRunOutputSchema }
+  }
+  return entry
+}
+
 function recipeKey(value) {
   return canonicalRecipeId(value).slice('recipe.'.length)
 }
@@ -381,7 +406,7 @@ export function normalizeOsRegistry(candidate) {
   const normalizedCapabilities = capabilities.map((entry) => {
     if (!entry || typeof entry !== 'object') throw new TypeError('Cada capability del registro OS debe ser un objeto.')
     const id = namespaced(String(entry.id || entry.name || ''))
-    return {
+    return alignRegisteredManifest({
       ...entry,
       id,
       type: entry.type || entry.kind || 'primitive',
@@ -389,11 +414,11 @@ export function normalizeOsRegistry(candidate) {
       sideEffects: normalizedSideEffects(entry.sideEffects),
       humanReviewRequired: entry.humanReviewRequired === true || entry.reviewPolicy === 'human_required',
       composesWith: Array.isArray(entry.composesWith) ? entry.composesWith : (Array.isArray(entry.dependencies) ? entry.dependencies : [])
-    }
+    })
   })
   const normalizedRecipes = recipes.map((entry) => {
     if (!entry || typeof entry !== 'object' || !entry.id) throw new TypeError('Cada recipe del registro OS debe tener id.')
-    return {
+    return alignRegisteredManifest({
       ...entry,
       id: canonicalRecipeId(entry.id),
       type: 'recipe',
@@ -401,7 +426,7 @@ export function normalizeOsRegistry(candidate) {
       sideEffects: normalizedSideEffects(entry.sideEffects),
       humanReviewRequired: entry.humanReviewRequired === true || entry.reviewPolicy === 'human_required',
       composesWith: Array.isArray(entry.composesWith) ? entry.composesWith : (Array.isArray(entry.dependencies) ? entry.dependencies : [])
-    }
+    })
   })
   return {
     capabilities: normalizedCapabilities,

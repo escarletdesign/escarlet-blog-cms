@@ -141,3 +141,40 @@ test('el catálogo inicial mantiene los contratos de Brand Kernel y Publisher', 
   const ids = new Set(BUILTIN_CAPABILITIES.map((entry) => entry.id))
   for (const id of ['brand.context.get', 'brand.voice.get', 'brand.visual_style.get', 'brand.rules.get', 'brand.references.resolve', 'brand.generation.prepare', 'brand.generation.receipt.issue', 'production.image.product.transform', 'publication.destination.list', 'publication.validate', 'publication.route', 'publication.prepare', 'publication.schedule', 'publication.publish', 'publication.status.get']) assert.ok(ids.has(id), id)
 })
+
+test('las respuestas reales de Brand Kernel y Publisher cumplen sus manifests', async () => {
+  const auth = { role: 'admin', site: 'escarlet' }
+  const calls = [
+    ['brand.context.get', { site: 'escarlet' }],
+    ['brand.voice.get', { site: 'escarlet' }],
+    ['brand.visual_style.get', { site: 'escarlet' }],
+    ['brand.rules.get', { site: 'escarlet' }],
+    ['brand.references.resolve', { site: 'escarlet', purpose: 'blog cover' }],
+    ['brand.generation.prepare', { site: 'escarlet', purpose: 'blog cover' }],
+    ['copy.validate', { site: 'escarlet', text: 'Diseñamos una presencia digital clara.', purpose: 'social' }],
+    ['publication.destination.list', { channel: 'instagram_reel' }],
+    ['publication.validate', { channel: 'instagram_reel', provider: 'postiz', assetIds: ['reel-1'] }],
+    ['publication.route', { channel: 'instagram_reel', assetIds: ['reel-1'] }],
+    ['publication.prepare', { channel: 'instagram_reel', provider: 'postiz', assetIds: ['reel-1'], text: 'Reel listo para revisión' }],
+    ['publication.schedule', { channel: 'linkedin_post', provider: 'metricool', assetIds: ['image-1'], approval: { status: 'approved' }, publicationDate: '2099-01-01T10:00:00Z' }],
+    ['publication.publish', { channel: 'linkedin_post', provider: 'metricool', assetIds: ['image-1'], approval: { status: 'approved' }, idempotencyKey: 'contract-test-publish' }],
+    ['publication.status.get', { publicationId: 'missing-publication' }]
+  ]
+  for (const [name, args] of calls) {
+    const result = await invokeMcpToolV3(name, args, auth)
+    assert.equal(result.isError, false, `${name}: ${JSON.stringify(result.structuredContent)}`)
+  }
+})
+
+test('copy.validate bloquea claims comerciales conocidos en el recorrido MCP', async () => {
+  const result = await invokeMcpToolV3('copy.validate', {
+    site: 'escarlet',
+    text: 'Somos la agencia premium número uno. Multiplicamos tus ventas y garantizamos libertad financiera.',
+    purpose: 'social'
+  }, { role: 'admin', site: 'escarlet' })
+  assert.equal(result.isError, false)
+  assert.equal(result.structuredContent.valid, false)
+  assert.ok(result.structuredContent.findings.some((finding) => finding.code === 'prohibited_term'))
+  assert.ok(result.structuredContent.findings.filter((finding) => finding.code === 'unsupported_claim').length >= 3)
+  assert.ok(result.structuredContent.findings.some((finding) => finding.code === 'audience_missing' && finding.severity === 'warning'))
+})

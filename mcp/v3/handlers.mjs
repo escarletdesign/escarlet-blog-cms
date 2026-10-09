@@ -97,6 +97,34 @@ function publicationInput(args, auth) {
   }
 }
 
+async function registerAssetReference(args, auth) {
+  const assetId = String(args.assetId || '').trim()
+  if (!assetId) throw Object.assign(new Error('assetId es obligatorio.'), { code: 'asset_id_required', status: 422 })
+  const workspaceId = String(args.workspaceId || auth.workspaceId || '').trim()
+  const siteId = String(args.siteId || auth.siteId || '').trim()
+  if (!workspaceId || !siteId) throw Object.assign(new Error('workspaceId y siteId son obligatorios para registrar la procedencia.'), { code: 'asset_scope_required', status: 422 })
+  const pool = await getPgPool()
+  if (!pool) throw Object.assign(new Error('Postgres no está configurado.'), { code: 'postgres_required', status: 503, retryable: true })
+  const result = await pool.query(
+    'SELECT id,sha256,content_type AS "mimeType",storage_key AS "storageKey" FROM media_assets WHERE id=$1 AND workspace_id=$2 AND site_id=$3',
+    [assetId, workspaceId, siteId]
+  )
+  if (!result.rowCount) throw Object.assign(new Error('El asset no existe o no pertenece a esta marca.'), { code: 'asset_not_found', status: 404 })
+  const asset = result.rows[0]
+  const requestedHash = String(args.sha256 || '').trim().toLowerCase()
+  const storedHash = String(asset.sha256 || '').trim().toLowerCase()
+  if (requestedHash && storedHash && requestedHash !== storedHash) {
+    throw Object.assign(new Error('El sha256 declarado no coincide con el asset registrado.'), { code: 'asset_hash_mismatch', status: 409 })
+  }
+  return {
+    contractVersion: 'os.production.v1',
+    assetId: asset.id,
+    sha256: storedHash || requestedHash || null,
+    mimeType: asset.mimeType || null,
+    provenance: { workspaceId, siteId, storageKey: asset.storageKey || null, source: 'media_assets' }
+  }
+}
+
 async function persistPublicationIfScoped(contract, args, auth) {
   const workspaceId = String(args.workspaceId || auth.workspaceId || '').trim()
   if (!workspaceId || !contract?.publicationId || !contract?.idempotencyKey) return contract
@@ -389,7 +417,16 @@ export async function invokeBuiltinCapability(name, args = {}, { auth = {} } = {
       return { contractVersion: 'os.production.v1', ...prepared, preparation: record }
     }
     if (name === 'brand.generation.receipt.issue') {
-      return { contractVersion: 'os.production.v1', receipt: await issueGenerationReceipt({ ...args, site }) }
+      return {
+        contractVersion: 'os.production.v1',
+        receipt: await issueGenerationReceipt({
+          ...args,
+          site,
+          generatedResultId: args.generatedResultId || args.outputAssetId,
+          generatedFileHash: args.generatedFileHash || args.outputSha256,
+          usedReferences: args.usedReferences || args.references || args.resolvedReferences || []
+        })
+      }
     }
     if (name === 'copy.validate') return validateCopy(args, context)
     return undefined
@@ -397,7 +434,10 @@ export async function invokeBuiltinCapability(name, args = {}, { auth = {} } = {
 
   const publication = publicationInput(args, auth)
   if (name === 'publication.destination.list') return listPublicationDestinations(publication)
-  if (name === 'publication.validate') return validatePublicationCompatibility(publication)
+  if (name === 'publication.validate') {
+    const compatibility = validatePublicationCompatibility(publication)
+    return { ...compatibility, valid: compatibility.compatible, findings: compatibility.errors }
+  }
   if (name === 'publication.prepare') return persistPublicationIfScoped(preparePublication(publication), args, auth)
   if (name === 'publication.route') return persistPublicationIfScoped(routePublication(publication), args, auth)
   if (name === 'publication.schedule') return persistPublicationIfScoped(schedulePublication(publication), args, auth)
@@ -410,6 +450,7 @@ export async function invokeBuiltinCapability(name, args = {}, { auth = {} } = {
     }
     return getPublicationStatus(publication)
   }
+  if (name === 'asset.register') return registerAssetReference(args, auth)
   if (name === 'production.image.product.transform') return prepareProductTransform(args, auth)
   if (name === 'production.motion.compose') return composeMotionJob(args, auth)
 
