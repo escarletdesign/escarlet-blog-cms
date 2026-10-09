@@ -26,6 +26,8 @@ capability.guide
   -> capability.search o recipe.list
   -> capability.get o recipe.get
   -> brand.context.get
+  -> brand.generation.prepare para cada pieza visual
+  -> generar el PNG final en el host y subirlo con asset.upload
   -> ejecutar la recipe con referencias de assets
   -> revisar status y procedencia
   -> publication.destination.list

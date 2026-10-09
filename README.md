@@ -80,6 +80,7 @@ Extender el sistema. [docs/MICROAPP-DEVELOPMENT.md](docs/MICROAPP-DEVELOPMENT.md
 | `brand.visual_style.get` / `brand.rules.get` | Leer estilo visual y reglas publicables |
 | `brand.references.resolve` | Fijar referencias visuales permitidas |
 | `brand.generation.prepare` | Crear una preparación versionada para un agente externo |
+| `asset.upload` | Guardar el PNG final del agente con validación de dimensiones, copy y procedencia |
 | `copy.validate` | Validar copy contra el Brand Kernel |
 | `production.motion.compose` | Composición vertical local con FFmpeg o handoff explícito a un proveedor externo |
 | `production.image.product.transform` | Composición local determinista con Brand Kit y procedencia, o preparación para generación externa |
