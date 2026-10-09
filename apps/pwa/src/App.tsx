@@ -23,7 +23,7 @@ import {
 } from "react-router-dom";
 import type { NavigateFunction } from "react-router-dom";
 import { api } from "./api";
-import type { AiConversation, SocialPackJobResult } from "./api";
+import type { AiConversation, ChatGptConnection, SocialPackJobResult } from "./api";
 import { getInitialLanguage, Language, translate } from "./i18n";
 import type { Author, BrandSummary, ContentItem, MediaItem, Post, Session } from "./types";
 import { contentPreviewPath, itemTitle } from "./content-format";
@@ -617,16 +617,6 @@ function Login({ onLogin }: { onLogin: () => Promise<void> }) {
   const [magicError, setMagicError] = useState("");
   const [magicSent, setMagicSent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [auth0Enabled, setAuth0Enabled] = useState(false);
-  const [auth0Loading, setAuth0Loading] = useState(true);
-  const auth0ErrorCode = new URLSearchParams(window.location.search).get("auth0_error") || "";
-  const auth0Error = auth0ErrorCode === "auth0_not_invited" ? t("login.auth0NotInvited") : auth0ErrorCode ? t("login.auth0Error") : "";
-  useEffect(() => {
-    api.auth0Status()
-      .then((status) => setAuth0Enabled(status.enabled))
-      .catch(() => setAuth0Enabled(false))
-      .finally(() => setAuth0Loading(false));
-  }, []);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setTokenError("");
@@ -663,14 +653,6 @@ function Login({ onLogin }: { onLogin: () => Promise<void> }) {
         <p className="ui-eyebrow">{t("login.eyebrow")}</p>
         <h1>{t("login.title")}</h1>
         <p className="ui-muted">{t("login.description")}</p>
-        {auth0Error && <p className="ui-error" role="alert">{auth0Error}</p>}
-        {!auth0Loading && auth0Enabled && (
-          <Stack gap="sm">
-            <Button type="button" variant="secondary" onClick={() => window.location.assign("/api/auth0/login?next=/app")}>
-              {t("login.auth0")}
-            </Button>
-          </Stack>
-        )}
         <form className="login-token-form" onSubmit={submit}>
           <label>
             {t("login.token")}
@@ -5151,6 +5133,8 @@ function Settings() {
   const [tokenAction, setTokenAction] = useState<"regenerate" | "revoke" | null>(null);
   const [mcpInfo, setMcpInfo] = useState<{ mcpUrl?: string; mcpAuthHint?: string } | null>(null);
   const [mcpInfoLoading, setMcpInfoLoading] = useState(false);
+  const [chatGptConnection, setChatGptConnection] = useState<ChatGptConnection | null>(null);
+  const [chatGptBusy, setChatGptBusy] = useState(false);
   const [delegates, setDelegates] = useState<Array<Record<string, any>>>([]);
   const [delegateBusy, setDelegateBusy] = useState("");
   const assistantEnabled = workflowFlags.assistantEnabled;
@@ -5176,6 +5160,14 @@ function Settings() {
       .catch(() => setDelegates([]));
   }, [session.userId, site]);
   useEffect(() => {
+    if (!session.userId) return;
+    let active = true;
+    api.chatgptStatus()
+      .then((result) => { if (active) setChatGptConnection(result); })
+      .catch(() => { if (active) setChatGptConnection(null); });
+    return () => { active = false; };
+  }, [session.userId]);
+  useEffect(() => {
     setHasPersonalToken(Boolean(session.hasLoginToken));
     setPersonalTokenHint(session.loginTokenHint || "");
   }, [session.hasLoginToken, session.loginTokenHint]);
@@ -5195,11 +5187,15 @@ function Settings() {
     setMessage(t("settings.saved"));
     showToast(t("settings.saved"));
   };
-  const logout = () => {
+  const logout = async () => {
     setLoggingOut(true);
     setMessage("");
     setError("");
-    window.location.assign("/api/auth0/logout");
+    try {
+      await api.logout();
+    } finally {
+      window.location.assign("/app");
+    }
   };
   const saveProfile = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -5231,6 +5227,32 @@ function Settings() {
     if (!mcpInfo?.mcpUrl) return;
     await navigator.clipboard?.writeText(mcpInfo.mcpUrl).catch(() => {});
     showToast(t("settings.mcpUrlCopied"));
+  };
+  const importChatGptConnection = async (file?: File) => {
+    if (!file) return;
+    setChatGptBusy(true);
+    try {
+      const parsed = JSON.parse(await file.text());
+      const result = await api.chatgptImport(parsed);
+      setChatGptConnection(result.connection);
+      showToast(t("settings.chatgptImported"));
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : t("settings.chatgptImportError"), "error");
+    } finally {
+      setChatGptBusy(false);
+    }
+  };
+  const disconnectChatGpt = async () => {
+    setChatGptBusy(true);
+    try {
+      const result = await api.chatgptDisconnect();
+      setChatGptConnection(result.connection);
+      showToast(t("settings.chatgptDisconnected"));
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : t("common.error"), "error");
+    } finally {
+      setChatGptBusy(false);
+    }
   };
   const openChatGpt = () => {
     window.open("https://chatgpt.com/", "_blank", "noopener,noreferrer");
@@ -5388,6 +5410,29 @@ function Settings() {
           </Stack>
           <Inline gap="sm"><Button type="button" variant="secondary" onClick={openChatGpt}>{t("settings.mcpOpenChatGpt")}</Button><span className="ui-field-hint">{mcpInfo?.mcpAuthHint || t("settings.mcpConnectAuthHint")}</span></Inline>
         </section>
+      )}
+      {session.userId && (
+        <Card className="ui-settings-card">
+          <div className="ui-card-head">
+            <div><p className="ui-eyebrow">{t("settings.chatgptEyebrow")}</p><h2>{t("settings.chatgptTitle")}</h2></div>
+            <StatusBadge status={chatGptConnection?.connected ? "connected" : "disabled"} label={chatGptConnection?.connected ? t("settings.chatgptConnected") : t("settings.chatgptNotConnected")} />
+          </div>
+          <p className="ui-muted">{t("settings.chatgptHelp")}</p>
+          {chatGptConnection?.connected ? (
+            <Stack gap="sm">
+              <p className="ui-field-hint">{chatGptConnection.email || t("settings.chatgptPersonalAccount")}{chatGptConnection.expiresAt ? ` · ${t("settings.chatgptExpires")} ${new Date(chatGptConnection.expiresAt).toLocaleString()}` : ""}</p>
+              <Button type="button" variant="danger" loading={chatGptBusy} onClick={() => void disconnectChatGpt()}>{t("settings.chatgptDisconnect")}</Button>
+            </Stack>
+          ) : (
+            <Stack gap="sm">
+              <p className="ui-field-hint">{t("settings.chatgptImportHelp")}</p>
+              <Field label={t("settings.chatgptFileLabel")} hint={t("settings.chatgptFileHint")}>
+                <TextField type="file" accept="application/json,.json" disabled={chatGptBusy} onChange={(event) => void importChatGptConnection(event.target.files?.[0])} />
+              </Field>
+              <a className="text-link" href="https://developers.openai.com/siwc/quickstart" target="_blank" rel="noreferrer">{t("settings.chatgptDocs")}</a>
+            </Stack>
+          )}
+        </Card>
       )}
       {session.userId && (
         <section className="ui-card ui-settings-card delegation-card">

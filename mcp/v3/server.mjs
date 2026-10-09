@@ -11,6 +11,7 @@ import {
   publicToolManifest
 } from './catalog.mjs'
 import { authPermissions, invokeBuiltinCapability } from './handlers.mjs'
+import { validateOutput } from './schema-validation.mjs'
 
 const LEGACY_NAME = /^(?:blog|social|content|video|brand)_/
 
@@ -25,7 +26,9 @@ function jsonResult(value) {
 function errorResult(error, fallbackCode = 'capability_failed') {
   const code = error?.code || fallbackCode
   const status = Number.isInteger(error?.status) ? error.status : 500
-  const value = { error: { code, status, retryable: error?.retryable === true, message: String(error?.message || 'La capability no está disponible.') } }
+  const retryable = error?.retryable === true || (error?.retryable === undefined && status >= 500)
+  const action = String(error?.action || (status === 404 ? 'check_capability_id' : status === 403 ? 'request_permission' : retryable ? 'retry_after_fix' : 'inspect_error')).trim()
+  const value = { error: { code, status, retryable, action, message: String(error?.message || 'La capability no está disponible.'), ...(error?.details ? { details: error.details } : {}) } }
   return { isError: true, structuredContent: value, content: [{ type: 'text', text: JSON.stringify(value) }] }
 }
 
@@ -47,6 +50,63 @@ function visibleCapabilities(catalog, auth) {
   return catalog.capabilities.filter((entry) => canUseCapability(auth, entry))
 }
 
+const SEARCH_STOP_WORDS = new Set(['a', 'al', 'con', 'de', 'del', 'el', 'en', 'la', 'las', 'los', 'para', 'por', 'un', 'una', 'y'])
+const SEARCH_ALIASES = Object.freeze({
+  generacion: ['generate', 'generation', 'creative'],
+  generar: ['generate', 'generation', 'creative'],
+  contenido: ['content', 'copy', 'creative'],
+  imagen: ['image', 'visual', 'asset'],
+  imagenes: ['image', 'visual', 'asset'],
+  video: ['video', 'motion', 'reel'],
+  videos: ['video', 'motion', 'reel'],
+  reel: ['reel', 'video', 'motion'],
+  publicacion: ['publication', 'publish', 'publisher'],
+  publicar: ['publication', 'publish', 'publisher'],
+  publicación: ['publication', 'publish', 'publisher']
+})
+
+function searchNormalize(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+}
+
+function searchTerms(value) {
+  return searchNormalize(value).split(/[^a-z0-9]+/).filter((token) => token && !SEARCH_STOP_WORDS.has(token))
+}
+
+function searchableText(entry) {
+  return searchNormalize([
+    entry.id,
+    entry.title,
+    entry.description,
+    ...(entry.tags || []),
+    ...(entry.aliases || []),
+    ...(entry.useCases || []),
+    ...(entry.composesWith || []),
+    ...Object.keys(entry.inputSchema?.properties || {}),
+    ...Object.keys(entry.outputSchema?.properties || {})
+  ].join(' '))
+}
+
+function searchMatches(entry, query) {
+  const haystack = searchableText(entry)
+  const terms = searchTerms(query)
+  if (!terms.length) return true
+  return terms.some((term) => [term, ...(SEARCH_ALIASES[term] || [])].some((candidate) => haystack.includes(candidate)))
+}
+
+function validateCapabilityResult(catalog, name, result) {
+  const capability = findCapability(catalog, name)
+  const schemaErrors = validateOutput(result, capability?.outputSchema)
+  if (!schemaErrors.length) return result
+  const error = new Error(`La respuesta de ${name} no cumple su outputSchema.`)
+  error.code = 'capability_output_invalid'
+  error.status = 500
+  error.retryable = false
+  error.action = 'inspect_capability_contract'
+  error.details = { fields: schemaErrors }
+  throw error
+}
+
 function searchCapabilities(catalog, auth, args = {}) {
   const query = String(args.query || '').trim().toLowerCase()
   const queryTokens = query.split(/\s+/).filter(Boolean)
@@ -57,8 +117,7 @@ function searchCapabilities(catalog, auth, args = {}) {
     if (type && entry.type !== type) return false
     if (tag && !(entry.tags || []).some((value) => String(value).toLowerCase() === tag)) return false
     if (!query) return true
-    const haystack = [entry.id, entry.description, ...(entry.tags || []), ...(entry.composesWith || [])].join(' ').toLowerCase()
-    return queryTokens.every((token) => haystack.includes(token))
+    return searchMatches(entry, query)
   }).map((entry) => {
     const publicEntry = publicCapabilityManifest(entry)
     if (args.includeSchemas === true) return publicEntry
@@ -74,7 +133,7 @@ function listRecipes(catalog, auth, args = {}) {
   const recipes = catalog.recipes
     .filter((entry) => canUseCapability(auth, entry))
     .filter((entry) => !tag || (entry.tags || []).some((value) => String(value).toLowerCase() === tag))
-    .filter((entry) => !query || [entry.id, entry.description, ...(entry.tags || [])].join(' ').toLowerCase().includes(query))
+    .filter((entry) => !query || searchMatches(entry, query))
     .map((entry) => {
       const publicEntry = publicCapabilityManifest(entry)
       const { inputSchema, outputSchema, ...summary } = publicEntry
@@ -126,8 +185,8 @@ async function invokeRegisteredCapability(catalog, capability, name, args, auth)
 }
 
 async function callCapability(catalog, auth, name, args) {
-  if (name === 'capability.guide') return agentGuide(catalog, auth, args)
-  if (name === 'capability.search') return searchCapabilities(catalog, auth, args)
+  if (name === 'capability.guide') return validateCapabilityResult(catalog, name, agentGuide(catalog, auth, args))
+  if (name === 'capability.search') return validateCapabilityResult(catalog, name, searchCapabilities(catalog, auth, args))
   if (name === 'capability.get') {
     const capability = findCapability(catalog, args?.capabilityId || args?.id)
     if (!capability || (args?.version && String(capability.version) !== String(args.version))) {
@@ -142,9 +201,9 @@ async function callCapability(catalog, auth, name, args) {
       error.status = 403
       throw error
     }
-    return { contractVersion: MCP_V3_CONTRACT, capability: publicCapabilityManifest(capability) }
+    return validateCapabilityResult(catalog, name, { contractVersion: MCP_V3_CONTRACT, capability: publicCapabilityManifest(capability) })
   }
-  if (name === 'recipe.list') return listRecipes(catalog, auth, args)
+  if (name === 'recipe.list') return validateCapabilityResult(catalog, name, listRecipes(catalog, auth, args))
   if (name === 'recipe.get') {
     const recipe = findRecipe(catalog, args?.recipeId)
     if (!recipe) {
@@ -159,7 +218,7 @@ async function callCapability(catalog, auth, name, args) {
       error.status = 403
       throw error
     }
-    return { contractVersion: MCP_V3_CONTRACT, recipe: publicCapabilityManifest(recipe) }
+    return validateCapabilityResult(catalog, name, { contractVersion: MCP_V3_CONTRACT, recipe: publicCapabilityManifest(recipe) })
   }
   const capability = findCapability(catalog, name)
   if (!capability) {
@@ -176,7 +235,8 @@ async function callCapability(catalog, auth, name, args) {
     throw error
   }
   if (name === 'recipe.get') return { contractVersion: MCP_V3_CONTRACT, recipe: publicCapabilityManifest(capability) }
-  return invokeRegisteredCapability(catalog, capability, name, args, auth)
+  const result = await invokeRegisteredCapability(catalog, capability, name, args, auth)
+  return validateCapabilityResult(catalog, name, result)
 }
 
 function resourceList(catalog, auth) {

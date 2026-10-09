@@ -41,6 +41,9 @@ test('simulación de un agente nuevo: el MCP explica, descubre e inspecciona ant
   const recipes = await call(server, 'recipe.list', { query: 'menu' })
   assert.equal(recipes.isError, false)
   assert.ok(recipes.structuredContent.recipes.some((entry) => entry.id === 'recipe.menu-to-reel'))
+  const generic = await call(server, 'recipe.list', { query: 'imagen y guion a reel' })
+  assert.equal(generic.isError, false)
+  assert.ok(generic.structuredContent.recipes.some((entry) => entry.id === 'recipe.reel-from-image'))
 
   const recipe = await call(server, 'recipe.get', { recipeId: 'recipe.food-to-reel' })
   assert.equal(recipe.isError, false)

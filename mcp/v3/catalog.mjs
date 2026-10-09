@@ -47,6 +47,8 @@ function manifest({
   type = 'primitive',
   version = '1.0.0',
   tags = [],
+  aliases = [],
+  useCases = [],
   metadata = {}
 }) {
   return Object.freeze({
@@ -61,6 +63,8 @@ function manifest({
     composesWith,
     humanReviewRequired,
     tags,
+    aliases,
+    useCases,
     metadata
   })
 }
@@ -70,7 +74,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     id: 'capability.guide',
     description: 'Explica a un agente nuevo cómo descubrir la marca, elegir una recipe y dejar el resultado para revisión humana.',
     inputSchema: { type: 'object', properties: { goal: { type: 'string', maxLength: 160 } }, additionalProperties: false },
-    outputSchema: { type: 'object', properties: { firstSteps: { type: 'array' }, rules: { type: 'array' }, examples: { type: 'array' } }, required: ['firstSteps', 'rules', 'examples'], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { firstSteps: { type: 'array' }, rules: { type: 'array' }, examples: { type: 'array' } }, required: ['firstSteps', 'rules', 'examples'], additionalProperties: true },
     permissions: [],
     tags: ['discovery', 'onboarding', 'agent']
   }),
@@ -82,7 +86,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
       properties: { query: { type: 'string', maxLength: 160 }, type: { type: 'string', enum: ['primitive', 'recipe'] }, tag: { type: 'string', maxLength: 80 } },
       additionalProperties: false
     },
-    outputSchema: { type: 'object', properties: { capabilities: { type: 'array' } }, required: ['capabilities'], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { capabilities: { type: 'array' } }, required: ['capabilities'], additionalProperties: true },
     permissions: [],
     tags: ['discovery']
   }),
@@ -90,7 +94,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     id: 'capability.get',
     description: 'Devuelve el manifest completo de una capability autorizada, incluidos sus schemas y efectos.',
     inputSchema: { type: 'object', properties: { capabilityId: { type: 'string', minLength: 1 }, version: { type: 'string' } }, required: ['capabilityId'], additionalProperties: false },
-    outputSchema: { type: 'object', properties: { capability: { type: 'object' } }, required: ['capability'], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { capability: { type: 'object' } }, required: ['capability'], additionalProperties: true },
     permissions: [],
     tags: ['discovery']
   }),
@@ -98,7 +102,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     id: 'recipe.list',
     description: 'Lista recetas autorizadas sin ejecutar ningún paso.',
     inputSchema: { type: 'object', properties: { query: { type: 'string', maxLength: 160 }, tag: { type: 'string', maxLength: 80 } }, additionalProperties: false },
-    outputSchema: { type: 'object', properties: { recipes: { type: 'array' } }, required: ['recipes'], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { recipes: { type: 'array' } }, required: ['recipes'], additionalProperties: true },
     permissions: [],
     tags: ['discovery', 'composition']
   }),
@@ -106,14 +110,14 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     id: 'recipe.get',
     description: 'Devuelve una receta registrada y sus dependencias declaradas.',
     inputSchema: { type: 'object', properties: { recipeId: { type: 'string', minLength: 1 } }, required: ['recipeId'], additionalProperties: false },
-    outputSchema: { type: 'object', required: ['recipe'], additionalProperties: false },
+    outputSchema: { type: 'object', required: ['recipe'], additionalProperties: true },
     permissions: [],
     tags: ['discovery', 'composition']
   }),
   manifest({
     id: 'recipe.run',
     description: 'Ejecuta una recipe compuesta y devuelve sus trabajos, validaciones y siguiente revisión.',
-    inputSchema: { type: 'object', properties: { recipeId: { type: 'string' }, site: { type: 'string' }, brandId: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, brandKitVersionId: { type: 'string' }, inputs: { type: 'array', items: assetReferenceSchema }, sourceMediaId: { type: 'string' }, audioAssetId: { type: 'string' }, contentItemId: { type: 'string' }, text: { type: 'string', maxLength: 50000 }, menuText: { type: 'string', maxLength: 50000 }, purpose: { type: 'string' }, audience: { type: 'string' }, cta: { type: 'string' }, formatProfile: { type: 'string' }, channel: { type: 'string' }, provider: { type: 'string' }, idempotencyKey: { type: 'string' }, createContentIfMissing: { type: 'boolean' } }, additionalProperties: false },
+    inputSchema: { type: 'object', properties: { recipeId: { type: 'string' }, site: { type: 'string' }, brandId: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, brandKitVersionId: { type: 'string' }, inputs: { type: 'array', items: assetReferenceSchema }, sourceMediaId: { type: 'string' }, audioAssetId: { type: 'string' }, contentItemId: { type: 'string' }, text: { type: 'string', maxLength: 50000 }, script: { type: 'string', maxLength: 50000 }, menuText: { type: 'string', maxLength: 50000 }, purpose: { type: 'string' }, audience: { type: 'string' }, cta: { type: 'string' }, formatProfile: { type: 'string' }, channel: { type: 'string' }, provider: { type: 'string' }, idempotencyKey: { type: 'string' }, createContentIfMissing: { type: 'boolean' } }, additionalProperties: false },
     outputSchema: { type: 'object', required: ['recipe', 'runId', 'status', 'review'], additionalProperties: true },
     permissions: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'production:motion', 'publication:read'],
     sideEffects: 'write',
@@ -123,36 +127,40 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
   manifest({
     id: 'brand.context.get',
     description: 'Lee un snapshot versionado del contexto de marca sin exponer archivos privados.',
-    inputSchema: { type: 'object', properties: { brandId: { type: 'string' }, brandKitVersionId: { type: 'string' } }, additionalProperties: false },
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, brandId: { type: 'string' }, brandKitVersionId: { type: 'string' } }, oneOf: [{ required: ['site'] }, { required: ['brandId'] }], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, site: { type: 'string' }, brandKitVersionId: { type: 'string' }, brandKitSnapshotHash: { type: 'string' } }, required: ['contractVersion', 'site', 'brandKitVersionId', 'brandKitSnapshotHash'], additionalProperties: true },
     permissions: ['brand:read'],
     tags: ['brand', 'kernel', 'read']
   }),
   manifest({
     id: 'brand.voice.get',
     description: 'Lee la proyección de voz de marca del snapshot seleccionado.',
-    inputSchema: { type: 'object', properties: { brandId: { type: 'string' }, brandKitVersionId: { type: 'string' } }, additionalProperties: false },
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, brandId: { type: 'string' }, brandKitVersionId: { type: 'string' } }, oneOf: [{ required: ['site'] }, { required: ['brandId'] }], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, site: { type: 'string' }, brandKitVersionId: { type: 'string' }, brandKitSnapshotHash: { type: 'string' }, voice: { type: 'string' } }, required: ['contractVersion', 'site', 'brandKitVersionId', 'brandKitSnapshotHash', 'voice'], additionalProperties: true },
     permissions: ['brand:read'],
     tags: ['brand', 'kernel', 'read']
   }),
   manifest({
     id: 'brand.visual_style.get',
     description: 'Lee la proyección de estilo visual de marca del snapshot seleccionado.',
-    inputSchema: { type: 'object', properties: { brandId: { type: 'string' }, brandKitVersionId: { type: 'string' } }, additionalProperties: false },
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, brandId: { type: 'string' }, brandKitVersionId: { type: 'string' } }, oneOf: [{ required: ['site'] }, { required: ['brandId'] }], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, site: { type: 'string' }, brandKitVersionId: { type: 'string' }, brandKitSnapshotHash: { type: 'string' }, visualStyle: { type: 'object' } }, required: ['contractVersion', 'site', 'brandKitVersionId', 'brandKitSnapshotHash', 'visualStyle'], additionalProperties: true },
     permissions: ['brand:read'],
     tags: ['brand', 'kernel', 'read']
   }),
   manifest({
     id: 'brand.rules.get',
     description: 'Lee reglas publicables y restricciones de contenido del snapshot seleccionado.',
-    inputSchema: { type: 'object', properties: { brandId: { type: 'string' }, brandKitVersionId: { type: 'string' } }, additionalProperties: false },
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, brandId: { type: 'string' }, brandKitVersionId: { type: 'string' } }, oneOf: [{ required: ['site'] }, { required: ['brandId'] }], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, site: { type: 'string' }, brandKitVersionId: { type: 'string' }, brandKitSnapshotHash: { type: 'string' }, sharedEditorialPolicy: { type: 'object' } }, required: ['contractVersion', 'site', 'brandKitVersionId', 'brandKitSnapshotHash'], additionalProperties: true },
     permissions: ['brand:read'],
     tags: ['brand', 'kernel', 'read']
   }),
   manifest({
     id: 'brand.references.resolve',
     description: 'Resuelve referencias visuales permitidas para una operación de generación.',
-    inputSchema: { type: 'object', properties: { brandId: { type: 'string' }, brandKitVersionId: { type: 'string' }, purpose: { type: 'string' }, formatProfile: { type: 'string' } }, required: ['purpose'], additionalProperties: false },
-    outputSchema: { type: 'object', properties: { references: { type: 'array' }, brandKitVersionId: { type: 'string' } }, required: ['references'], additionalProperties: false },
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, brandId: { type: 'string' }, brandKitVersionId: { type: 'string' }, purpose: { type: 'string' }, formatProfile: { type: 'string' } }, oneOf: [{ required: ['site', 'purpose'] }, { required: ['brandId', 'purpose'] }], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, references: { type: 'array' }, brandKitVersionId: { type: 'string' }, brandKitSnapshotHash: { type: 'string' }, generationBlocked: { type: 'boolean' } }, required: ['contractVersion', 'references', 'brandKitVersionId', 'brandKitSnapshotHash', 'generationBlocked'], additionalProperties: true },
     permissions: ['brand:read'],
     tags: ['brand', 'kernel', 'read', 'provenance']
   }),
@@ -161,11 +169,11 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     description: 'Prepara un envelope versionado para generación externa, sin generar contenido ni revelar secretos.',
     inputSchema: {
       type: 'object',
-      properties: { brandId: { type: 'string' }, brandKitVersionId: { type: 'string' }, purpose: { type: 'string' }, formatProfile: { type: 'string' }, inputs: { type: 'array', items: assetReferenceSchema }, prompt: { type: 'string', maxLength: 12000 } },
-      required: ['purpose'],
+      properties: { site: { type: 'string' }, brandId: { type: 'string' }, brandKitVersionId: { type: 'string' }, purpose: { type: 'string' }, formatProfile: { type: 'string' }, inputs: { type: 'array', items: assetReferenceSchema }, prompt: { type: 'string', maxLength: 12000 } },
+      oneOf: [{ required: ['site', 'purpose'] }, { required: ['brandId', 'purpose'] }],
       additionalProperties: false
     },
-    outputSchema: { type: 'object', properties: { preparationId: { type: 'string' }, brandKitVersionId: { type: 'string' }, resolvedReferences: { type: 'array' }, generationBlocked: { type: 'boolean' } }, required: ['generationBlocked'], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, preparationId: { type: 'string' }, brandKitVersionId: { type: 'string' }, resolvedReferences: { type: 'array' }, generationBlocked: { type: 'boolean' }, preparation: { type: 'object' } }, required: ['contractVersion', 'brandKitVersionId', 'generationBlocked'], additionalProperties: true },
     permissions: ['brand:read', 'generation:prepare'],
     tags: ['brand', 'kernel', 'preparation', 'provenance']
   }),
@@ -181,7 +189,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
   manifest({
     id: 'copy.validate',
     description: 'Valida copy frente a las reglas del snapshot de marca antes de producir un artefacto.',
-    inputSchema: { type: 'object', properties: { brandId: { type: 'string' }, brandKitVersionId: { type: 'string' }, text: { type: 'string', maxLength: 50000 }, channel: { type: 'string' } }, required: ['text'], additionalProperties: false },
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, brandId: { type: 'string' }, brandKitVersionId: { type: 'string' }, text: { type: 'string', maxLength: 50000 }, channel: { type: 'string' }, purpose: { type: 'string' }, audience: { type: 'string' }, cta: { type: 'string' } }, required: ['text'], additionalProperties: false },
     outputSchema: { type: 'object', properties: { valid: { type: 'boolean' }, findings: { type: 'array' } }, required: ['valid', 'findings'], additionalProperties: false },
     permissions: ['brand:read'],
     tags: ['copy', 'validation']
@@ -274,9 +282,9 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
   }),
   manifest({
     id: 'publication.status.get',
-    description: 'Consulta el estado interno y externo de una publicación.',
+    description: 'Consulta el estado interno y externo de una publicación. Si no existe un runId o publicationId persistido, devuelve status unknown y terminal false para indicar que el estado no está confirmado.',
     inputSchema: { type: 'object', properties: { runId: { type: 'string' }, publicationId: { type: 'string' } }, additionalProperties: false },
-    outputSchema: runSchema,
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string' }, operation: { type: 'string' }, publicationId: { type: ['string', 'null'] }, status: { type: 'string' }, providerStatus: { type: ['string', 'null'] }, terminal: { type: 'boolean' }, persisted: { type: 'boolean' } }, required: ['contractVersion', 'status', 'terminal'], additionalProperties: true },
     permissions: ['publication:read'],
     tags: ['publication', 'publisher', 'status']
   })
@@ -284,12 +292,27 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
 
 export const BUILTIN_RECIPES = Object.freeze([
   Object.freeze({
+    id: 'recipe.reel-from-image',
+    version: '1.0.0',
+    type: 'recipe',
+    description: 'Convierte una imagen y un guion en un Reel o Story usando el Brand Kit activo.',
+    steps: ['brand.context.get', 'copy.validate', 'production.motion.compose', 'publication.destination.list'],
+    humanReviewRequired: true,
+    tags: ['recipe', 'reel', 'video', 'motion', 'image', 'content'],
+    aliases: ['imagen y guion a reel', 'image to reel', 'generic reel'],
+    useCases: ['Crear un Reel genérico desde una imagen y un script'],
+    metadata: { uiRoute: '/production/food-to-reel' }
+  }),
+  Object.freeze({
     id: 'food-to-reel',
     version: '1.0.0',
     type: 'recipe',
     description: 'Convierte una imagen de plato y un texto en un reel revisable y publicable.',
     steps: ['copy.validate', 'production.motion.compose', 'publication.destination.list', 'publication.route', 'publication.schedule'],
     humanReviewRequired: true,
+    tags: ['recipe', 'food', 'reel', 'video', 'motion', 'content', 'image'],
+    aliases: ['plato a reel', 'imagen y texto a video', 'food to video', 'generación de contenido'],
+    useCases: ['Crear un Reel de comida', 'Generar contenido con una imagen y texto'],
     metadata: { uiRoute: '/production/food-to-reel' }
   }),
   Object.freeze({
@@ -299,6 +322,9 @@ export const BUILTIN_RECIPES = Object.freeze([
     description: 'Compone un reel o story del menú del día con imagen, texto y audio opcional.',
     steps: ['copy.validate', 'production.motion.compose', 'publication.destination.list', 'publication.route', 'publication.publish'],
     humanReviewRequired: true,
+    tags: ['recipe', 'menu', 'reel', 'story', 'video', 'content', 'publisher'],
+    aliases: ['menu a reel', 'menu a story', 'menú del día', 'daily menu video'],
+    useCases: ['Convertir el menú en contenido social', 'Publicar una Story del menú'],
     metadata: { uiRoute: '/production/menu-to-reel' }
   }),
   Object.freeze({
@@ -308,6 +334,9 @@ export const BUILTIN_RECIPES = Object.freeze([
     description: 'Adapta un producto a un formato social y lo entrega al Publisher para revisión.',
     steps: ['production.image.product.transform', 'copy.validate', 'publication.destination.list', 'publication.route'],
     humanReviewRequired: true,
+    tags: ['recipe', 'product', 'social', 'image', 'content', 'publisher'],
+    aliases: ['producto a imagen', 'product image', 'product to post'],
+    useCases: ['Generar una imagen de producto', 'Publicar contenido de producto'],
     metadata: { uiRoute: '/production/product-to-social' }
   })
 ])

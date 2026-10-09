@@ -156,8 +156,9 @@ import {
   getQuotaSnapshot as cmsGetQuotaSnapshot
 } from './lib/cms-ops.mjs'
 import { mediaForClient, findMediaForClient, repairMediaInDb, repairPostsInDb, resolveImageSrc, resolvePostImageSrc, inspectImageBuffer } from './lib/media-url.mjs'
-import { recordPublicationMemory } from './lib/ai-gateway.mjs'
+import { recordPublicationMemory, runChat, runGenerateOperation, splitSseChunks } from './lib/ai-gateway.mjs'
 import { assertCmsAiAllowed } from './lib/generation-policy.mjs'
+import { disconnectChatGpt, getChatGptConnection, saveChatGptConnection } from './lib/chatgpt-siwc.mjs'
 import { canReadPost, canEditPost, safePostFields, assertPostAccess } from './lib/post-access.mjs'
 import { assertMembershipActive } from './lib/plans.mjs'
 import { archiveConversation, conversationOwner, deleteConversation, getConversation, listConversations, saveConversation } from './lib/ai-conversations.mjs'
@@ -3162,6 +3163,69 @@ async function handleRequest(req, res) {
       json(res, 405, { message: 'Método no permitido' })
     } catch (error) {
       json(res, error.status || 400, { message: error.message })
+    }
+    return
+  }
+
+  if (path === '/api/chatgpt/status' || path === '/api/chatgpt/connection') {
+    const auth = requireAuth(req, url, res)
+    if (!auth) return
+    if (req.method !== 'GET') {
+      json(res, 405, { message: 'Usa GET para consultar la conexión.' })
+      return
+    }
+    json(res, 200, getChatGptConnection(auth.userId))
+    return
+  }
+
+  if (path === '/api/chatgpt/import' || path === '/api/chatgpt/disconnect') {
+    const auth = requireAuth(req, url, res)
+    if (!auth) return
+    try {
+      const db = readDb()
+      if (path === '/api/chatgpt/import') {
+        if (req.method !== 'POST') throw Object.assign(new Error('Usa POST para importar la conexión.'), { status: 405 })
+        const body = await parseBody(req)
+        const connection = saveChatGptConnection(auth.userId, body.credentials || body, { db })
+        writeDb(db)
+        json(res, 200, { connection })
+      } else {
+        if (req.method !== 'DELETE' && req.method !== 'POST') throw Object.assign(new Error('Usa DELETE para desconectar.'), { status: 405 })
+        const connection = disconnectChatGpt(auth.userId, { db })
+        writeDb(db)
+        json(res, 200, { connection })
+      }
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message, code: error.code, ...(error.extra || {}) })
+    }
+    return
+  }
+
+  if (path === '/api/ai/chat' || path === '/api/ai/generate') {
+    const auth = requireAuth(req, url, res)
+    if (!auth) return
+    if (req.method !== 'POST') {
+      json(res, 405, { message: 'Usa POST.' })
+      return
+    }
+    try {
+      const body = await parseBody(req)
+      const site = siteFrom(auth, body.site || DEFAULT_SITE)
+      assertSiteAccess(auth, site)
+      assertAiRateLimit(aiRateLimitKey(auth, site, requestIp(req)), { limit: path.endsWith('/chat') ? 60 : 30 })
+      if (path.endsWith('/chat')) {
+        const result = await runChat({ site, auth, message: body.message, provider: body.provider, model: body.model })
+        applyCors(res, req)
+        res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', Connection: 'keep-alive', 'X-Request-Id': res._requestId })
+        for (const delta of splitSseChunks(result.content)) res.write(`event: delta\ndata: ${JSON.stringify({ delta })}\n\n`)
+        res.write(`event: done\ndata: ${JSON.stringify({ provider: result.provider, model: result.model, usage: result.usage, billing: result.billing })}\n\n`)
+        res.end()
+      } else {
+        const result = await runGenerateOperation({ site, auth, operation: body.operation, prompt: body.prompt, post: body.post, provider: body.provider, model: body.model })
+        json(res, 200, result)
+      }
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message, code: error.code || error.extra?.code, ...(error.extra || {}) })
     }
     return
   }

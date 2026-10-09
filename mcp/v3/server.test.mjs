@@ -85,6 +85,14 @@ test('discovery progresivo separa resumen de schema completo', async () => {
   assert.equal(legacyLookup.structuredContent.recipe.id, 'recipe.food-to-reel')
 })
 
+test('capability.search entiende una intención editorial en español', async () => {
+  const result = await invokeMcpToolV3('capability.search', { query: 'generación de contenido, imágenes, vídeo y publicación' }, { role: 'admin' })
+  assert.equal(result.isError, false)
+  const ids = result.structuredContent.capabilities.map((entry) => entry.id)
+  assert.ok(ids.includes('production.motion.compose') || ids.includes('recipe.food-to-reel'))
+  assert.ok(ids.includes('publication.destination.list') || ids.includes('publication.route'))
+})
+
 test('el registro OS puede ampliar el catálogo, pero no introducir aliases legacy', async () => {
   const registry = normalizeOsRegistry({ capabilities: [{ id: 'audio.transcribe', description: 'Transcribe audio.', inputSchema: { type: 'object' } }] })
   const server = createMcpServerV3Sync({ role: 'agent' }, { registry })
@@ -110,7 +118,7 @@ test('tools/call delega en el registro OS sin dar acceso implícito a generació
     registry: {
       invoke: async (name, args, context) => {
         calls.push({ name, args, contractVersion: context.contractVersion })
-        return { contractVersion: context.contractVersion, brandKitVersionId: args.brandKitVersionId, status: 'ready_for_review' }
+        return { contractVersion: context.contractVersion, site: 'escarlet', brandKitVersionId: args.brandKitVersionId, brandKitSnapshotHash: 'hash-1', status: 'ready_for_review' }
       }
     }
   })

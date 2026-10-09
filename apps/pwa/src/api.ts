@@ -50,6 +50,9 @@ export async function request<T>(path: string, options: ApiRequestOptions = {}):
 const baseApi = {
   session: () => request<Session>("/api/admin/session"),
   auth0Status: () => request<{ configured: boolean; enabled: boolean; error?: string | null }>("/api/auth0/status"),
+  chatgptStatus: () => request<ChatGptConnection>("/api/chatgpt/status"),
+  chatgptImport: (credentials: Record<string, unknown>) => request<{ connection: ChatGptConnection }>("/api/chatgpt/import", { method: "POST", body: JSON.stringify({ credentials }) }),
+  chatgptDisconnect: () => request<{ connection: ChatGptConnection }>("/api/chatgpt/disconnect", { method: "DELETE" }),
   loginWithToken: (token: string) =>
     request<Session>("/api/login", {
       method: "POST",
@@ -705,6 +708,16 @@ const baseApi = {
       `/api/admin/billing/credit-packs/${encodeURIComponent(id)}`,
       { method: "DELETE" },
     ),
+};
+
+export type ChatGptConnection = {
+  connected: boolean;
+  mode?: string;
+  email?: string | null;
+  scopes?: string[];
+  expiresAt?: string | null;
+  expired?: boolean;
+  instructions?: { docs?: string; flow?: string; requiredScopes?: string[]; message?: string };
 };
 
 export type AiGeneration = {

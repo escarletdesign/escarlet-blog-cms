@@ -17,6 +17,14 @@ test('Brand Kernel devuelve un contexto autorizado y sin archivos privados', asy
   assert.equal(Object.hasOwn(result.structuredContent, 'files'), false)
 })
 
+test('brand.references.resolve conserva hash y procedencia de cada referencia', async () => {
+  const server = await createMcpServerV3({ role: 'admin', site: 'escarlet' })
+  const result = await call(server, 'brand.references.resolve', { site: 'escarlet', purpose: 'blog cover' })
+  assert.equal(result.isError, false)
+  assert.ok(result.structuredContent.resolvedReferences.length > 0)
+  assert.ok(result.structuredContent.resolvedReferences.every((reference) => /^[a-f0-9]{64}$/i.test(reference.sha256)))
+})
+
 test('el agente puede enrutar sin ejecutar proveedores y el viewer no puede hacerlo', async () => {
   const agent = await createMcpServerV3({ role: 'agent', site: 'escarlet' })
   const routed = await call(agent, 'publication.route', { channel: 'instagram_reel', provider: 'postiz', assetIds: ['reel-1'] })

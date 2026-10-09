@@ -302,10 +302,10 @@ function recipeId(value) {
 
 async function runRecipe(args, auth) {
   const id = recipeId(args.recipeId || args.recipe || 'food-to-reel')
-  if (!['food-to-reel', 'menu-to-reel', 'product-to-social'].includes(id)) {
+  if (!['food-to-reel', 'menu-to-reel', 'reel-from-image', 'product-to-social'].includes(id)) {
     throw Object.assign(new Error(`La recipe ${id || '(vacía)'} todavía no tiene ejecutor.`), { code: 'recipe_executor_missing', status: 501 })
   }
-  const text = String(args.text || args.menuText || '').trim()
+  const text = String(args.text || args.menuText || args.script || '').trim()
   if (!text) throw Object.assign(new Error('La recipe necesita text o menuText.'), { code: 'recipe_text_required', status: 422 })
   const site = siteFor(args, auth)
   const context = await invokeBuiltinCapability('brand.context.get', { site, brandKitVersionId: args.brandKitVersionId }, { auth })
@@ -381,7 +381,7 @@ export async function invokeBuiltinCapability(name, args = {}, { auth = {} } = {
     if (name === 'brand.rules.get') return { contractVersion: 'os.production.v1', site, brandKitVersionId: context.brandKitVersionId, brandKitSnapshotHash: context.brandKitSnapshotHash, sharedEditorialPolicy: context.sharedEditorialPolicy, editRules: context.editRules, workflow: context.workflow, requiresHumanApproval: context.requiresHumanApproval, requiresPublishConfirmation: context.requiresPublishConfirmation }
     if (name === 'brand.references.resolve') {
       const prepared = prepareImageGeneration(site, preparationInput(args))
-      return { contractVersion: 'os.production.v1', site, brandKitVersionId: prepared.brandKitVersionId, brandKitSnapshotHash: prepared.brandKitSnapshotHash, route: prepared.route, generationBlocked: prepared.generationBlocked, resolvedReferences: prepared.resolvedReferences }
+      return { contractVersion: 'os.production.v1', site, brandKitVersionId: prepared.brandKitVersionId, brandKitSnapshotHash: prepared.brandKitSnapshotHash, route: prepared.route, generationBlocked: prepared.generationBlocked, references: prepared.resolvedReferences, resolvedReferences: prepared.resolvedReferences }
     }
     if (name === 'brand.generation.prepare') {
       const prepared = prepareImageGeneration(site, preparationInput(args))
