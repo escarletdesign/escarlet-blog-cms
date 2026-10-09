@@ -76,9 +76,10 @@ function libraryValues(variant: ContentVariant) {
   ].filter(Boolean);
 }
 
-function buildLibraryGroups(items: ContentItem[]): LibraryGroup[] {
+function buildLibraryGroups(items: ContentItem[], filterChannel = "all"): LibraryGroup[] {
   const groups = new Map<ContentChannel, LibraryAsset[]>();
   items.forEach((item) => (item.variants || []).forEach((variant) => {
+    if (filterChannel !== "all" && variant.channel !== filterChannel) return;
     const values = libraryValues(variant);
     const seen = new Set<string>();
     const status = variant.scheduleStatus || variant.status || "draft";
@@ -100,7 +101,7 @@ function standaloneAssetStatus(asset: MediaItem) {
 }
 
 function standaloneAssetKind(asset: MediaItem) {
-  const type = String(asset.metadata?.mimeType || asset.metadata?.contentType || asset.kind || "").toLowerCase();
+  const type = String(asset.metadata?.mimeType || asset.metadata?.contentType || asset.contentType || asset.kind || "").toLowerCase();
   return type.includes("video") ? "video" : "image";
 }
 
@@ -109,9 +110,14 @@ function standaloneMatches(asset: MediaItem, filterChannel: string, filterStatus
   const grounding = metadata.brandGrounding && typeof metadata.brandGrounding === "object" ? metadata.brandGrounding : {};
   const kind = String(metadata.kind || asset.kind || "").toLowerCase();
   const assetType = String(metadata.assetType || grounding.assetType || "").toLowerCase();
-  const declaredChannels = [metadata.channel, metadata.channels, grounding.channel, grounding.channels].flatMap((value) => Array.isArray(value) ? value : [value]).map((value) => String(value || "").toLowerCase());
+  const declaredChannels = [metadata.channel, metadata.channels, grounding.channel, grounding.channels].flatMap((value) => Array.isArray(value) ? value : [value]).map((value) => String(value || "").trim().toLowerCase()).filter(Boolean);
   const channels = new Set(declaredChannels);
-  const channelMatch = filterChannel === "all" || (filterChannel === "blog" ? kind === "post" || assetType === "blog_cover" || channels.has("blog") : filterChannel === "instagram" ? kind === "social" && (!channels.size || channels.has("instagram") || assetType === "social_image") : filterChannel === "instagram_story" ? assetType === "instagram_story" || channels.has("instagram_story") : channels.has(filterChannel));
+  const channelMatch = filterChannel === "all"
+    || channels.has(filterChannel)
+    || (filterChannel === "blog" && (kind === "post" || assetType === "blog_cover"))
+    || (filterChannel === "instagram" && (assetType === "social_image" || (kind === "social" && !channels.size && assetType !== "instagram_story")))
+    || (filterChannel === "instagram_story" && assetType === "instagram_story")
+    || (filterChannel === "video" && ["video", "reel", "instagram_reel"].includes(assetType));
   const status = standaloneAssetStatus(asset);
   const statusMatch = filterStatus === "all" || (filterStatus === "needs_review" ? ["needs_review", "ready_for_review", "pending_review"].includes(status) : status === filterStatus);
   const query = filterQuery.trim().toLowerCase();
@@ -188,7 +194,6 @@ function ContentAssetLibrary({ groups, standaloneAssets, onOpen, onDeleteMany, o
     try { await onUpload(files); } finally { setUploading(false); }
   };
   const uploadAction = <label className="ui-button ui-button-secondary ui-button-sm ui-file-upload-button">{uploading ? "Subiendo…" : "Subir imágenes"}<input type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden disabled={uploading} onChange={(event) => { void uploadFiles(Array.from(event.target.files || [])); event.currentTarget.value = ""; }} /></label>;
-  if (!groups.length && !standaloneAssets.length) return <EmptyState title="Todavía no hay activos" description="Cuando una app genere imágenes, vídeos o variantes para un canal, aparecerán aquí para revisarlos." action={uploadAction} />;
   const total = groups.reduce((sum, group) => sum + group.assets.length, 0);
   const published = groups.reduce((sum, group) => sum + group.assets.filter((asset) => asset.status === "published").length, 0);
   const generated = groups.reduce((sum, group) => sum + group.assets.filter((asset) => asset.url && ["generated", "approved", "scheduled", "syncing"].includes(asset.status)).length, 0);
@@ -214,11 +219,12 @@ function ContentAssetLibrary({ groups, standaloneAssets, onOpen, onDeleteMany, o
         </Card>;
       })}
     </div>
-    {standaloneAssets.length > 0 && <Card className="ui-content-library-standalone">
+    <Card className="ui-content-library-standalone">
       <div className="ui-card-head"><div><span className="ui-eyebrow">Biblioteca global</span><h2>Assets sin campaña</h2></div><Inline gap="sm"><Badge tone="info">{standaloneAssets.length}</Badge>{uploadAction}</Inline></div>
       <p className="ui-muted">Archivos generados o subidos por una micro app que todavía no están asociados a una campaña.</p>
-      <Inline gap="sm" className="ui-content-library-batch-toolbar"><Checkbox label="Seleccionar eliminables" checked={allVisibleSelected} onChange={() => setSelectedIds(allVisibleSelected ? [] : selectableIds)} /><Button size="sm" variant="ghost" disabled={!selectableIds.length} onClick={() => setSelectedIds(selectableIds)}>Seleccionar visibles</Button><Button size="sm" variant="ghost" disabled={!selectedAssets.length} onClick={() => setSelectedIds([])}>Limpiar</Button>{selectedAssets.length > 0 && <><Badge tone="info">{selectedAssets.length} seleccionados</Badge><Button size="sm" variant="secondary" onClick={() => openEdit(selectedAssets)}>Editar en lote</Button><Button size="sm" variant="danger" onClick={() => setDeleteSelection(selectedAssets)}>Eliminar en lote</Button></>}</Inline>
-      <div className="ui-content-library-assets">
+      {standaloneAssets.length > 0 ? <>
+        <Inline gap="sm" className="ui-content-library-batch-toolbar"><Checkbox label="Seleccionar eliminables" checked={allVisibleSelected} onChange={() => setSelectedIds(allVisibleSelected ? [] : selectableIds)} /><Button size="sm" variant="ghost" disabled={!selectableIds.length} onClick={() => setSelectedIds(selectableIds)}>Seleccionar visibles</Button><Button size="sm" variant="ghost" disabled={!selectedAssets.length} onClick={() => setSelectedIds([])}>Limpiar</Button>{selectedAssets.length > 0 && <><Badge tone="info">{selectedAssets.length} seleccionados</Badge><Button size="sm" variant="secondary" onClick={() => openEdit(selectedAssets)}>Editar en lote</Button><Button size="sm" variant="danger" onClick={() => setDeleteSelection(selectedAssets)}>Eliminar en lote</Button></>}</Inline>
+        <div className="ui-content-library-assets">
         {standaloneAssets.map((asset) => {
           const url = mediaUrl(asset, "preview");
           const status = standaloneAssetStatus(asset);
@@ -235,8 +241,9 @@ function ContentAssetLibrary({ groups, standaloneAssets, onOpen, onDeleteMany, o
             </Inline>
           </article>;
         })}
-      </div>
-    </Card>}
+        </div>
+      </> : <EmptyState title="No hay assets sin campaña con estos filtros" description="Sube un archivo o cambia el canal, estado o búsqueda para ver otros assets." action={uploadAction} />}
+    </Card>
     <Modal open={Boolean(deleteSelection.length)} title={deleteSelection.length > 1 ? "Eliminar assets" : "Eliminar asset"} onClose={() => setDeleteSelection([])}><Stack gap="md"><p>Se eliminarán {deleteSelection.length} asset{deleteSelection.length === 1 ? "" : "s"} del repositorio canónico. Esta acción no afecta contenido asociado.</p><Inline gap="md"><Button variant="ghost" onClick={() => setDeleteSelection([])}>Cancelar</Button><Button variant="danger" onClick={() => void submitDelete()}>Eliminar definitivamente</Button></Inline></Stack></Modal>
     <Modal open={Boolean(editSelection.length)} title={editSelection.length > 1 ? "Editar assets en lote" : "Editar asset"} onClose={() => setEditSelection([])}><form className="ui-stack ui-stack-md" onSubmit={(event) => void submitEdit(event)}><p className="ui-field-hint">Los campos vacíos no cambian el valor actual.</p><Field label="Nombre del archivo"><TextField value={editForm.filename} onChange={(event) => setEditForm((current) => ({ ...current, filename: event.target.value }))} placeholder="Ejemplo: plato-del-dia.webp" /></Field><Field label="Texto alternativo"><Textarea value={editForm.alt} onChange={(event) => setEditForm((current) => ({ ...current, alt: event.target.value }))} rows={3} placeholder="Describe la imagen para accesibilidad y contexto." /></Field><Field label="Uso"><TextField value={editForm.usage} onChange={(event) => setEditForm((current) => ({ ...current, usage: event.target.value }))} placeholder="Ejemplo: blog, social, reel" /></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setEditSelection([])}>Cancelar</Button><Button type="submit" disabled={!Object.values(editForm).some((value) => String(value || "").trim())}>Guardar cambios</Button></Inline></form></Modal>
   </Stack>;
@@ -372,7 +379,7 @@ export function ContentBatches({ site, brandId, previewItemId, creationEnabled =
       return publicationSortTime(left) - publicationSortTime(right) || itemTitle(left).localeCompare(itemTitle(right), "es", { sensitivity: "base" });
     });
   }, [items, filterQuery, filterPlan, filterStatus, filterChannel, filterDate, sortOrder]);
-  const libraryGroups = useMemo(() => buildLibraryGroups(visibleItems), [visibleItems]);
+  const libraryGroups = useMemo(() => buildLibraryGroups(visibleItems, filterChannel), [visibleItems, filterChannel]);
   const visibleStandaloneAssets = useMemo(() => standaloneAssets.filter((asset) => standaloneMatches(asset, filterChannel, filterStatus, filterQuery)), [standaloneAssets, filterChannel, filterStatus, filterQuery]);
 
   const run = async (action: () => Promise<unknown>) => {
