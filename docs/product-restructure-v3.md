@@ -42,8 +42,8 @@ La primera vertical ya está integrada en el monolito modular:
 - `recipe.run` ejecuta `food-to-reel` y `menu-to-reel` con texto y audio opcional hasta la cola, validación de copy, destinos y revisión humana. No publica automáticamente.
 - `recipe.run` también ejecuta `product-to-social`: transforma el asset original, conserva procedencia y devuelve destinos compatibles sin publicar.
 - La PWA incluye `/publication/publisher`: muestra solo combinaciones de canal y proveedor conectadas, prepara un bundle revisable y no envía credenciales ni contenido a un proveedor antes de la aprobación.
-- La PWA incluye `/apps`, un dashboard alimentado por `GET /api/v3/catalog`; cada tarjeta usa el mismo manifest que MCP y solo ofrece una acción directa cuando existe una UI autorizada.
-- `capability.guide` explica el protocolo a un agente nuevo y está cubierto por una simulación que descubre, inspecciona y valida errores antes de ejecutar.
+- La PWA incluye `/apps`, un dashboard alimentado por `GET /api/v3/catalog`; cada tarjeta usa el mismo manifest que MCP y solo ofrece una acción directa cuando existe una UI autorizada. El Publisher se puede abrir como distribución general o como `Publicar blog` con WordPress preseleccionado.
+- `capability.guide` explica el protocolo a un agente nuevo y está cubierto por una simulación que descubre, inspecciona y valida errores antes de ejecutar. El menú del día reutiliza la recipe con perfiles `instagram_reel` e `instagram_story`.
 
 ## Qué existe hoy
 

@@ -105,6 +105,7 @@ function agentGuide(catalog, auth, args = {}) {
     ],
     examples: [
       { intent: 'Crear un Reel de un plato', discover: { tool: 'recipe.list', arguments: { query: 'food reel' } }, inspect: { tool: 'recipe.get', arguments: { recipeId: 'recipe.food-to-reel' } }, execute: { tool: 'recipe.run', arguments: { recipeId: 'recipe.food-to-reel', site: '<site>', sourceMediaId: '<assetId>', text: '<descripción del plato>', formatProfile: 'instagram_reel' } } },
+      { intent: 'Convertir el menú del día en Story', discover: { tool: 'recipe.list', arguments: { query: 'menu' } }, inspect: { tool: 'recipe.get', arguments: { recipeId: 'recipe.menu-to-reel' } }, execute: { tool: 'recipe.run', arguments: { recipeId: 'recipe.menu-to-reel', site: '<site>', sourceMediaId: '<assetId>', text: '<texto del menú>', formatProfile: 'instagram_story', channel: 'instagram_story' } } },
       { intent: goal || 'Preparar una publicación', discover: { tool: 'capability.search', arguments: { query: 'publication' } }, inspect: { tool: 'capability.get', arguments: { capabilityId: 'publication.destination.list' } } }
     ],
     recipes

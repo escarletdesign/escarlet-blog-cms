@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ApiError, api } from "./api";
 import type { MediaItem } from "./types";
 import { Badge, Button, Card, EmptyState, Field, Inline, PageHeader, Select, Skeleton, Stack, StatusBadge, Textarea } from "./ui";
+import { useSearchParams } from "react-router-dom";
 
 type PublisherProps = { site: string; t: (key: string, fallback?: string) => string };
 
@@ -19,9 +20,12 @@ function errorText(error: unknown, fallback: string) {
   return error instanceof ApiError || error instanceof Error ? error.message : fallback;
 }
 export function Publisher({ site, t }: PublisherProps) {
+  const [searchParams] = useSearchParams();
+  const requestedChannel = searchParams.get("channel");
+  const initialChannel = channels.some(([value]) => value === requestedChannel) ? requestedChannel || "instagram_reel" : "instagram_reel";
   const [assets, setAssets] = useState<MediaItem[]>([]);
   const [assetsLoading, setAssetsLoading] = useState(true);
-  const [channel, setChannel] = useState("instagram_reel");
+  const [channel, setChannel] = useState(initialChannel);
   const [assetId, setAssetId] = useState("");
   const [provider, setProvider] = useState("");
   const [copy, setCopy] = useState("");
@@ -75,8 +79,9 @@ export function Publisher({ site, t }: PublisherProps) {
   };
 
   const assetOptions = useMemo(() => assets.slice(0, 100), [assets]);
+  const isBlog = channel === "wordpress_post";
   return <main className="ui-page">
-    <PageHeader eyebrow={t("publisher.eyebrow", "MICRO APP · PUBLISHER")} title={t("publisher.title", "Elige dónde publicar")} description={t("publisher.description", "Selecciona el canal, el proveedor y el asset. El Publisher prepara el envío, pero mantiene la revisión humana antes de contactar una plataforma.")} />
+    <PageHeader eyebrow={t("publisher.eyebrow", "MICRO APP · PUBLISHER")} title={isBlog ? t("publisher.blogTitle", "Publicar blog") : t("publisher.title", "Elige dónde publicar")} description={isBlog ? t("publisher.blogDescription", "Prepara una entrada para WordPress con su asset y copy. El envío queda pendiente de revisión humana.") : t("publisher.description", "Selecciona el canal, el proveedor y el asset. El Publisher prepara el envío, pero mantiene la revisión humana antes de contactar una plataforma.")} />
     <div className="ui-brand-detail-grid">
       <Card><Stack gap="md">
         <div><span className="ui-eyebrow">{t("publisher.destinationEyebrow", "DESTINO")}</span><h2>{t("publisher.destinationTitle", "Canal y herramienta")}</h2></div>

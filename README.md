@@ -87,7 +87,7 @@ Extender el sistema. [docs/MICROAPP-DEVELOPMENT.md](docs/MICROAPP-DEVELOPMENT.md
 | `publication.schedule` / `publication.publish` | Programar o publicar solo después de aprobación humana |
 | `publication.status.get` | Consultar estado interno y externo |
 
-La PWA incluye el dashboard `/app/apps`, las micro apps `/app/production/food-to-reel`, `/app/production/menu-to-reel`, `/app/production/product-to-social` y `/app/publication/publisher`. Con `MOTION_RENDERER_LOCAL=true` el worker produce un MP4 local revisable; `PRODUCT_RENDERER_LOCAL=true` habilita la transformación determinista de producto. Ambos valores pueden desactivarse para exigir un proveedor externo.
+La PWA incluye el dashboard `/app/apps`, las micro apps `/app/production/food-to-reel`, `/app/production/menu-to-reel`, `/app/production/product-to-social` y `/app/publication/publisher`. El dashboard también ofrece `Publicar blog`, que abre Publisher con WordPress preseleccionado. Menú del día permite elegir Reel o Story. Con `MOTION_RENDERER_LOCAL=true` el worker produce un MP4 local revisable; `PRODUCT_RENDERER_LOCAL=true` habilita la transformación determinista de producto. Ambos valores pueden desactivarse para exigir un proveedor externo.
 
 Resources. `escarlet://capabilities/index`, `escarlet://recipes/index` y `escarlet://brand/kernel` exponen el índice y el contrato. Los archivos fuente privados solo se gestionan desde la app por owner/admin.
 

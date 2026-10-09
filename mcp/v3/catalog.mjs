@@ -46,7 +46,8 @@ function manifest({
   humanReviewRequired = false,
   type = 'primitive',
   version = '1.0.0',
-  tags = []
+  tags = [],
+  metadata = {}
 }) {
   return Object.freeze({
     id: namespaced(id),
@@ -59,7 +60,8 @@ function manifest({
     sideEffects,
     composesWith,
     humanReviewRequired,
-    tags
+    tags,
+    metadata
   })
 }
 
@@ -216,6 +218,12 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     inputSchema: { type: 'object', properties: { brandId: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, assetIds: { type: 'array', items: { type: 'string' } }, assets: { type: 'array', items: { type: 'object' } }, channel: { type: 'string' }, provider: { type: 'string' }, connections: { type: 'array', items: { type: 'object' } }, text: { type: 'string' } }, additionalProperties: false },
     outputSchema: { type: 'object', properties: { destinations: { type: 'array' } }, required: ['destinations'], additionalProperties: false },
     permissions: ['publication:read'],
+    metadata: {
+      uiApps: [
+        { id: 'publication.publisher', title: 'Publisher', description: 'Elige canal, proveedor y asset antes de preparar una publicación.', route: '/publication/publisher', tags: ['publication', 'publisher'] },
+        { id: 'publication.blog', title: 'Publicar blog', description: 'Prepara una entrada para WordPress y conserva la revisión antes de publicar.', route: '/publication/publisher?channel=wordpress_post', tags: ['blog', 'wordpress', 'publication'] }
+      ]
+    },
     tags: ['publication', 'publisher', 'discovery']
   }),
   manifest({
@@ -281,15 +289,17 @@ export const BUILTIN_RECIPES = Object.freeze([
     type: 'recipe',
     description: 'Convierte una imagen de plato y un texto en un reel revisable y publicable.',
     steps: ['copy.validate', 'production.motion.compose', 'publication.destination.list', 'publication.route', 'publication.schedule'],
-    humanReviewRequired: true
+    humanReviewRequired: true,
+    metadata: { uiRoute: '/production/food-to-reel' }
   }),
   Object.freeze({
     id: 'menu-to-reel',
     version: '1.0.0',
     type: 'recipe',
-    description: 'Compone un reel del menú del día con imagen, texto y audio opcional.',
+    description: 'Compone un reel o story del menú del día con imagen, texto y audio opcional.',
     steps: ['copy.validate', 'production.motion.compose', 'publication.destination.list', 'publication.route', 'publication.publish'],
-    humanReviewRequired: true
+    humanReviewRequired: true,
+    metadata: { uiRoute: '/production/menu-to-reel' }
   }),
   Object.freeze({
     id: 'product-to-social',
@@ -297,7 +307,8 @@ export const BUILTIN_RECIPES = Object.freeze([
     type: 'recipe',
     description: 'Adapta un producto a un formato social y lo entrega al Publisher para revisión.',
     steps: ['production.image.product.transform', 'copy.validate', 'publication.destination.list', 'publication.route'],
-    humanReviewRequired: true
+    humanReviewRequired: true,
+    metadata: { uiRoute: '/production/product-to-social' }
   })
 ])
 

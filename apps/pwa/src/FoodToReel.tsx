@@ -10,6 +10,7 @@ import {
   Inline,
   PageHeader,
   Skeleton,
+  Select,
   Stack,
   StatusBadge,
   TextField,
@@ -54,6 +55,7 @@ const MAX_DEVICE_IMAGE_BYTES = 12 * 1024 * 1024;
 const DEVICE_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 
 export function FoodToReel({ site, t, recipeId = "recipe.food-to-reel" }: FoodToReelProps) {
+  const isMenuRecipe = recipeId === "recipe.menu-to-reel";
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [mediaLoading, setMediaLoading] = useState(true);
   const [mediaError, setMediaError] = useState("");
@@ -62,6 +64,7 @@ export function FoodToReel({ site, t, recipeId = "recipe.food-to-reel" }: FoodTo
   const [uploadPreview, setUploadPreview] = useState("");
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const [text, setText] = useState("");
+  const [formatProfile, setFormatProfile] = useState(isMenuRecipe ? "instagram_reel" : "instagram_reel");
   const [status, setStatus] = useState<FoodToReelStatus>("idle");
   const [error, setError] = useState("");
   const [job, setJob] = useState<Record<string, unknown> | null>(null);
@@ -92,6 +95,10 @@ export function FoodToReel({ site, t, recipeId = "recipe.food-to-reel" }: FoodTo
   }, [site]);
 
   useEffect(() => {
+    setFormatProfile("instagram_reel");
+  }, [recipeId]);
+
+  useEffect(() => {
     if (!uploadFile) {
       setUploadPreview("");
       return undefined;
@@ -107,6 +114,8 @@ export function FoodToReel({ site, t, recipeId = "recipe.food-to-reel" }: FoodTo
   }, [media]);
   const selectedMedia = imageMedia.find((item) => String(item.id || "") === selectedMediaId) || null;
   const selectedSource = uploadPreview || (selectedMedia ? imageSource(selectedMedia) : "");
+  const outputChannel = formatProfile === "instagram_story" ? "instagram_story" : "instagram_reel";
+  const outputLabel = formatProfile === "instagram_story" ? t("menuReel.story", "Story") : t("menuReel.reel", "Reel");
   const canSubmit = Boolean((selectedMediaId || uploadFile) && text.trim()) && status !== "loading";
 
   const selectMedia = (item: MediaItem) => {
@@ -162,8 +171,8 @@ export function FoodToReel({ site, t, recipeId = "recipe.food-to-reel" }: FoodTo
         site,
         recipeId,
         sourceMediaId,
-        channel: "instagram_reel",
-        formatProfile: "instagram_reel",
+        channel: outputChannel,
+        formatProfile,
         text: text.trim().slice(0, 500),
         createContentIfMissing: true,
         idempotencyKey: `pwa-food-to-reel:${site}:${sourceMediaId}:${text.trim()}`,
@@ -207,8 +216,8 @@ export function FoodToReel({ site, t, recipeId = "recipe.food-to-reel" }: FoodTo
     <main className="ui-page">
       <PageHeader
         eyebrow={t("foodReel.eyebrow", "MICRO APP · PRODUCCIÓN")}
-        title={recipeId === "recipe.menu-to-reel" ? t("menuReel.title", "Menú del día a Reel") : t("foodReel.title", "Imagen y texto a Reel")}
-        description={recipeId === "recipe.menu-to-reel" ? t("menuReel.description", "Convierte la imagen y el texto del menú del día en un Reel revisable con la identidad de tu marca.") : t("foodReel.description", "Combina una imagen de comida y su explicación para preparar un Reel de Instagram con la identidad de tu marca.")}
+        title={isMenuRecipe ? t("menuReel.title", "Menú del día a Reel o Story") : t("foodReel.title", "Imagen y texto a Reel")}
+        description={isMenuRecipe ? t("menuReel.description", "Convierte la imagen y el texto del menú del día en un Reel o Story revisable con la identidad de tu marca.") : t("foodReel.description", "Combina una imagen de comida y su explicación para preparar un Reel de Instagram con la identidad de tu marca.")}
       />
       <div className="ui-brand-detail-grid">
         <Card>
@@ -278,10 +287,16 @@ export function FoodToReel({ site, t, recipeId = "recipe.food-to-reel" }: FoodTo
               <Textarea value={text} onChange={(event) => setText(event.target.value)} maxLength={4000} placeholder={t("foodReel.copyPlaceholder", "Ej. Paella de verduras con producto de temporada, servida al momento...")} aria-describedby="food-reel-copy-count" />
               <span id="food-reel-copy-count" className="ui-field-hint">{text.length}/4000</span>
             </Field>
+            {isMenuRecipe && <Field label={t("menuReel.format", "Formato de salida")} hint={t("menuReel.formatHelp", "Elige si el menú se prepara como Reel o Story. La revisión humana se mantiene en ambos casos.")}>
+              <Select value={formatProfile} onChange={(event) => setFormatProfile(event.target.value)}>
+                <option value="instagram_reel">{t("menuReel.reel", "Reel")}</option>
+                <option value="instagram_story">{t("menuReel.story", "Story")}</option>
+              </Select>
+            </Field>}
             {error && <p className="ui-field-error" role="alert">{error}</p>}
             <Inline gap="sm">
               <Button variant="primary" loading={status === "loading"} disabled={!canSubmit} onClick={() => void launch()}>
-                {t("foodReel.launch", "Lanzar Reel")}
+                {isMenuRecipe ? t("menuReel.launch", `Preparar ${outputLabel}`) : t("foodReel.launch", "Lanzar Reel")}
               </Button>
               {(status === "review" || status === "error") && <Button variant="ghost" onClick={reset}>{t("foodReel.reset", "Crear otro")}</Button>}
             </Inline>

@@ -16,7 +16,7 @@ Este documento es el contrato operativo para añadir una capability o una recipe
 3. Publica el mismo contrato en `mcp/v3/catalog.mjs` si la capability necesita una entrada MCP específica.
 4. Añade un test de permisos, inputs inválidos, resultado y reintento idempotente.
 5. Si necesita UI, crea `apps/pwa/src/<MicroApp>.tsx` usando los componentes de `apps/pwa/src/ui/index.tsx` y los tokens de `apps/pwa/src/ui/tokens.css`.
-6. Registra la ruta en `apps/pwa/src/App.tsx` y añade la tarjeta al dashboard solo cuando el manifest tenga una ruta usable.
+6. Registra la ruta principal en `apps/pwa/src/App.tsx` y declara `metadata.uiRoute` en el manifest. El dashboard la mostrará automáticamente cuando el usuario tenga permiso.
 7. Actualiza este documento o `docs/product-restructure-v3.md` con el flujo y los permisos.
 
 ## Flujo recomendado para un agente
@@ -36,6 +36,18 @@ capability.guide
 
 `capability.guide` está pensado para un agente que no conoce Escarlet. Devuelve los pasos, reglas y ejemplos que debe seguir. `capability.search` devuelve resúmenes sin schemas grandes. Se solicita el schema completo únicamente con `capability.get` o `recipe.get`.
 
+## Superficie de la UI
+
+Una recipe puede tener una app dedicada. Su manifest debe declarar:
+
+```js
+metadata: { uiRoute: '/production/example' }
+```
+
+Una capability que ofrece varias entradas puede declarar `metadata.uiApps` con objetos `{ id, title, description, route, tags }`. El dashboard `/apps` convierte esas entradas en tarjetas, por lo que una nueva app no necesita una lista paralela en React. El Publisher usa este mecanismo para ofrecer tanto la publicación general como `Publicar blog` con WordPress preseleccionado.
+
+El menú del día reutiliza la misma recipe con dos perfiles de salida: `instagram_reel` e `instagram_story`. Reel y Story son formatos del motor `production.motion.compose`, no motores duplicados.
+
 ## Comprobación local
 
 La simulación de agente está en `mcp/v3/agent-simulation.test.mjs`. Comprueba que un agente puede:
@@ -43,7 +55,8 @@ La simulación de agente está en `mcp/v3/agent-simulation.test.mjs`. Comprueba 
 1. Descubrir la guía.
 2. Buscar la recipe correcta.
 3. Inspeccionar dependencias antes de ejecutar.
-4. Recibir un error accionable si faltan inputs.
+4. Fijar la marca y seguir la regla de referencias por `assetId`.
+5. Recibir un error accionable si faltan inputs.
 
 Ejecuta:
 

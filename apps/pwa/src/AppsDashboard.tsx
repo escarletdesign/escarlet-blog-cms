@@ -4,7 +4,13 @@ import { Badge, Button, Card, EmptyState, Inline, PageHeader, Skeleton, Stack } 
 import { useNavigate } from "react-router-dom";
 
 type AppsDashboardProps = { site: string; t: (key: string, fallback?: string) => string };
-type CatalogEntry = Record<string, any> & { id: string; description?: string; title?: string; tags?: string[] };
+type CatalogEntry = Record<string, any> & {
+  id: string;
+  description?: string;
+  title?: string;
+  tags?: string[];
+  metadata?: { uiRoute?: string; uiApps?: Array<Record<string, any>> };
+};
 
 const appRoutes: Record<string, string> = {
   "recipe.food-to-reel": "/production/food-to-reel",
@@ -22,6 +28,10 @@ const appLabels: Record<string, string> = {
 
 function entryLabel(entry: CatalogEntry) {
   return appLabels[entry.id] || entry.title || entry.id;
+}
+
+function entryRoute(entry: CatalogEntry) {
+  return String(entry.metadata?.uiRoute || appRoutes[entry.id] || "").trim();
 }
 
 function errorText(error: unknown, fallback: string) {
@@ -54,8 +64,20 @@ export function AppsDashboard({ site, t }: AppsDashboardProps) {
   const apps = useMemo(() => {
     if (!catalog) return [];
     const recipes = catalog.recipes.map((entry) => ({ ...entry, kind: "recipe" }));
-    const publisher = catalog.capabilities.find((entry) => entry.id === "publication.destination.list");
-    return publisher ? [...recipes, { ...publisher, kind: "app" }] : recipes;
+    const capabilityApps = catalog.capabilities.flatMap((entry) => {
+      const uiApps = Array.isArray(entry.metadata?.uiApps) ? entry.metadata.uiApps : [];
+      if (uiApps.length) {
+        return uiApps.map((app) => ({
+          ...entry,
+          ...app,
+          kind: "app",
+          parentCapability: entry.id,
+          metadata: { ...entry.metadata, uiRoute: app.route || app.uiRoute },
+        }));
+      }
+      return entry.metadata?.uiRoute || appRoutes[entry.id] ? [{ ...entry, kind: "app" }] : [];
+    });
+    return [...recipes, ...capabilityApps];
   }, [catalog]);
 
   if (loading) {
@@ -81,7 +103,7 @@ export function AppsDashboard({ site, t }: AppsDashboardProps) {
     </section>
     <div className="os-app-grid" aria-label={t("apps.gridLabel", "Apps disponibles")}>
       {apps.map((entry) => {
-        const route = appRoutes[entry.id];
+        const route = entryRoute(entry);
         const isRecipe = entry.kind === "recipe";
         return <Card className="os-app-card" key={entry.id}>
           <div className="ui-card-head"><div><span className="ui-eyebrow">{isRecipe ? t("apps.recipe", "RECIPE") : t("apps.capability", "CAPABILITY")}</span><h2>{entryLabel(entry)}</h2></div><Badge tone={isRecipe ? "success" : "info"}>{entry.id}</Badge></div>
