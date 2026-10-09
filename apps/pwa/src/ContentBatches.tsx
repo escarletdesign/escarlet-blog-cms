@@ -123,14 +123,78 @@ function assetFilename(asset: MediaItem) {
   return asset.filename || String(asset.metadata?.filename || asset.metadata?.fileName || asset.id || "Asset");
 }
 
-function ContentAssetLibrary({ groups, standaloneAssets, onOpen, onDelete }: { groups: LibraryGroup[]; standaloneAssets: MediaItem[]; onOpen: (item: ContentItem) => void; onDelete: (asset: MediaItem) => void }) {
-  if (!groups.length && !standaloneAssets.length) return <EmptyState title="Todavía no hay activos" description="Cuando una app genere imágenes, vídeos o variantes para un canal, aparecerán aquí para revisarlos." />;
+function fileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("No se pudo leer el archivo."));
+    reader.onerror = () => reject(new Error("No se pudo leer el archivo."));
+    reader.readAsDataURL(file);
+  });
+}
+
+type AssetEditChanges = { filename?: string; alt?: string; usage?: string };
+type ContentAssetLibraryProps = {
+  groups: LibraryGroup[];
+  standaloneAssets: MediaItem[];
+  onOpen: (item: ContentItem) => void;
+  onDeleteMany: (assets: MediaItem[]) => Promise<boolean>;
+  onEditMany: (assets: MediaItem[], changes: AssetEditChanges) => Promise<boolean>;
+  onUpload: (files: File[]) => Promise<boolean>;
+};
+
+function ContentAssetLibrary({ groups, standaloneAssets, onOpen, onDeleteMany, onEditMany, onUpload }: ContentAssetLibraryProps) {
+  const [columns, setColumns] = useState("4");
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [deleteSelection, setDeleteSelection] = useState<MediaItem[]>([]);
+  const [editSelection, setEditSelection] = useState<MediaItem[]>([]);
+  const [editForm, setEditForm] = useState<AssetEditChanges>({ filename: "", alt: "", usage: "" });
+  const [uploading, setUploading] = useState(false);
+  const selectableIds = standaloneAssets.filter((asset) => asset.id && asset.deletable !== false).map((asset) => String(asset.id));
+  const selectedAssets = standaloneAssets.filter((asset) => asset.id && selectedIds.includes(String(asset.id)));
+  const allVisibleSelected = selectableIds.length > 0 && selectableIds.every((id) => selectedIds.includes(id));
+  const columnClass = `ui-content-library-columns-${columns}`;
+
+  useEffect(() => {
+    setSelectedIds((current) => current.filter((id) => standaloneAssets.some((asset) => String(asset.id || "") === id)));
+  }, [standaloneAssets]);
+
+  const toggleSelected = (asset: MediaItem) => {
+    if (!asset.id) return;
+    const id = String(asset.id);
+    setSelectedIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
+  };
+  const openEdit = (assets: MediaItem[]) => {
+    setEditForm({ filename: "", alt: "", usage: "" });
+    setEditSelection(assets);
+  };
+  const submitEdit = async (event: FormEvent) => {
+    event.preventDefault();
+    const changes = Object.fromEntries(Object.entries(editForm).filter(([, value]) => String(value || "").trim())) as AssetEditChanges;
+    if (!Object.keys(changes).length) return;
+    if (await onEditMany(editSelection, changes)) {
+      setEditSelection([]);
+      setSelectedIds([]);
+    }
+  };
+  const submitDelete = async () => {
+    if (await onDeleteMany(deleteSelection)) {
+      setDeleteSelection([]);
+      setSelectedIds([]);
+    }
+  };
+  const uploadFiles = async (files: File[]) => {
+    if (!files.length) return;
+    setUploading(true);
+    try { await onUpload(files); } finally { setUploading(false); }
+  };
+  const uploadAction = <label className="ui-button ui-button-secondary ui-button-sm ui-file-upload-button">{uploading ? "Subiendo…" : "Subir imágenes"}<input type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden disabled={uploading} onChange={(event) => { void uploadFiles(Array.from(event.target.files || [])); event.currentTarget.value = ""; }} /></label>;
+  if (!groups.length && !standaloneAssets.length) return <EmptyState title="Todavía no hay activos" description="Cuando una app genere imágenes, vídeos o variantes para un canal, aparecerán aquí para revisarlos." action={uploadAction} />;
   const total = groups.reduce((sum, group) => sum + group.assets.length, 0);
   const published = groups.reduce((sum, group) => sum + group.assets.filter((asset) => asset.status === "published").length, 0);
   const generated = groups.reduce((sum, group) => sum + group.assets.filter((asset) => asset.url && ["generated", "approved", "scheduled", "syncing"].includes(asset.status)).length, 0);
   const pending = total - published - generated;
-  return <Stack gap="md" className="ui-content-library">
-    <Inline gap="sm" className="ui-content-library-summary"><span className="ui-muted">Activos de las campañas visibles</span><Badge tone="success">{generated} generados</Badge><Badge tone="published">{published} publicados</Badge><Badge tone="warning">{pending} pendientes</Badge></Inline>
+  return <Stack gap="md" className={`ui-content-library ${columnClass}`}>
+    <Inline gap="sm" className="ui-content-library-summary"><span className="ui-muted">Activos de las campañas visibles</span><Badge tone="success">{generated} generados</Badge><Badge tone="published">{published} publicados</Badge><Badge tone="warning">{pending} pendientes</Badge><Badge tone="info">{standaloneAssets.length} sin campaña</Badge><Field label="Columnas"><Select value={columns} onChange={(event) => setColumns(event.target.value)} aria-label="Columnas de la biblioteca"><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></Select></Field></Inline>
     <div className="ui-content-library-grid">
       {groups.map((group) => {
         const groupPublished = group.assets.filter((asset) => asset.status === "published").length;
@@ -140,35 +204,41 @@ function ContentAssetLibrary({ groups, standaloneAssets, onOpen, onDelete }: { g
           <div className="ui-card-head"><div><span className="ui-eyebrow">Canal / app</span><h2>{channelLabel(group.channel)}</h2></div><ChannelBadge channel={group.channel} /></div>
           <Inline gap="sm" className="ui-content-library-counts"><Badge tone="success">{groupGenerated} generados</Badge><Badge tone="published">{groupPublished} publicados</Badge><Badge tone="warning">{groupPending} pendientes</Badge></Inline>
           <div className="ui-content-library-assets">
-            {group.assets.slice(0, 8).map((asset) => <article className="ui-content-library-asset" key={asset.key}>
+            {group.assets.slice(0, 12).map((asset) => <article className="ui-content-library-asset" key={asset.key}>
               {asset.url ? asset.kind === "video" ? <video className="ui-content-library-visual" src={asset.url} controls preload="metadata" aria-label={asset.title} /> : <img className="ui-content-library-visual" src={asset.url} alt={asset.title} loading="lazy" decoding="async" /> : <div className="ui-content-library-visual ui-content-library-placeholder" role="img" aria-label="Activo pendiente"><span>Sin activo todavía</span></div>}
               <div className="ui-content-library-asset-meta"><strong title={asset.title}>{asset.title}</strong><StatusBadge status={asset.status} label={statusLabel(asset.status)} /></div>
               <Button variant="ghost" size="sm" onClick={() => onOpen(asset.item)}>Abrir contenido</Button>
             </article>)}
           </div>
-          {group.assets.length > 8 && <p className="ui-field-hint">Se muestran 8 activos. Usa los filtros para acotar la biblioteca.</p>}
+          {group.assets.length > 12 && <p className="ui-field-hint">Se muestran 12 activos. Usa los filtros para acotar la biblioteca.</p>}
         </Card>;
       })}
     </div>
     {standaloneAssets.length > 0 && <Card className="ui-content-library-standalone">
-      <div className="ui-card-head"><div><span className="ui-eyebrow">Biblioteca global</span><h2>Assets sin campaña</h2></div><Badge tone="info">{standaloneAssets.length}</Badge></div>
+      <div className="ui-card-head"><div><span className="ui-eyebrow">Biblioteca global</span><h2>Assets sin campaña</h2></div><Inline gap="sm"><Badge tone="info">{standaloneAssets.length}</Badge>{uploadAction}</Inline></div>
       <p className="ui-muted">Archivos generados o subidos por una micro app que todavía no están asociados a una campaña.</p>
+      <Inline gap="sm" className="ui-content-library-batch-toolbar"><Checkbox label="Seleccionar eliminables" checked={allVisibleSelected} onChange={() => setSelectedIds(allVisibleSelected ? [] : selectableIds)} /><Button size="sm" variant="ghost" disabled={!selectableIds.length} onClick={() => setSelectedIds(selectableIds)}>Seleccionar visibles</Button><Button size="sm" variant="ghost" disabled={!selectedAssets.length} onClick={() => setSelectedIds([])}>Limpiar</Button>{selectedAssets.length > 0 && <><Badge tone="info">{selectedAssets.length} seleccionados</Badge><Button size="sm" variant="secondary" onClick={() => openEdit(selectedAssets)}>Editar en lote</Button><Button size="sm" variant="danger" onClick={() => setDeleteSelection(selectedAssets)}>Eliminar en lote</Button></>}</Inline>
       <div className="ui-content-library-assets">
         {standaloneAssets.map((asset) => {
           const url = mediaUrl(asset, "preview");
           const status = standaloneAssetStatus(asset);
+          const id = String(asset.id || "");
+          const selected = Boolean(id && selectedIds.includes(id));
           return <article className="ui-content-library-asset" key={asset.id || asset.path || asset.url}>
-            {url ? standaloneAssetKind(asset) === "video" ? <video className="ui-content-library-visual" src={url} controls preload="metadata" aria-label={asset.filename || "Asset de producción"} /> : <img className="ui-content-library-visual" src={url} alt={asset.alt || asset.filename || "Asset de producción"} loading="lazy" decoding="async" /> : <div className="ui-content-library-visual ui-content-library-placeholder" role="img" aria-label="Asset sin vista previa"><span>Sin vista previa</span></div>}
-            <div className="ui-content-library-asset-meta"><strong title={asset.filename || asset.id}>{asset.filename || asset.id || "Asset"}</strong><StatusBadge status={status} label={statusLabel(status)} /><span className="ui-muted">{String(asset.metadata?.kind || asset.kind || "producción")}</span></div>
+            {url ? standaloneAssetKind(asset) === "video" ? <video className="ui-content-library-visual" src={url} controls preload="metadata" aria-label={assetFilename(asset)} /> : <img className="ui-content-library-visual" src={url} alt={asset.alt || assetFilename(asset)} loading="lazy" decoding="async" /> : <div className="ui-content-library-visual ui-content-library-placeholder" role="img" aria-label="Asset sin vista previa"><span>Sin vista previa</span></div>}
+            <div className="ui-content-library-asset-meta"><Checkbox label="Seleccionar" checked={selected} disabled={asset.deletable === false || !id} onChange={() => toggleSelected(asset)} /><strong title={assetFilename(asset)}>{assetFilename(asset)}</strong><StatusBadge status={status} label={statusLabel(status)} /><span className="ui-muted">{String(asset.metadata?.kind || asset.kind || "producción")}</span></div>
             <Inline gap="sm">
               {url && <a className="ui-button ui-button-ghost ui-button-sm" href={url} target="_blank" rel="noreferrer">Abrir archivo</a>}
-              {asset.deletable !== false && asset.id && <Button variant="ghost" size="sm" onClick={() => onDelete(asset)}>Eliminar</Button>}
+              {asset.id && <Button variant="ghost" size="sm" onClick={() => openEdit([asset])}>Editar</Button>}
+              {asset.deletable !== false && asset.id && <Button variant="ghost" size="sm" onClick={() => setDeleteSelection([asset])}>Eliminar</Button>}
               {asset.deletable === false && <span className="ui-field-hint">Protegido</span>}
             </Inline>
           </article>;
         })}
       </div>
     </Card>}
+    <Modal open={Boolean(deleteSelection.length)} title={deleteSelection.length > 1 ? "Eliminar assets" : "Eliminar asset"} onClose={() => setDeleteSelection([])}><Stack gap="md"><p>Se eliminarán {deleteSelection.length} asset{deleteSelection.length === 1 ? "" : "s"} del repositorio canónico. Esta acción no afecta contenido asociado.</p><Inline gap="md"><Button variant="ghost" onClick={() => setDeleteSelection([])}>Cancelar</Button><Button variant="danger" onClick={() => void submitDelete()}>Eliminar definitivamente</Button></Inline></Stack></Modal>
+    <Modal open={Boolean(editSelection.length)} title={editSelection.length > 1 ? "Editar assets en lote" : "Editar asset"} onClose={() => setEditSelection([])}><form className="ui-stack ui-stack-md" onSubmit={(event) => void submitEdit(event)}><p className="ui-field-hint">Los campos vacíos no cambian el valor actual.</p><Field label="Nombre del archivo"><TextField value={editForm.filename} onChange={(event) => setEditForm((current) => ({ ...current, filename: event.target.value }))} placeholder="Ejemplo: plato-del-dia.webp" /></Field><Field label="Texto alternativo"><Textarea value={editForm.alt} onChange={(event) => setEditForm((current) => ({ ...current, alt: event.target.value }))} rows={3} placeholder="Describe la imagen para accesibilidad y contexto." /></Field><Field label="Uso"><TextField value={editForm.usage} onChange={(event) => setEditForm((current) => ({ ...current, usage: event.target.value }))} placeholder="Ejemplo: blog, social, reel" /></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setEditSelection([])}>Cancelar</Button><Button type="submit" disabled={!Object.values(editForm).some((value) => String(value || "").trim())}>Guardar cambios</Button></Inline></form></Modal>
   </Stack>;
 }
 
@@ -179,7 +249,6 @@ export function ContentBatches({ site, brandId, previewItemId, creationEnabled =
   const [plans, setPlans] = useState<ContentPlanSummary[]>([]);
   const [items, setItems] = useState<ContentItem[]>([]);
   const [standaloneAssets, setStandaloneAssets] = useState<MediaItem[]>([]);
-  const [deleteAsset, setDeleteAsset] = useState<MediaItem | null>(null);
   const [previewFallback, setPreviewFallback] = useState<ContentItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -317,14 +386,30 @@ export function ContentBatches({ site, brandId, previewItemId, creationEnabled =
       return !failure;
     } finally { setBusy(false); }
   };
-  const deleteStandaloneAsset = () => {
-    if (!deleteAsset?.id) return;
-    void run(async () => {
-      await api.deleteMedia({ site, id: deleteAsset.id });
-      setDeleteAsset(null);
-      onNotify?.("Asset eliminado.", "success");
+  const deleteStandaloneAssets = (assets: MediaItem[]) => {
+    const assetIds = assets.map((asset) => String(asset.id || "")).filter(Boolean);
+    if (!assetIds.length) return Promise.resolve(false);
+    return run(async () => {
+      await api.deleteProductionAssets({ site, assetIds });
+      onNotify?.(`${assetIds.length} asset${assetIds.length === 1 ? "" : "s"} eliminado${assetIds.length === 1 ? "" : "s"}.`, "success");
     });
   };
+  const editStandaloneAssets = (assets: MediaItem[], changes: AssetEditChanges) => {
+    const assetIds = assets.map((asset) => String(asset.id || "")).filter(Boolean);
+    if (!assetIds.length) return Promise.resolve(false);
+    return run(async () => {
+      await api.updateProductionAssets({ site, assetIds, ...changes });
+      onNotify?.(`${assetIds.length} asset${assetIds.length === 1 ? "" : "s"} actualizado${assetIds.length === 1 ? "" : "s"}.`, "success");
+    });
+  };
+  const uploadStandaloneAssets = (files: File[]) => run(async () => {
+    for (const file of files) {
+      if (!file.type.startsWith("image/")) throw new Error("La biblioteca global solo admite imágenes.");
+      if (file.size > 12 * 1024 * 1024) throw new Error(`${file.name} supera el límite de 12 MB.`);
+      await api.uploadProductionAsset({ site, filename: file.name, contentBase64: await fileAsDataUrl(file), alt: file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ") });
+    }
+    onNotify?.(`${files.length} asset${files.length === 1 ? "" : "s"} subido${files.length === 1 ? "" : "s"}.`, "success");
+  });
   const create = async (event: FormEvent) => { event.preventDefault(); const cleanTopics = topics.split(/\r?\n|,/).map((topic) => topic.trim()).filter(Boolean); if (!cleanTopics.length) { notifyError("Añade al menos un tema."); return; } const idempotencyKey = createIdempotencyKey.current || (createIdempotencyKey.current = crypto.randomUUID()); const ok = await run(async () => { await api.createContentBatch({ site, title: title.trim() || "Campaña " + new Date().toLocaleDateString(), topics: cleanTopics, channels, brief: campaignBrief, idempotencyKey }); setTitle(""); setTopics(""); setCampaignBrief({ objective: "", audience: "", cta: "" }); setCampaignStep(0); setCreateOpen(false); }); if (ok) createIdempotencyKey.current = null; };
   const approve = (id: string) => run(() => api.approveContent(id, site));
   const variantStatus = (variant: ContentVariant) => variant.scheduleStatus || variant.status;
@@ -401,8 +486,8 @@ export function ContentBatches({ site, brandId, previewItemId, creationEnabled =
       <PageHeader eyebrow="Espacio editorial" title="Contenido" description={bufferReady ? "Revisa piezas en «Pendiente de revisión» antes de aprobar. Buffer listo para redes; blog sale por Coolify/webhook al publicar." : "Revisa piezas en «Pendiente de revisión» antes de aprobar. Conecta Buffer (redes) y Coolify/webhook (blog) en Ajustes → Conexiones antes de publicar."} actions={<Inline gap="sm"><Button variant="ghost" disabled={busy || loading} onClick={() => void syncRemoteStatuses()}>Sincronizar estados</Button><Button variant="secondary" onClick={() => navigate("/calendar")}>Calendario editorial</Button>{creationEnabled && <Button onClick={() => { setCampaignStep(0); setCreateOpen(true); }}>Nueva campaña</Button>}</Inline>} />
       {error && !items.length && <EmptyState title="No se pudo cargar el contenido" description={error} action={<Button variant="ghost" size="sm" onClick={() => void load()}>Reintentar</Button>} />}
       {!loading && setupRequired && <EmptyState title="Configura tu marca para comenzar" description="Un administrador debe inicializar el espacio y asignarte una marca antes de mostrar publicaciones." />}
-      {!loading && !setupRequired && !items.length && !standaloneAssets.length && !error && <EmptyState title="Todavía no hay contenido" description="Crea una campaña aquí o desde ChatGPT. Cuando esté lista, aparecerá en esta bandeja." />}
-      {loading ? <Stack gap="md"><Card><Progress value={35} /><p className="ui-muted">Cargando contenido…</p></Card></Stack> : !setupRequired && (items.length > 0 || plans.length > 0 || standaloneAssets.length > 0) && <div className="ui-plans-workspace">
+      {!loading && !setupRequired && view !== "library" && !items.length && !standaloneAssets.length && !error && <EmptyState title="Todavía no hay contenido" description="Crea una campaña aquí o desde ChatGPT. Cuando esté lista, aparecerá en esta bandeja." />}
+      {loading ? <Stack gap="md"><Card><Progress value={35} /><p className="ui-muted">Cargando contenido…</p></Card></Stack> : !setupRequired && (view === "library" || items.length > 0 || plans.length > 0 || standaloneAssets.length > 0) && <div className="ui-plans-workspace">
         <Tabs items={[{ id: "campaigns", label: "Campañas" }, { id: "library", label: "Biblioteca de activos" }]} value={view} onChange={(next) => updateSearchParam("view", next, "campaigns")} idPrefix="content-view-tabs" panelIdPrefix="content-view-panel" ariaLabel="Vista del contenido" />
         <ReviewToolbar>
           <Field label="Buscar"><TextField value={filterQuery} onChange={(event) => updateSearchParam("q", event.target.value, "")} placeholder="Título, brief o campaña" /></Field>
@@ -413,7 +498,7 @@ export function ContentBatches({ site, brandId, previewItemId, creationEnabled =
           <Field label="Ordenar por"><Select value={sortOrder} onChange={(event) => updateSearchParam("sort", event.target.value, "date")}><option value="date">Próxima fecha</option><option value="status">Estado</option><option value="title">Título A-Z</option></Select></Field>
           <div className="ui-filter-summary"><span>{visibleItems.length} de {items.length} publicaciones</span>{hasActiveFilters && <Button size="sm" variant="ghost" onClick={clearFilters}>Limpiar filtros</Button>}</div>
         </ReviewToolbar>
-        {view === "library" ? <div id="content-view-panel-library" role="tabpanel" aria-labelledby="content-view-tabs-library" tabIndex={0}><ContentAssetLibrary groups={libraryGroups} standaloneAssets={visibleStandaloneAssets} onOpen={openPreview} onDelete={setDeleteAsset} /></div> : <div id="content-view-panel-campaigns" role="tabpanel" aria-labelledby="content-view-tabs-campaigns" tabIndex={0}>{visibleItems.length ? <Stack gap="sm">{visibleItems.map((item) => {
+        {view === "library" ? <div id="content-view-panel-library" role="tabpanel" aria-labelledby="content-view-tabs-library" tabIndex={0}><ContentAssetLibrary groups={libraryGroups} standaloneAssets={visibleStandaloneAssets} onOpen={openPreview} onDeleteMany={deleteStandaloneAssets} onEditMany={editStandaloneAssets} onUpload={uploadStandaloneAssets} /></div> : <div id="content-view-panel-campaigns" role="tabpanel" aria-labelledby="content-view-tabs-campaigns" tabIndex={0}>{visibleItems.length ? <Stack gap="sm">{visibleItems.map((item) => {
           const status = aggregateStatus(item); const titleText = itemTitle(item); const cover = itemCover(item); const excerpt = itemExcerpt(item);
           return <Card className="ui-review-item" key={item.id}><div className="ui-card-head"><div className="ui-review-item-title">{cover ? <img className="ui-review-thumb" src={cover} alt="" loading="lazy" decoding="async" /> : <span className="ui-review-thumb" aria-hidden="true" />}<div><span className="ui-eyebrow">{item.planTitle || "Contenido"}</span><h3>{titleText}</h3>{excerpt && <p className="ui-review-excerpt">{excerpt}</p>}<p className="ui-muted">{dateSummary(item)}</p></div></div><StatusBadge status={status} label={statusLabel(status)} /></div><div className="ui-channel-list">{(item.variants || []).map((variant) => <ChannelBadge key={variant.id} channel={variant.channel} />)}</div>{item.error && <p className="ui-field-error">{item.error}</p>}<div className="ui-card-actions"><Button variant="secondary" size="sm" disabled={busy} onClick={() => setDialog({ type: "details", item })}>Canales y publicación</Button><Link className="ui-button ui-button-ghost ui-button-sm" to={contentPreviewPath(item, location.search)} state={{ returnToContentList: true }}>Vista previa</Link></div></Card>;
         })}</Stack> : <EmptyState title="No hay publicaciones con estos filtros" description="Prueba otra combinación de búsqueda, estado, canal o fecha." action={hasActiveFilters ? <Button variant="secondary" onClick={clearFilters}>Limpiar filtros</Button> : undefined} />}</div>}
@@ -462,7 +547,6 @@ export function ContentBatches({ site, brandId, previewItemId, creationEnabled =
       </Stack>}
     </Drawer>
     <Modal open={dialog?.type === "edit" || dialog?.type === "schedule"} title={dialog?.type === "edit" ? "Editar brief original" : "Agendar publicación"} onClose={() => setDialog(null)}>{dialog?.type === "edit" && <form className="ui-stack ui-stack-md" onSubmit={(event) => { event.preventDefault(); if (modalValue.trim()) void update(dialog.item.id, modalValue.trim()).then(() => setDialog(null)); }}><Field label="Brief original" hint="Cambia la consigna editorial del item. No modifica automáticamente los textos ya generados para cada canal." required><Textarea value={modalValue} onChange={(event) => setModalValue(event.target.value)} rows={6} autoFocus required /></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setDialog(null)}>Cancelar</Button><Button type="submit" loading={busy}>Guardar brief</Button></Inline></form>}{dialog?.type === "schedule" && <form className="ui-stack ui-stack-md" onSubmit={(event) => { event.preventDefault(); if (!modalValue || !scheduleChannels.length) { notifyError("Selecciona al menos un canal para agendar."); return; } void schedule(dialog.item.id, new Date(modalValue).toISOString(), scheduleChannels).then(() => setDialog(null)); }}><Field label="Fecha y hora" hint="Se usará tu zona horaria local." required><TextField type="datetime-local" value={modalValue} onChange={(event) => setModalValue(event.target.value)} autoFocus required /></Field><fieldset className="ui-field"><legend className="ui-field-label">Canales a agendar</legend><div className="ui-channel-select" role="group" aria-label="Canales a agendar">{dialog.item.variants.filter((variant) => (variant.scheduleStatus || variant.status) === "approved").map((variant) => <Checkbox key={variant.id} label={channelLabel(variant.channel)} checked={scheduleChannels.includes(variant.channel)} onChange={(event) => setScheduleChannels((current) => event.target.checked ? [...new Set([...current, variant.channel])] : current.filter((channel) => channel !== variant.channel))} />)}</div><small className="ui-field-hint">Solo aparecen canales aprobados y todavía pendientes de publicación.</small></fieldset><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setDialog(null)}>Cancelar</Button><Button type="submit" loading={busy} disabled={!scheduleChannels.length}>Agendar canales</Button></Inline></form>}</Modal>
-    <Modal open={Boolean(deleteAsset)} title="Eliminar asset" onClose={() => setDeleteAsset(null)}><Stack gap="md"><p>Se eliminará <strong>{deleteAsset ? assetFilename(deleteAsset) : "este asset"}</strong> del repositorio canónico. Esta acción no afecta contenido asociado.</p><Inline gap="md"><Button variant="ghost" onClick={() => setDeleteAsset(null)}>Cancelar</Button><Button variant="danger" loading={busy} onClick={deleteStandaloneAsset}>Eliminar definitivamente</Button></Inline></Stack></Modal>
     <Modal open={dialog?.type === "blog-edit"} title="Editar publicación" onClose={() => setDialog(null)}>{dialog?.type === "blog-edit" && <form className="ui-stack ui-stack-md" onSubmit={(event) => void savePublishedBlog(event)}><Field label="Título" hint={`${blogForm.title.length}/${CONTENT_TITLE_MAX}. La URL actual se conservará.`} required><TextField value={blogForm.title} maxLength={CONTENT_TITLE_MAX} onChange={(event) => setBlogForm((current) => ({ ...current, title: event.target.value }))} autoFocus required /></Field><Field label="Extracto"><Textarea value={blogForm.excerpt} onChange={(event) => setBlogForm((current) => ({ ...current, excerpt: event.target.value }))} rows={4} /></Field><Field label="Contenido del artículo" hint="Al guardar se despliega una nueva versión del Blog." required><Textarea value={blogForm.content} onChange={(event) => setBlogForm((current) => ({ ...current, content: event.target.value }))} rows={18} required /></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setDialog(null)}>Cancelar</Button><Button type="submit" loading={busy} disabled={!blogForm.title.trim() || !blogForm.content.trim()}>Guardar y actualizar</Button></Inline></form>}</Modal>
     <Modal open={createOpen} title="Nueva campaña" onClose={() => setCreateOpen(false)}><form className="ui-stack ui-stack-md" onSubmit={(event) => void create(event)}><div className="ui-step-list" aria-label="Pasos de la campaña"><Badge tone={campaignStep === 0 ? "info" : "success"}>1. Objetivo</Badge><Badge tone={campaignStep === 1 ? "info" : campaignStep > 1 ? "success" : "neutral"}>2. Contenido</Badge><Badge tone={campaignStep === 2 ? "info" : "neutral"}>3. Confirmar</Badge></div>{campaignStep === 0 && <Stack gap="md"><Field label="¿Qué quieres conseguir?" hint="Ayuda a la IA a elegir el enfoque y el cierre." required><Textarea value={campaignBrief.objective} onChange={(event) => setCampaignBrief((current) => ({ ...current, objective: event.target.value }))} rows={3} autoFocus required placeholder="Explicar una idea y conseguir que la audiencia pida una demo" /></Field><Field label="¿Para quién es?" hint="Describe la audiencia en una frase." required><TextField value={campaignBrief.audience} onChange={(event) => setCampaignBrief((current) => ({ ...current, audience: event.target.value }))} required placeholder="Responsables de marketing de empresas pequeñas" /></Field><Field label="Llamada a la acción" hint="Opcional. Qué quieres que haga la persona después."><TextField value={campaignBrief.cta} onChange={(event) => setCampaignBrief((current) => ({ ...current, cta: event.target.value }))} placeholder="Pide una demo" /></Field></Stack>}{campaignStep === 1 && <Stack gap="md"><Field label="Título de la campaña" hint="Puedes dejarlo vacío y se generará automáticamente."><TextField value={title} onChange={(event) => { createIdempotencyKey.current = null; setTitle(event.target.value); }} autoFocus placeholder="Campaña de septiembre" /></Field><Field label="¿Qué piezas quieres crear?" hint="Una idea por línea. La campaña las convertirá en variantes por canal." required><Textarea value={topics} onChange={(event) => { createIdempotencyKey.current = null; setTopics(event.target.value); }} rows={7} required placeholder={"La IA acelera la producción, pero el criterio se convierte en el cuello de botella\nCómo revisar UX, UI y producto antes de publicar"} /></Field></Stack>}{campaignStep === 2 && <Stack gap="md"><h3>Todo listo para preparar el borrador</h3><p className="ui-muted"><strong>{campaignBrief.objective}</strong> para {campaignBrief.audience}.</p><p>{topics.split(/\r?\n|,/).filter((topic) => topic.trim()).length} piezas · {channels.map(channelLabel).join(", ")}</p><p className="ui-field-hint">La IA guardará borradores. Una persona tendrá que revisar y aprobar cada canal antes de publicar.</p></Stack>}<Inline gap="md"><Button type="button" variant="ghost" onClick={() => campaignStep ? setCampaignStep((current) => current - 1) : setCreateOpen(false)}>Atrás</Button>{campaignStep < 2 ? <Button type="button" disabled={(campaignStep === 0 && (!campaignBrief.objective.trim() || !campaignBrief.audience.trim())) || (campaignStep === 1 && !topics.trim())} onClick={() => setCampaignStep((current) => current + 1)}>Continuar</Button> : <Button type="submit" loading={busy}>Crear borradores</Button>}</Inline></form></Modal>
   </main>;

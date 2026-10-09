@@ -337,6 +337,16 @@ const baseApi = {
     request<{ assets: MediaItem[] }>(`/api/v2/assets${site ? `?site=${encodeURIComponent(site)}` : ""}`),
   managedProductionAssets: (site?: string) =>
     request<{ assets: MediaItem[] }>(`/api/v2/assets/manage${site ? `?site=${encodeURIComponent(site)}` : ""}`),
+  updateProductionAssets: (input: { site?: string; assetIds: string[]; filename?: string; alt?: string; usage?: string }) =>
+    request<{ updated: boolean; count: number; assetIds: string[] }>("/api/v2/assets/update", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  deleteProductionAssets: (input: { site?: string; assetIds: string[] }) =>
+    request<{ deleted: boolean; count: number; blocked?: Array<{ id: string; blockers: string[] }> }>("/api/v2/assets/delete", {
+      method: "POST",
+      body: JSON.stringify({ ...input, mode: "selected", confirm: true }),
+    }),
   uploadProductionAsset: (input: { site?: string; filename: string; contentBase64: string; alt?: string; idempotencyKey?: string }) =>
     request<{ asset: Record<string, unknown>; media: MediaItem }>("/api/v2/assets/upload", {
       method: "POST",

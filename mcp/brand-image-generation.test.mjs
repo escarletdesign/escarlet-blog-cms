@@ -52,6 +52,25 @@ test('contexto y preparación usan el mismo snapshot activo y sus referencias ap
   assert.equal(context.brandCore.fixed.palette.primary, '#1B87D6')
 })
 
+test('un snapshot activo vacío recupera la guía y las referencias canónicas de Escarlet', () => {
+  const snapshot = loadActiveBrandKitSnapshot('escarlet', {
+    manifest: {},
+    assets: [],
+    brandKitVersionId: 'brand-escarlet.design-version-1-r1',
+    version: 1
+  })
+  const prepared = prepareImageGeneration('escarlet', {
+    assetType: 'social_image',
+    title: 'Una marca reconocible',
+    topic: 'prueba de recuperación del brand kit'
+  }, { canonicalSnapshot: snapshot })
+  assert.equal(snapshot.files['visual-style.md'].includes('fondo-escarlet.png'), true)
+  assert.equal(snapshot.files['image-guide.md'].trim().length > 100, true)
+  assert.equal(prepared.generationBlocked, false)
+  assert.deepEqual(prepared.resolvedReferences.map((reference) => reference.filename), ['style-board.png', 'fondo-escarlet.png'])
+  assert.equal(prepared.brandKitVersionId, 'brand-escarlet.design-version-1-r1')
+})
+
 test('la preparación fija dimensiones finales y cardinalidad sin receipts', () => {
   const active = activeKit()
   const snapshot = loadActiveBrandKitSnapshot('escarlet', { manifest: active.manifest, assets: active.assets, brandKitVersionId: active.id, version: active.version })

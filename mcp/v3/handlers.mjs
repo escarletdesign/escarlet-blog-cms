@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto'
 import { assertSiteAccess } from '../../lib/auth.mjs'
-import { getBrandContext, getMotionBrandAssets, prepareImageGeneration, validateImagePreparation } from '../../lib/brand-kit.mjs'
+import { getBrandContext, getMotionBrandAssets, loadActiveBrandKitSnapshot, prepareImageGeneration, validateImagePreparation } from '../../lib/brand-kit.mjs'
 import { buildBrandOsMetadata } from '../../lib/brand-os.mjs'
 import { assertAssetTypeForMediaKind, assertSocialTextMetadata, getImagePreparation, issueGenerationReceipt, persistImagePreparation } from '../../lib/generation-provenance.mjs'
-import { resolveWorkspaceContext } from '../../lib/workspace-domain.mjs'
+import { getActiveBrandKit, resolveWorkspaceContext } from '../../lib/workspace-domain.mjs'
 import { getPgPool } from '../../lib/pg.mjs'
 import { createVideoJob, updateVideoJob } from '../../lib/video-jobs.mjs'
 import { uploadMedia } from '../../lib/cms-ops.mjs'
@@ -84,6 +84,29 @@ function preparationInput(args = {}) {
     title: args.title || args.topic || args.purpose,
     topic: args.topic || args.text || args.purpose,
     textContent: args.textContent || (args.text ? { body: args.text } : undefined)
+  }
+}
+
+async function activeBrandOptions(site, args, auth) {
+  const workspaceId = String(args.workspaceId || auth.workspaceId || '').trim()
+  const siteId = String(args.siteId || auth.siteId || '').trim()
+  if (!workspaceId || !siteId || !(await getPgPool())) return {}
+  try {
+    const active = await getActiveBrandKit({ workspaceId, siteId })
+    return {
+      canonicalManifest: active.manifest,
+      canonicalAssets: active.assets,
+      brandKitVersionId: active.id,
+      brandKitVersion: { id: active.id, version: active.version, status: active.status },
+      canonicalSnapshot: loadActiveBrandKitSnapshot(site, {
+        manifest: active.manifest,
+        assets: active.assets,
+        brandKitVersionId: active.id,
+        version: active.version
+      })
+    }
+  } catch {
+    return {}
   }
 }
 
@@ -724,17 +747,18 @@ export async function invokeBuiltinCapability(name, args = {}, { auth = {}, runt
   if (name === 'recipe.run') return runRecipe(args, auth, runtime)
   if (name.startsWith('brand.') || name === 'copy.validate') {
     const site = siteFor(args, auth)
-    const context = getBrandContext(site, { auth: { ...auth, role: auth.role === 'agent' ? 'editor' : auth.role } })
+    const brandOptions = await activeBrandOptions(site, args, auth)
+    const context = getBrandContext(site, { auth: { ...auth, role: auth.role === 'agent' ? 'editor' : auth.role }, ...brandOptions })
     if (name === 'brand.context.get') return { contractVersion: 'os.production.v1', ...contextProjection(context) }
     if (name === 'brand.voice.get') return { contractVersion: 'os.production.v1', site, brandKitVersionId: context.brandKitVersionId, brandKitSnapshotHash: context.brandKitSnapshotHash, voice: context.voice, keywords: context.keywords }
     if (name === 'brand.visual_style.get') return { contractVersion: 'os.production.v1', site, brandKitVersionId: context.brandKitVersionId, brandKitSnapshotHash: context.brandKitSnapshotHash, visualStyle: context.visualStyle, imageGuide: context.imageGuide, imageSpec: context.imageSpec, canonicalPalette: context.canonicalPalette, referenceImages: context.referenceImages, motionAssets: getMotionBrandAssets(site) }
     if (name === 'brand.rules.get') return { contractVersion: 'os.production.v1', site, brandKitVersionId: context.brandKitVersionId, brandKitSnapshotHash: context.brandKitSnapshotHash, sharedEditorialPolicy: context.sharedEditorialPolicy, editRules: context.editRules, workflow: context.workflow, requiresHumanApproval: context.requiresHumanApproval, requiresPublishConfirmation: context.requiresPublishConfirmation }
     if (name === 'brand.references.resolve') {
-      const prepared = prepareImageGeneration(site, preparationInput(args))
+      const prepared = prepareImageGeneration(site, preparationInput(args), brandOptions.canonicalSnapshot ? { canonicalSnapshot: brandOptions.canonicalSnapshot } : {})
       return { contractVersion: 'os.production.v1', site, brandKitVersionId: prepared.brandKitVersionId, brandKitSnapshotHash: prepared.brandKitSnapshotHash, route: prepared.route, generationBlocked: prepared.generationBlocked, references: prepared.resolvedReferences, resolvedReferences: prepared.resolvedReferences }
     }
     if (name === 'brand.generation.prepare') {
-      const prepared = prepareImageGeneration(site, preparationInput(args))
+      const prepared = prepareImageGeneration(site, preparationInput(args), brandOptions.canonicalSnapshot ? { canonicalSnapshot: brandOptions.canonicalSnapshot } : {})
       const record = await persistImagePreparation(prepared, { workspaceId: auth.workspaceId || args.workspaceId, siteId: auth.siteId || args.siteId, itemId: args.itemId, batchId: args.batchId, channel: args.channel })
       return { contractVersion: 'os.production.v1', ...prepared, preparation: record }
     }
