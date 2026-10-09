@@ -29,6 +29,7 @@ export function contentPreviewPath(item: Pick<ContentItem, "id" | "batchId" | "b
 export const statusLabels: Record<string, string> = {
   draft: "Borrador",
   generated: "Pendiente de revisión",
+  ready_for_review: "Listo para revisión",
   needs_review: "Requiere revisión",
   approved: "Aprobado",
   scheduled: "Programado",

@@ -550,11 +550,20 @@ const baseApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
-  deleteMedia: (input: { site?: string; id?: string; path?: string }) =>
-    request<{ deleted: boolean }>("/api/admin/media/delete", {
-      method: "POST",
-      body: JSON.stringify(input),
-    }),
+  deleteMedia: async (input: { site?: string; id?: string; path?: string }) => {
+    try {
+      return await request<{ deleted: boolean }>("/api/v2/assets/delete", {
+        method: "POST",
+        body: JSON.stringify({ site: input.site, assetIds: input.id ? [input.id] : [], mode: "selected", confirm: true }),
+      });
+    } catch (error) {
+      if (!(error instanceof ApiError) || ![404, 503].includes(error.status)) throw error;
+      return request<{ deleted: boolean }>("/api/admin/media/delete", {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    }
+  },
   updateMediaAlt: (input: { site?: string; id: string; alt: string }) =>
     request<{ media: MediaItem }>("/api/admin/media/update-alt", {
       method: "POST",

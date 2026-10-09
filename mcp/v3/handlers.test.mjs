@@ -65,3 +65,10 @@ test('asset.upload no permite guardar un asset publicable sin preparación', asy
   assert.equal(result.isError, true)
   assert.equal(result.structuredContent.error.code, 'brand_preparation_required')
 })
+
+test('asset.delete mantiene la eliminación canónica restringida a owner y admin', async () => {
+  const agent = await createMcpServerV3({ role: 'agent', workspaceId: 'workspace-1', siteId: 'site-1' })
+  const result = await call(agent, 'asset.delete', { workspaceId: 'workspace-1', siteId: 'site-1', assetIds: ['asset-1'], confirm: true })
+  assert.equal(result.isError, true)
+  assert.equal(result.structuredContent.error.code, 'media_delete_forbidden')
+})

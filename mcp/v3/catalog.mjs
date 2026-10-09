@@ -263,6 +263,24 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     tags: ['asset', 'upload', 'generation', 'provenance']
   }),
   manifest({
+    id: 'asset.list',
+    description: 'Lista assets canónicos del scope actual y señala cuáles están protegidos o son temporales.',
+    inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, siteId: { type: 'string' }, assetIds: { type: 'array', items: { type: 'string' } }, mode: { type: 'string', enum: ['temporary'] }, temporaryOnly: { type: 'boolean' }, limit: { type: 'integer', minimum: 1, maximum: 100 } }, additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, assets: { type: 'array' }, count: { type: 'integer' } }, required: ['contractVersion', 'assets', 'count'], additionalProperties: true },
+    permissions: ['asset:read'],
+    tags: ['asset', 'storage', 'read']
+  }),
+  manifest({
+    id: 'asset.delete',
+    description: 'Elimina assets canónicos seleccionados o temporales después de una confirmación explícita y un preflight de referencias.',
+    inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, siteId: { type: 'string' }, assetIds: { type: 'array', items: { type: 'string' }, maxItems: 100 }, mode: { type: 'string', enum: ['selected', 'temporary'] }, confirm: { type: 'boolean', const: true }, idempotencyKey: { type: 'string' } }, required: ['confirm'], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, deleted: { type: 'boolean' }, count: { type: 'integer' }, blocked: { type: 'array' } }, required: ['contractVersion', 'deleted', 'count'], additionalProperties: true },
+    permissions: ['asset:write'],
+    sideEffects: 'destructive',
+    humanReviewRequired: true,
+    tags: ['asset', 'storage', 'delete', 'admin']
+  }),
+  manifest({
     id: 'production.image.product.transform',
     description: 'Transforma un producto manteniendo el original y creando un asset derivado con procedencia.',
     inputSchema: { type: 'object', properties: { sourceAssetId: { type: 'string' }, sourceAsset: assetReferenceSchema, workspaceId: { type: 'string' }, siteId: { type: 'string' }, site: { type: 'string' }, brandId: { type: 'string' }, brandKitVersionId: { type: 'string' }, formatProfile: { type: 'string' }, preserveProduct: { type: 'boolean' }, title: { type: 'string' }, topic: { type: 'string' }, instructions: { type: 'string' } }, required: ['formatProfile'], oneOf: [{ required: ['sourceAssetId'] }, { required: ['sourceAsset'] }], additionalProperties: false },

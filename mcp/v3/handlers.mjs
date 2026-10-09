@@ -11,6 +11,7 @@ import { attachContentMedia, registerContentMedia } from '../../lib/workspace-do
 import { mediaDir } from '../../lib/db.mjs'
 import { renderProductTransform } from '../../lib/product-renderer.mjs'
 import { resolve as resolvePath, join } from 'node:path'
+import { deleteCanonicalMedia, listCanonicalMedia } from '../../lib/media-admin.mjs'
 import {
   getPublicationStatus,
   listPublicationDestinations,
@@ -126,6 +127,42 @@ async function registerAssetReference(args, auth, runtime) {
     mimeType: asset.mimeType || null,
     provenance: { workspaceId, siteId, storageKey: asset.storageKey || null, source: 'media_assets' }
   }
+}
+
+async function canonicalAssetScope(args, auth) {
+  const workspaceId = String(args.workspaceId || auth.workspaceId || '').trim()
+  const siteId = String(args.siteId || auth.siteId || '').trim()
+  if (!workspaceId || !siteId) throw Object.assign(new Error('workspaceId y siteId son obligatorios para operar sobre assets canónicos.'), { code: 'asset_scope_required', status: 422 })
+  const site = String(args.site || auth.site || '').trim()
+  if (site) siteFor({ site }, auth)
+  if (auth.role !== 'admin') {
+    if (auth.workspaceId && workspaceId !== String(auth.workspaceId).trim()) {
+      throw Object.assign(new Error('El workspace del asset no pertenece al contexto autenticado.'), { code: 'asset_scope_forbidden', status: 403 })
+    }
+    if (auth.siteId && siteId !== String(auth.siteId).trim()) {
+      throw Object.assign(new Error('El sitio del asset no pertenece al contexto autenticado.'), { code: 'asset_scope_forbidden', status: 403 })
+    }
+    if (!auth.siteId) {
+      const membership = await resolveWorkspaceContext({ userId: auth.userId || undefined, workspaceId, siteId })
+      if (!membership.sites.some((entry) => entry.id === siteId)) {
+        throw Object.assign(new Error('Sin acceso al sitio indicado.'), { code: 'asset_scope_forbidden', status: 403 })
+      }
+    }
+  }
+  return { workspaceId, siteId }
+}
+
+async function listCanonicalAssets(args, auth) {
+  const scope = await canonicalAssetScope(args, auth)
+  return { contractVersion: 'os.production.v1', capability: 'asset.list', ...await listCanonicalMedia({ ...scope, mode: args.mode, temporaryOnly: args.temporaryOnly === true, assetIds: args.assetIds, limit: args.limit }) }
+}
+
+async function deleteCanonicalAssets(args, auth) {
+  if (!['admin', 'owner'].includes(String(auth.role || '').toLowerCase())) {
+    throw Object.assign(new Error('Sólo owner o admin pueden eliminar assets canónicos.'), { code: 'media_delete_forbidden', status: 403 })
+  }
+  const scope = await canonicalAssetScope(args, auth)
+  return { contractVersion: 'os.production.v1', capability: 'asset.delete', ...await deleteCanonicalMedia({ ...scope, userId: auth.userId, role: String(auth.role || '').toLowerCase(), mode: args.mode, assetIds: args.assetIds, confirm: args.confirm, idempotencyKey: args.idempotencyKey }) }
 }
 
 async function uploadGeneratedAsset(args, auth, runtime) {
@@ -639,6 +676,8 @@ export async function invokeBuiltinCapability(name, args = {}, { auth = {}, runt
     return getPublicationStatus(publication)
   }
   if (name === 'asset.register') return registerAssetReference(args, auth, runtime)
+  if (name === 'asset.list') return listCanonicalAssets(args, auth)
+  if (name === 'asset.delete') return deleteCanonicalAssets(args, auth)
   if (name === 'asset.upload') return uploadGeneratedAsset(args, auth, runtime)
   if (name === 'production.image.product.transform') return prepareProductTransform(args, auth, runtime)
   if (name === 'production.motion.compose') return composeMotionJob(args, auth, runtime)

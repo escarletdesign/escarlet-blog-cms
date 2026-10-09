@@ -752,6 +752,20 @@
 .ui-review-item-title > div { min-width: 0; }
 .ui-review-thumb { width: 72px; height: 72px; flex: 0 0 72px; object-fit: cover; border-radius: var(--ui-radius-sm); background: var(--ui-surface-soft); }
 .ui-review-excerpt { margin: var(--ui-space-1) 0 var(--ui-space-2); color: var(--ui-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ui-content-library { min-width: 0; }
+.ui-content-library-summary, .ui-content-library-counts { align-items: center; }
+.ui-content-library-summary { padding: var(--ui-space-3) var(--ui-space-4); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); background: var(--ui-surface-soft); }
+.ui-content-library-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--ui-space-4); }
+.ui-content-library-channel { min-width: 0; }
+.ui-content-library-counts { margin-top: var(--ui-space-3); }
+.ui-content-library-assets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ui-space-3); margin-top: var(--ui-space-4); }
+.ui-content-library-asset { display: grid; min-width: 0; gap: var(--ui-space-2); align-content: start; }
+.ui-content-library-visual { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); background: var(--ui-surface-soft); }
+.ui-content-library-placeholder { display: grid; place-items: center; padding: var(--ui-space-3); color: var(--ui-muted); text-align: center; font-size: .78rem; }
+.ui-content-library-asset-meta { display: grid; gap: var(--ui-space-1); min-width: 0; }
+.ui-content-library-asset-meta strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .82rem; }
+.ui-content-library-asset .ui-button { width: 100%; }
+@media (max-width: 460px) { .ui-content-library-assets { grid-template-columns: 1fr; } }
 .ui-channel-schedules { display: grid; gap: var(--ui-space-3); margin-top: var(--ui-space-3); }
 .ui-channel-schedule { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ui-space-2); }
 .ui-channel-schedule .ui-input { width: auto; min-width: 220px; }

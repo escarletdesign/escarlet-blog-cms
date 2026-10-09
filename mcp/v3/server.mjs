@@ -257,7 +257,13 @@ function resourceList(catalog, auth) {
     name: `Recipe ${entry.id}`,
     mimeType: 'application/json'
   })))
-  return resources.concat(catalog.resources || [])
+  const seen = new Set()
+  return resources.concat(catalog.resources || []).filter((resource) => {
+    const uri = String(resource?.uri || '')
+    if (!uri || seen.has(uri)) return false
+    seen.add(uri)
+    return true
+  })
 }
 
 function readResource(catalog, auth, uri) {

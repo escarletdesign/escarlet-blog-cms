@@ -21,6 +21,8 @@ test('MCP v3 publica solo tools namespaced y excluye nombres legacy', async () =
   assert.ok(listed.tools.some((tool) => tool.name === 'brand.generation.prepare'))
   assert.ok(listed.tools.some((tool) => tool.name === 'publication.destination.list'))
   assert.ok(listed.tools.some((tool) => tool.name === 'publication.route'))
+  assert.ok(listed.tools.some((tool) => tool.name === 'asset.list'))
+  assert.ok(listed.tools.some((tool) => tool.name === 'asset.delete'))
   assert.ok(listed.tools.some((tool) => tool.name === 'recipe.run'))
   for (const tool of listed.tools) {
     assert.match(tool.name, /^[a-z][a-z0-9]*(?:\.[a-z0-9_-]+)+$/)
@@ -33,6 +35,7 @@ test('resources/list expone el índice, recipes y Brand Kernel sin archivos priv
   const server = createMcpServerV3Sync({ role: 'agent' })
   const listed = await list(server, 'resources/list')
   const uris = listed.resources.map((resource) => resource.uri)
+  assert.equal(new Set(uris).size, uris.length)
   assert.ok(uris.includes('escarlet://capabilities/index'))
   assert.ok(uris.includes('escarlet://recipes/index'))
   assert.ok(uris.includes('escarlet://brand/kernel'))

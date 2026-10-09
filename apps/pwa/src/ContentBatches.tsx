@@ -1,10 +1,10 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "./api";
-import type { ContentChannel, ContentItem, ContentPlanSummary, ContentVariant } from "./types";
+import type { ContentChannel, ContentItem, ContentPlanSummary, ContentVariant, MediaItem } from "./types";
 import { aggregateStatus, canApproveStatus, CONTENT_TITLE_MAX, contentPreviewPath, itemTitle, statusLabel } from "./content-format";
 import { ContentPackPreview } from "./ContentPackPreview";
-import { Badge, Button, Card, ChannelBadge, Checkbox, Drawer, EmptyState, Field, Inline, Modal, PageHeader, Progress, ReviewToolbar, Select, Stack, StatusBadge, TextField, Textarea } from "./ui";
+import { Badge, Button, Card, ChannelBadge, Checkbox, Drawer, EmptyState, Field, Inline, Modal, PageHeader, Progress, ReviewToolbar, Select, Stack, StatusBadge, Tabs, TextField, Textarea } from "./ui";
 
 const ALL_CHANNELS: ContentChannel[] = ["blog", "instagram", "instagram_story", "linkedin", "x", "video"];
 const channelLabel = (channel: string) => channel === "x" ? "X" : channel === "instagram_story" ? "Instagram Story" : channel === "video" ? "Vídeo / Reel" : channel.charAt(0).toUpperCase() + channel.slice(1);
@@ -50,12 +50,112 @@ const bufferPublishableChannels = (rows: Array<{ channel: string; enabled?: bool
   return ready;
 };
 
+type LibraryAsset = { key: string; item: ContentItem; channel: ContentChannel; status: string; url: string; kind: "image" | "video"; title: string };
+type LibraryGroup = { channel: ContentChannel; assets: LibraryAsset[] };
+
+function assetKind(value: unknown, url: string, channel: ContentChannel): "image" | "video" {
+  const media = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const type = String(media.mimeType || media.type || media.kind || "").toLowerCase();
+  return type.includes("video") || (channel === "video" && /\.(?:mp4|webm|mov)(?:[?#]|$)/i.test(url)) ? "video" : "image";
+}
+
+function libraryValues(variant: ContentVariant) {
+  const body = variant.body || {};
+  const socialPack = body.socialPack && typeof body.socialPack === "object" ? body.socialPack : {};
+  const slides = Array.isArray(socialPack.instagramSlides) ? socialPack.instagramSlides : [];
+  const storyFrames = Array.isArray(socialPack.instagramStory?.frames) ? socialPack.instagramStory.frames : [];
+  return [
+    ...(variant.media || []),
+    body.imageThumbUrl,
+    body.imagePreviewUrl,
+    body.imageUrl,
+    body.image_url,
+    body.coverUrl,
+    ...slides,
+    ...storyFrames,
+  ].filter(Boolean);
+}
+
+function buildLibraryGroups(items: ContentItem[]): LibraryGroup[] {
+  const groups = new Map<ContentChannel, LibraryAsset[]>();
+  items.forEach((item) => (item.variants || []).forEach((variant) => {
+    const values = libraryValues(variant);
+    const seen = new Set<string>();
+    const status = variant.scheduleStatus || variant.status || "draft";
+    const assets = values.map((value, index) => {
+      const url = mediaUrl(value, "thumb");
+      const dedupeKey = url || `${item.id}:${variant.channel}:pending`;
+      if (seen.has(dedupeKey)) return null;
+      seen.add(dedupeKey);
+      return { key: `${item.id}:${variant.channel}:${index}`, item, channel: variant.channel, status, url, kind: assetKind(value, url, variant.channel), title: itemTitle(item) };
+    }).filter((asset): asset is LibraryAsset => Boolean(asset));
+    if (!assets.length) assets.push({ key: `${item.id}:${variant.channel}:pending`, item, channel: variant.channel, status, url: "", kind: "image", title: itemTitle(item) });
+    groups.set(variant.channel, [...(groups.get(variant.channel) || []), ...assets]);
+  }));
+  return ALL_CHANNELS.filter((channel) => groups.has(channel)).map((channel) => ({ channel, assets: groups.get(channel) || [] }));
+}
+
+function standaloneAssetStatus(asset: MediaItem) {
+  return String(asset.metadata?.status || asset.metadata?.state || (asset.metadata?.brandGrounding ? "ready_for_review" : "generated"));
+}
+
+function standaloneAssetKind(asset: MediaItem) {
+  const type = String(asset.metadata?.mimeType || asset.metadata?.contentType || asset.kind || "").toLowerCase();
+  return type.includes("video") ? "video" : "image";
+}
+
+function ContentAssetLibrary({ groups, standaloneAssets, onOpen }: { groups: LibraryGroup[]; standaloneAssets: MediaItem[]; onOpen: (item: ContentItem) => void }) {
+  if (!groups.length && !standaloneAssets.length) return <EmptyState title="Todavía no hay activos" description="Cuando una app genere imágenes, vídeos o variantes para un canal, aparecerán aquí para revisarlos." />;
+  const total = groups.reduce((sum, group) => sum + group.assets.length, 0);
+  const published = groups.reduce((sum, group) => sum + group.assets.filter((asset) => asset.status === "published").length, 0);
+  const generated = groups.reduce((sum, group) => sum + group.assets.filter((asset) => asset.url && ["generated", "approved", "scheduled", "syncing"].includes(asset.status)).length, 0);
+  const pending = total - published - generated;
+  return <Stack gap="md" className="ui-content-library">
+    <Inline gap="sm" className="ui-content-library-summary"><span className="ui-muted">Activos de las campañas visibles</span><Badge tone="success">{generated} generados</Badge><Badge tone="published">{published} publicados</Badge><Badge tone="warning">{pending} pendientes</Badge></Inline>
+    <div className="ui-content-library-grid">
+      {groups.map((group) => {
+        const groupPublished = group.assets.filter((asset) => asset.status === "published").length;
+        const groupGenerated = group.assets.filter((asset) => asset.url && ["generated", "approved", "scheduled", "syncing"].includes(asset.status)).length;
+        const groupPending = group.assets.length - groupPublished - groupGenerated;
+        return <Card className="ui-content-library-channel" key={group.channel}>
+          <div className="ui-card-head"><div><span className="ui-eyebrow">Canal / app</span><h2>{channelLabel(group.channel)}</h2></div><ChannelBadge channel={group.channel} /></div>
+          <Inline gap="sm" className="ui-content-library-counts"><Badge tone="success">{groupGenerated} generados</Badge><Badge tone="published">{groupPublished} publicados</Badge><Badge tone="warning">{groupPending} pendientes</Badge></Inline>
+          <div className="ui-content-library-assets">
+            {group.assets.slice(0, 8).map((asset) => <article className="ui-content-library-asset" key={asset.key}>
+              {asset.url ? asset.kind === "video" ? <video className="ui-content-library-visual" src={asset.url} controls preload="metadata" aria-label={asset.title} /> : <img className="ui-content-library-visual" src={asset.url} alt={asset.title} loading="lazy" decoding="async" /> : <div className="ui-content-library-visual ui-content-library-placeholder" role="img" aria-label="Activo pendiente"><span>Sin activo todavía</span></div>}
+              <div className="ui-content-library-asset-meta"><strong title={asset.title}>{asset.title}</strong><StatusBadge status={asset.status} label={statusLabel(asset.status)} /></div>
+              <Button variant="ghost" size="sm" onClick={() => onOpen(asset.item)}>Abrir pack</Button>
+            </article>)}
+          </div>
+          {group.assets.length > 8 && <p className="ui-field-hint">Se muestran 8 activos. Usa los filtros para acotar la biblioteca.</p>}
+        </Card>;
+      })}
+    </div>
+    {standaloneAssets.length > 0 && <Card className="ui-content-library-standalone">
+      <div className="ui-card-head"><div><span className="ui-eyebrow">Biblioteca global</span><h2>Assets sin campaña</h2></div><Badge tone="info">{standaloneAssets.length}</Badge></div>
+      <p className="ui-muted">Archivos generados o subidos por una micro app que todavía no están asociados a una campaña.</p>
+      <div className="ui-content-library-assets">
+        {standaloneAssets.map((asset) => {
+          const url = mediaUrl(asset, "preview");
+          const status = standaloneAssetStatus(asset);
+          return <article className="ui-content-library-asset" key={asset.id || asset.path || asset.url}>
+            {url ? standaloneAssetKind(asset) === "video" ? <video className="ui-content-library-visual" src={url} controls preload="metadata" aria-label={asset.filename || "Asset de producción"} /> : <img className="ui-content-library-visual" src={url} alt={asset.alt || asset.filename || "Asset de producción"} loading="lazy" decoding="async" /> : <div className="ui-content-library-visual ui-content-library-placeholder" role="img" aria-label="Asset sin vista previa"><span>Sin vista previa</span></div>}
+            <div className="ui-content-library-asset-meta"><strong title={asset.filename || asset.id}>{asset.filename || asset.id || "Asset"}</strong><StatusBadge status={status} label={statusLabel(status)} /><span className="ui-muted">{String(asset.metadata?.kind || asset.kind || "producción")}</span></div>
+            {url && <a className="ui-button ui-button-ghost ui-button-sm" href={url} target="_blank" rel="noreferrer">Abrir archivo</a>}
+          </article>;
+        })}
+      </div>
+    </Card>}
+  </Stack>;
+}
+
 type Props = { site: string; brandId?: string; previewItemId?: string; creationEnabled?: boolean; activeChannels?: Array<{ channel: string; enabled: boolean; connectionStatus?: string }>; onNotify?: (message: string, kind?: "success" | "error" | "info") => void };
 type Dialog = { type: "edit" | "schedule" | "blog-edit"; item: ContentItem } | { type: "details"; item: ContentItem } | null;
 
 export function ContentBatches({ site, brandId, previewItemId, creationEnabled = false, activeChannels, onNotify }: Props) {
   const [plans, setPlans] = useState<ContentPlanSummary[]>([]);
   const [items, setItems] = useState<ContentItem[]>([]);
+  const [standaloneAssets, setStandaloneAssets] = useState<MediaItem[]>([]);
   const [previewFallback, setPreviewFallback] = useState<ContentItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -84,6 +184,7 @@ export function ContentBatches({ site, brandId, previewItemId, creationEnabled =
   const filterStatus = searchParams.get("status") || "all";
   const filterChannel = searchParams.get("channel") || "all";
   const filterDate = searchParams.get("date") || "all";
+  const view = searchParams.get("view") === "library" ? "library" : "campaigns";
   const sortOrder = ["date", "status", "title"].includes(searchParams.get("sort") || "") ? searchParams.get("sort") as "date" | "status" | "title" : "date";
   const updateSearchParam = (key: string, value: string, defaultValue = "all") => {
     const next = new URLSearchParams(searchParams);
@@ -110,9 +211,14 @@ export function ContentBatches({ site, brandId, previewItemId, creationEnabled =
     loadAbort.current = controller;
     setLoading(true); setError(""); setSetupRequired(false);
     try {
-      const [planResponse, reviewResponse] = await Promise.all([api.contentPlans(site, controller.signal), api.reviewItems(site, controller.signal)]);
+      const [planResponse, reviewResponse, assetResponse] = await Promise.all([
+        api.contentPlans(site, controller.signal),
+        api.reviewItems(site, controller.signal),
+        api.productionAssets(site).catch(() => ({ assets: [] })),
+      ]);
       if (sequence !== loadSequence.current || controller.signal.aborted) return;
       setPlans((planResponse.plans || []) as ContentPlanSummary[]);
+      setStandaloneAssets((assetResponse.assets || []) as MediaItem[]);
       const nextItems = (reviewResponse.items || []).map(normalizeItem);
       let fallback: ContentItem | null = null;
       if (previewItemId && previewBatchId && !nextItems.some((entry) => entry.id === previewItemId)) {
@@ -172,6 +278,7 @@ export function ContentBatches({ site, brandId, previewItemId, creationEnabled =
       return publicationSortTime(left) - publicationSortTime(right) || itemTitle(left).localeCompare(itemTitle(right), "es", { sensitivity: "base" });
     });
   }, [items, filterQuery, filterPlan, filterStatus, filterChannel, filterDate, sortOrder]);
+  const libraryGroups = useMemo(() => buildLibraryGroups(visibleItems), [visibleItems]);
 
   const run = async (action: () => Promise<unknown>) => {
     if (busy) return false;
@@ -260,8 +367,9 @@ export function ContentBatches({ site, brandId, previewItemId, creationEnabled =
       <PageHeader eyebrow="Espacio editorial" title="Contenido" description={bufferReady ? "Revisa packs en «Pendiente de revisión» antes de aprobar. Buffer listo para redes; blog sale por Coolify/webhook al publicar." : "Revisa packs en «Pendiente de revisión» antes de aprobar. Conecta Buffer (redes) y Coolify/webhook (blog) en Ajustes → Conexiones antes de publicar."} actions={<Inline gap="sm"><Button variant="ghost" disabled={busy || loading} onClick={() => void syncRemoteStatuses()}>Sincronizar estados</Button><Button variant="secondary" onClick={() => navigate("/calendar")}>Calendario editorial</Button>{creationEnabled && <Button onClick={() => { setCampaignStep(0); setCreateOpen(true); }}>Nueva campaña</Button>}</Inline>} />
       {error && !items.length && <EmptyState title="No se pudo cargar el contenido" description={error} action={<Button variant="ghost" size="sm" onClick={() => void load()}>Reintentar</Button>} />}
       {!loading && setupRequired && <EmptyState title="Configura tu marca para comenzar" description="Un administrador debe inicializar el espacio y asignarte una marca antes de mostrar publicaciones." />}
-      {!loading && !setupRequired && !items.length && !error && <EmptyState title="Todavía no hay contenido" description="Crea una campaña aquí o desde ChatGPT. Cuando esté lista, aparecerá en esta bandeja." />}
-      {loading ? <Stack gap="md"><Card><Progress value={35} /><p className="ui-muted">Cargando contenido…</p></Card></Stack> : !setupRequired && (items.length > 0 || plans.length > 0) && <div className="ui-plans-workspace">
+      {!loading && !setupRequired && !items.length && !standaloneAssets.length && !error && <EmptyState title="Todavía no hay contenido" description="Crea una campaña aquí o desde ChatGPT. Cuando esté lista, aparecerá en esta bandeja." />}
+      {loading ? <Stack gap="md"><Card><Progress value={35} /><p className="ui-muted">Cargando contenido…</p></Card></Stack> : !setupRequired && (items.length > 0 || plans.length > 0 || standaloneAssets.length > 0) && <div className="ui-plans-workspace">
+        <Tabs items={[{ id: "campaigns", label: "Campañas" }, { id: "library", label: "Biblioteca de activos" }]} value={view} onChange={(next) => updateSearchParam("view", next, "campaigns")} idPrefix="content-view-tabs" panelIdPrefix="content-view-panel" ariaLabel="Vista del contenido" />
         <ReviewToolbar>
           <Field label="Buscar"><TextField value={filterQuery} onChange={(event) => updateSearchParam("q", event.target.value, "")} placeholder="Título, brief o campaña" /></Field>
           <Field label="Campaña"><Select value={filterPlan} onChange={(event) => updateSearchParam("plan", event.target.value)}><option value="all">Todas las campañas</option>{plans.map((plan) => <option key={plan.id} value={plan.id}>{plan.title}</option>)}</Select></Field>
@@ -271,10 +379,10 @@ export function ContentBatches({ site, brandId, previewItemId, creationEnabled =
           <Field label="Ordenar por"><Select value={sortOrder} onChange={(event) => updateSearchParam("sort", event.target.value, "date")}><option value="date">Próxima fecha</option><option value="status">Estado</option><option value="title">Título A-Z</option></Select></Field>
           <div className="ui-filter-summary"><span>{visibleItems.length} de {items.length} publicaciones</span>{hasActiveFilters && <Button size="sm" variant="ghost" onClick={clearFilters}>Limpiar filtros</Button>}</div>
         </ReviewToolbar>
-        {visibleItems.length ? <Stack gap="sm">{visibleItems.map((item) => {
+        {view === "library" ? <div id="content-view-panel-library" role="tabpanel" aria-labelledby="content-view-tabs-library" tabIndex={0}><ContentAssetLibrary groups={libraryGroups} standaloneAssets={standaloneAssets} onOpen={openPreview} /></div> : <div id="content-view-panel-campaigns" role="tabpanel" aria-labelledby="content-view-tabs-campaigns" tabIndex={0}>{visibleItems.length ? <Stack gap="sm">{visibleItems.map((item) => {
           const status = aggregateStatus(item); const titleText = itemTitle(item); const cover = itemCover(item); const excerpt = itemExcerpt(item);
           return <Card className="ui-review-item" key={item.id}><div className="ui-card-head"><div className="ui-review-item-title">{cover ? <img className="ui-review-thumb" src={cover} alt="" loading="lazy" decoding="async" /> : <span className="ui-review-thumb" aria-hidden="true" />}<div><span className="ui-eyebrow">{item.planTitle || "Contenido"}</span><h3>{titleText}</h3>{excerpt && <p className="ui-review-excerpt">{excerpt}</p>}<p className="ui-muted">{dateSummary(item)}</p></div></div><StatusBadge status={status} label={statusLabel(status)} /></div><div className="ui-channel-list">{(item.variants || []).map((variant) => <ChannelBadge key={variant.id} channel={variant.channel} />)}</div>{item.error && <p className="ui-field-error">{item.error}</p>}<div className="ui-card-actions"><Button variant="secondary" size="sm" disabled={busy} onClick={() => setDialog({ type: "details", item })}>Canales y publicación</Button><Link className="ui-button ui-button-ghost ui-button-sm" to={contentPreviewPath(item, location.search)} state={{ returnToContentList: true }}>Vista previa</Link></div></Card>;
-        })}</Stack> : <EmptyState title="No hay publicaciones con estos filtros" description="Prueba otra combinación de búsqueda, estado, canal o fecha." action={hasActiveFilters ? <Button variant="secondary" onClick={clearFilters}>Limpiar filtros</Button> : undefined} />}
+        })}</Stack> : <EmptyState title="No hay publicaciones con estos filtros" description="Prueba otra combinación de búsqueda, estado, canal o fecha." action={hasActiveFilters ? <Button variant="secondary" onClick={clearFilters}>Limpiar filtros</Button> : undefined} />}</div>}
       </div>}
     </>}
     <Drawer open={Boolean(detailItem)} title={detailItem ? itemTitle(detailItem) : "Canales y publicación"} onClose={() => setDialog(null)}>

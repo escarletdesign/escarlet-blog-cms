@@ -156,6 +156,7 @@ import {
   getQuotaSnapshot as cmsGetQuotaSnapshot
 } from './lib/cms-ops.mjs'
 import { mediaForClient, findMediaForClient, repairMediaInDb, repairPostsInDb, resolveImageSrc, resolvePostImageSrc, inspectImageBuffer } from './lib/media-url.mjs'
+import { deleteCanonicalMedia, listCanonicalMedia } from './lib/media-admin.mjs'
 import { recordPublicationMemory, runChat, runGenerateOperation, splitSseChunks } from './lib/ai-gateway.mjs'
 import { assertCmsAiAllowed } from './lib/generation-policy.mjs'
 import { disconnectChatGpt, getChatGptConnection, saveChatGptConnection } from './lib/chatgpt-siwc.mjs'
@@ -2179,6 +2180,34 @@ async function handleRequest(req, res) {
           metadata: asset.metadata || {}
         }))
         json(res, 200, { assets })
+        return
+      }
+      if (req.method === 'GET' && path === '/api/v2/assets/manage') {
+        const scope = await requireV2Context(req, url, res)
+        if (!scope) return
+        const result = await listCanonicalMedia({
+          workspaceId: scope.workspaceId,
+          siteId: scope.siteId,
+          temporaryOnly: url.searchParams.get('temporaryOnly') === '1' || url.searchParams.get('mode') === 'temporary',
+          assetIds: String(url.searchParams.get('assetIds') || '').split(',').map((value) => value.trim()).filter(Boolean),
+          limit: url.searchParams.get('limit')
+        })
+        json(res, 200, result)
+        return
+      }
+      if (req.method === 'POST' && path === '/api/v2/assets/delete') {
+        const scope = await requireV2Context(req, url, res, body)
+        if (!scope) return
+        json(res, 200, await deleteCanonicalMedia({
+          workspaceId: scope.workspaceId,
+          siteId: scope.siteId,
+          userId: scope.auth.userId,
+          role: scope.context.role,
+          mode: body.mode,
+          assetIds: body.assetIds,
+          confirm: body.confirm,
+          idempotencyKey: req.headers['idempotency-key'] || body.idempotencyKey
+        }))
         return
       }
       if (req.method === 'POST' && path === '/api/v2/assets/upload') {
