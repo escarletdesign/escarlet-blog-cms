@@ -1421,7 +1421,7 @@ export function buildToolList(auth) {
           batchId: { type: 'string' },
           useCharacter: { type: 'boolean', description: 'Usa el tablero de personajes (o characterId) solo si el usuario lo pide.' },
           characterId: { type: 'string', description: 'silvia | charly' },
-          board: { type: 'string', enum: ['style', 'character', 'logo'], description: 'style (default), character o logo PNG.' },
+          board: { type: 'string', enum: ['style', 'background', 'character', 'logo'], description: 'style (default), background, character o logo PNG.' },
           preparationId: { type: 'string', description: 'Reentrega el style board de una preparación existente.' },
           referenceIndex: { type: 'integer', minimum: 0, description: 'Legacy: una referencia suelta. Omítelo para recibir el style board completo.' }
         },
@@ -1431,12 +1431,12 @@ export function buildToolList(auth) {
     },
     {
       name: 'brand_get_style_board',
-      description: 'Consulta de marca: un ImageContent. board=style (default) tablero maestro; board=character tablero de personajes; board=logo logo PNG de referencia. No publica.',
+      description: 'Consulta de marca: un ImageContent. board=style (default) tablero maestro; board=background fondo oficial; board=character tablero de personajes; board=logo logo PNG de referencia. No publica.',
       inputSchema: {
         type: 'object',
         properties: {
           site: { type: 'string' },
-          board: { type: 'string', enum: ['style', 'character', 'logo'], description: 'Qué tablero entregar. Default style.' },
+          board: { type: 'string', enum: ['style', 'background', 'character', 'logo'], description: 'Qué tablero entregar. Default style.' },
           assetType: { type: 'string', enum: ['blog_cover', 'social_image', 'instagram_story', 'presentation', 'generic'] },
           title: { type: 'string' },
           summary: { type: 'string' },

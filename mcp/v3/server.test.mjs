@@ -111,6 +111,8 @@ test('adapta manifests OS a semántica MCP sin perder recetas ni efectos', async
   assert.equal(motion.annotations.destructiveHint, false)
   assert.equal(motion._meta.sideEffects, 'write')
   assert.equal(motion._meta.humanReviewRequired, true)
+  assert.ok(motion.inputSchema.properties.motionAssets)
+  assert.ok(motion.inputSchema.properties.copyBlocks)
   const recipes = await server._requestHandlers.get('tools/call')({ method: 'tools/call', params: { name: 'recipe.list', arguments: {} } }, { mcpReq: { requestState: () => undefined } })
   assert.ok(recipes.structuredContent.recipes.some((entry) => entry.id === 'recipe.food-to-reel'))
 })

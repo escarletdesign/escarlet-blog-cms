@@ -15,13 +15,14 @@ description: Identidad Escarlet v3 — style board, personajes y logo PNG/SVG pa
 | `reference-library.json` | Rutas + tableros + logos |
 | `channels/*.json` | Blog, Instagram, LinkedIn, vídeo |
 | `assets/style-board.png` | Tablero visual maestro |
+| `assets/fondo-escarlet.png` | Fondo de autoridad visual y contexto de generación |
 | `assets/character-board.png` | Tablero de personajes |
-| `assets/character-*.png` | Silvia / Charly sueltos |
+| `assets/character-*.png` / `assets/character-silvia.webp` | Silvia / Charly sueltos |
 | `assets/logo-official-blue.png` | Logo PNG (referencia agente) |
-| `assets/logo-official-*.svg` | Logo SVG (CMS / web) |
+| `assets/logo-official-*.svg` | Logo SVG (motor motion / web) |
 
 ## Flujo
 
 1. `brand_get_context`
-2. `brand_get_style_board` (`board=style` | `character` | `logo`)
+2. `brand_get_style_board` (`board=style` | `background` | `character` | `logo`)
 3. Generar. Publicar solo si el usuario lo pide, con `preparationId`.

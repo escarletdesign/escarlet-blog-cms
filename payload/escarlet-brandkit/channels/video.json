@@ -4,5 +4,8 @@
   "dimensions": "1080x1920",
   "aspectRatio": "9:16",
   "styleBoard": "style",
-  "notes": "Cover/reel vertical. Grounding: style-board."
+  "engine": "motion",
+  "agentInputs": ["image", "background", "copy", "audio", "logo-svg"],
+  "logoSvgOptional": true,
+  "notes": "Cover/reel vertical. ChatGPT entrega los assets y el copy; el motor motion los anima. Grounding: style-board + fondo-escarlet; character-silvia.webp es opcional cuando el brief solicita a Silvia."
 }

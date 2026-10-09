@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { assertSiteAccess } from '../../lib/auth.mjs'
-import { getBrandContext, prepareImageGeneration, validateImagePreparation } from '../../lib/brand-kit.mjs'
+import { getBrandContext, getMotionBrandAssets, prepareImageGeneration, validateImagePreparation } from '../../lib/brand-kit.mjs'
 import { buildBrandOsMetadata } from '../../lib/brand-os.mjs'
 import { assertAssetTypeForMediaKind, assertSocialTextMetadata, getImagePreparation, issueGenerationReceipt, persistImagePreparation } from '../../lib/generation-provenance.mjs'
 import { resolveWorkspaceContext } from '../../lib/workspace-domain.mjs'
@@ -338,9 +338,94 @@ function motionProfile(formatProfile = '') {
   return { channel: 'instagram', format: 'reel' }
 }
 
+const MOTION_ASSET_ROLES = new Set(['source', 'background', 'foreground', 'overlay', 'logo', 'audio', 'reference'])
+
+function normalizeMotionAssets(args = {}) {
+  const declared = [
+    ...(Array.isArray(args.inputs) ? args.inputs : []),
+    ...(Array.isArray(args.motionAssets) ? args.motionAssets : [])
+  ]
+  const normalized = []
+  const seen = new Set()
+  const append = (value, fallbackRole = '') => {
+    const source = value && typeof value === 'object' ? value : { assetId: value }
+    const assetId = String(source.assetId || source.id || '').trim()
+    if (!assetId) throw Object.assign(new Error('Cada asset de motion necesita assetId.'), { code: 'motion_asset_id_required', status: 422 })
+    const role = String(source.role || fallbackRole || 'source').trim().toLowerCase()
+    if (!MOTION_ASSET_ROLES.has(role)) throw Object.assign(new Error(`Rol de asset de motion no válido: ${role}.`), { code: 'motion_asset_role_invalid', status: 422 })
+    const key = `${assetId}:${role}`
+    if (seen.has(key)) return
+    seen.add(key)
+    normalized.push({
+      assetId,
+      role,
+      ...(source.kind ? { kind: String(source.kind).trim().toLowerCase() } : {}),
+      ...(source.mimeType ? { mimeType: String(source.mimeType).trim().toLowerCase() } : {}),
+      ...(source.sha256 ? { sha256: String(source.sha256).trim().toLowerCase() } : {})
+    })
+  }
+  declared.forEach((value) => append(value))
+  if (args.audioAsset && typeof args.audioAsset === 'object') append({ ...args.audioAsset, role: 'audio' })
+  if (args.sourceMediaId) append({ assetId: args.sourceMediaId, role: 'source', kind: 'image' })
+  if (args.audioAssetId) append({ assetId: args.audioAssetId, role: 'audio', kind: 'audio' })
+  if (args.logoAssetId) append({ assetId: args.logoAssetId, role: 'logo', kind: 'image' })
+  return normalized
+}
+
+function normalizeMotionCopyBlocks(value) {
+  if (!Array.isArray(value)) return []
+  return value.slice(0, 50).map((block, index) => {
+    const source = block && typeof block === 'object' ? block : {}
+    const headline = String(source.headline || '').trim().slice(0, 160)
+    const body = String(source.body || '').trim().slice(0, 1000)
+    const durationMs = Number(source.durationMs)
+    return {
+      sceneId: String(source.sceneId || `scene-${index + 1}`).trim().slice(0, 120),
+      ...(headline ? { headline } : {}),
+      ...(body ? { body } : {}),
+      ...(Number.isFinite(durationMs) && durationMs > 0 ? { durationMs: Math.min(120000, Math.round(durationMs)) } : {})
+    }
+  }).filter((block) => block.headline || block.body)
+}
+
+async function assertMotionAssetsBelongToScope(motionAssets, scope) {
+  const ids = [...new Set(motionAssets.map((asset) => asset.assetId).filter(Boolean))]
+  if (!ids.length) return []
+  const virtualBrandAssets = new Map(getMotionBrandAssets(scope.site).map((asset) => [asset.assetId || asset.id, asset]))
+  const pool = await getPgPool()
+  if (!pool) return []
+  const rows = []
+  const result = await pool.query(
+    'SELECT id,content_type AS "mimeType",metadata FROM media_assets WHERE id=ANY($1::text[]) AND workspace_id=$2 AND site_id=$3',
+    [ids, scope.workspaceId, scope.siteId]
+  )
+  rows.push(...result.rows)
+  const brandAssets = await pool.query(`
+    SELECT ba.id,ba.content_type AS "mimeType",ba.metadata
+    FROM brand_assets ba
+    JOIN brand_kit_versions bkv ON bkv.id=ba.brand_kit_version_id AND bkv.status='published'
+    JOIN brand_kits bk ON bk.active_version_id=bkv.id
+    JOIN sites s ON s.id=bk.site_id
+    WHERE ba.id=ANY($1::text[]) AND s.workspace_id=$2 AND s.id=$3
+  `, [ids, scope.workspaceId, scope.siteId])
+  rows.push(...brandAssets.rows)
+  const known = new Map(rows.map((row) => [row.id, row]))
+  ids.forEach((id) => {
+    if (!known.has(id) && virtualBrandAssets.has(id)) known.set(id, virtualBrandAssets.get(id))
+  })
+  const missing = ids.filter((id) => !known.has(id))
+  if (missing.length) throw Object.assign(new Error('Uno o más assets de motion no pertenecen a esta marca.'), { code: 'motion_asset_not_found', status: 404, details: { assetIds: missing } })
+  const logo = motionAssets.find((asset) => asset.role === 'logo')
+  if (logo) {
+    const mimeType = String(known.get(logo.assetId)?.mimeType || logo.mimeType || '').toLowerCase()
+    if (mimeType && mimeType !== 'image/svg+xml') throw Object.assign(new Error('El logo de motion debe ser un SVG aprobado.'), { code: 'motion_logo_svg_required', status: 422, details: { assetId: logo.assetId, mimeType } })
+  }
+  return rows
+}
+
 function motionIdempotencyKey(args, site, sourceMediaId) {
   if (args.idempotencyKey || args.runId) return String(args.idempotencyKey || args.runId)
-  const payload = JSON.stringify({ site, sourceMediaId, brandKitVersionId: args.brandKitVersionId || '', recipeId: args.recipeId || '', formatProfile: args.formatProfile, text: args.text || args.script || args.topic || '' })
+  const payload = JSON.stringify({ site, sourceMediaId, motionAssets: args.motionAssets || args.inputs || [], copyBlocks: args.copyBlocks || [], prompt: args.prompt || '', brandKitVersionId: args.brandKitVersionId || '', recipeId: args.recipeId || '', formatProfile: args.formatProfile, text: args.text || args.script || args.topic || '' })
   return `motion:${createHash('sha256').update(payload).digest('hex').slice(0, 32)}`
 }
 
@@ -362,21 +447,30 @@ async function motionScope(args, auth, runtime) {
 }
 
 async function composeMotionJob(args, auth, runtime) {
-  const inputs = Array.isArray(args.inputs) ? args.inputs : []
-  const sourceMediaId = String(args.sourceMediaId || inputs[0]?.assetId || '').trim()
+  const motionAssets = normalizeMotionAssets(args)
+  const sourceMediaId = String(args.sourceMediaId || motionAssets.find((asset) => asset.role !== 'audio' && asset.role !== 'logo')?.assetId || motionAssets.find((asset) => asset.role !== 'audio')?.assetId || '').trim()
   if (!sourceMediaId) throw Object.assign(new Error('production.motion.compose necesita al menos un asset de entrada.'), { code: 'motion_input_required', status: 422 })
   const scope = await motionScope(args, auth, runtime)
-  const audioAssetId = String(args.audioAssetId || '').trim()
-  if (audioAssetId) {
-    const pool = await getPgPool()
-    if (pool) {
-      const ownedAudio = await pool.query('SELECT id FROM media_assets WHERE id=$1 AND workspace_id=$2 AND site_id=$3', [audioAssetId, scope.workspaceId, scope.siteId])
-      if (!ownedAudio.rowCount) throw Object.assign(new Error('El asset de audio no pertenece a esta marca.'), { code: 'motion_audio_not_found', status: 404 })
-    }
-  }
+  await assertMotionAssetsBelongToScope(motionAssets, scope)
+  const audioAssetId = String(args.audioAssetId || motionAssets.find((asset) => asset.role === 'audio')?.assetId || '').trim()
+  const logoAssetId = String(args.logoAssetId || motionAssets.find((asset) => asset.role === 'logo')?.assetId || '').trim()
+  const copyBlocks = normalizeMotionCopyBlocks(args.copyBlocks)
   const brand = getBrandContext(scope.site, { auth: { ...auth, role: auth.role === 'agent' ? 'editor' : auth.role } })
   const profile = motionProfile(args.formatProfile)
-  const text = String(args.text || args.script || args.topic || '').trim()
+  const text = String(args.text || args.script || args.topic || copyBlocks.map((block) => [block.headline, block.body].filter(Boolean).join('\n')).filter(Boolean).join('\n') || '').trim()
+  const copy = text
+    ? validateCopy({ ...args, site: scope.site, text, purpose: args.purpose || 'motion' }, brand)
+    : { contractVersion: 'os.production.v1', valid: true, findings: [], brandKitVersionId: brand.brandKitVersionId, brandKitSnapshotHash: brand.brandKitSnapshotHash }
+  if (!copy.valid) {
+    return {
+      contractVersion: 'os.production.v1',
+      capability: 'production.motion.compose',
+      runId: null,
+      status: 'blocked',
+      copy,
+      review: { required: true, status: 'copy_blocked', next: 'fix_copy' }
+    }
+  }
   const createJob = typeof runtime?.createVideoJob === 'function' ? runtime.createVideoJob : createVideoJob
   const updateJob = typeof runtime?.updateVideoJob === 'function' ? runtime.updateVideoJob : updateVideoJob
   const result = await createJob({
@@ -398,8 +492,12 @@ async function composeMotionJob(args, auth, runtime) {
       recipeId: args.recipeId || null,
       formatProfile: args.formatProfile,
       sourceMediaId,
-      inputs,
+      inputs: motionAssets,
+      motionAssets,
       audioAssetId: audioAssetId || null,
+      logoAssetId: logoAssetId || null,
+      copyBlocks,
+      prompt: String(args.prompt || '').trim().slice(0, 12000) || null,
       text,
       brandKitVersionId: args.brandKitVersionId || brand.brandKitVersionId,
       brandKitSnapshotHash: brand.brandKitSnapshotHash,
@@ -422,6 +520,7 @@ async function composeMotionJob(args, auth, runtime) {
     jobId: result.videoJobId,
     status: queued.job.status,
     job: queued.job,
+    copy,
     brandKitVersionId: brand.brandKitVersionId,
     brandKitSnapshotHash: brand.brandKitSnapshotHash,
     review: { required: true, status: 'pending' },
@@ -552,7 +651,11 @@ async function runRecipe(args, auth, runtime) {
   if (!['food-to-reel', 'menu-to-reel', 'reel-from-image', 'product-to-social'].includes(id)) {
     throw Object.assign(new Error(`La recipe ${id || '(vacía)'} todavía no tiene ejecutor.`), { code: 'recipe_executor_missing', status: 501 })
   }
-  const text = String(args.text || args.menuText || args.script || '').trim()
+  const copyBlockText = normalizeMotionCopyBlocks(args.copyBlocks)
+    .map((block) => [block.headline, block.body].filter(Boolean).join('\n'))
+    .filter(Boolean)
+    .join('\n')
+  const text = String(args.text || args.menuText || args.script || copyBlockText).trim()
   if (!text) throw Object.assign(new Error('La recipe necesita text o menuText.'), { code: 'recipe_text_required', status: 422 })
   const site = siteFor(args, auth)
   const context = await invokeBuiltinCapability('brand.context.get', { site, brandKitVersionId: args.brandKitVersionId }, { auth })
@@ -624,7 +727,7 @@ export async function invokeBuiltinCapability(name, args = {}, { auth = {}, runt
     const context = getBrandContext(site, { auth: { ...auth, role: auth.role === 'agent' ? 'editor' : auth.role } })
     if (name === 'brand.context.get') return { contractVersion: 'os.production.v1', ...contextProjection(context) }
     if (name === 'brand.voice.get') return { contractVersion: 'os.production.v1', site, brandKitVersionId: context.brandKitVersionId, brandKitSnapshotHash: context.brandKitSnapshotHash, voice: context.voice, keywords: context.keywords }
-    if (name === 'brand.visual_style.get') return { contractVersion: 'os.production.v1', site, brandKitVersionId: context.brandKitVersionId, brandKitSnapshotHash: context.brandKitSnapshotHash, visualStyle: context.visualStyle, imageGuide: context.imageGuide, imageSpec: context.imageSpec, canonicalPalette: context.canonicalPalette, referenceImages: context.referenceImages }
+    if (name === 'brand.visual_style.get') return { contractVersion: 'os.production.v1', site, brandKitVersionId: context.brandKitVersionId, brandKitSnapshotHash: context.brandKitSnapshotHash, visualStyle: context.visualStyle, imageGuide: context.imageGuide, imageSpec: context.imageSpec, canonicalPalette: context.canonicalPalette, referenceImages: context.referenceImages, motionAssets: getMotionBrandAssets(site) }
     if (name === 'brand.rules.get') return { contractVersion: 'os.production.v1', site, brandKitVersionId: context.brandKitVersionId, brandKitSnapshotHash: context.brandKitSnapshotHash, sharedEditorialPolicy: context.sharedEditorialPolicy, editRules: context.editRules, workflow: context.workflow, requiresHumanApproval: context.requiresHumanApproval, requiresPublishConfirmation: context.requiresPublishConfirmation }
     if (name === 'brand.references.resolve') {
       const prepared = prepareImageGeneration(site, preparationInput(args))

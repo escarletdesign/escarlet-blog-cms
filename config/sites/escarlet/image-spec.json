@@ -307,10 +307,10 @@
       "assistantMaySubstitute": false,
       "priority": ["abstract_or_background", "introspective_or_tense", "human_or_work", "positive_or_inspirational"],
       "routes": {
-        "human_or_work": ["05-tablero-visual.png", "fondo-escarlet.jpg", "reference-blog-example.png"],
-        "introspective_or_tense": ["05-tablero-visual.png", "fondo-escarlet.jpg", "reference-visual-style-01.png"],
-        "positive_or_inspirational": ["05-tablero-visual.png", "fondo-escarlet.jpg", "reference-visual-style-02.png"],
-        "abstract_or_background": ["05-tablero-visual.png", "fondo-escarlet.jpg"]
+        "human_or_work": ["style-board.png", "fondo-escarlet.png"],
+        "introspective_or_tense": ["style-board.png", "fondo-escarlet.png"],
+        "positive_or_inspirational": ["style-board.png", "fondo-escarlet.png"],
+        "abstract_or_background": ["style-board.png", "fondo-escarlet.png"]
       },
       "approvedOnly": true,
       "mustConsultForAnyImage": true,

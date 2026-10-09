@@ -174,6 +174,24 @@ test('las recipes producen resultados trazables con proveedores simulados y qued
   assert.equal(runtime.calls.product, 1)
 })
 
+test('una recipe de motion puede recibir solo assets y copy por escena', async () => {
+  const runtime = testRuntime()
+  const server = createMcpServerV3Sync({ role: 'agent', site: 'escarlet', workspaceId: 'test-workspace', siteId: 'test-site' }, { runtime })
+  const result = await call(server, 'recipe.run', {
+    recipeId: 'recipe.food-to-reel',
+    site: 'escarlet',
+    motionAssets: [{ assetId: 'food-asset', role: 'source', kind: 'image' }, { assetId: 'logo-svg', role: 'logo', kind: 'image', mimeType: 'image/svg+xml' }],
+    copyBlocks: [{ sceneId: 'intro', headline: 'Plato del día', body: 'Producto local y temporada.' }],
+    formatProfile: 'instagram_reel'
+  })
+  assert.equal(result.isError, false, JSON.stringify(result.structuredContent))
+  assert.equal(result.structuredContent.status, 'queued')
+  assert.equal(result.structuredContent.copy.valid, true)
+  assert.equal(result.structuredContent.motion.job.metadata.sourceMediaId, 'food-asset')
+  assert.equal(result.structuredContent.motion.job.metadata.logoAssetId, 'logo-svg')
+  assert.equal(result.structuredContent.motion.job.metadata.copyBlocks[0].sceneId, 'intro')
+})
+
 test('Publisher valida, persiste idempotencia, exige aprobación y expone estado consultable', async () => {
   const runtime = testRuntime()
   const server = createMcpServerV3Sync({
@@ -242,6 +260,38 @@ test('Publisher valida, persiste idempotencia, exige aprobación y expone estado
   assert.equal(unknown.isError, false)
   assert.equal(unknown.structuredContent.status, 'unknown')
   assert.equal(unknown.structuredContent.terminal, false)
+})
+
+test('motion recibe assets creativos de ChatGPT con roles, copy por escena y logo SVG opcional', async () => {
+  const runtime = testRuntime()
+  const server = createMcpServerV3Sync({
+    role: 'agent',
+    site: 'escarlet',
+    workspaceId: 'test-workspace',
+    siteId: 'test-site'
+  }, { runtime })
+  const result = await call(server, 'production.motion.compose', {
+    site: 'escarlet',
+    formatProfile: 'instagram_reel',
+    motionAssets: [
+      { assetId: 'background-asset', role: 'background', kind: 'image' },
+      { assetId: 'logo-asset', role: 'logo', kind: 'image', mimeType: 'image/svg+xml' },
+      { assetId: 'audio-asset', role: 'audio', kind: 'audio' }
+    ],
+    copyBlocks: [{ sceneId: 'intro', headline: 'Una idea clara', body: 'La marca se reconoce cuando sostiene un criterio.', durationMs: 2400 }],
+    prompt: 'Animar la entrada con un movimiento suave y una transición luminosa.',
+    idempotencyKey: 'motion:role-aware-test'
+  })
+  assert.equal(result.isError, false, JSON.stringify(result.structuredContent))
+  const metadata = result.structuredContent.job.metadata
+  assert.equal(result.structuredContent.status, 'queued')
+  assert.equal(metadata.sourceMediaId, 'background-asset')
+  assert.deepEqual(metadata.motionAssets.map((asset) => asset.role), ['background', 'logo', 'audio'])
+  assert.equal(metadata.logoAssetId, 'logo-asset')
+  assert.equal(metadata.audioAssetId, 'audio-asset')
+  assert.equal(metadata.prompt, 'Animar la entrada con un movimiento suave y una transición luminosa.')
+  assert.equal(result.structuredContent.copy.valid, true)
+  assert.deepEqual(metadata.copyBlocks[0], { sceneId: 'intro', headline: 'Una idea clara', body: 'La marca se reconoce cuando sostiene un criterio.', durationMs: 2400 })
 })
 
 test('las rutas de integración conservan errores accionables y permisos', async () => {

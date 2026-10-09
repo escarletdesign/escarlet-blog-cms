@@ -13,6 +13,19 @@ const objectSchema = {
 
 const assetReferenceSchema = ARTIFACT_REFERENCE_SCHEMA
 
+const motionAssetReferenceSchema = {
+  type: 'object',
+  properties: {
+    assetId: { type: 'string', minLength: 1 },
+    role: { type: 'string', minLength: 1, description: 'source, background, foreground, overlay, logo o audio' },
+    sha256: { type: 'string', minLength: 1 },
+    kind: { type: 'string', enum: ['image', 'video', 'audio', 'text', 'caption'] },
+    mimeType: { type: 'string', maxLength: 120 }
+  },
+  required: ['assetId'],
+  additionalProperties: false
+}
+
 const runSchema = {
   type: 'object',
   properties: {
@@ -117,7 +130,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
   manifest({
     id: 'recipe.run',
     description: 'Ejecuta una recipe compuesta y devuelve sus trabajos, validaciones y siguiente revisión.',
-    inputSchema: { type: 'object', properties: { recipeId: { type: 'string' }, site: { type: 'string' }, brandId: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, brandKitVersionId: { type: 'string' }, inputs: { type: 'array', items: assetReferenceSchema }, sourceMediaId: { type: 'string' }, audioAssetId: { type: 'string' }, contentItemId: { type: 'string' }, text: { type: 'string', maxLength: 50000 }, script: { type: 'string', maxLength: 50000 }, menuText: { type: 'string', maxLength: 50000 }, purpose: { type: 'string' }, audience: { type: 'string' }, cta: { type: 'string' }, formatProfile: { type: 'string' }, channel: { type: 'string' }, provider: { type: 'string' }, idempotencyKey: { type: 'string' }, createContentIfMissing: { type: 'boolean' } }, additionalProperties: false },
+    inputSchema: { type: 'object', properties: { recipeId: { type: 'string' }, site: { type: 'string' }, brandId: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, brandKitVersionId: { type: 'string' }, inputs: { type: 'array', items: motionAssetReferenceSchema, maxItems: 50 }, motionAssets: { type: 'array', items: motionAssetReferenceSchema, maxItems: 50 }, sourceMediaId: { type: 'string' }, audioAsset: motionAssetReferenceSchema, audioAssetId: { type: 'string' }, logoAssetId: { type: 'string' }, contentItemId: { type: 'string' }, text: { type: 'string', maxLength: 50000 }, script: { type: 'string', maxLength: 50000 }, copyBlocks: { type: 'array', maxItems: 50, items: { type: 'object', properties: { sceneId: { type: 'string', maxLength: 120 }, headline: { type: 'string', maxLength: 160 }, body: { type: 'string', maxLength: 1000 }, durationMs: { type: 'integer', minimum: 0, maximum: 120000 } }, additionalProperties: false } }, menuText: { type: 'string', maxLength: 50000 }, purpose: { type: 'string' }, audience: { type: 'string' }, cta: { type: 'string' }, formatProfile: { type: 'string' }, channel: { type: 'string' }, provider: { type: 'string' }, idempotencyKey: { type: 'string' }, createContentIfMissing: { type: 'boolean' } }, additionalProperties: false },
     outputSchema: { type: 'object', properties: { recipe: { type: 'string' }, runId: { type: ['string', 'null'] }, status: { type: 'string' }, review: { type: 'object' } }, required: ['recipe', 'runId', 'status', 'review'], additionalProperties: true },
     permissions: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'production:motion', 'publication:read'],
     sideEffects: 'write',
@@ -291,8 +304,8 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
   }),
   manifest({
     id: 'production.motion.compose',
-    description: 'Compone un reel, story u otro vídeo corto a partir de assets y un perfil de formato.',
-    inputSchema: { type: 'object', properties: { brandId: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, brandKitVersionId: { type: 'string' }, inputs: { type: 'array', items: assetReferenceSchema }, sourceMediaId: { type: 'string' }, contentItemId: { type: 'string' }, formatProfile: { type: 'string' }, channel: { type: 'string' }, format: { type: 'string' }, provider: { type: 'string' }, objective: { type: 'string' }, topic: { type: 'string' }, text: { type: 'string', maxLength: 50000 }, script: { type: 'string', maxLength: 50000 }, audioAssetId: { type: 'string' }, runId: { type: 'string' }, correlationId: { type: 'string' }, idempotencyKey: { type: 'string' }, createContentIfMissing: { type: 'boolean' } }, required: ['formatProfile'], oneOf: [{ required: ['inputs'] }, { required: ['sourceMediaId'] }], additionalProperties: false },
+    description: 'Compone un reel, story u otro vídeo corto con los assets y el copy entregados por ChatGPT; el motor de motion se encarga de animarlos.',
+    inputSchema: { type: 'object', properties: { brandId: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, brandKitVersionId: { type: 'string' }, inputs: { type: 'array', items: motionAssetReferenceSchema, maxItems: 50 }, motionAssets: { type: 'array', items: motionAssetReferenceSchema, maxItems: 50 }, sourceMediaId: { type: 'string' }, contentItemId: { type: 'string' }, formatProfile: { type: 'string' }, channel: { type: 'string' }, format: { type: 'string' }, provider: { type: 'string' }, objective: { type: 'string' }, topic: { type: 'string' }, prompt: { type: 'string', maxLength: 12000 }, text: { type: 'string', maxLength: 50000 }, script: { type: 'string', maxLength: 50000 }, copyBlocks: { type: 'array', maxItems: 50, items: { type: 'object', properties: { sceneId: { type: 'string', maxLength: 120 }, headline: { type: 'string', maxLength: 160 }, body: { type: 'string', maxLength: 1000 }, durationMs: { type: 'integer', minimum: 0, maximum: 120000 } }, additionalProperties: false } }, audioAsset: motionAssetReferenceSchema, audioAssetId: { type: 'string' }, logoAssetId: { type: 'string' }, runId: { type: 'string' }, correlationId: { type: 'string' }, idempotencyKey: { type: 'string' }, createContentIfMissing: { type: 'boolean' } }, required: ['formatProfile'], anyOf: [{ required: ['inputs'] }, { required: ['motionAssets'] }, { required: ['sourceMediaId'] }], additionalProperties: false },
     permissions: ['asset:read', 'generation:run'],
     sideEffects: 'write',
     humanReviewRequired: true,

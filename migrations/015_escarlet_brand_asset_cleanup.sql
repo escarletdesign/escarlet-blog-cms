@@ -10,6 +10,8 @@ WHERE ba.brand_kit_version_id = bkv.id
     'style-board.png',
     'character-board.png',
     'character-silvia.png',
+    'character-silvia.webp',
     'character-charly.png',
+    'fondo-escarlet.png',
     'logo-official-blue.png'
   );

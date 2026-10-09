@@ -29,7 +29,7 @@ function activeKit() {
   return { manifest, assets, id: 'brand-escarlet-active-v3', version: 3 }
 }
 
-test('contexto y preparación usan el mismo snapshot activo y sus 5 referencias aprobadas', () => {
+test('contexto y preparación usan el mismo snapshot activo y sus referencias aprobadas', () => {
   const active = activeKit()
   active.manifest['brand-core.json'] = {
     ...active.manifest['brand-core.json'],
@@ -44,7 +44,7 @@ test('contexto y preparación usan el mismo snapshot activo y sus 5 referencias 
   assert.equal(context.brandKitVersionId, active.id)
   assert.equal(prepared.brandKitVersionId, active.id)
   assert.equal(context.brandKitSnapshotHash, prepared.brandKitSnapshotHash)
-  assert.equal(context.referenceImages.length, 5)
+  assert.equal(context.referenceImages.length, 7)
   assert.equal(context.canonicalPalette.cream, '#EFE8D7')
   assert.match(context.brandCore.fixed.typography.heading, /Montserrat/)
   assert.doesNotMatch(context.files['visual-style.md'], /#F4F1EA|#1F4D3A/)

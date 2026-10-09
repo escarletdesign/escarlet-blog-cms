@@ -15,6 +15,7 @@ import { nextProviderPollAt, providerRowNeedsRemoteSync } from './lib/provider-p
 import { ingestVideoUpload, motionRenderAvailability, VIDEO_RENDER_JOB_TYPE } from './lib/video-jobs.mjs'
 import { mediaDir } from './lib/db.mjs'
 import { renderMotionVideo } from './lib/motion-renderer.mjs'
+import { getMotionBrandAssets } from './lib/brand-kit.mjs'
 
 function loadEnv() {
   const path = new URL('./.env', import.meta.url)
@@ -481,6 +482,36 @@ async function processMotionCompositionJob(job) {
   const video = result.rows[0]
   if (video.status !== 'queued') return { videoJobId, status: video.status, skipped: true }
 
+  const motionAssets = Array.isArray(video.metadata?.motionAssets)
+    ? video.metadata.motionAssets
+    : Array.isArray(video.metadata?.inputs) ? video.metadata.inputs : []
+  const motionAssetIds = [...new Set([
+    video.source_media_id,
+    video.metadata?.audioAssetId,
+    video.metadata?.logoAssetId,
+    ...motionAssets.map((asset) => asset?.assetId)
+  ].filter(Boolean))]
+  const motionAssetRows = motionAssetIds.length
+    ? await pool.query('SELECT id,storage_key,content_type FROM media_assets WHERE id=ANY($1::text[]) AND workspace_id=$2 AND site_id=$3', [motionAssetIds, video.workspace_id, video.site_id])
+    : { rows: [] }
+  const mediaById = new Map(motionAssetRows.rows.map((row) => [row.id, row]))
+  const brandAssetRows = motionAssetIds.length
+    ? await pool.query(`
+      SELECT ba.id,ba.storage_key,ba.content_type
+      FROM brand_assets ba
+      JOIN brand_kit_versions bkv ON bkv.id=ba.brand_kit_version_id AND bkv.status='published'
+      JOIN brand_kits bk ON bk.active_version_id=bkv.id
+      JOIN sites s ON s.id=bk.site_id
+      WHERE ba.id=ANY($1::text[]) AND s.workspace_id=$2 AND s.id=$3
+    `, [motionAssetIds, video.workspace_id, video.site_id])
+    : { rows: [] }
+  brandAssetRows.rows.forEach((row) => mediaById.set(row.id, row))
+  const virtualBrandById = new Map(getMotionBrandAssets(video.site_handle).map((asset) => [asset.assetId || asset.id, asset]))
+  const assetForRole = (role) => {
+    const reference = motionAssets.find((asset) => asset?.role === role)
+    return reference ? (mediaById.get(reference.assetId) || virtualBrandById.get(reference.assetId)) : null
+  }
+
   const availability = motionRenderAvailability(video.provider)
   if (availability.provider === 'local' && availability.configured) {
     const storedPath = (value) => {
@@ -491,14 +522,20 @@ async function processMotionCompositionJob(job) {
       return candidate === root || candidate.startsWith(`${root}/`) ? candidate : ''
     }
     try {
-      const sourcePath = storedPath(video.source_storage_key)
-      const audioPath = storedPath(video.audio_storage_key)
+      const background = assetForRole('background') || assetForRole('source') || mediaById.get(video.source_media_id)
+      const audio = assetForRole('audio') || mediaById.get(video.metadata?.audioAssetId)
+      const logo = assetForRole('logo') || mediaById.get(video.metadata?.logoAssetId)
+      const sourcePath = storedPath(background?.storage_key || video.source_storage_key)
+      const audioPath = storedPath(audio?.storage_key || video.audio_storage_key)
+      const logoPath = storedPath(logo?.storage_key || logo?.path)
+      const firstCopy = Array.isArray(video.metadata?.copyBlocks) ? video.metadata.copyBlocks[0] : null
       const buffer = await renderMotionVideo({
         sourcePath,
         audioPath,
+        logoPath,
         site: video.site_handle,
-        title: video.topic || video.metadata?.title || 'Reel de marca',
-        text: video.metadata?.text || video.topic || '',
+        title: firstCopy?.headline || video.topic || video.metadata?.title || 'Reel de marca',
+        text: firstCopy?.body || video.metadata?.text || video.topic || '',
         durationSeconds: video.metadata?.durationSeconds || 8
       })
       const uploaded = await ingestVideoUpload({

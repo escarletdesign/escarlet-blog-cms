@@ -45,9 +45,9 @@
       "radius": 20
     },
     "imageRules": [
-      "Grounding visual: style-board.png (tablero maestro).",
-      "Personajes: character-board.png o character-silvia/charly solo si el usuario lo pide.",
-      "Logo PNG solo si el agente lo necesita como referencia; SVG para composición CMS.",
+      "Grounding visual obligatorio: style-board.png y fondo-escarlet.png.",
+      "Personajes: character-board.png o character-silvia.webp/charly solo si el usuario lo pide.",
+      "Logo PNG solo si el agente lo necesita como referencia; logo-official-blue.svg y logo-official-white.svg son SVG aprobados para animación del motor motion.",
       "Portadas y fondos sin texto, letras, números ni logos dibujados.",
       "Regla de tercios, espacio negativo amplio, luz natural, coherencia de paleta.",
       "Prohibido: stock genérico, saturación excesiva, poses forzadas, plantas sin sentido."

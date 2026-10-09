@@ -187,7 +187,7 @@ test('style board feliz: un ImageContent complete=true con catálogo textual', a
     board: 'style'
   })
   assert.equal(prepared.route, 'default')
-  assert.deepEqual(prepared.resolvedReferences.map((reference) => reference.filename), ['style-board.png'])
+  assert.deepEqual(prepared.resolvedReferences.map((reference) => reference.filename), ['style-board.png', 'fondo-escarlet.png'])
   const result = await preparedImageResult(prepared)
   assert.equal(result.isError, false)
   assert.equal(imageBlocks(result).length, 1)
@@ -203,12 +203,15 @@ test('style board feliz: un ImageContent complete=true con catálogo textual', a
 })
 
 test('tablero logo y personajes se pueden pedir por board', async () => {
+  const background = prepareImageGeneration('escarlet', { site: 'escarlet', assetType: 'generic', board: 'background' })
+  assert.equal(background.route, 'background')
+  assert.deepEqual(background.resolvedReferences.map((r) => r.filename), ['fondo-escarlet.png'])
   const logo = prepareImageGeneration('escarlet', { site: 'escarlet', assetType: 'generic', board: 'logo' })
   assert.equal(logo.route, 'logo')
   assert.deepEqual(logo.resolvedReferences.map((r) => r.filename), ['logo-official-blue.png'])
   const characters = prepareImageGeneration('escarlet', { site: 'escarlet', assetType: 'social_image', board: 'character' })
   assert.equal(characters.route, 'character')
-  assert.deepEqual(characters.resolvedReferences.map((r) => r.filename), ['character-board.png'])
+  assert.deepEqual(characters.resolvedReferences.map((r) => r.filename), ['style-board.png', 'fondo-escarlet.png', 'character-board.png'])
 })
 
 test('legacy: una preparación puede pedir referenceIndex suelto', async () => {

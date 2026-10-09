@@ -342,7 +342,7 @@ const baseApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
-  runRecipe: (input: { site?: string; recipeId: string; sourceMediaId: string; audioAssetId?: string; text: string; formatProfile?: string; channel?: string; provider?: string; createContentIfMissing?: boolean; idempotencyKey?: string }) =>
+  runRecipe: (input: { site?: string; recipeId: string; sourceMediaId?: string; motionAssets?: Array<{ assetId: string; role?: string; kind?: string; mimeType?: string; sha256?: string }>; audioAsset?: { assetId: string; role?: string; kind?: string; mimeType?: string; sha256?: string }; logoAssetId?: string; audioAssetId?: string; copyBlocks?: Array<{ sceneId?: string; headline?: string; body?: string; durationMs?: number }>; text?: string; formatProfile?: string; channel?: string; provider?: string; createContentIfMissing?: boolean; idempotencyKey?: string }) =>
     request<Record<string, any>>("/api/v3/recipes/run", {
       method: "POST",
       body: JSON.stringify(input),

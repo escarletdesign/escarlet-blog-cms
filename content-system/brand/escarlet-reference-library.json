@@ -9,6 +9,7 @@
   },
   "styleBoards": {
     "style": { "filename": "style-board.png", "description": "Tablero visual maestro de la marca" },
+    "background": { "filename": "fondo-escarlet.png", "description": "Fondo visual de autoridad para el contexto de generación" },
     "character": { "filename": "character-board.png", "description": "Tablero de personajes (Silvia y Charly)" },
     "logo": { "filename": "logo-official-blue.png", "description": "Logo PNG para grounding del agente cuando lo pide" }
   },
@@ -18,9 +19,10 @@
     "svgBlue": { "filename": "logo-official-blue.svg", "usage": "agent_reference" }
   },
   "routes": {
-    "default": ["style-board.png"],
-    "with_character": ["style-board.png", "character-board.png"],
-    "character": ["character-board.png"],
+    "default": ["style-board.png", "fondo-escarlet.png"],
+    "with_character": ["style-board.png", "fondo-escarlet.png", "character-board.png"],
+    "character": ["style-board.png", "fondo-escarlet.png", "character-board.png"],
+    "background": ["fondo-escarlet.png"],
     "logo": ["logo-official-blue.png"]
   },
   "references": [
@@ -31,6 +33,15 @@
       "approved": true,
       "required": true,
       "alt": "Sistema visual Escarlet: paleta, tipografía, composición y biblioteca visual"
+    },
+    {
+      "id": "esc-background-authority",
+      "role": "background-authority",
+      "filename": "fondo-escarlet.png",
+      "approved": true,
+      "required": true,
+      "usage": "background",
+      "alt": "Fondo visual oficial de Escarlet con textura de montañas y degradado turquesa, verde y oro"
     },
     {
       "id": "esc-character-board",
@@ -50,6 +61,16 @@
       "usage": "character",
       "characterId": "silvia",
       "alt": "Personaje Silvia"
+    },
+    {
+      "id": "esc-character-silvia-webp",
+      "role": "character",
+      "filename": "character-silvia.webp",
+      "approved": true,
+      "required": false,
+      "usage": "character",
+      "characterId": "silvia",
+      "alt": "Silvia de Escarlet sobre el fondo visual de la marca"
     },
     {
       "id": "esc-character-charly",

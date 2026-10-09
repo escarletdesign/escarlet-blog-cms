@@ -4,6 +4,8 @@ Este archivo manda sobre el flujo de trabajo. El dashboard puede corregirlo si e
 
 ## Antes de escribir
 
+El grounding visual obligatorio combina `style-board.png` con `fondo-escarlet.png`. Si el brief solicita a Silvia, usa `character-board.png` o `character-silvia.webp` como referencia aprobada.
+
 En este mismo turno llama `brand_get_context` con el `site` pedido. Lee voz, estilo visual, keywords, este archivo y las imágenes de referencia.
 
 Si `missingBrand` tiene archivos, para y pide que los suban desde Brand kit en la app v2.
@@ -63,11 +65,9 @@ Recomendado (aviso, no bloquea):
 
 ## Imágenes
 
-- `05-tablero-visual.png` y `fondo-escarlet.jpg` son referencias obligatorias en toda generación. El cliente no puede escoger, sustituir ni reinterpretar referencias.
-- Ruta `human_or_work`: tablero, fondo y `reference-blog-example.png`.
-- Ruta `introspective_or_tense`: tablero, fondo y `reference-visual-style-01.png`.
-- Ruta `positive_or_inspirational`: tablero, fondo y `reference-visual-style-02.png`.
-- Ruta `abstract_or_background`: tablero y fondo. Una petición genérica usa `positive_or_inspirational`.
+- `style-board.png` y `fondo-escarlet.png` son referencias obligatorias en toda generación. El cliente no puede escoger, sustituir ni reinterpretar referencias.
+- Las rutas editoriales usan el tablero y el fondo oficiales. Si se solicita un personaje, se añade `character-board.png` o `character-silvia.webp`.
+- El logo SVG oficial solo se entrega al motor motion cuando la animación lo necesita.
 - El fondo conserva formas orgánicas estratificadas tipo montañas con turquesa a la izquierda, verde suave en el centro y oro a la derecha.
 
 - Portada en kebab-case. Subida al CMS, no al git del frontend.
@@ -88,6 +88,7 @@ Recomendado (aviso, no bloquea):
 - La portada siempre se genera sin texto, letras, números, logos ni UI legible. El prompt debe incluir la intención emocional, el arquetipo, la composición, las referencias aprobadas y lo que no se debe repetir.
 - La selección es determinista. Para modo `automatic` se usa una única ruta cerrada. No existe fallback silencioso ni modo de exploración para generar.
 - En Instagram, genera siempre la pieza final con el headline y body exactos ya integrados en ChatGPT. El CMS no renderiza texto, logos ni overlays y no altera los píxeles subidos.
+- En vídeo, ChatGPT entrega al motor motion las imágenes, fondos, copy, audio y el SVG aprobado del logo cuando sea necesario. `production.motion.compose` registra esos roles y el motor anima los assets; no generes ni redibujes el logo con IA.
 - Si una portada o slide existente repite filename/hash, carece de metadata o rompe el template, repórtalo con `analyze-existing-assets.mjs`. La regeneración queda fuera del CMS beta y requiere una nueva revisión editorial.
 - No heredes la paleta o las referencias de Escarlet en otro sitio. Carga el brand core de la marca solicitada.
 
