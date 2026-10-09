@@ -3,7 +3,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { ARTIFACT_REFERENCE_SCHEMA } from '../../lib/os/artifacts.mjs'
 
 export const MCP_V3_SERVER_NAME = 'escarlet-os'
-export const MCP_V3_SERVER_VERSION = '0.1.0'
+export const MCP_V3_SERVER_VERSION = '0.1.1'
 export const MCP_V3_CONTRACT = 'os.production.v1'
 
 const objectSchema = {

@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
-import { join, resolve as resolvePath } from 'node:path'
 import { getPgPool, runCoreMigrations, closePgPool } from './lib/pg.mjs'
 import { claimJobs, finishJob, claimOutbox, finishOutbox, touchJob, touchOutbox, recordUsage, enqueueJob, resolveBufferChannelId } from './lib/workspace-domain.mjs'
 import { decryptSecret } from './lib/secret-crypto.mjs'
@@ -16,6 +15,7 @@ import { ingestVideoUpload, motionRenderAvailability, VIDEO_RENDER_JOB_TYPE } fr
 import { mediaDir } from './lib/db.mjs'
 import { renderMotionVideo } from './lib/motion-renderer.mjs'
 import { getMotionBrandAssets } from './lib/brand-kit.mjs'
+import { assertMotionAssetFile } from './lib/motion-storage.mjs'
 
 function loadEnv() {
   const path = new URL('./.env', import.meta.url)
@@ -527,20 +527,16 @@ async function processMotionCompositionJob(job) {
 
   const availability = motionRenderAvailability(video.provider)
   if (availability.provider === 'local' && availability.configured) {
-    const storedPath = (value) => {
-      const clean = String(value || '').replace(/^\/+/, '')
-      const relative = clean.replace(/^media\//, '')
-      const root = resolvePath(mediaDir)
-      const candidate = resolvePath(join(root, relative))
-      return candidate === root || candidate.startsWith(`${root}/`) ? candidate : ''
-    }
     try {
       const background = assetForRole('background') || assetForRole('source') || mediaById.get(video.source_media_id)
       const audio = assetForRole('audio') || mediaById.get(video.metadata?.audioAssetId)
       const logo = assetForRole('logo') || mediaById.get(video.metadata?.logoAssetId)
-      const sourcePath = storedPath(background?.storage_key || video.source_storage_key)
-      const audioPath = storedPath(audio?.storage_key || video.audio_storage_key)
-      const logoPath = storedPath(logo?.storage_key || logo?.path)
+      const sourceKey = background?.storage_key || background?.storageKey || background?.path || video.source_storage_key
+      const audioKey = audio?.storage_key || audio?.storageKey || audio?.path || video.audio_storage_key
+      const logoKey = logo?.storage_key || logo?.storageKey || logo?.path
+      const sourcePath = await assertMotionAssetFile(sourceKey, { root: mediaDir, assetId: background?.id || video.source_media_id })
+      const audioPath = await assertMotionAssetFile(audioKey, { root: mediaDir, assetId: audio?.id || video.metadata?.audioAssetId, required: Boolean(audioKey || video.metadata?.audioAssetId) })
+      const logoPath = await assertMotionAssetFile(logoKey, { root: mediaDir, assetId: logo?.id || video.metadata?.logoAssetId, required: Boolean(logoKey || video.metadata?.logoAssetId) })
       const firstCopy = Array.isArray(video.metadata?.copyBlocks) ? video.metadata.copyBlocks[0] : null
       const buffer = await renderMotionVideo({
         sourcePath,
