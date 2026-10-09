@@ -49,6 +49,7 @@ export async function request<T>(path: string, options: ApiRequestOptions = {}):
 
 const baseApi = {
   session: () => request<Session>("/api/admin/session"),
+  auth0Status: () => request<{ configured: boolean; enabled: boolean; error?: string | null }>("/api/auth0/status"),
   loginWithToken: (token: string) =>
     request<Session>("/api/login", {
       method: "POST",

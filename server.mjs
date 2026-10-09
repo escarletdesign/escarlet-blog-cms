@@ -206,6 +206,14 @@ import {
   wwwAuthenticateHeader
 } from './lib/oauth-mcp.mjs'
 import {
+  auth0LogoutUrl,
+  auth0TransactionCookie,
+  auth0UiStatus,
+  completeAuth0Login,
+  createAuth0Login,
+  getAuth0UiConfig
+} from './lib/auth0-ui.mjs'
+import {
   buildDraftPost,
   normalizeAuthor,
   pickRelated,
@@ -349,6 +357,12 @@ function cookieAttributes({ clear = false, persistent = false } = {}) {
 
 function authCookie(token, options = {}) {
   return `escarlet_cms=${token ? encodeURIComponent(token) : ''}; ${cookieAttributes({ ...options, clear: !token || options.clear })}`
+}
+
+function requestCookie(req, name) {
+  const cookieHeader = String(req.headers.cookie || '')
+  const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}=([^;]*)`))
+  return match ? decodeURIComponent(match[1]) : ''
 }
 
 function html(res, status, body, extraHeaders = {}) {
@@ -1185,6 +1199,76 @@ async function handleRequest(req, res) {
     } catch (error) {
       json(res, 400, { error: 'invalid_client_metadata', error_description: error.message })
     }
+    return
+  }
+
+  if (req.method === 'GET' && path === '/api/auth0/status') {
+    json(res, 200, auth0UiStatus())
+    return
+  }
+
+  if (req.method === 'GET' && path === '/api/auth0/login') {
+    try {
+      const result = await createAuth0Login({ next: url.searchParams.get('next') || '/app' })
+      res.writeHead(302, {
+        Location: result.url.href,
+        'Cache-Control': 'no-store',
+        'Set-Cookie': auth0TransactionCookie(result.state)
+      })
+      res.end()
+    } catch (error) {
+      json(res, error.status || 503, { message: error.message, code: 'auth0_ui_unavailable' })
+    }
+    return
+  }
+
+  if (req.method === 'GET' && path === '/api/auth0/callback') {
+    const config = getAuth0UiConfig()
+    try {
+      const callbackUrl = new URL(`${config.callbackUrl}${url.search}`)
+      const result = await completeAuth0Login({ callbackUrl: callbackUrl.toString(), stateCookie: requestCookie(req, 'auth0_tx') })
+      const user = result.userId ? getPasswordUserById(result.userId) : getPasswordUserByEmail(result.email)
+      if (!user || user.disabled) {
+        const error = new Error('Tu usuario de Auth0 todavía no está invitado a Escarlet.')
+        error.status = 403
+        throw error
+      }
+      const sites = userSites(user)
+      const browserSession = createSessionBearer({
+        site: sites[0],
+        sites,
+        role: user.role,
+        userId: user.id,
+        mustSetPassword: user.mustSetPassword,
+        ttlMs: 8 * 60 * 60 * 1000
+      })
+      const next = result.next || '/app'
+      res.writeHead(302, {
+        Location: next,
+        'Cache-Control': 'no-store',
+        'Set-Cookie': [authCookie(browserSession.token, { persistent: true }), auth0TransactionCookie('', { clear: true })]
+      })
+      res.end()
+    } catch (error) {
+      const code = error.status === 403 ? 'auth0_not_invited' : 'auth0_callback_failed'
+      const target = `/app?auth0_error=${encodeURIComponent(code)}`
+      res.writeHead(302, {
+        Location: target,
+        'Cache-Control': 'no-store',
+        'Set-Cookie': auth0TransactionCookie('', { clear: true })
+      })
+      res.end()
+    }
+    return
+  }
+
+  if (req.method === 'GET' && path === '/api/auth0/logout') {
+    res.writeHead(302, {
+      Location: auth0LogoutUrl(),
+      'Cache-Control': 'no-store',
+      'Set-Cookie': authCookie('', { clear: true })
+    })
+    res.end()
     return
   }
 

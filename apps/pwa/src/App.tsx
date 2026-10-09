@@ -617,6 +617,16 @@ function Login({ onLogin }: { onLogin: () => Promise<void> }) {
   const [magicError, setMagicError] = useState("");
   const [magicSent, setMagicSent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [auth0Enabled, setAuth0Enabled] = useState(false);
+  const [auth0Loading, setAuth0Loading] = useState(true);
+  const auth0ErrorCode = new URLSearchParams(window.location.search).get("auth0_error") || "";
+  const auth0Error = auth0ErrorCode === "auth0_not_invited" ? t("login.auth0NotInvited") : auth0ErrorCode ? t("login.auth0Error") : "";
+  useEffect(() => {
+    api.auth0Status()
+      .then((status) => setAuth0Enabled(status.enabled))
+      .catch(() => setAuth0Enabled(false))
+      .finally(() => setAuth0Loading(false));
+  }, []);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setTokenError("");
@@ -653,6 +663,14 @@ function Login({ onLogin }: { onLogin: () => Promise<void> }) {
         <p className="ui-eyebrow">{t("login.eyebrow")}</p>
         <h1>{t("login.title")}</h1>
         <p className="ui-muted">{t("login.description")}</p>
+        {auth0Error && <p className="ui-error" role="alert">{auth0Error}</p>}
+        {!auth0Loading && auth0Enabled && (
+          <Stack gap="sm">
+            <Button type="button" variant="secondary" onClick={() => window.location.assign("/api/auth0/login?next=/app")}>
+              {t("login.auth0")}
+            </Button>
+          </Stack>
+        )}
         <form className="login-token-form" onSubmit={submit}>
           <label>
             {t("login.token")}
@@ -5177,19 +5195,11 @@ function Settings() {
     setMessage(t("settings.saved"));
     showToast(t("settings.saved"));
   };
-  const logout = async () => {
+  const logout = () => {
     setLoggingOut(true);
     setMessage("");
     setError("");
-    try {
-      await api.logout();
-      showToast(t("settings.loggedOut"));
-      await refresh();
-    } catch (err) {
-      setLoggingOut(false);
-      setError(err instanceof Error ? err.message : t("common.error"));
-      showToast(err instanceof Error ? err.message : t("common.error"), "error");
-    }
+    window.location.assign("/api/auth0/logout");
   };
   const saveProfile = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
