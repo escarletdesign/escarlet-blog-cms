@@ -182,6 +182,11 @@ export interface MediaItem {
   kind?: string;
   metadata?: Record<string, any>;
   metadataSanitized?: boolean;
+  publicUrl?: string;
+  storageKey?: string;
+  contentType?: string;
+  deletable?: boolean;
+  deleteBlockers?: string[];
 }
 
 export interface GeneratedImage extends MediaItem {

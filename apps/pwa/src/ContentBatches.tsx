@@ -104,7 +104,26 @@ function standaloneAssetKind(asset: MediaItem) {
   return type.includes("video") ? "video" : "image";
 }
 
-function ContentAssetLibrary({ groups, standaloneAssets, onOpen }: { groups: LibraryGroup[]; standaloneAssets: MediaItem[]; onOpen: (item: ContentItem) => void }) {
+function standaloneMatches(asset: MediaItem, filterChannel: string, filterStatus: string, filterQuery: string) {
+  const metadata = asset.metadata || {};
+  const grounding = metadata.brandGrounding && typeof metadata.brandGrounding === "object" ? metadata.brandGrounding : {};
+  const kind = String(metadata.kind || asset.kind || "").toLowerCase();
+  const assetType = String(metadata.assetType || grounding.assetType || "").toLowerCase();
+  const declaredChannels = [metadata.channel, metadata.channels, grounding.channel, grounding.channels].flatMap((value) => Array.isArray(value) ? value : [value]).map((value) => String(value || "").toLowerCase());
+  const channels = new Set(declaredChannels);
+  const channelMatch = filterChannel === "all" || (filterChannel === "blog" ? kind === "post" || assetType === "blog_cover" || channels.has("blog") : filterChannel === "instagram" ? kind === "social" && (!channels.size || channels.has("instagram") || assetType === "social_image") : filterChannel === "instagram_story" ? assetType === "instagram_story" || channels.has("instagram_story") : channels.has(filterChannel));
+  const status = standaloneAssetStatus(asset);
+  const statusMatch = filterStatus === "all" || (filterStatus === "needs_review" ? ["needs_review", "ready_for_review", "pending_review"].includes(status) : status === filterStatus);
+  const query = filterQuery.trim().toLowerCase();
+  const text = [asset.filename, asset.id, asset.alt, metadata.filename, metadata.alt, kind, assetType].filter(Boolean).join(" ").toLowerCase();
+  return channelMatch && statusMatch && (!query || text.includes(query));
+}
+
+function assetFilename(asset: MediaItem) {
+  return asset.filename || String(asset.metadata?.filename || asset.metadata?.fileName || asset.id || "Asset");
+}
+
+function ContentAssetLibrary({ groups, standaloneAssets, onOpen, onDelete }: { groups: LibraryGroup[]; standaloneAssets: MediaItem[]; onOpen: (item: ContentItem) => void; onDelete: (asset: MediaItem) => void }) {
   if (!groups.length && !standaloneAssets.length) return <EmptyState title="Todavía no hay activos" description="Cuando una app genere imágenes, vídeos o variantes para un canal, aparecerán aquí para revisarlos." />;
   const total = groups.reduce((sum, group) => sum + group.assets.length, 0);
   const published = groups.reduce((sum, group) => sum + group.assets.filter((asset) => asset.status === "published").length, 0);
@@ -141,7 +160,11 @@ function ContentAssetLibrary({ groups, standaloneAssets, onOpen }: { groups: Lib
           return <article className="ui-content-library-asset" key={asset.id || asset.path || asset.url}>
             {url ? standaloneAssetKind(asset) === "video" ? <video className="ui-content-library-visual" src={url} controls preload="metadata" aria-label={asset.filename || "Asset de producción"} /> : <img className="ui-content-library-visual" src={url} alt={asset.alt || asset.filename || "Asset de producción"} loading="lazy" decoding="async" /> : <div className="ui-content-library-visual ui-content-library-placeholder" role="img" aria-label="Asset sin vista previa"><span>Sin vista previa</span></div>}
             <div className="ui-content-library-asset-meta"><strong title={asset.filename || asset.id}>{asset.filename || asset.id || "Asset"}</strong><StatusBadge status={status} label={statusLabel(status)} /><span className="ui-muted">{String(asset.metadata?.kind || asset.kind || "producción")}</span></div>
-            {url && <a className="ui-button ui-button-ghost ui-button-sm" href={url} target="_blank" rel="noreferrer">Abrir archivo</a>}
+            <Inline gap="sm">
+              {url && <a className="ui-button ui-button-ghost ui-button-sm" href={url} target="_blank" rel="noreferrer">Abrir archivo</a>}
+              {asset.deletable !== false && asset.id && <Button variant="ghost" size="sm" onClick={() => onDelete(asset)}>Eliminar</Button>}
+              {asset.deletable === false && <span className="ui-field-hint">Protegido</span>}
+            </Inline>
           </article>;
         })}
       </div>
@@ -156,6 +179,7 @@ export function ContentBatches({ site, brandId, previewItemId, creationEnabled =
   const [plans, setPlans] = useState<ContentPlanSummary[]>([]);
   const [items, setItems] = useState<ContentItem[]>([]);
   const [standaloneAssets, setStandaloneAssets] = useState<MediaItem[]>([]);
+  const [deleteAsset, setDeleteAsset] = useState<MediaItem | null>(null);
   const [previewFallback, setPreviewFallback] = useState<ContentItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -211,14 +235,15 @@ export function ContentBatches({ site, brandId, previewItemId, creationEnabled =
     loadAbort.current = controller;
     setLoading(true); setError(""); setSetupRequired(false);
     try {
-      const [planResponse, reviewResponse, assetResponse] = await Promise.all([
+      const [planResponse, reviewResponse, assetResponse, managedAssetResponse] = await Promise.all([
         api.contentPlans(site, controller.signal),
         api.reviewItems(site, controller.signal),
         api.productionAssets(site).catch(() => ({ assets: [] })),
+        api.managedProductionAssets(site).catch(() => ({ assets: [] })),
       ]);
       if (sequence !== loadSequence.current || controller.signal.aborted) return;
       setPlans((planResponse.plans || []) as ContentPlanSummary[]);
-      setStandaloneAssets((assetResponse.assets || []) as MediaItem[]);
+      setStandaloneAssets(((managedAssetResponse.assets?.length ? managedAssetResponse.assets : assetResponse.assets) || []) as MediaItem[]);
       const nextItems = (reviewResponse.items || []).map(normalizeItem);
       let fallback: ContentItem | null = null;
       if (previewItemId && previewBatchId && !nextItems.some((entry) => entry.id === previewItemId)) {
@@ -279,6 +304,7 @@ export function ContentBatches({ site, brandId, previewItemId, creationEnabled =
     });
   }, [items, filterQuery, filterPlan, filterStatus, filterChannel, filterDate, sortOrder]);
   const libraryGroups = useMemo(() => buildLibraryGroups(visibleItems), [visibleItems]);
+  const visibleStandaloneAssets = useMemo(() => standaloneAssets.filter((asset) => standaloneMatches(asset, filterChannel, filterStatus, filterQuery)), [standaloneAssets, filterChannel, filterStatus, filterQuery]);
 
   const run = async (action: () => Promise<unknown>) => {
     if (busy) return false;
@@ -290,6 +316,14 @@ export function ContentBatches({ site, brandId, previewItemId, creationEnabled =
       if (failure) notifyError(failure);
       return !failure;
     } finally { setBusy(false); }
+  };
+  const deleteStandaloneAsset = () => {
+    if (!deleteAsset?.id) return;
+    void run(async () => {
+      await api.deleteMedia({ site, id: deleteAsset.id });
+      setDeleteAsset(null);
+      onNotify?.("Asset eliminado.", "success");
+    });
   };
   const create = async (event: FormEvent) => { event.preventDefault(); const cleanTopics = topics.split(/\r?\n|,/).map((topic) => topic.trim()).filter(Boolean); if (!cleanTopics.length) { notifyError("Añade al menos un tema."); return; } const idempotencyKey = createIdempotencyKey.current || (createIdempotencyKey.current = crypto.randomUUID()); const ok = await run(async () => { await api.createContentBatch({ site, title: title.trim() || "Campaña " + new Date().toLocaleDateString(), topics: cleanTopics, channels, brief: campaignBrief, idempotencyKey }); setTitle(""); setTopics(""); setCampaignBrief({ objective: "", audience: "", cta: "" }); setCampaignStep(0); setCreateOpen(false); }); if (ok) createIdempotencyKey.current = null; };
   const approve = (id: string) => run(() => api.approveContent(id, site));
@@ -379,7 +413,7 @@ export function ContentBatches({ site, brandId, previewItemId, creationEnabled =
           <Field label="Ordenar por"><Select value={sortOrder} onChange={(event) => updateSearchParam("sort", event.target.value, "date")}><option value="date">Próxima fecha</option><option value="status">Estado</option><option value="title">Título A-Z</option></Select></Field>
           <div className="ui-filter-summary"><span>{visibleItems.length} de {items.length} publicaciones</span>{hasActiveFilters && <Button size="sm" variant="ghost" onClick={clearFilters}>Limpiar filtros</Button>}</div>
         </ReviewToolbar>
-        {view === "library" ? <div id="content-view-panel-library" role="tabpanel" aria-labelledby="content-view-tabs-library" tabIndex={0}><ContentAssetLibrary groups={libraryGroups} standaloneAssets={standaloneAssets} onOpen={openPreview} /></div> : <div id="content-view-panel-campaigns" role="tabpanel" aria-labelledby="content-view-tabs-campaigns" tabIndex={0}>{visibleItems.length ? <Stack gap="sm">{visibleItems.map((item) => {
+        {view === "library" ? <div id="content-view-panel-library" role="tabpanel" aria-labelledby="content-view-tabs-library" tabIndex={0}><ContentAssetLibrary groups={libraryGroups} standaloneAssets={visibleStandaloneAssets} onOpen={openPreview} onDelete={setDeleteAsset} /></div> : <div id="content-view-panel-campaigns" role="tabpanel" aria-labelledby="content-view-tabs-campaigns" tabIndex={0}>{visibleItems.length ? <Stack gap="sm">{visibleItems.map((item) => {
           const status = aggregateStatus(item); const titleText = itemTitle(item); const cover = itemCover(item); const excerpt = itemExcerpt(item);
           return <Card className="ui-review-item" key={item.id}><div className="ui-card-head"><div className="ui-review-item-title">{cover ? <img className="ui-review-thumb" src={cover} alt="" loading="lazy" decoding="async" /> : <span className="ui-review-thumb" aria-hidden="true" />}<div><span className="ui-eyebrow">{item.planTitle || "Contenido"}</span><h3>{titleText}</h3>{excerpt && <p className="ui-review-excerpt">{excerpt}</p>}<p className="ui-muted">{dateSummary(item)}</p></div></div><StatusBadge status={status} label={statusLabel(status)} /></div><div className="ui-channel-list">{(item.variants || []).map((variant) => <ChannelBadge key={variant.id} channel={variant.channel} />)}</div>{item.error && <p className="ui-field-error">{item.error}</p>}<div className="ui-card-actions"><Button variant="secondary" size="sm" disabled={busy} onClick={() => setDialog({ type: "details", item })}>Canales y publicación</Button><Link className="ui-button ui-button-ghost ui-button-sm" to={contentPreviewPath(item, location.search)} state={{ returnToContentList: true }}>Vista previa</Link></div></Card>;
         })}</Stack> : <EmptyState title="No hay publicaciones con estos filtros" description="Prueba otra combinación de búsqueda, estado, canal o fecha." action={hasActiveFilters ? <Button variant="secondary" onClick={clearFilters}>Limpiar filtros</Button> : undefined} />}</div>}
@@ -428,6 +462,7 @@ export function ContentBatches({ site, brandId, previewItemId, creationEnabled =
       </Stack>}
     </Drawer>
     <Modal open={dialog?.type === "edit" || dialog?.type === "schedule"} title={dialog?.type === "edit" ? "Editar brief original" : "Agendar publicación"} onClose={() => setDialog(null)}>{dialog?.type === "edit" && <form className="ui-stack ui-stack-md" onSubmit={(event) => { event.preventDefault(); if (modalValue.trim()) void update(dialog.item.id, modalValue.trim()).then(() => setDialog(null)); }}><Field label="Brief original" hint="Cambia la consigna editorial del item. No modifica automáticamente los textos ya generados para cada canal." required><Textarea value={modalValue} onChange={(event) => setModalValue(event.target.value)} rows={6} autoFocus required /></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setDialog(null)}>Cancelar</Button><Button type="submit" loading={busy}>Guardar brief</Button></Inline></form>}{dialog?.type === "schedule" && <form className="ui-stack ui-stack-md" onSubmit={(event) => { event.preventDefault(); if (!modalValue || !scheduleChannels.length) { notifyError("Selecciona al menos un canal para agendar."); return; } void schedule(dialog.item.id, new Date(modalValue).toISOString(), scheduleChannels).then(() => setDialog(null)); }}><Field label="Fecha y hora" hint="Se usará tu zona horaria local." required><TextField type="datetime-local" value={modalValue} onChange={(event) => setModalValue(event.target.value)} autoFocus required /></Field><fieldset className="ui-field"><legend className="ui-field-label">Canales a agendar</legend><div className="ui-channel-select" role="group" aria-label="Canales a agendar">{dialog.item.variants.filter((variant) => (variant.scheduleStatus || variant.status) === "approved").map((variant) => <Checkbox key={variant.id} label={channelLabel(variant.channel)} checked={scheduleChannels.includes(variant.channel)} onChange={(event) => setScheduleChannels((current) => event.target.checked ? [...new Set([...current, variant.channel])] : current.filter((channel) => channel !== variant.channel))} />)}</div><small className="ui-field-hint">Solo aparecen canales aprobados y todavía pendientes de publicación.</small></fieldset><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setDialog(null)}>Cancelar</Button><Button type="submit" loading={busy} disabled={!scheduleChannels.length}>Agendar canales</Button></Inline></form>}</Modal>
+    <Modal open={Boolean(deleteAsset)} title="Eliminar asset" onClose={() => setDeleteAsset(null)}><Stack gap="md"><p>Se eliminará <strong>{deleteAsset ? assetFilename(deleteAsset) : "este asset"}</strong> del repositorio canónico. Esta acción no afecta contenido asociado.</p><Inline gap="md"><Button variant="ghost" onClick={() => setDeleteAsset(null)}>Cancelar</Button><Button variant="danger" loading={busy} onClick={deleteStandaloneAsset}>Eliminar definitivamente</Button></Inline></Stack></Modal>
     <Modal open={dialog?.type === "blog-edit"} title="Editar publicación" onClose={() => setDialog(null)}>{dialog?.type === "blog-edit" && <form className="ui-stack ui-stack-md" onSubmit={(event) => void savePublishedBlog(event)}><Field label="Título" hint={`${blogForm.title.length}/${CONTENT_TITLE_MAX}. La URL actual se conservará.`} required><TextField value={blogForm.title} maxLength={CONTENT_TITLE_MAX} onChange={(event) => setBlogForm((current) => ({ ...current, title: event.target.value }))} autoFocus required /></Field><Field label="Extracto"><Textarea value={blogForm.excerpt} onChange={(event) => setBlogForm((current) => ({ ...current, excerpt: event.target.value }))} rows={4} /></Field><Field label="Contenido del artículo" hint="Al guardar se despliega una nueva versión del Blog." required><Textarea value={blogForm.content} onChange={(event) => setBlogForm((current) => ({ ...current, content: event.target.value }))} rows={18} required /></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setDialog(null)}>Cancelar</Button><Button type="submit" loading={busy} disabled={!blogForm.title.trim() || !blogForm.content.trim()}>Guardar y actualizar</Button></Inline></form>}</Modal>
     <Modal open={createOpen} title="Nueva campaña" onClose={() => setCreateOpen(false)}><form className="ui-stack ui-stack-md" onSubmit={(event) => void create(event)}><div className="ui-step-list" aria-label="Pasos de la campaña"><Badge tone={campaignStep === 0 ? "info" : "success"}>1. Objetivo</Badge><Badge tone={campaignStep === 1 ? "info" : campaignStep > 1 ? "success" : "neutral"}>2. Contenido</Badge><Badge tone={campaignStep === 2 ? "info" : "neutral"}>3. Confirmar</Badge></div>{campaignStep === 0 && <Stack gap="md"><Field label="¿Qué quieres conseguir?" hint="Ayuda a la IA a elegir el enfoque y el cierre." required><Textarea value={campaignBrief.objective} onChange={(event) => setCampaignBrief((current) => ({ ...current, objective: event.target.value }))} rows={3} autoFocus required placeholder="Explicar una idea y conseguir que la audiencia pida una demo" /></Field><Field label="¿Para quién es?" hint="Describe la audiencia en una frase." required><TextField value={campaignBrief.audience} onChange={(event) => setCampaignBrief((current) => ({ ...current, audience: event.target.value }))} required placeholder="Responsables de marketing de empresas pequeñas" /></Field><Field label="Llamada a la acción" hint="Opcional. Qué quieres que haga la persona después."><TextField value={campaignBrief.cta} onChange={(event) => setCampaignBrief((current) => ({ ...current, cta: event.target.value }))} placeholder="Pide una demo" /></Field></Stack>}{campaignStep === 1 && <Stack gap="md"><Field label="Título de la campaña" hint="Puedes dejarlo vacío y se generará automáticamente."><TextField value={title} onChange={(event) => { createIdempotencyKey.current = null; setTitle(event.target.value); }} autoFocus placeholder="Campaña de septiembre" /></Field><Field label="¿Qué piezas quieres crear?" hint="Una idea por línea. La campaña las convertirá en variantes por canal." required><Textarea value={topics} onChange={(event) => { createIdempotencyKey.current = null; setTopics(event.target.value); }} rows={7} required placeholder={"La IA acelera la producción, pero el criterio se convierte en el cuello de botella\nCómo revisar UX, UI y producto antes de publicar"} /></Field></Stack>}{campaignStep === 2 && <Stack gap="md"><h3>Todo listo para preparar el borrador</h3><p className="ui-muted"><strong>{campaignBrief.objective}</strong> para {campaignBrief.audience}.</p><p>{topics.split(/\r?\n|,/).filter((topic) => topic.trim()).length} piezas · {channels.map(channelLabel).join(", ")}</p><p className="ui-field-hint">La IA guardará borradores. Una persona tendrá que revisar y aprobar cada canal antes de publicar.</p></Stack>}<Inline gap="md"><Button type="button" variant="ghost" onClick={() => campaignStep ? setCampaignStep((current) => current - 1) : setCreateOpen(false)}>Atrás</Button>{campaignStep < 2 ? <Button type="button" disabled={(campaignStep === 0 && (!campaignBrief.objective.trim() || !campaignBrief.audience.trim())) || (campaignStep === 1 && !topics.trim())} onClick={() => setCampaignStep((current) => current + 1)}>Continuar</Button> : <Button type="submit" loading={busy}>Crear borradores</Button>}</Inline></form></Modal>
   </main>;

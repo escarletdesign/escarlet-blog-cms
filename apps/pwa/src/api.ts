@@ -335,6 +335,8 @@ const baseApi = {
     ),
   productionAssets: (site?: string) =>
     request<{ assets: MediaItem[] }>(`/api/v2/assets${site ? `?site=${encodeURIComponent(site)}` : ""}`),
+  managedProductionAssets: (site?: string) =>
+    request<{ assets: MediaItem[] }>(`/api/v2/assets/manage${site ? `?site=${encodeURIComponent(site)}` : ""}`),
   uploadProductionAsset: (input: { site?: string; filename: string; contentBase64: string; alt?: string; idempotencyKey?: string }) =>
     request<{ asset: Record<string, unknown>; media: MediaItem }>("/api/v2/assets/upload", {
       method: "POST",
