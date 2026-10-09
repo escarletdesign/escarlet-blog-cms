@@ -361,7 +361,7 @@ function motionProfile(formatProfile = '') {
   return { channel: 'instagram', format: 'reel' }
 }
 
-const MOTION_ASSET_ROLES = new Set(['source', 'background', 'foreground', 'overlay', 'logo', 'audio', 'reference'])
+const MOTION_ASSET_ROLES = new Set(['source', 'slide', 'background', 'foreground', 'overlay', 'logo', 'audio', 'reference'])
 
 function normalizeMotionAssets(args = {}) {
   const declared = [
@@ -502,6 +502,7 @@ async function motionScope(args, auth, runtime) {
 }
 
 async function composeMotionJob(args, auth, runtime) {
+  if (args.runId && !args.sourceMediaId && !args.motionAssets && !args.inputs && !args.scenes) return motionJobAction(args, auth, runtime, 'status')
   const motionAssets = normalizeMotionAssets(args)
   const sourceMediaId = String(args.sourceMediaId || motionAssets.find((asset) => ['source', 'foreground'].includes(asset.role))?.assetId || motionAssets.find((asset) => !['audio', 'logo', 'background', 'reference'].includes(asset.role))?.assetId || motionAssets.find((asset) => asset.role !== 'audio' && asset.role !== 'logo')?.assetId || '').trim()
   if (!sourceMediaId) throw Object.assign(new Error('production.motion.compose necesita al menos un asset de entrada.'), { code: 'motion_input_required', status: 422 })

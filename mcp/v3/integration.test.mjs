@@ -338,6 +338,24 @@ test('motion no declara audio suministrado sin un asset de audio', async () => {
   assert.equal(result.structuredContent.error.code, 'motion_audio_required')
 })
 
+test('motion acepta el rol slide y puede consultar un runId sin reenviar assets', async () => {
+  const runtime = testRuntime()
+  const server = createMcpServerV3Sync({ role: 'agent', site: 'escarlet', workspaceId: 'test-workspace', siteId: 'test-site' }, { runtime })
+  const created = await call(server, 'production.motion.compose', {
+    site: 'escarlet',
+    formatProfile: 'instagram_reel',
+    motionAssets: [{ assetId: 'slide-01', role: 'slide', kind: 'image' }],
+    scenes: [{ assetId: 'slide-01', durationMs: 4000 }],
+    idempotencyKey: 'motion:slide-role-test'
+  })
+  assert.equal(created.isError, false, JSON.stringify(created.structuredContent))
+  runtime.getVideoJob = async ({ videoJobId }) => ({ id: videoJobId, status: 'queued', metadata: {}, outputs: [], terminal: false, retryable: false })
+  const status = await call(server, 'production.motion.compose', { site: 'escarlet', runId: created.structuredContent.runId })
+  assert.equal(status.isError, false, JSON.stringify(status.structuredContent))
+  assert.equal(status.structuredContent.runId, created.structuredContent.runId)
+  assert.equal(status.structuredContent.status, 'queued')
+})
+
 test('las rutas de integración conservan errores accionables y permisos', async () => {
   const server = createMcpServerV3Sync({ role: 'agent', site: 'escarlet' }, { runtime: testRuntime() })
   const missingInput = await call(server, 'production.motion.compose', { site: 'escarlet', formatProfile: 'instagram_reel' })
