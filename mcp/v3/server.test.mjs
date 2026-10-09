@@ -24,6 +24,7 @@ test('MCP v3 publica solo tools namespaced y excluye nombres legacy', async () =
   assert.ok(listed.tools.some((tool) => tool.name === 'asset.list'))
   assert.ok(listed.tools.some((tool) => tool.name === 'asset.delete'))
   assert.ok(listed.tools.some((tool) => tool.name === 'recipe.run'))
+  for (const name of ['production.motion.status.get', 'production.motion.retry', 'production.motion.cancel']) assert.ok(listed.tools.some((tool) => tool.name === name), name)
   for (const tool of listed.tools) {
     assert.match(tool.name, /^[a-z][a-z0-9]*(?:\.[a-z0-9_-]+)+$/)
     assert.doesNotMatch(tool.name, /^(?:blog|social|content|video|brand)_/)

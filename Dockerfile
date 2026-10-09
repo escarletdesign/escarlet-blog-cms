@@ -4,6 +4,12 @@ FROM node:20-bookworm-slim
 
 WORKDIR /app
 
+# The persistent worker renders local motion jobs with FFmpeg. Keep the binary
+# in the same image as the API so Coolify does not need a second worker image.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY package.json package-lock.json ./
 # Coolify can expose NODE_ENV=production while building the image. Vite and
 # TypeScript are devDependencies, so explicitly include them for the build;
@@ -24,6 +30,7 @@ RUN mkdir -p /app/data/media /app/data/brand /app/data/site-config
 ENV PORT=3040
 ENV NODE_ENV=production
 ENV WORKER_ENABLED=1
+ENV FFMPEG_PATH=/usr/bin/ffmpeg
 # Safe default for deployments: content generation comes from ChatGPT via MCP
 # or the manual editor until CMS_AI_ENABLED=1 is explicitly configured.
 ENV CMS_AI_ENABLED=0
