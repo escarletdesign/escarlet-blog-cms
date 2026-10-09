@@ -899,6 +899,18 @@ button.ui-calendar-item:focus-visible { outline: 2px solid var(--ui-accent); out
 .ui-page-back { display: block; margin-bottom: 14px; }
 .ui-page-back > a { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 7px 11px; border: 1px solid var(--ui-border-strong); border-radius: 9px; color: var(--ui-text); background: transparent; font-size: .8rem; font-weight: 750; text-decoration: none; }
 .ui-page-back > a:hover, .ui-page-back > a:focus-visible { color: var(--ui-accent); border-color: var(--ui-accent); outline: none; background: rgba(185,251,84,.08); }
+.os-apps-page { width: min(100%, 1240px); max-width: 1240px; }
+.os-app-guide { margin-bottom: var(--ui-space-5); }
+.os-app-guide .ui-card { background: var(--ui-surface-raised); }
+.os-app-steps { display: grid; gap: var(--ui-space-2); margin: var(--ui-space-4) 0 0; padding-left: var(--ui-space-6); color: var(--ui-muted); line-height: 1.5; }
+.os-app-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--ui-space-4); }
+.os-app-card { display: grid; align-content: start; gap: var(--ui-space-3); min-height: 220px; }
+.os-app-card .ui-card-head { min-height: 56px; }
+.os-app-card .ui-muted { margin: 0; min-height: 64px; }
+.os-app-tags { display: flex; flex-wrap: wrap; gap: var(--ui-space-2); min-height: 26px; }
+.os-app-card .ui-inline { align-self: end; }
+@media (max-width: 980px) { .os-app-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 620px) { .os-app-grid { grid-template-columns: 1fr; } .os-app-card { min-height: 0; } }
 .ui-channel-badge { color: var(--ui-text); border-color: var(--ui-border-strong); background: rgba(255,255,255,.04); }
 .ui-channel-blog { color: #ffd27a; }
 .ui-channel-instagram { color: #f3a7cf; }

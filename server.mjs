@@ -1925,6 +1925,40 @@ async function handleRequest(req, res) {
     return
   }
 
+  if (req.method === 'GET' && path === '/api/v3/catalog') {
+    try {
+      const scope = await requireV2Context(req, url, res, { site: url.searchParams.get('site') || '' })
+      if (!scope) return
+      const auth = {
+        ...scope.auth,
+        workspaceId: scope.workspaceId,
+        siteId: scope.siteId,
+        site: scope.context.siteHandle,
+        role: scope.context.role
+      }
+      const [guide, capabilities, recipes] = await Promise.all([
+        invokeMcpToolV3('capability.guide', { goal: url.searchParams.get('goal') || '' }, auth),
+        invokeMcpToolV3('capability.search', { type: 'primitive' }, auth),
+        invokeMcpToolV3('recipe.list', {}, auth)
+      ])
+      const failed = [guide, capabilities, recipes].find((result) => result.isError)
+      if (failed) {
+        const error = failed.structuredContent?.error || {}
+        json(res, Number(error.status) || 500, error)
+        return
+      }
+      json(res, 200, {
+        contractVersion: 'os.production.v1',
+        guide: guide.structuredContent,
+        capabilities: capabilities.structuredContent.capabilities,
+        recipes: recipes.structuredContent.recipes
+      })
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message, code: error.code })
+    }
+    return
+  }
+
   if (req.method === 'POST' && path === '/api/v3/recipes/run') {
     let body = {}
     try {

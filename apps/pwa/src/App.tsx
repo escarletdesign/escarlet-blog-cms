@@ -33,6 +33,8 @@ import { ContentBatches as ContentPlans } from "./ContentBatches";
 import { DesignSystem } from "./DesignSystem";
 import { FoodToReel } from "./FoodToReel";
 import { Publisher } from "./Publisher";
+import { AppsDashboard } from "./AppsDashboard";
+import { ProductToSocial } from "./ProductToSocial";
 import { Badge, Button, Card, ChannelBadge, Checkbox, ConnectionCard, Drawer, EmptyState as UiEmptyState, Field, IconButton, Inline, Modal, MultiSelectPills, PageHeader, Select, Stack, StatusBadge, Tabs, TeleprompterLineControls, TextField, Toast as UiToast } from "./ui";
 
 type Draft = Partial<Post> & { title: string; slug?: string };
@@ -556,7 +558,10 @@ function App() {
                 </>
               ) : <Route element={<Shell />}>
                 <Route path="/" element={<Home />} />
+                <Route path="/apps" element={<AppsDashboard site={site} t={t} />} />
                 <Route path="/production/food-to-reel" element={<FoodToReel site={site} t={t} />} />
+                <Route path="/production/menu-to-reel" element={<FoodToReel site={site} t={t} recipeId="recipe.menu-to-reel" />} />
+                <Route path="/production/product-to-social" element={<ProductToSocial site={site} t={t} />} />
                 <Route path="/publication/publisher" element={<Publisher site={site} t={t} />} />
                 {workflowFlags.assistantEnabled && brandCapabilities.content_publishing !== false && <Route path="/chat" element={<Chat />} />}
                 {workflowFlags.manualCreationEnabled && workflowFlags.blogWizardEnabled && brandCapabilities.content_publishing !== false && <Route path="/quick-create" element={<QuickCreate />} />}
@@ -908,6 +913,7 @@ function Shell() {
   const adminUser = isWorkspaceAdmin(session);
   const links = [
     { to: "/", label: t("nav.home", "Resumen"), icon: "home" },
+    { to: "/apps", label: t("nav.apps", "Apps"), icon: "apps" },
     { to: "/plans", label: t("nav.plans", "Contenido"), icon: "plans" },
     { to: "/production/food-to-reel", label: t("nav.foodToReel", "Food to Reel"), icon: "video" },
     ...(publishingEnabled ? [{ to: "/publication/publisher", label: t("nav.publisher", "Publisher"), icon: "send" }] : []),
@@ -1130,6 +1136,7 @@ function NavIcon({ kind }: { kind: string }) {
   const common = { className: "nav-icon", viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.55, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
   if (kind === "assistant") return <svg {...common}><path d="m10 2 1.5 5.2L17 9l-5.5 1.8L10 16l-1.5-5.2L3 9l5.5-1.8Z" /><path d="m16 13 .6 2.1L19 16l-2.4.9L16 19l-.6-2.1L13 16l2.4-.9Z" /></svg>;
   if (kind === "home") return <svg {...common}><path d="m3.5 9 6.5-5 6.5 5v6.2a1.3 1.3 0 0 1-1.3 1.3H4.8a1.3 1.3 0 0 1-1.3-1.3Z" /><path d="M8 16.5v-4h4v4" /></svg>;
+  if (kind === "apps") return <svg {...common}><rect x="3" y="3" width="5" height="5" rx="1" /><rect x="12" y="3" width="5" height="5" rx="1" /><rect x="3" y="12" width="5" height="5" rx="1" /><rect x="12" y="12" width="5" height="5" rx="1" /></svg>;
   if (kind === "review") return <svg {...common}><rect x="3" y="2.8" width="14" height="14.4" rx="2" /><path d="m6 7.5 1.2 1.2L9.6 6M11 7.5h3M6 12l1.2 1.2L9.6 10.5M11 12h3" /></svg>;
   if (kind === "plans") return <svg {...common}><rect x="4" y="4" width="11" height="12" rx="1.5" /><path d="M7 2.5h8.5A1.5 1.5 0 0 1 17 4v10.5M7 8h5M7 11h5" /></svg>;
   if (kind === "video") return <svg {...common}><rect x="3" y="5" width="14" height="10" rx="2" /><path d="m8 8 4 2-4 2Z" /></svg>;
@@ -1241,6 +1248,7 @@ function Home() {
         </div>
         <RecentPosts />
         <div className="quick-actions">
+          <button onClick={() => nav("/apps")}>{t("home.apps", "Explorar apps")}</button>
           <button onClick={() => nav("/calendar")}>{t("home.calendar")}</button>
           {isWorkspaceAdmin(session) && (
             <button onClick={() => nav("/admin")}>{t("home.openAdmin")}</button>

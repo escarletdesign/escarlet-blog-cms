@@ -259,7 +259,7 @@ async function prepareProductTransform(args, auth) {
       return { contractVersion: 'os.production.v1', capability: 'production.image.product.transform', runId: record.preparationId, status: 'ready_for_review', sourceAsset, assets: [{ assetId: asset.id, kind: 'image', mimeType: asset.mimeType, sha256: asset.sha256 }], preparation: { ...record, state: 'receipted' }, provenance: { sourceAssetId, brandKitVersionId: prepared.brandKitVersionId, brandKitSnapshotHash: prepared.brandKitSnapshotHash, preparationId: record.preparationId }, effects: { assetCreated: false, providerExecution: false, mutatesProvider: false }, nextAction: 'human_review', idempotentReplay: true }
     }
   }
-  const localProductSupported = !['social_image', 'instagram_story', 'instagram_background'].includes(prepared.assetType)
+  const localProductSupported = Boolean(sourceRow?.storage_key)
   if (!prepared.generationBlocked && localProductSupported && process.env.PRODUCT_RENDERER_LOCAL !== 'false' && sourceRow?.storage_key) {
     const root = resolvePath(mediaDir)
     const relative = String(sourceRow.storage_key).replace(/^\/?media\//, '').replace(/^\/+/, '')
@@ -302,7 +302,7 @@ function recipeId(value) {
 
 async function runRecipe(args, auth) {
   const id = recipeId(args.recipeId || args.recipe || 'food-to-reel')
-  if (!['food-to-reel', 'menu-to-reel'].includes(id)) {
+  if (!['food-to-reel', 'menu-to-reel', 'product-to-social'].includes(id)) {
     throw Object.assign(new Error(`La recipe ${id || '(vacía)'} todavía no tiene ejecutor.`), { code: 'recipe_executor_missing', status: 501 })
   }
   const text = String(args.text || args.menuText || '').trim()
@@ -318,6 +318,31 @@ async function runRecipe(args, auth) {
       status: 'blocked',
       copy,
       review: { required: true, status: 'copy_blocked', next: 'fix_copy' }
+    }
+  }
+  if (id === 'product-to-social') {
+    const sourceMediaId = String(args.sourceMediaId || args.sourceAssetId || '').trim()
+    if (!sourceMediaId) throw Object.assign(new Error('La recipe product-to-social necesita sourceMediaId.'), { code: 'product_source_required', status: 422 })
+    const product = await invokeBuiltinCapability('production.image.product.transform', {
+      ...args,
+      site,
+      sourceAssetId: sourceMediaId,
+      topic: text,
+      formatProfile: args.formatProfile || 'instagram_post'
+    }, { auth })
+    const assetIds = (product.assets || []).map((asset) => asset.assetId || asset.id).filter(Boolean)
+    const destinations = product.status === 'ready_for_review'
+      ? await invokeBuiltinCapability('publication.destination.list', { ...args, site, assetIds, assets: product.assets || [], channel: args.channel || 'instagram_post', formatProfile: args.formatProfile || 'instagram_post' }, { auth })
+      : { destinations: [] }
+    return {
+      contractVersion: 'os.production.v1',
+      recipe: `recipe.${id}`,
+      runId: product.runId || null,
+      status: product.status,
+      copy,
+      product,
+      destinations,
+      review: { required: true, status: product.status === 'ready_for_review' ? 'pending' : product.status, next: product.status === 'ready_for_review' ? 'human_approval' : product.nextAction }
     }
   }
   const motion = await composeMotionJob({

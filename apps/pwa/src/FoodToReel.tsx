@@ -21,6 +21,7 @@ type FoodToReelStatus = "idle" | "loading" | "queued" | "review" | "error";
 export type FoodToReelProps = {
   site: string;
   t: (key: string, fallback?: string) => string;
+  recipeId?: string;
 };
 
 function imageSource(media: MediaItem) {
@@ -52,7 +53,7 @@ function errorText(error: unknown, fallback: string) {
 const MAX_DEVICE_IMAGE_BYTES = 12 * 1024 * 1024;
 const DEVICE_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 
-export function FoodToReel({ site, t }: FoodToReelProps) {
+export function FoodToReel({ site, t, recipeId = "recipe.food-to-reel" }: FoodToReelProps) {
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [mediaLoading, setMediaLoading] = useState(true);
   const [mediaError, setMediaError] = useState("");
@@ -159,7 +160,7 @@ export function FoodToReel({ site, t }: FoodToReelProps) {
       if (!sourceMediaId) throw new Error(t("foodReel.imageRequired", "Selecciona o sube una imagen para continuar."));
       const result = await api.runRecipe({
         site,
-        recipeId: "recipe.food-to-reel",
+        recipeId,
         sourceMediaId,
         channel: "instagram_reel",
         formatProfile: "instagram_reel",
@@ -206,8 +207,8 @@ export function FoodToReel({ site, t }: FoodToReelProps) {
     <main className="ui-page">
       <PageHeader
         eyebrow={t("foodReel.eyebrow", "MICRO APP · PRODUCCIÓN")}
-        title={t("foodReel.title", "Imagen y texto a Reel")}
-        description={t("foodReel.description", "Combina una imagen de comida y su explicación para preparar un Reel de Instagram con la identidad de tu marca.")}
+        title={recipeId === "recipe.menu-to-reel" ? t("menuReel.title", "Menú del día a Reel") : t("foodReel.title", "Imagen y texto a Reel")}
+        description={recipeId === "recipe.menu-to-reel" ? t("menuReel.description", "Convierte la imagen y el texto del menú del día en un Reel revisable con la identidad de tu marca.") : t("foodReel.description", "Combina una imagen de comida y su explicación para preparar un Reel de Instagram con la identidad de tu marca.")}
       />
       <div className="ui-brand-detail-grid">
         <Card>

@@ -68,11 +68,14 @@ Por MCP v3, usa `capability.search` y después fija la marca con `brand.context.
 
 Deploy producción. [docs/DEPLOY.md](docs/DEPLOY.md).
 
+Extender el sistema. [docs/MICROAPP-DEVELOPMENT.md](docs/MICROAPP-DEVELOPMENT.md).
+
 ## MCP v3 tools
 
 | Tool | Uso |
 |------|-----|
-| `capability.search` / `recipe.get` / `recipe.run` | Descubrir y ejecutar recipes compuestas hasta revisión |
+| `capability.guide` / `capability.search` / `capability.get` | Explicar el MCP a un agente nuevo y descubrir el contrato correcto |
+| `recipe.list` / `recipe.get` / `recipe.run` | Descubrir y ejecutar recipes compuestas hasta revisión |
 | `brand.context.get` / `brand.voice.get` | Leer contexto y voz del snapshot activo |
 | `brand.visual_style.get` / `brand.rules.get` | Leer estilo visual y reglas publicables |
 | `brand.references.resolve` | Fijar referencias visuales permitidas |
@@ -84,7 +87,7 @@ Deploy producción. [docs/DEPLOY.md](docs/DEPLOY.md).
 | `publication.schedule` / `publication.publish` | Programar o publicar solo después de aprobación humana |
 | `publication.status.get` | Consultar estado interno y externo |
 
-La PWA incluye las micro apps `/app/production/food-to-reel` y `/app/publication/publisher`. Con `MOTION_RENDERER_LOCAL=true` el worker produce un MP4 local revisable; `PRODUCT_RENDERER_LOCAL=true` habilita la transformación determinista de producto. Ambos valores pueden desactivarse para exigir un proveedor externo.
+La PWA incluye el dashboard `/app/apps`, las micro apps `/app/production/food-to-reel`, `/app/production/menu-to-reel`, `/app/production/product-to-social` y `/app/publication/publisher`. Con `MOTION_RENDERER_LOCAL=true` el worker produce un MP4 local revisable; `PRODUCT_RENDERER_LOCAL=true` habilita la transformación determinista de producto. Ambos valores pueden desactivarse para exigir un proveedor externo.
 
 Resources. `escarlet://capabilities/index`, `escarlet://recipes/index` y `escarlet://brand/kernel` exponen el índice y el contrato. Los archivos fuente privados solo se gestionan desde la app por owner/admin.
 

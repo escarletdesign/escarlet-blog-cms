@@ -40,7 +40,10 @@ La primera vertical ya está integrada en el monolito modular:
 - `production.motion.compose` ya crea un `video_job` idempotente en estado `queued`; el proveedor `local` usa FFmpeg para producir un MP4 vertical con copy, fundidos y asset fuente, mientras los proveedores externos siguen en handoff explícito.
 - `production.image.product.transform` conserva el original y puede crear una composición local determinista con procedencia y receipt; si se necesita una edición generativa, deja el envelope en `awaiting_provider` hasta conectar un ejecutor autorizado.
 - `recipe.run` ejecuta `food-to-reel` y `menu-to-reel` con texto y audio opcional hasta la cola, validación de copy, destinos y revisión humana. No publica automáticamente.
+- `recipe.run` también ejecuta `product-to-social`: transforma el asset original, conserva procedencia y devuelve destinos compatibles sin publicar.
 - La PWA incluye `/publication/publisher`: muestra solo combinaciones de canal y proveedor conectadas, prepara un bundle revisable y no envía credenciales ni contenido a un proveedor antes de la aprobación.
+- La PWA incluye `/apps`, un dashboard alimentado por `GET /api/v3/catalog`; cada tarjeta usa el mismo manifest que MCP y solo ofrece una acción directa cuando existe una UI autorizada.
+- `capability.guide` explica el protocolo a un agente nuevo y está cubierto por una simulación que descubre, inspecciona y valida errores antes de ejecutar.
 
 ## Qué existe hoy
 

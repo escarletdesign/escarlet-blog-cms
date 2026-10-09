@@ -83,6 +83,34 @@ function listRecipes(catalog, auth, args = {}) {
   return { contractVersion: MCP_V3_CONTRACT, recipes }
 }
 
+function agentGuide(catalog, auth, args = {}) {
+  const goal = String(args.goal || '').trim()
+  const recipes = catalog.recipes
+    .filter((entry) => canUseCapability(auth, entry))
+    .map((entry) => ({ id: entry.id, description: entry.description, inputKeys: Object.keys(entry.inputSchema?.properties || {}), reviewRequired: entry.humanReviewRequired === true }))
+  return {
+    contractVersion: MCP_V3_CONTRACT,
+    goal: goal || null,
+    firstSteps: [
+      'Llama capability.search o recipe.list para encontrar una capability autorizada. Si es tu primera vez, usa capability.get o recipe.get antes de ejecutar.',
+      'Fija site o brandId y llama brand.context.get para trabajar con el Brand Kit versionado correcto.',
+      'Entrega referencias de artefactos con assetId y, cuando exista, sha256. No envíes blobs ni credenciales entre capabilities.',
+      'Ejecuta una recipe solo con los inputs que indique su manifest. El resultado queda ready_for_review y no se publica automáticamente.',
+      'Para publicar, usa publication.destination.list, publication.prepare y después espera aprobación humana antes de schedule o publish.'
+    ],
+    rules: [
+      'Las capabilities usan nombres namespaced y los IDs de recipes usan el prefijo recipe.',
+      'Una respuesta con status blocked, awaiting_provider o failed requiere una acción explícita, no un reintento ciego.',
+      'La publicación es una frontera separada: ninguna capability creativa recibe credenciales de proveedores.'
+    ],
+    examples: [
+      { intent: 'Crear un Reel de un plato', discover: { tool: 'recipe.list', arguments: { query: 'food reel' } }, inspect: { tool: 'recipe.get', arguments: { recipeId: 'recipe.food-to-reel' } }, execute: { tool: 'recipe.run', arguments: { recipeId: 'recipe.food-to-reel', site: '<site>', sourceMediaId: '<assetId>', text: '<descripción del plato>', formatProfile: 'instagram_reel' } } },
+      { intent: goal || 'Preparar una publicación', discover: { tool: 'capability.search', arguments: { query: 'publication' } }, inspect: { tool: 'capability.get', arguments: { capabilityId: 'publication.destination.list' } } }
+    ],
+    recipes
+  }
+}
+
 async function invokeRegisteredCapability(catalog, capability, name, args, auth) {
   if (typeof catalog.invoke === 'function') return catalog.invoke(name, args, { auth, capability, contractVersion: MCP_V3_CONTRACT })
   if (typeof capability?.handler === 'function') return capability.handler(args, { auth, capability, contractVersion: MCP_V3_CONTRACT })
@@ -97,6 +125,7 @@ async function invokeRegisteredCapability(catalog, capability, name, args, auth)
 }
 
 async function callCapability(catalog, auth, name, args) {
+  if (name === 'capability.guide') return agentGuide(catalog, auth, args)
   if (name === 'capability.search') return searchCapabilities(catalog, auth, args)
   if (name === 'capability.get') {
     const capability = findCapability(catalog, args?.capabilityId || args?.id)

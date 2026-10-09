@@ -65,6 +65,14 @@ function manifest({
 
 export const BUILTIN_CAPABILITIES = Object.freeze([
   manifest({
+    id: 'capability.guide',
+    description: 'Explica a un agente nuevo cómo descubrir la marca, elegir una recipe y dejar el resultado para revisión humana.',
+    inputSchema: { type: 'object', properties: { goal: { type: 'string', maxLength: 160 } }, additionalProperties: false },
+    outputSchema: { type: 'object', properties: { firstSteps: { type: 'array' }, rules: { type: 'array' }, examples: { type: 'array' } }, required: ['firstSteps', 'rules', 'examples'], additionalProperties: false },
+    permissions: [],
+    tags: ['discovery', 'onboarding', 'agent']
+  }),
+  manifest({
     id: 'capability.search',
     description: 'Busca capabilities autorizadas por propósito, input, output o etiqueta.',
     inputSchema: {
@@ -73,6 +81,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
       additionalProperties: false
     },
     outputSchema: { type: 'object', properties: { capabilities: { type: 'array' } }, required: ['capabilities'], additionalProperties: false },
+    permissions: [],
     tags: ['discovery']
   }),
   manifest({
@@ -80,6 +89,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     description: 'Devuelve el manifest completo de una capability autorizada, incluidos sus schemas y efectos.',
     inputSchema: { type: 'object', properties: { capabilityId: { type: 'string', minLength: 1 }, version: { type: 'string' } }, required: ['capabilityId'], additionalProperties: false },
     outputSchema: { type: 'object', properties: { capability: { type: 'object' } }, required: ['capability'], additionalProperties: false },
+    permissions: [],
     tags: ['discovery']
   }),
   manifest({
@@ -87,6 +97,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     description: 'Lista recetas autorizadas sin ejecutar ningún paso.',
     inputSchema: { type: 'object', properties: { query: { type: 'string', maxLength: 160 }, tag: { type: 'string', maxLength: 80 } }, additionalProperties: false },
     outputSchema: { type: 'object', properties: { recipes: { type: 'array' } }, required: ['recipes'], additionalProperties: false },
+    permissions: [],
     tags: ['discovery', 'composition']
   }),
   manifest({
@@ -94,6 +105,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     description: 'Devuelve una receta registrada y sus dependencias declaradas.',
     inputSchema: { type: 'object', properties: { recipeId: { type: 'string', minLength: 1 } }, required: ['recipeId'], additionalProperties: false },
     outputSchema: { type: 'object', required: ['recipe'], additionalProperties: false },
+    permissions: [],
     tags: ['discovery', 'composition']
   }),
   manifest({
@@ -101,7 +113,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     description: 'Ejecuta una recipe compuesta y devuelve sus trabajos, validaciones y siguiente revisión.',
     inputSchema: { type: 'object', properties: { recipeId: { type: 'string' }, site: { type: 'string' }, brandId: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, brandKitVersionId: { type: 'string' }, inputs: { type: 'array', items: assetReferenceSchema }, sourceMediaId: { type: 'string' }, audioAssetId: { type: 'string' }, contentItemId: { type: 'string' }, text: { type: 'string', maxLength: 50000 }, menuText: { type: 'string', maxLength: 50000 }, purpose: { type: 'string' }, audience: { type: 'string' }, cta: { type: 'string' }, formatProfile: { type: 'string' }, channel: { type: 'string' }, provider: { type: 'string' }, idempotencyKey: { type: 'string' }, createContentIfMissing: { type: 'boolean' } }, additionalProperties: false },
     outputSchema: { type: 'object', required: ['recipe', 'runId', 'status', 'review'], additionalProperties: true },
-    permissions: ['brand:read', 'asset:read', 'copy:validate', 'production:motion'],
+    permissions: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'production:motion', 'publication:read'],
     sideEffects: 'write',
     humanReviewRequired: true,
     tags: ['composition', 'recipe', 'workflow']
