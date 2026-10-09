@@ -205,6 +205,17 @@ test('Publisher valida, persiste idempotencia, exige aprobación y expone estado
   assert.equal(replay.structuredContent.publicationId, prepared.structuredContent.publicationId)
   assert.equal(replay.structuredContent.persistence.deduplicated, true)
 
+  const scheduled = await call(server, 'publication.schedule', {
+    ...preparedArgs,
+    idempotencyKey: 'publication:schedule',
+    publicationDate: '2099-01-01T10:00:00Z',
+    approval: { status: 'approved', approvedBy: 'test-user', approvedAt: '2099-01-01T00:00:00Z' }
+  })
+  assert.equal(scheduled.isError, false)
+  assert.equal(scheduled.structuredContent.state, 'schedule_requested')
+  assert.equal(scheduled.structuredContent.persistence.persisted, true)
+  assert.equal(scheduled.structuredContent.effects.providerExecution, false)
+
   const pending = await call(server, 'publication.publish', { ...preparedArgs, idempotencyKey: 'publication:publish', approval: { status: 'pending' } })
   assert.equal(pending.isError, true)
   assert.equal(pending.structuredContent.error.code, 'publication_approval_required')
