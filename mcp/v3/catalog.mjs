@@ -26,6 +26,43 @@ const motionAssetReferenceSchema = {
   additionalProperties: false
 }
 
+const motionTransitionSchema = {
+  type: 'object',
+  properties: {
+    type: { type: 'string', enum: ['none', 'crossfade', 'fade', 'wipeleft', 'wiperight', 'slideleft', 'slideright', 'circleopen', 'fadeblack', 'fadewhite'], description: 'Transición segura de FFmpeg. crossfade es un alias de fade.' },
+    durationMs: { type: 'integer', minimum: 0, maximum: 1000, description: 'Duración del solapamiento entre escenas.' }
+  },
+  additionalProperties: false
+}
+
+const motionSceneSchema = {
+  type: 'object',
+  properties: {
+    sceneId: { type: 'string', maxLength: 120 },
+    assetId: { type: 'string' },
+    backgroundAssetId: { type: 'string' },
+    headline: { type: 'string', maxLength: 160 },
+    body: { type: 'string', maxLength: 1000 },
+    durationMs: { type: 'integer', minimum: 0, maximum: 120000 },
+    fit: { type: 'string', enum: ['contain', 'cover'] },
+    motionPreset: { type: 'string', enum: ['none', 'subtle_editorial', 'dynamic_editorial'] },
+    textAnimation: { type: 'string', enum: ['none', 'fade_in', 'fade_up', 'slide_left', 'slide_right'], description: 'Animación del copy seguro por escena. Se aplica sólo en layered_motion.' }
+  },
+  required: ['assetId'],
+  additionalProperties: false
+}
+
+const motionCopyBlockSchema = {
+  type: 'object',
+  properties: {
+    sceneId: { type: 'string', maxLength: 120 },
+    headline: { type: 'string', maxLength: 160 },
+    body: { type: 'string', maxLength: 1000 },
+    durationMs: { type: 'integer', minimum: 0, maximum: 120000 }
+  },
+  additionalProperties: false
+}
+
 const runSchema = {
   type: 'object',
   properties: {
@@ -130,7 +167,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
   manifest({
     id: 'recipe.run',
     description: 'Ejecuta una recipe compuesta y devuelve sus trabajos, validaciones y siguiente revisión.',
-    inputSchema: { type: 'object', properties: { recipeId: { type: 'string' }, site: { type: 'string' }, brandId: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, brandKitVersionId: { type: 'string' }, inputs: { type: 'array', items: motionAssetReferenceSchema, maxItems: 50 }, motionAssets: { type: 'array', items: motionAssetReferenceSchema, maxItems: 50 }, sourceMediaId: { type: 'string' }, audioAsset: motionAssetReferenceSchema, audioAssetId: { type: 'string' }, logoAssetId: { type: 'string' }, backgroundAssetId: { type: 'string' }, contentItemId: { type: 'string' }, renderMode: { type: 'string', enum: ['flat_slides', 'layered_motion'] }, audioMode: { type: 'string', enum: ['none', 'supplied'] }, backgroundMode: { type: 'string', enum: ['blurred_source', 'brand_color', 'generated'] }, motionPreset: { type: 'string', enum: ['none', 'subtle_editorial'] }, transition: { type: 'object', properties: { type: { type: 'string', enum: ['none', 'crossfade'] }, durationMs: { type: 'integer', minimum: 0, maximum: 1000 } }, additionalProperties: false }, scenes: { type: 'array', maxItems: 50, items: { type: 'object', properties: { sceneId: { type: 'string', maxLength: 120 }, assetId: { type: 'string' }, backgroundAssetId: { type: 'string' }, headline: { type: 'string', maxLength: 160 }, body: { type: 'string', maxLength: 1000 }, durationMs: { type: 'integer', minimum: 0, maximum: 120000 }, fit: { type: 'string', enum: ['contain', 'cover'] } }, required: ['assetId'], additionalProperties: false } }, text: { type: 'string', maxLength: 50000 }, script: { type: 'string', maxLength: 50000 }, copyBlocks: { type: 'array', maxItems: 50, items: { type: 'object', properties: { sceneId: { type: 'string', maxLength: 120 }, headline: { type: 'string', maxLength: 160 }, body: { type: 'string', maxLength: 1000 }, durationMs: { type: 'integer', minimum: 0, maximum: 120000 } }, additionalProperties: false } }, menuText: { type: 'string', maxLength: 50000 }, purpose: { type: 'string' }, audience: { type: 'string' }, cta: { type: 'string' }, formatProfile: { type: 'string' }, channel: { type: 'string' }, provider: { type: 'string' }, idempotencyKey: { type: 'string' }, createContentIfMissing: { type: 'boolean' } }, additionalProperties: false },
+    inputSchema: { type: 'object', properties: { recipeId: { type: 'string' }, site: { type: 'string' }, brandId: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, brandKitVersionId: { type: 'string' }, inputs: { type: 'array', items: motionAssetReferenceSchema, maxItems: 50 }, motionAssets: { type: 'array', items: motionAssetReferenceSchema, maxItems: 50 }, sourceMediaId: { type: 'string' }, audioAsset: motionAssetReferenceSchema, audioAssetId: { type: 'string' }, logoAssetId: { type: 'string' }, backgroundAssetId: { type: 'string' }, contentItemId: { type: 'string' }, renderMode: { type: 'string', enum: ['flat_slides', 'layered_motion'] }, audioMode: { type: 'string', enum: ['none', 'supplied'] }, backgroundMode: { type: 'string', enum: ['blurred_source', 'brand_color', 'generated'] }, motionPreset: { type: 'string', enum: ['none', 'subtle_editorial', 'dynamic_editorial'] }, transition: motionTransitionSchema, scenes: { type: 'array', maxItems: 50, items: motionSceneSchema }, text: { type: 'string', maxLength: 50000 }, script: { type: 'string', maxLength: 50000 }, copyBlocks: { type: 'array', maxItems: 50, items: motionCopyBlockSchema }, menuText: { type: 'string', maxLength: 50000 }, purpose: { type: 'string' }, audience: { type: 'string' }, cta: { type: 'string' }, formatProfile: { type: 'string' }, channel: { type: 'string' }, provider: { type: 'string' }, idempotencyKey: { type: 'string' }, createContentIfMissing: { type: 'boolean' } }, additionalProperties: false },
     outputSchema: { type: 'object', properties: { recipe: { type: 'string' }, runId: { type: ['string', 'null'] }, status: { type: 'string' }, review: { type: 'object' } }, required: ['recipe', 'runId', 'status', 'review'], additionalProperties: true },
     permissions: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'production:motion', 'publication:read'],
     sideEffects: 'write',
@@ -304,8 +341,49 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
   }),
   manifest({
     id: 'production.motion.compose',
-    description: 'Compone un reel, story u otro vídeo corto con los assets y el copy entregados por ChatGPT; el motor de motion se encarga de animarlos.',
-    inputSchema: { type: 'object', properties: { brandId: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, brandKitVersionId: { type: 'string' }, inputs: { type: 'array', items: motionAssetReferenceSchema, maxItems: 50 }, motionAssets: { type: 'array', items: motionAssetReferenceSchema, maxItems: 50 }, sourceMediaId: { type: 'string' }, contentItemId: { type: 'string' }, formatProfile: { type: 'string' }, channel: { type: 'string' }, format: { type: 'string' }, provider: { type: 'string' }, objective: { type: 'string' }, topic: { type: 'string' }, prompt: { type: 'string', maxLength: 12000 }, text: { type: 'string', maxLength: 50000 }, script: { type: 'string', maxLength: 50000 }, renderMode: { type: 'string', enum: ['flat_slides', 'layered_motion'] }, audioMode: { type: 'string', enum: ['none', 'supplied'] }, backgroundAssetId: { type: 'string' }, backgroundMode: { type: 'string', enum: ['blurred_source', 'brand_color', 'generated'] }, motionPreset: { type: 'string', enum: ['none', 'subtle_editorial'] }, transition: { type: 'object', properties: { type: { type: 'string', enum: ['none', 'crossfade'] }, durationMs: { type: 'integer', minimum: 0, maximum: 1000 } }, additionalProperties: false }, scenes: { type: 'array', maxItems: 50, items: { type: 'object', properties: { sceneId: { type: 'string', maxLength: 120 }, assetId: { type: 'string' }, backgroundAssetId: { type: 'string' }, headline: { type: 'string', maxLength: 160 }, body: { type: 'string', maxLength: 1000 }, durationMs: { type: 'integer', minimum: 0, maximum: 120000 }, fit: { type: 'string', enum: ['contain', 'cover'] } }, required: ['assetId'], additionalProperties: false } }, copyBlocks: { type: 'array', maxItems: 50, items: { type: 'object', properties: { sceneId: { type: 'string', maxLength: 120 }, headline: { type: 'string', maxLength: 160 }, body: { type: 'string', maxLength: 1000 }, durationMs: { type: 'integer', minimum: 0, maximum: 120000 } }, additionalProperties: false } }, audioAsset: motionAssetReferenceSchema, audioAssetId: { type: 'string' }, logoAssetId: { type: 'string' }, runId: { type: 'string' }, correlationId: { type: 'string' }, idempotencyKey: { type: 'string' }, createContentIfMissing: { type: 'boolean' } }, oneOf: [{ required: ['runId'] }, { required: ['formatProfile'], anyOf: [{ required: ['inputs'] }, { required: ['motionAssets'] }, { required: ['sourceMediaId'] }] }], additionalProperties: false },
+    description: 'Compone un reel, story u otro vídeo corto con los assets y el copy entregados por ChatGPT. Permite elegir presets de movimiento, animaciones de copy y transiciones editoriales dentro de una lista segura; el motor valida Brand Kit, scope, QA y revisión humana.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        brandId: { type: 'string' },
+        workspaceId: { type: 'string' },
+        siteId: { type: 'string' },
+        brandKitVersionId: { type: 'string' },
+        inputs: { type: 'array', items: motionAssetReferenceSchema, maxItems: 50 },
+        motionAssets: { type: 'array', items: motionAssetReferenceSchema, maxItems: 50 },
+        sourceMediaId: { type: 'string' },
+        contentItemId: { type: 'string' },
+        formatProfile: { type: 'string' },
+        channel: { type: 'string' },
+        format: { type: 'string' },
+        provider: { type: 'string' },
+        objective: { type: 'string' },
+        topic: { type: 'string' },
+        prompt: { type: 'string', maxLength: 12000 },
+        text: { type: 'string', maxLength: 50000 },
+        script: { type: 'string', maxLength: 50000 },
+        renderMode: { type: 'string', enum: ['flat_slides', 'layered_motion'] },
+        audioMode: { type: 'string', enum: ['none', 'supplied'] },
+        backgroundAssetId: { type: 'string' },
+        backgroundMode: { type: 'string', enum: ['blurred_source', 'brand_color', 'generated'] },
+        motionPreset: { type: 'string', enum: ['none', 'subtle_editorial', 'dynamic_editorial'] },
+        transition: motionTransitionSchema,
+        scenes: { type: 'array', maxItems: 50, items: motionSceneSchema },
+        copyBlocks: { type: 'array', maxItems: 50, items: motionCopyBlockSchema },
+        audioAsset: motionAssetReferenceSchema,
+        audioAssetId: { type: 'string' },
+        logoAssetId: { type: 'string' },
+        runId: { type: 'string' },
+        correlationId: { type: 'string' },
+        idempotencyKey: { type: 'string' },
+        createContentIfMissing: { type: 'boolean' }
+      },
+      oneOf: [
+        { required: ['runId'] },
+        { required: ['formatProfile'], anyOf: [{ required: ['inputs'] }, { required: ['motionAssets'] }, { required: ['sourceMediaId'] }] }
+      ],
+      additionalProperties: false
+    },
     permissions: ['asset:read', 'generation:run'],
     sideEffects: 'write',
     humanReviewRequired: true,

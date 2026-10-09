@@ -362,6 +362,9 @@ function motionProfile(formatProfile = '') {
 }
 
 const MOTION_ASSET_ROLES = new Set(['source', 'slide', 'background', 'foreground', 'overlay', 'logo', 'audio', 'reference'])
+const MOTION_PRESETS = new Set(['none', 'subtle_editorial', 'dynamic_editorial'])
+const MOTION_TEXT_ANIMATIONS = new Set(['none', 'fade_in', 'fade_up', 'slide_left', 'slide_right'])
+const MOTION_TRANSITIONS = new Set(['none', 'crossfade', 'fade', 'wipeleft', 'wiperight', 'slideleft', 'slideright', 'circleopen', 'fadeblack', 'fadewhite'])
 
 function normalizeMotionAssets(args = {}) {
   const declared = [
@@ -438,6 +441,8 @@ function normalizeMotionScenes(value, motionAssets, copyBlocks) {
       ...(item.backgroundAssetId ? { backgroundAssetId: String(item.backgroundAssetId).trim() } : {}),
       ...(item.headline || item.title ? { headline: String(item.headline || item.title).trim().slice(0, 160) } : {}),
       ...(item.body || item.text ? { body: String(item.body || item.text).trim().slice(0, 1000) } : {}),
+      ...(MOTION_TEXT_ANIMATIONS.has(String(item.textAnimation || '').trim().toLowerCase()) ? { textAnimation: String(item.textAnimation).trim().toLowerCase() } : {}),
+      ...(MOTION_PRESETS.has(String(item.motionPreset || '').trim().toLowerCase()) ? { motionPreset: String(item.motionPreset).trim().toLowerCase() } : {}),
       ...(Number.isFinite(durationMs) && durationMs > 0 ? { durationMs: Math.min(120000, Math.round(durationMs)) } : {})
     }
   })
@@ -515,8 +520,9 @@ async function composeMotionJob(args, auth, runtime) {
   const copyBlocks = normalizeMotionCopyBlocks(args.copyBlocks)
   const scenes = normalizeMotionScenes(args.scenes, motionAssets, copyBlocks)
   const backgroundMode = ['blurred_source', 'brand_color', 'generated'].includes(args.backgroundMode) ? args.backgroundMode : 'blurred_source'
-  const motionPreset = args.motionPreset === 'none' ? 'none' : 'subtle_editorial'
-  const transitionType = args.transition?.type === 'none' ? 'none' : 'crossfade'
+  const motionPreset = MOTION_PRESETS.has(String(args.motionPreset || '').trim().toLowerCase()) ? String(args.motionPreset).trim().toLowerCase() : 'subtle_editorial'
+  const requestedTransition = String(args.transition?.type || 'crossfade').trim().toLowerCase()
+  const transitionType = MOTION_TRANSITIONS.has(requestedTransition) ? requestedTransition : 'crossfade'
   const transitionDurationMs = Number(args.transition?.durationMs)
   const transition = { type: transitionType, durationMs: transitionType === 'none' ? 0 : Number.isFinite(transitionDurationMs) && transitionDurationMs >= 0 ? Math.min(1000, Math.round(transitionDurationMs)) : 400 }
   const brandOptions = await activeBrandOptions(scope.site, args, auth)

@@ -325,6 +325,32 @@ test('motion puede construir un timeline de varias escenas con modo flat_slides'
   assert.deepEqual(result.structuredContent.job.metadata.transition, { type: 'crossfade', durationMs: 600 })
 })
 
+test('motion expone libertad editorial acotada para layered_motion', async () => {
+  const server = createMcpServerV3Sync({ role: 'agent', site: 'escarlet', workspaceId: 'test-workspace', siteId: 'test-site' }, { runtime: testRuntime() })
+  const result = await call(server, 'production.motion.compose', {
+    site: 'escarlet',
+    formatProfile: 'instagram_reel',
+    renderMode: 'layered_motion',
+    motionPreset: 'dynamic_editorial',
+    transition: { type: 'wipeleft', durationMs: 450 },
+    motionAssets: [
+      { assetId: 'slide-01', role: 'source', kind: 'image' },
+      { assetId: 'slide-02', role: 'source', kind: 'image' }
+    ],
+    scenes: [
+      { sceneId: 'intro', assetId: 'slide-01', durationMs: 4000, textAnimation: 'fade_up' },
+      { sceneId: 'close', assetId: 'slide-02', durationMs: 4000, textAnimation: 'slide_left', motionPreset: 'subtle_editorial' }
+    ],
+    idempotencyKey: 'motion:layered-editorial-test'
+  })
+  assert.equal(result.isError, false, JSON.stringify(result.structuredContent))
+  const metadata = result.structuredContent.job.metadata
+  assert.equal(metadata.motionPreset, 'dynamic_editorial')
+  assert.deepEqual(metadata.transition, { type: 'wipeleft', durationMs: 450 })
+  assert.deepEqual(metadata.scenes.map((scene) => scene.textAnimation), ['fade_up', 'slide_left'])
+  assert.equal(metadata.scenes[1].motionPreset, 'subtle_editorial')
+})
+
 test('motion no declara audio suministrado sin un asset de audio', async () => {
   const server = createMcpServerV3Sync({ role: 'agent', site: 'escarlet', workspaceId: 'test-workspace', siteId: 'test-site' }, { runtime: testRuntime() })
   const result = await call(server, 'production.motion.compose', {
