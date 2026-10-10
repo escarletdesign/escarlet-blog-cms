@@ -246,6 +246,7 @@ import {
   addWorkspaceMember,
   updateWorkspaceMember,
   listScheduledContent,
+  archiveContentItem,
   CHANNEL_CATALOG,
   BRAND_CAPABILITIES,
   createContentBatch,
@@ -2162,7 +2163,7 @@ async function handleRequest(req, res) {
     const itemMatch = path.match(/^\/api\/v2\/content\/items\/([^/]+)$/)
     const videoUploadMatch = path.match(/^\/api\/v2\/content\/items\/([^/]+)\/video$/)
     const videoJobMatch = path.match(/^\/api\/v2\/video\/jobs\/([^/]+)$/)
-    const itemActionMatch = path.match(/^\/api\/v2\/content\/items\/([^/]+)\/(approve|reject|schedule|reschedule|publish-buffer|cancel|cancel-channel|mark-published|reconcile-scheduled|clear-published-errors|reopen-unsent-channel)$/)
+    const itemActionMatch = path.match(/^\/api\/v2\/content\/items\/([^/]+)\/(approve|reject|schedule|reschedule|publish-buffer|cancel|cancel-channel|archive|restore-archive|mark-published|reconcile-scheduled|clear-published-errors|reopen-unsent-channel)$/)
     const batchActionMatch = path.match(/^\/api\/v2\/content\/batches\/([^/]+)\/(schedule|cancel)$/)
     const batchReviewMatch = path.match(/^\/api\/v2\/content\/batches\/([^/]+)\/(approve|reject)$/)
     const brandMatch = path.match(/^\/api\/v2\/brands\/([^/]+)$/)
@@ -2667,7 +2668,7 @@ async function handleRequest(req, res) {
       if (req.method === 'GET' && path === '/api/v2/content/review') {
         const scope = await requireV2Context(req, url, res)
         if (!scope) return
-        json(res, 200, { items: await listContentItems({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, status: url.searchParams.get('status') || undefined, channel: url.searchParams.get('channel') || undefined, query: url.searchParams.get('query') || undefined, limit: url.searchParams.get('limit') || 200 }) })
+        json(res, 200, { items: await listContentItems({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, status: url.searchParams.get('status') || undefined, channel: url.searchParams.get('channel') || undefined, query: url.searchParams.get('query') || undefined, archive: url.searchParams.get('archive') || 'active', limit: url.searchParams.get('limit') || 200 }) })
         return
       }
       if (req.method === 'GET' && path === '/api/v2/calendar') {
@@ -2934,6 +2935,10 @@ async function handleRequest(req, res) {
         }
         if (action === 'cancel-channel') {
           json(res, 200, await cancelContentChannel({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role, channel: body.channel }))
+          return
+        }
+        if (action === 'archive' || action === 'restore-archive') {
+          json(res, 200, await archiveContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role, archived: action === 'archive' }))
           return
         }
         if (action === 'reschedule') {

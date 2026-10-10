@@ -281,6 +281,10 @@ No propondría ahora una app independiente de assets, audio, motion o proveedore
 
 La lección común no es copiar la estética. Es unir creación, revisión, calendario y publicación alrededor del mismo objeto de contenido.
 
+### Límite actual de la conexión con ChatGPT
+
+La PWA ya puede consultar el estado de una conexión personal de Sign in with ChatGPT, importar un registro JSON cifrado y desconectarlo. El backend no expone todavía un endpoint para iniciar ese OAuth desde el navegador. Por eso `Conexiones` muestra la URL MCP y el acceso a ChatGPT, mientras que `Ajustes` concentra la importación y enlaza la guía oficial. La UI debe explicitar este recorrido hasta que exista un flujo OAuth iniciado por el CMS.
+
 ## 7. Principios de diseño para la siguiente iteración
 
 1. La unidad principal es el contenido en revisión, no la capability.

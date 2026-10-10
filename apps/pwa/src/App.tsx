@@ -26,7 +26,7 @@ import { api } from "./api";
 import type { AiConversation, ChatGptConnection, SocialPackJobResult } from "./api";
 import { getInitialLanguage, Language, translate } from "./i18n";
 import type { Author, BrandSummary, ContentItem, MediaItem, Post, Session } from "./types";
-import { contentPreviewPath, itemTitle } from "./content-format";
+import { contentPreviewPath, itemTitle, statusLabel } from "./content-format";
 import { createVideoCapture } from "./portrait-recorder";
 import type { VideoCapture, VideoFormat } from "./portrait-recorder";
 import { ContentBatches as ContentPlans } from "./ContentBatches";
@@ -73,6 +73,19 @@ const dedupeMedia = (items: MediaItem[] = []) => {
     seen.add(key);
     return true;
   });
+};
+const calendarMediaUrl = (value: unknown) => {
+  const media = value && typeof value === "object" ? value as Record<string, unknown> : null;
+  const candidates = media
+    ? [media.thumbUrl, media.thumbPath, media.previewUrl, media.previewPath, media.url, media.publicUrl, media.imageUrl, media.path]
+    : [value];
+  const url = String(candidates.find((candidate) => candidate) || "").trim();
+  return url.startsWith("/") || /^https?:\/\//i.test(url) ? url : "";
+};
+const calendarMediaKind = (value: unknown, url: string, channel?: string) => {
+  const media = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const type = String(media.mimeType || media.contentType || media.type || media.kind || "").toLowerCase();
+  return type.includes("video") || (channel === "video" && /\.(?:mp4|webm|mov)(?:[?#]|$)/i.test(url)) ? "video" : "image";
 };
 type AppState = {
   session: Session;
@@ -921,9 +934,14 @@ function Shell() {
     ...(workflowFlags.assistantEnabled && publishingEnabled ? [{ to: "/chat", label: t("nav.assistant"), icon: "assistant" }] : []),
   ];
   const adminLinks = adminUser ? [
-    { to: "/admin", label: t("nav.admin", "Administración"), icon: "admin" },
+    { to: "/admin", label: t("nav.workspace", "Espacio"), icon: "admin" },
+    { to: "/brands", label: t("nav.brands", "Marcas"), icon: "brands" },
+    { to: "/team", label: t("nav.team", "Equipo"), icon: "team" },
+    { to: "/connections", label: t("nav.connections", "Conexiones"), icon: "connections" },
+    ...(workflowFlags.cmsAiEnabled ? [{ to: "/billing", label: t("nav.planUsage", "Plan y uso"), icon: "billing" }] : []),
   ] : [
     { to: "/brands", label: t("nav.brands", "Marca"), icon: "brands" },
+    { to: "/connections", label: t("nav.connections", "Conexiones"), icon: "connections" },
     { to: "/team", label: t("nav.team", "Equipo"), icon: "team" },
     ...(workflowFlags.cmsAiEnabled ? [{ to: "/billing", label: t("nav.planUsage", "Plan y uso"), icon: "billing" }] : []),
   ];
@@ -4923,6 +4941,7 @@ function EditorialCalendar() {
   const { site } = useApp();
   const { language, t } = useI18n();
   const [entries, setEntries] = useState<Array<Record<string, any>>>([]);
+  const [contentItems, setContentItems] = useState<ContentItem[]>([]);
   const [view, setView] = useState<"list" | "month">("list");
   const [cursor, setCursor] = useState(() => new Date());
   const [loading, setLoading] = useState(true);
@@ -4934,23 +4953,30 @@ function EditorialCalendar() {
   const [openId, setOpenId] = useState("");
   const [openDay, setOpenDay] = useState("");
   const [planId, setPlanId] = useState("all");
+  const [query, setQuery] = useState("");
+  const [channelFilters, setChannelFilters] = useState<string[]>([]);
+  const [statusFilters, setStatusFilters] = useState<string[]>([]);
   const [retryingChannel, setRetryingChannel] = useState("");
   const load = (quiet = false) => {
     if (!quiet) setLoading(true);
     setError("");
-    return api.calendarV2(site)
-      .then((result) => { setEntries(result.entries || []); if (!quiet) setRetrySelection([]); })
+    return Promise.all([
+      api.calendarV2(site),
+      api.contentBatches(site).catch(() => ({ items: [] as ContentItem[] })),
+    ])
+      .then(([result, content]) => { setEntries(result.entries || []); setContentItems(content.items || []); if (!quiet) setRetrySelection([]); })
       .catch((err) => setError(err instanceof Error ? err.message : "No se pudo cargar el calendario."))
       .finally(() => { if (!quiet) setLoading(false); });
   };
   useEffect(() => { void load(); }, [site]);
+  const contentById = useMemo(() => new Map(contentItems.map((item) => [item.id, item])), [contentItems]);
   const validEntries = useMemo(() => entries.filter((entry) => entry.publicationDate), [entries]);
   const groupedEntries = useMemo(() => {
     const grouped = new Map<string, Record<string, any>>();
     for (const entry of validEntries) {
       const key = String(entry.itemId || entry.variantId);
       const channel = { channel: entry.channel || "blog", provider: entry.provider, status: entry.status || entry.variantStatus, lastError: entry.lastError || "", publicationDate: entry.publicationDate, timezone: entry.timezone || "UTC", updatedAt: entry.updatedAt || "" };
-      const current = grouped.get(key) || { ...entry, itemKey: key, channels: [] };
+      const current = grouped.get(key) || { ...entry, itemKey: key, item: contentById.get(String(entry.itemId)) || null, channels: [] };
       current.channels = [...current.channels, channel];
       grouped.set(key, current);
     }
@@ -4959,7 +4985,7 @@ function EditorialCalendar() {
       const updatedAt = channels.map((channel) => channel.updatedAt).filter(Boolean).sort().at(-1) || entry.updatedAt;
       return { ...entry, channels, publicationDate: channels[0]?.publicationDate, updatedAt };
     }).sort((a, b) => String(a.publicationDate).localeCompare(String(b.publicationDate)));
-  }, [validEntries]);
+  }, [contentById, validEntries]);
   const entryKey = (entry: Record<string, any>) => String(entry.itemKey || entry.itemId || entry.variantId);
   const plans = useMemo(() => {
     const names = new Map<string, string>();
@@ -4970,6 +4996,45 @@ function EditorialCalendar() {
     return [...names.entries()].sort((a, b) => a[1].localeCompare(b[1], "es"));
   }, [groupedEntries]);
   const listedEntries = planId === "all" ? groupedEntries : groupedEntries.filter((entry) => String(entry.batchId) === planId);
+  const calendarChannels = useMemo(() => [...new Set(groupedEntries.flatMap((entry) => entry.channels.map((channel: any) => String(channel.channel))))].sort(), [groupedEntries]);
+  const calendarStatuses = ["scheduled", "syncing", "published", "failed", "action_required"];
+  const filteredEntries = useMemo(() => {
+    const normalizedQuery = query.trim().toLocaleLowerCase();
+    return listedEntries.filter((entry) => {
+      const title = String(entry.item ? itemTitle(entry.item) : entry.topic || "").toLocaleLowerCase();
+      const campaign = String(entry.planTitle || "").toLocaleLowerCase();
+      const queryMatches = !normalizedQuery || title.includes(normalizedQuery) || campaign.includes(normalizedQuery);
+      const channelMatches = !channelFilters.length || entry.channels.some((channel: any) => channelFilters.includes(String(channel.channel)));
+      const statusMatches = !statusFilters.length || entry.channels.some((channel: any) => statusFilters.includes(String(channel.status)));
+      return queryMatches && channelMatches && statusMatches;
+    });
+  }, [channelFilters, listedEntries, query, statusFilters]);
+  const hasCalendarFilters = Boolean(query.trim() || channelFilters.length || statusFilters.length || planId !== "all");
+  const clearCalendarFilters = () => { setQuery(""); setChannelFilters([]); setStatusFilters([]); setPlanId("all"); };
+  const entryItem = (entry: Record<string, any>) => entry.item as ContentItem | null;
+  const entryTitle = (entry: Record<string, any>) => {
+    const item = entryItem(entry);
+    return item ? itemTitle(item) : topicLabel(entry.topic);
+  };
+  const entryVisual = (entry: Record<string, any>) => {
+    const item = entryItem(entry);
+    if (!item) return { url: "", kind: "image" as const };
+    const variants = (item.variants || []).filter((variant) => entry.channels.some((channel: any) => channel.channel === variant.channel)).sort((left, right) => Number(right.channel === "video") - Number(left.channel === "video"));
+    const values = variants.flatMap((variant) => {
+      const body = variant.body || {};
+      return [body.imageThumbUrl, body.imagePreviewUrl, body.imageUrl, body.image_url, body.coverUrl, ...(variant.media || [])].filter(Boolean).map((value) => ({ value, channel: variant.channel }));
+    });
+    const selected = values.map(({ value, channel }) => ({ url: calendarMediaUrl(value), kind: calendarMediaKind(value, calendarMediaUrl(value), channel) })).find((candidate) => candidate.url);
+    return selected || { url: "", kind: "image" as const };
+  };
+  const entryOutputLabels = (entry: Record<string, any>) => entry.channels.map((channel: any) => {
+    if (channel.channel === "video") return "Reel / vídeo";
+    if (channel.channel === "blog") return "Artículo";
+    if (channel.channel === "instagram_story") return "Story";
+    const variant = entryItem(entry)?.variants?.find((candidate) => candidate.channel === channel.channel);
+    const socialPack = variant?.body?.socialPack;
+    return channel.channel === "instagram" && Array.isArray(socialPack?.instagramSlides) ? "Carrusel" : "Post";
+  }).filter((label, index, labels) => labels.indexOf(label) === index);
   const retryOne = async (entry: Record<string, any>, channel: Record<string, any>) => {
     const key = `${entry.itemId}:${channel.channel}`;
     setRetryingChannel(key);
@@ -5065,15 +5130,23 @@ function EditorialCalendar() {
     return clean.length > 118 ? `${clean.slice(0, 115).replace(/\s+\S*$/, "").trim()}…` : clean;
   };
   const openEntry = groupedEntries.find((entry) => entryKey(entry) === openId) || null;
-  const dayEntries = openDay ? groupedEntries.filter((entry) => entry.channels.some((channel: any) => dayKey(new Date(channel.publicationDate)) === openDay)) : [];
+  const dayEntries = openDay ? filteredEntries.filter((entry) => entry.channels.some((channel: any) => dayKey(new Date(channel.publicationDate)) === openDay)) : [];
   const dayLabel = openDay ? new Intl.DateTimeFormat(language === "en" ? "en-GB" : "es-ES", { dateStyle: "full" }).format(new Date(`${openDay}T12:00:00`)) : "Publicaciones del día";
+  const calendarFilterToolbar = <div className="ui-review-toolbar">
+    <Field label={t("calendar.searchLabel", "Buscar contenido")}><TextField value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("calendar.searchPlaceholder", "Título o campaña")} /></Field>
+    {plans.length > 0 && <Field label={t("calendar.campaignFilter", "Campaña")}><Select aria-label={t("calendar.campaignFilter", "Campaña")} value={plans.some(([id]) => id === planId) ? planId : "all"} onChange={(event) => setPlanId(event.target.value)}><option value="all">{t("calendar.allCampaigns", "Todas las campañas")}</option>{plans.map(([id, title]) => <option key={id} value={id}>{title}</option>)}</Select></Field>}
+    <Field label={t("calendar.channelFilter", "Canales")}><MultiSelectPills options={calendarChannels.map((channel) => ({ id: channel, label: channel === "video" ? "Reel / vídeo" : channel === "instagram_story" ? "Story" : channel.charAt(0).toUpperCase() + channel.slice(1) }))} value={channelFilters} onChange={setChannelFilters} ariaLabel={t("calendar.channelFilter", "Canales")} /></Field>
+    <Field label={t("calendar.statusFilter", "Estados")}><MultiSelectPills options={calendarStatuses.map((status) => ({ id: status, label: statusLabel(status) }))} value={statusFilters} onChange={setStatusFilters} ariaLabel={t("calendar.statusFilter", "Estados")} /></Field>
+    <div className="ui-filter-summary"><span>{filteredEntries.length} {t("calendar.results", "publicaciones")}</span>{hasCalendarFilters && <Button size="sm" variant="ghost" onClick={clearCalendarFilters}>{t("calendar.clearFilters", "Limpiar filtros")}</Button>}</div>
+  </div>;
   return <main className="ui-page ui-calendar-page">
     <PageHeader eyebrow="Ejecución editorial" title="Calendario editorial" description="Campañas = qué contenido estamos preparando. Calendario = cuándo se publicará y qué está ocurriendo en cada canal. La conexión externa actualiza aquí su estado." actions={<Inline gap="sm">{retryableEntries.length > 0 && <Button variant="primary" disabled={!retrySelection.length || retryBusy} onClick={openRetry}>{t("calendar.retrySelected", "Reagendar seleccionadas")}{retrySelection.length ? ` (${retrySelection.length})` : ""}</Button>}<Button variant={view === "list" ? "secondary" : "ghost"} onClick={() => setView("list")}>Lista</Button><Button variant={view === "month" ? "secondary" : "ghost"} onClick={() => setView("month")}>Mes</Button></Inline>} />
     {error && <Card><Inline gap="md"><p className="ui-field-error">{error}</p><Button size="sm" variant="ghost" onClick={() => load()}>Reintentar</Button></Inline></Card>}
     {retryableEntries.length > 0 && <Card className="ui-calendar-retry-help"><strong>{t("calendar.retryTitle", "Publicaciones con error")}</strong><p>{t("calendar.retryHelp", "Selecciona solo los errores que quieras volver a programar. Las publicaciones programadas o publicadas no se incluyen.")}</p></Card>}
-    {loading ? <div className="ui-calendar-loading"><span className="ui-skeleton" style={{ height: 180 }} /><span className="ui-skeleton" style={{ height: 90 }} /></div> : !groupedEntries.length && !error ? <UiEmptyState title="Todavía no hay publicaciones programadas" description="Cuando apruebes y agendes una publicación desde Campañas, aparecerá aquí con su zona horaria y conexión." action={<NavLink className="ui-button ui-button-secondary" to="/plans">Abrir campañas</NavLink>} /> : view === "list" ? <div className="ui-calendar-list">{plans.length > 0 && <div className="ui-calendar-plan-filter"><Field label="Campaña"><Select aria-label="Filtrar por campaña" value={plans.some(([id]) => id === planId) ? planId : "all"} onChange={(event) => setPlanId(event.target.value)}><option value="all">Todas las campañas</option>{plans.map(([id, title]) => <option key={id} value={id}>{title}</option>)}</Select></Field></div>}{listedEntries.map((entry) => { const key = entryKey(entry); const channelsToRetry = retryChannels(entry); const statuses = entry.channels.map((channel: any) => channel.status).filter(Boolean); const status = statuses.length && statuses.every((value: string) => value === statuses[0]) ? statuses[0] : ""; return <Card key={key}><div className="ui-card-head"><div className="ui-calendar-card-title">{channelsToRetry.length > 0 && <Checkbox label="" aria-label={`${t("calendar.retrySelect", "Seleccionar para reagendar")}: ${topicLabel(entry.topic)}`} checked={retrySelection.includes(key)} onChange={() => toggleRetry(key)} />}<div><span className="ui-eyebrow">{entry.planTitle || `${entry.channels.length} canales`}</span><h2>{topicLabel(entry.topic)}</h2><p className="ui-muted">{dateSpan(entry)}</p></div></div>{status && <StatusBadge status={status} />}</div><div className="ui-calendar-channel-groups">{entry.channels.map((channel: any, index: number) => <Inline gap="sm" key={`${channel.channel}-${index}`}><ChannelBadge channel={channel.channel} /><StatusBadge status={channel.status} /></Inline>)}</div><Button size="sm" variant="ghost" onClick={() => setOpenId(key)}>Ver canales</Button></Card>; })}{!listedEntries.length && <p className="ui-muted">Ninguna publicación de esta campaña.</p>}</div> : <Card className="ui-calendar-month"><div className="ui-calendar-month-head"><Button variant="ghost" size="sm" aria-label={t("calendar.previousMonth")} onClick={() => setCursor((date) => new Date(date.getFullYear(), date.getMonth() - 1, 1))}>‹</Button><strong>{monthLabel}</strong><Button variant="ghost" size="sm" aria-label={t("calendar.nextMonth")} onClick={() => setCursor((date) => new Date(date.getFullYear(), date.getMonth() + 1, 1))}>›</Button></div><div className="ui-calendar-weekdays">{weekdays.map((day) => <span key={day}>{day}</span>)}</div><div className="ui-calendar-grid">{monthDays.map(({ date, inMonth }) => { const key = dayKey(date); const rows = groupedEntries.filter((entry) => entry.channels.some((channel: any) => dayKey(new Date(channel.publicationDate)) === key)); return <div className={`ui-calendar-day ${inMonth ? "" : "outside"} ${rows.length ? "has-items" : ""}`} key={key}><span>{date.getDate()}</span>{rows.slice(0, 3).map((entry) => { const channels = entry.channels.filter((channel: any) => dayKey(new Date(channel.publicationDate)) === key); const label = `${topicLabel(entry.topic)} · ${channels.map((channel: any) => channel.channel).join(", ")} · ${formatDate(channels[0]?.publicationDate || entry.publicationDate)}`; return <button type="button" className="ui-calendar-item" key={entryKey(entry)} onClick={() => setOpenId(entryKey(entry))} aria-label={`Ver ${label}`} title={label}><Inline gap="sm">{channels.slice(0, 2).map((channel: any, index: number) => <ChannelBadge key={`${channel.channel}-${index}`} channel={channel.channel} />)}</Inline><small>{topicLabel(entry.topic)}</small></button>; })}{rows.length > 3 && <Button size="sm" variant="ghost" className="ui-calendar-more" onClick={() => setOpenDay(key)}>Ver {rows.length - 3} más</Button>}</div>; })}</div></Card>}
-    <Drawer open={Boolean(openDay)} title={dayLabel} onClose={() => setOpenDay("")}>{dayEntries.length > 0 && <Stack gap="sm">{dayEntries.map((entry) => <Card key={entryKey(entry)}><div className="ui-card-head"><div><h3>{topicLabel(entry.topic)}</h3><p className="ui-muted">{dateSpan(entry)}</p></div></div><div className="ui-channel-list">{entry.channels.filter((channel: any) => dayKey(new Date(channel.publicationDate)) === openDay).map((channel: any, index: number) => <ChannelBadge key={`${channel.channel}-${index}`} channel={channel.channel} />)}</div><Button size="sm" variant="ghost" onClick={() => { setOpenDay(""); setOpenId(entryKey(entry)); }}>Ver canales</Button></Card>)}</Stack>}</Drawer>
-    <Drawer open={Boolean(openEntry)} title={topicLabel(openEntry?.topic)} onClose={() => setOpenId("")}>{openEntry && <Stack gap="md"><p className="ui-muted">{dateSpan(openEntry)}</p>{openEntry.channels.map((channel: any, index: number) => { const retryKey = `${openEntry.itemId}:${channel.channel}`; const canRetry = ["failed", "action_required"].includes(channel.status); const canMove = channel.status === "scheduled"; return <div className="ui-calendar-channel-row" key={`${channel.channel}-${index}`}><Inline gap="sm"><ChannelBadge channel={channel.channel} />{channel.provider && <Badge tone="neutral">{channel.provider}</Badge>}<StatusBadge status={channel.status} /></Inline><p className="ui-muted">{channel.timezone} · {formatDate(channel.publicationDate)}</p>{channel.updatedAt && <small className="ui-calendar-sync">Actualizado {formatDate(channel.updatedAt)}</small>}{channel.lastError && <p className="ui-field-error">{channel.lastError}</p>}{canMove && <Button size="sm" variant="secondary" loading={retryingChannel === `move:${retryKey}`} onClick={() => void moveToday(openEntry, channel)}>Publicar hoy</Button>}{canRetry && <Inline gap="sm"><Button size="sm" variant="secondary" loading={retryingChannel === retryKey} onClick={() => void retryOne(openEntry, channel)}>Reintentar este canal</Button><Button size="sm" variant="ghost" loading={retryingChannel === `mark:${retryKey}`} onClick={() => void markPublished(openEntry, channel)}>Marcar como publicado</Button></Inline>}</div>; })}<Button size="sm" variant="ghost" onClick={() => load(true)}>Actualizar estado</Button><p className="ui-field-hint">Publicar hoy adelanta solo ese canal a los próximos minutos y, si ya está en Buffer, mueve el mismo post. Reintentar vuelve a enviar un canal con error. Marcar como publicado cierra el error sin enviar nada.</p></Stack>}</Drawer>
+    {!loading && groupedEntries.length > 0 && calendarFilterToolbar}
+    {loading ? <div className="ui-calendar-loading"><span className="ui-skeleton" style={{ height: 180 }} /><span className="ui-skeleton" style={{ height: 90 }} /></div> : !groupedEntries.length && !error ? <UiEmptyState title="Todavía no hay publicaciones programadas" description="Cuando apruebes y agendes una publicación desde Campañas, aparecerá aquí con su zona horaria y conexión." action={<NavLink className="ui-button ui-button-secondary" to="/plans">Abrir campañas</NavLink>} /> : view === "list" ? <div className="ui-calendar-list">{filteredEntries.map((entry) => { const key = entryKey(entry); const channelsToRetry = retryChannels(entry); const statuses = entry.channels.map((channel: any) => channel.status).filter(Boolean); const status = statuses.length && statuses.every((value: string) => value === statuses[0]) ? statuses[0] : ""; const visual = entryVisual(entry); return <Card key={key}><div className="ui-card-head"><div className="ui-calendar-card-title">{channelsToRetry.length > 0 && <Checkbox label="" aria-label={`${t("calendar.retrySelect", "Seleccionar para reagendar")}: ${entryTitle(entry)}`} checked={retrySelection.includes(key)} onChange={() => toggleRetry(key)} />}{visual.url ? visual.kind === "video" ? <video className="ui-review-thumb" src={visual.url} controls muted preload="metadata" aria-label={entryTitle(entry)} /> : <img className="ui-review-thumb" src={visual.url} alt="" loading="lazy" decoding="async" /> : <span className="ui-review-thumb" aria-hidden="true" />}<div><span className="ui-eyebrow">{entry.planTitle || `${entry.channels.length} canales`}</span><h2>{entryTitle(entry)}</h2><p className="ui-muted">{dateSpan(entry)}</p><div className="ui-channel-list"><Badge tone="neutral">{entryOutputLabels(entry).join(" · ")}</Badge>{entry.channels.map((channel: any, index: number) => <ChannelBadge key={`${channel.channel}-${index}`} channel={channel.channel} />)}</div></div></div>{status ? <StatusBadge status={status} label={statusLabel(status)} /> : <Badge tone="neutral">{t("calendar.mixedStatus", "Varios estados")}</Badge>}</div><div className="ui-calendar-channel-groups">{entry.channels.map((channel: any, index: number) => <Inline gap="sm" key={`${channel.channel}-${index}`}><ChannelBadge channel={channel.channel} /><Badge tone="neutral">{channel.channel === "video" ? "Reel / vídeo" : channel.channel === "blog" ? "Artículo" : channel.channel === "instagram_story" ? "Story" : "Post"}</Badge><StatusBadge status={channel.status} label={statusLabel(channel.status)} /></Inline>)}</div><Inline gap="sm"><Button size="sm" variant="secondary" onClick={() => setOpenId(key)}>{t("calendar.openChannels", "Ver canales y estado")}</Button>{entryItem(entry) && <NavLink className="ui-button ui-button-ghost ui-button-sm" to={contentPreviewPath(entryItem(entry) as ContentItem)}>{t("calendar.openContent", "Ver contenido")}</NavLink>}</Inline></Card>; })}{!filteredEntries.length && <UiEmptyState title={hasCalendarFilters ? "No hay publicaciones con estos filtros" : "Ninguna publicación programada"} description={hasCalendarFilters ? "Prueba otra búsqueda o limpia los filtros." : "Agrega una fecha de publicación desde Campañas para verla aquí."} action={hasCalendarFilters ? <Button variant="secondary" onClick={clearCalendarFilters}>Limpiar filtros</Button> : <NavLink className="ui-button ui-button-secondary" to="/plans">Abrir campañas</NavLink>} />}</div> : <Card className="ui-calendar-month"><div className="ui-calendar-month-head"><Button variant="ghost" size="sm" aria-label={t("calendar.previousMonth")} onClick={() => setCursor((date) => new Date(date.getFullYear(), date.getMonth() - 1, 1))}>‹</Button><strong>{monthLabel}</strong><Button variant="ghost" size="sm" aria-label={t("calendar.nextMonth")} onClick={() => setCursor((date) => new Date(date.getFullYear(), date.getMonth() + 1, 1))}>›</Button></div><div className="ui-calendar-weekdays">{weekdays.map((day) => <span key={day}>{day}</span>)}</div><div className="ui-calendar-grid">{monthDays.map(({ date, inMonth }) => { const key = dayKey(date); const rows = filteredEntries.filter((entry) => entry.channels.some((channel: any) => dayKey(new Date(channel.publicationDate)) === key)); return <div className={`ui-calendar-day ${inMonth ? "" : "outside"} ${rows.length ? "has-items" : ""}`} key={key}><span>{date.getDate()}</span>{rows.slice(0, 3).map((entry) => { const channels = entry.channels.filter((channel: any) => dayKey(new Date(channel.publicationDate)) === key); const label = `${entryTitle(entry)} · ${channels.map((channel: any) => channel.channel).join(", ")} · ${formatDate(channels[0]?.publicationDate || entry.publicationDate)}`; return <button type="button" className="ui-calendar-item" key={entryKey(entry)} onClick={() => setOpenId(entryKey(entry))} aria-label={`Ver ${label}`} title={label}><Inline gap="sm">{channels.slice(0, 2).map((channel: any, index: number) => <ChannelBadge key={`${channel.channel}-${index}`} channel={channel.channel} />)}</Inline><small>{entryTitle(entry)}</small></button>; })}{rows.length > 3 && <Button size="sm" variant="ghost" className="ui-calendar-more" onClick={() => setOpenDay(key)}>Ver {rows.length - 3} más</Button>}</div>; })}</div></Card>}
+    <Drawer open={Boolean(openDay)} title={dayLabel} onClose={() => setOpenDay("")}>{dayEntries.length > 0 && <Stack gap="sm">{dayEntries.map((entry) => <Card key={entryKey(entry)}><div className="ui-card-head"><div><h3>{entryTitle(entry)}</h3><p className="ui-muted">{dateSpan(entry)}</p></div><Badge tone="neutral">{entryOutputLabels(entry).join(" · ")}</Badge></div><div className="ui-channel-list">{entry.channels.filter((channel: any) => dayKey(new Date(channel.publicationDate)) === openDay).map((channel: any, index: number) => <ChannelBadge key={`${channel.channel}-${index}`} channel={channel.channel} />)}</div><Button size="sm" variant="ghost" onClick={() => { setOpenDay(""); setOpenId(entryKey(entry)); }}>Ver canales</Button></Card>)}</Stack>}</Drawer>
+    <Drawer open={Boolean(openEntry)} title={openEntry ? entryTitle(openEntry) : "Calendario"} onClose={() => setOpenId("")}>{openEntry && <Stack gap="md">{(() => { const visual = entryVisual(openEntry); return visual.url ? visual.kind === "video" ? <video className="ui-calendar-detail-visual" src={visual.url} controls muted preload="metadata" aria-label={entryTitle(openEntry)} /> : <img className="ui-calendar-detail-visual" src={visual.url} alt="" loading="lazy" decoding="async" /> : null; })()}<p className="ui-muted">{openEntry.planTitle || "Contenido"} · {dateSpan(openEntry)}</p><div className="ui-channel-list">{entryOutputLabels(openEntry).map((label) => <Badge key={label} tone="neutral">{label}</Badge>)}</div>{openEntry.channels.map((channel: any, index: number) => { const retryKey = `${openEntry.itemId}:${channel.channel}`; const canRetry = ["failed", "action_required"].includes(channel.status); const canMove = channel.status === "scheduled"; return <div className="ui-calendar-channel-row" key={`${channel.channel}-${index}`}><Inline gap="sm"><ChannelBadge channel={channel.channel} /><Badge tone="neutral">{channel.channel === "video" ? "Reel / vídeo" : channel.channel === "blog" ? "Artículo" : channel.channel === "instagram_story" ? "Story" : "Post"}</Badge>{channel.provider && <Badge tone="neutral">{channel.provider}</Badge>}<StatusBadge status={channel.status} label={statusLabel(channel.status)} /></Inline><p className="ui-muted">{channel.timezone} · {formatDate(channel.publicationDate)}</p>{channel.updatedAt && <small className="ui-calendar-sync">Actualizado {formatDate(channel.updatedAt)}</small>}{channel.lastError && <p className="ui-field-error">{channel.lastError}</p>}{canMove && <Button size="sm" variant="secondary" loading={retryingChannel === `move:${retryKey}`} onClick={() => void moveToday(openEntry, channel)}>Publicar hoy</Button>}{canRetry && <Inline gap="sm"><Button size="sm" variant="secondary" loading={retryingChannel === retryKey} onClick={() => void retryOne(openEntry, channel)}>Reintentar este canal</Button><Button size="sm" variant="ghost" loading={retryingChannel === `mark:${retryKey}`} onClick={() => void markPublished(openEntry, channel)}>Marcar como publicado</Button></Inline>}</div>; })}{entryItem(openEntry) && <NavLink className="ui-button ui-button-secondary" to={contentPreviewPath(entryItem(openEntry) as ContentItem)}>{t("calendar.openContent", "Ver contenido completo")}</NavLink>}<Button size="sm" variant="ghost" onClick={() => load(true)}>Actualizar estado</Button><p className="ui-field-hint">Publicar hoy adelanta solo ese canal a los próximos minutos y, si ya está en Buffer, mueve el mismo post. Reintentar vuelve a enviar un canal con error. Marcar como publicado cierra el error sin enviar nada.</p></Stack>}</Drawer>
     <Modal open={retryOpen} title={t("calendar.retryTitle", "Reagendar publicaciones con error")} onClose={() => setRetryOpen(false)}><form className="ui-stack ui-stack-md" onSubmit={reschedule}><Field label={t("calendar.retryDate", "Nueva fecha y hora")} hint={t("calendar.retryDateHelp", "Se usará tu zona horaria local.")} required><TextField type="datetime-local" value={retryDate} onChange={(event) => setRetryDate(event.target.value)} autoFocus required /></Field><p className="ui-field-hint">{t("calendar.retryCount", "Se reagendarán las publicaciones seleccionadas. Las ya programadas o publicadas no se modifican.")}</p><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setRetryOpen(false)}>{t("common.cancel", "Cancelar")}</Button><Button type="submit" loading={retryBusy}>{t("calendar.retryConfirm", "Reagendar")}</Button></Inline></form></Modal>
   </main>;
 }
@@ -5419,7 +5492,7 @@ function Settings() {
         </section>
       )}
       {session.userId && (
-        <Card className="ui-settings-card">
+        <Card id="chatgpt-account" className="ui-settings-card">
           <div className="ui-card-head">
             <div><p className="ui-eyebrow">{t("settings.chatgptEyebrow")}</p><h2>{t("settings.chatgptTitle")}</h2></div>
             <StatusBadge status={chatGptConnection?.connected ? "connected" : "disabled"} label={chatGptConnection?.connected ? t("settings.chatgptConnected") : t("settings.chatgptNotConnected")} />
@@ -5432,11 +5505,18 @@ function Settings() {
             </Stack>
           ) : (
             <Stack gap="sm">
+              <div className="ui-card ui-mcp-setup-note">
+                <p className="ui-eyebrow">{t("settings.chatgptSetupTitle")}</p>
+                <p className="ui-field-hint">{t("settings.chatgptSetupHelp")}</p>
+                <Inline gap="sm">
+                  <Button type="button" variant="secondary" onClick={openChatGpt}>{t("settings.chatgptOpen")}</Button>
+                  <a className="text-link" href="https://developers.openai.com/siwc/quickstart" target="_blank" rel="noreferrer">{t("settings.chatgptSetupDocs")}</a>
+                </Inline>
+              </div>
               <p className="ui-field-hint">{t("settings.chatgptImportHelp")}</p>
               <Field label={t("settings.chatgptFileLabel")} hint={t("settings.chatgptFileHint")}>
                 <TextField type="file" accept="application/json,.json" disabled={chatGptBusy} onChange={(event) => void importChatGptConnection(event.target.files?.[0])} />
               </Field>
-              <a className="text-link" href="https://developers.openai.com/siwc/quickstart" target="_blank" rel="noreferrer">{t("settings.chatgptDocs")}</a>
             </Stack>
           )}
         </Card>
@@ -5706,25 +5786,34 @@ type AdminTabId = "brands" | "team" | "connections" | "billing";
 
 function AdminTabs({ active, onChange }: { active: AdminTabId; onChange: (tab: AdminTabId) => void }) {
   const { workflowFlags } = useApp();
+  const { t } = useI18n();
   const tabs: Array<{ id: AdminTabId; label: string }> = [
-    { id: "brands", label: "Marcas" },
-    { id: "team", label: "Equipo y acceso" },
-    { id: "connections", label: "Conexiones" },
-    ...(workflowFlags.cmsAiEnabled ? [{ id: "billing" as const, label: "Plan y uso" }] : []),
+    { id: "brands", label: t("nav.brands", "Marcas") },
+    { id: "team", label: t("nav.team", "Equipo y acceso") },
+    { id: "connections", label: t("nav.connections", "Conexiones") },
+    ...(workflowFlags.cmsAiEnabled ? [{ id: "billing" as const, label: t("nav.planUsage", "Plan y uso") }] : []),
   ];
-  return <Tabs items={tabs} value={active} onChange={onChange} ariaLabel="Áreas de administración" className="ui-admin-tabs" idPrefix="admin-tablist" panelIdPrefix="admin-panel" />;
+  return <Tabs items={tabs} value={active} onChange={onChange} ariaLabel={t("admin.sections", "Áreas de administración")} className="ui-admin-tabs" idPrefix="admin-tablist" panelIdPrefix="admin-panel" />;
 }
 
 function AdminIndex() {
   const { workflowFlags } = useApp();
+  const { t } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get("tab") as AdminTabId | null;
   const availableTabs: AdminTabId[] = ["brands", "team", "connections"];
   if (workflowFlags.cmsAiEnabled) availableTabs.push("billing");
   const active: AdminTabId = requestedTab && availableTabs.includes(requestedTab) ? requestedTab : "brands";
   const selectTab = (tab: AdminTabId) => setSearchParams({ tab }, { replace: true });
+  const sections = [
+    { path: "/brands", icon: "brands", title: t("nav.brands", "Marcas"), description: t("admin.brandsHelp", "Gestiona las marcas y su configuración editorial.") },
+    { path: "/connections", icon: "connections", title: t("nav.connections", "Conexiones"), description: t("admin.connectionsHelp", "Conecta canales, proveedores y ChatGPT.") },
+    { path: "/team", icon: "team", title: t("nav.team", "Equipo"), description: t("admin.teamHelp", "Invita personas y define sus accesos.") },
+    ...(workflowFlags.cmsAiEnabled ? [{ path: "/billing", icon: "billing", title: t("nav.planUsage", "Plan y uso"), description: t("admin.billingHelp", "Consulta consumo, límites y facturación.") }] : []),
+  ];
   return <main className="ui-page admin-index-page">
-    <PageHeader eyebrow="Configuración del espacio" title="Administración" description="Gestiona marcas, accesos, conexiones y uso sin salir de esta pantalla." />
+    <PageHeader eyebrow={t("admin.eyebrow", "Configuración del espacio")} title={t("admin.title", "Administración")} description={t("admin.description", "Gestiona marcas, accesos, conexiones y uso sin salir de esta pantalla.")} />
+    <div className="ui-admin-index-grid" aria-label={t("admin.sections", "Áreas de administración")}>{sections.map((section) => <NavLink className="ui-admin-index-card" key={section.path} to={section.path}><NavIcon kind={section.icon} /><div><h2>{section.title}</h2><p>{section.description}</p></div><span aria-hidden="true">›</span></NavLink>)}</div>
     <AdminTabs active={active} onChange={selectTab} />
     <div className="ui-admin-panel" id={`admin-panel-${active}`} role="tabpanel" aria-labelledby={`admin-tablist-${active}`}>
       {active === "brands" && <BrandsView embedded />}
@@ -7991,6 +8080,9 @@ function ConnectionsView({ brandId, backTo, embedded = false }: { brandId?: stri
     await navigator.clipboard?.writeText(mcpInfo.mcpUrl).catch(() => {});
     notify("URL del MCP copiada.");
   };
+  const openChatGpt = () => {
+    window.open("https://chatgpt.com/", "_blank", "noopener,noreferrer");
+  };
   const tokenLabel = form.provider === "postiz" ? "API key / OAuth token" : form.provider === "planable" ? "API token" : form.provider === "buffer" ? "API key de Buffer" : "Token";
   const enabledBufferTargets = (availableChannels.length ? BUFFER_TARGET_CHANNELS.filter((target) => availableChannels.some((channel) => channel.channel === target && channel.enabled) || (target === "instagram" && availableChannels.some((channel) => channel.channel === "instagram_story" && channel.enabled))) : BUFFER_TARGET_CHANNELS);
   if (loading) return <Root className={embedded ? "ui-admin-section" : "ui-page"}><p className="ui-muted">Cargando conexiones...</p></Root>;
@@ -7998,7 +8090,7 @@ function ConnectionsView({ brandId, backTo, embedded = false }: { brandId?: stri
   return <Root className={embedded ? "ui-admin-section" : "ui-page"}>
     <PageHeader eyebrow={`Marca · ${brandOptions.find((brand) => brand.id === selectedBrandId)?.name || brandOptions.find((brand) => brand.id === selectedBrandId)?.handle || selectedBrandId}`} title="Conexiones" description={t("admin.connectionsDescription", "El Blog publica mediante el webhook de Coolify. Las conexiones sociales se gestionan aquí.")} back={backTo ? <NavLink to={backTo}>← Volver a la marca</NavLink> : undefined} actions={canManage ? <Button onClick={() => setFormOpen(true)}>{t("admin.addConnection")}</Button> : undefined} />
     {error && <Card><p className="ui-field-error">{error}</p></Card>}
-    <Card className="ui-mcp-card"><div className="ui-card-head"><div><span className="ui-eyebrow">Conexión externa</span><h2>Conectar esta marca con ChatGPT</h2><p className="ui-muted">Añade la URL del MCP y completa OAuth con tu cuenta. El acceso se resuelve por tus membresías actuales de marca.</p></div></div>{mcpInfo?.mcpUrl && <div className="ui-mcp-value"><div><span className="ui-field-label">URL del MCP</span><code>{mcpInfo.mcpUrl}</code></div><Button type="button" variant="ghost" size="sm" onClick={() => void copyMcpUrl()}>Copiar</Button></div>}<p className="ui-field-hint">No existen tokens de marca. Para Cursor, Claude u otros clientes usa tu PAT personal desde Ajustes o el flujo OAuth.</p><NavLink className="text-link" to="/settings">{t("settings.mcpTokenRegenerate")}</NavLink></Card>
+    <Card className="ui-mcp-card"><div className="ui-card-head"><div><span className="ui-eyebrow">{t("settings.mcpConnectEyebrow")}</span><h2>{t("settings.mcpConnectTitle")}</h2><p className="ui-muted">{t("settings.mcpConnectHelp")}</p></div></div>{mcpInfo?.mcpUrl && <div className="ui-mcp-value"><div><span className="ui-field-label">{t("settings.mcpUrlLabel")}</span><code>{mcpInfo.mcpUrl}</code></div><Button type="button" variant="ghost" size="sm" onClick={() => void copyMcpUrl()}>{t("settings.mcpUrlCopy")}</Button></div>}<Stack gap="sm"><p className="ui-field-hint">{t("settings.mcpConnectStep1")}</p><p className="ui-field-hint">{t("settings.mcpConnectStep2")}</p><p className="ui-field-hint">{t("settings.mcpConnectStep3")}</p></Stack><Inline gap="sm"><Button type="button" variant="secondary" onClick={openChatGpt}>{t("settings.chatgptOpen")}</Button><NavLink className="ui-button ui-button-ghost" to="/settings#chatgpt-account">{t("settings.chatgptConnectHere")}</NavLink></Inline></Card>
     {connections.length ? <div className="ui-connection-grid">{connections.map((connection) => <ConnectionCard key={connection.id} provider={connection.provider === "buffer" && connection.channel === "buffer" ? "Buffer · todos los canales" : `${connection.provider || "Proveedor"} · ${connection.channel || "canal"}`} status={connection.status || (connection.enabled ? "connected" : "disabled")} account={connection.externalAccountId || connection.userId ? `Cuenta ${connection.externalAccountId || connection.userId}` : undefined} actions={<Inline gap="sm"><Button variant="ghost" size="sm" onClick={async () => { try { await api.testConnection(connection.id, selectedBrandId); notify("Prueba correcta."); } catch (err: any) { notify(err?.message || "La prueba falló.", "error"); } }}>Probar</Button>{canManage && <Button variant="ghost" size="sm" onClick={async () => { try { await api.disconnectConnection(connection.id, selectedBrandId); setConnections((current) => current.filter((item) => item.id !== connection.id)); notify("Conexión desconectada."); } catch (err: any) { notify(err?.message || "No se pudo desconectar.", "error"); } }}>Desconectar</Button>}</Inline>} />)}</div> : !error && <UiEmptyState title="Aún no hay conexiones" description="Activa un canal y conecta el proveedor que lo ejecutará." />}
     <Modal open={canManage && formOpen} title={t("admin.addConnection")} onClose={() => setFormOpen(false)}>
       <form className="ui-stack ui-stack-md ui-connection-form" onSubmit={(event) => void connect(event)}>

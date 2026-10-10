@@ -265,8 +265,12 @@ const baseApi = {
     request<Record<string, any>>(`/api/v2/connections/${encodeURIComponent(connectionId)}/test${site ? `?site=${encodeURIComponent(site)}` : ""}`, { method: "POST", body: JSON.stringify({ site }) }),
   disconnectConnection: (connectionId: string, site?: string) =>
     request<{ connection: Record<string, any> }>(`/api/v2/connections/${encodeURIComponent(connectionId)}/disconnect${site ? `?site=${encodeURIComponent(site)}` : ""}`, { method: "POST", body: JSON.stringify({ site }) }),
-  reviewItems: (site?: string, signal?: AbortSignal) =>
-    request<{ items: ContentItem[] }>(`/api/v2/content/review${site ? `?site=${encodeURIComponent(site)}` : ""}`, { signal }),
+  reviewItems: (site?: string, signal?: AbortSignal, archive: "active" | "archived" | "all" = "active") => {
+    const params = new URLSearchParams();
+    if (site) params.set("site", site);
+    if (archive !== "active") params.set("archive", archive);
+    return request<{ items: ContentItem[] }>(`/api/v2/content/review${params.toString() ? `?${params.toString()}` : ""}`, { signal });
+  },
   syncContentRemoteStatus: (site?: string) =>
     request<{ queued: number; bucket: string; types: string[] }>("/api/v2/content/sync-remote-status", {
       method: "POST",
@@ -433,6 +437,16 @@ const baseApi = {
   cancelContent: (itemId: string, site?: string) =>
     request<{ itemId: string; status: string }>(
       `/api/v2/content/items/${encodeURIComponent(itemId)}/cancel`,
+      { method: "POST", body: JSON.stringify({ site }) },
+    ),
+  archiveContent: (itemId: string, site?: string) =>
+    request<{ itemId: string; archived: boolean; archivedAt: string | null }>(
+      `/api/v2/content/items/${encodeURIComponent(itemId)}/archive`,
+      { method: "POST", body: JSON.stringify({ site }) },
+    ),
+  restoreArchivedContent: (itemId: string, site?: string) =>
+    request<{ itemId: string; archived: boolean; archivedAt: string | null }>(
+      `/api/v2/content/items/${encodeURIComponent(itemId)}/restore-archive`,
       { method: "POST", body: JSON.stringify({ site }) },
     ),
   cancelContentChannel: (itemId: string, channel: string, site?: string) =>
