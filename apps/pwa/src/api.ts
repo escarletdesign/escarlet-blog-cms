@@ -340,7 +340,7 @@ const baseApi = {
   productionAssets: (site?: string) =>
     request<{ assets: MediaItem[] }>(`/api/v2/assets${site ? `?site=${encodeURIComponent(site)}` : ""}`),
   managedProductionAssets: (site?: string) =>
-    request<{ assets: MediaItem[] }>(`/api/v2/assets/manage${site ? `?site=${encodeURIComponent(site)}` : ""}`),
+    request<{ assets: MediaItem[] }>(`/api/v2/assets/manage?${new URLSearchParams({ ...(site ? { site } : {}), mode: "standalone" }).toString()}`),
   updateProductionAssets: (input: { site?: string; assetIds: string[]; filename?: string; alt?: string; usage?: string }) =>
     request<{ updated: boolean; count: number; assetIds: string[] }>("/api/v2/assets/update", {
       method: "POST",

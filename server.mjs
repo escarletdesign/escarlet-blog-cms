@@ -2207,6 +2207,7 @@ async function handleRequest(req, res) {
         const result = await listCanonicalMedia({
           workspaceId: scope.workspaceId,
           siteId: scope.siteId,
+          mode: url.searchParams.get('mode') === 'standalone' ? 'standalone' : '',
           temporaryOnly: url.searchParams.get('temporaryOnly') === '1' || url.searchParams.get('mode') === 'temporary',
           assetIds: String(url.searchParams.get('assetIds') || '').split(',').map((value) => value.trim()).filter(Boolean),
           limit: url.searchParams.get('limit')

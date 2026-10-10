@@ -51,7 +51,7 @@ const bufferPublishableChannels = (rows: Array<{ channel: string; enabled?: bool
 };
 
 type LibraryAsset = { key: string; item: ContentItem; channel: ContentChannel; status: string; url: string; kind: "image" | "video"; title: string };
-type LibraryGroup = { channel: ContentChannel; assets: LibraryAsset[] };
+type LibraryGroup = { channel: ContentChannel; assets: LibraryAsset[]; pending: number };
 
 function assetKind(value: unknown, url: string, channel: ContentChannel): "image" | "video" {
   const media = value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -77,7 +77,7 @@ function libraryValues(variant: ContentVariant) {
 }
 
 function buildLibraryGroups(items: ContentItem[], filterChannel = "all"): LibraryGroup[] {
-  const groups = new Map<ContentChannel, LibraryAsset[]>();
+  const groups = new Map<ContentChannel, { assets: LibraryAsset[]; pending: number }>();
   items.forEach((item) => (item.variants || []).forEach((variant) => {
     if (filterChannel !== "all" && variant.channel !== filterChannel) return;
     const values = libraryValues(variant);
@@ -85,15 +85,18 @@ function buildLibraryGroups(items: ContentItem[], filterChannel = "all"): Librar
     const status = variant.scheduleStatus || variant.status || "draft";
     const assets = values.map((value, index) => {
       const url = mediaUrl(value, "thumb");
-      const dedupeKey = url || `${item.id}:${variant.channel}:pending`;
+      if (!url) return null;
+      const dedupeKey = url;
       if (seen.has(dedupeKey)) return null;
       seen.add(dedupeKey);
       return { key: `${item.id}:${variant.channel}:${index}`, item, channel: variant.channel, status, url, kind: assetKind(value, url, variant.channel), title: itemTitle(item) };
     }).filter((asset): asset is LibraryAsset => Boolean(asset));
-    if (!assets.length) assets.push({ key: `${item.id}:${variant.channel}:pending`, item, channel: variant.channel, status, url: "", kind: "image", title: itemTitle(item) });
-    groups.set(variant.channel, [...(groups.get(variant.channel) || []), ...assets]);
+    const current = groups.get(variant.channel) || { assets: [], pending: 0 };
+    if (!assets.length) current.pending += 1;
+    current.assets.push(...assets);
+    groups.set(variant.channel, current);
   }));
-  return ALL_CHANNELS.filter((channel) => groups.has(channel)).map((channel) => ({ channel, assets: groups.get(channel) || [] }));
+  return ALL_CHANNELS.filter((channel) => groups.has(channel)).map((channel) => ({ channel, ...(groups.get(channel) || { assets: [], pending: 0 }) }));
 }
 
 function standaloneAssetStatus(asset: MediaItem) {
@@ -153,7 +156,6 @@ type ContentAssetLibraryProps = {
 };
 
 function ContentAssetLibrary({ groups, standaloneAssets, filterChannel, channelOptions, onChannelChange, t, onOpen, onDeleteMany, onEditMany, onUpload }: ContentAssetLibraryProps) {
-  const [columns, setColumns] = useState("4");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deleteSelection, setDeleteSelection] = useState<MediaItem[]>([]);
   const [editSelection, setEditSelection] = useState<MediaItem[]>([]);
@@ -163,8 +165,9 @@ function ContentAssetLibrary({ groups, standaloneAssets, filterChannel, channelO
   const selectedAssets = standaloneAssets.filter((asset) => asset.id && selectedIds.includes(String(asset.id)));
   const allVisibleSelected = selectableIds.length > 0 && selectableIds.every((id) => selectedIds.includes(id));
   const protectedAssets = standaloneAssets.filter((asset) => asset.deletable === false);
-  const columnClass = `ui-content-library-columns-${columns}`;
   const visibleGroups = filterChannel === "all" ? groups : groups.filter((group) => group.channel === filterChannel);
+  const libraryAssets = visibleGroups.flatMap((group) => group.assets);
+  const visibleLibraryAssets = libraryAssets.slice(0, 60);
   const tabChannels = [...channelOptions, ...groups.map((group) => group.channel)];
   const channelTabs = [{ id: "all", label: t("contentLibrary.allChannels", "Todos") }, ...tabChannels.map((channel) => ({ id: channel, label: channelLabel(channel) }))].filter((tab, index, all) => all.findIndex((candidate) => candidate.id === tab.id) === index);
 
@@ -205,33 +208,26 @@ function ContentAssetLibrary({ groups, standaloneAssets, filterChannel, channelO
   const total = visibleGroups.reduce((sum, group) => sum + group.assets.length, 0);
   const published = visibleGroups.reduce((sum, group) => sum + group.assets.filter((asset) => asset.status === "published").length, 0);
   const generated = visibleGroups.reduce((sum, group) => sum + group.assets.filter((asset) => asset.url && ["generated", "approved", "scheduled", "syncing"].includes(asset.status)).length, 0);
-  const pending = total - published - generated;
-  return <Stack gap="md" className={`ui-content-library ${columnClass}`}>
+  const pending = visibleGroups.reduce((sum, group) => sum + group.pending, 0) + total - published - generated;
+  return <Stack gap="md" className="ui-content-library">
     <Card className="ui-content-library-switcher">
       <div className="ui-card-head"><div><span className="ui-eyebrow">{t("contentLibrary.viewEyebrow", "VISTA")}</span><h2>{t("contentLibrary.viewByChannel", "Ver por canal")}</h2></div><span className="ui-muted">{groups.reduce((sum, group) => sum + group.assets.length, 0)} {t("contentLibrary.assets", "activos")}</span></div>
       <Tabs items={channelTabs} value={filterChannel as "all" | ContentChannel} onChange={onChannelChange} idPrefix="content-library-channel-tabs" panelIdPrefix="content-library-panel" ariaLabel={t("contentLibrary.channelViews", "Vistas por canal")} />
     </Card>
-    <Inline gap="sm" className="ui-content-library-summary"><span className="ui-muted">{t("contentLibrary.visibleCampaignAssets", "Activos de las campañas visibles")}</span><Badge tone="success">{generated} {t("contentLibrary.generated", "generados")}</Badge><Badge tone="published">{published} {t("contentLibrary.published", "publicados")}</Badge><Badge tone="warning">{pending} {t("contentLibrary.pending", "pendientes")}</Badge><Badge tone="info">{standaloneAssets.length} {t("contentLibrary.unassigned", "sin campaña")}</Badge><Field label={t("contentLibrary.columns", "Columnas")}><Select value={columns} onChange={(event) => setColumns(event.target.value)} aria-label={t("contentLibrary.columnsAria", "Columnas de la biblioteca")}><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></Select></Field></Inline>
+    <Inline gap="sm" className="ui-content-library-summary"><span className="ui-muted">{t("contentLibrary.visibleCampaignAssets", "Activos de las campañas visibles")}</span><Badge tone="success">{generated} {t("contentLibrary.generated", "generados")}</Badge><Badge tone="published">{published} {t("contentLibrary.published", "publicados")}</Badge><Badge tone="warning">{pending} {t("contentLibrary.pending", "pendientes")}</Badge><Badge tone="info">{standaloneAssets.length} {t("contentLibrary.unassigned", "sin campaña")}</Badge></Inline>
     <div id={`content-library-panel-${encodeURIComponent(filterChannel)}`} role="tabpanel" aria-labelledby={`content-library-channel-tabs-${encodeURIComponent(filterChannel)}`} tabIndex={0}>
-    <div className="ui-content-library-grid">
-      {visibleGroups.map((group) => {
-        const groupPublished = group.assets.filter((asset) => asset.status === "published").length;
-        const groupGenerated = group.assets.filter((asset) => asset.url && ["generated", "approved", "scheduled", "syncing"].includes(asset.status)).length;
-        const groupPending = group.assets.length - groupPublished - groupGenerated;
-        return <Card className="ui-content-library-channel" key={group.channel}>
-          <div className="ui-card-head"><div><span className="ui-eyebrow">{t("contentLibrary.channelApp", "Canal / app")}</span><h2>{channelLabel(group.channel)}</h2></div><ChannelBadge channel={group.channel} /></div>
-          <Inline gap="sm" className="ui-content-library-counts"><Badge tone="success">{groupGenerated} {t("contentLibrary.generated", "generados")}</Badge><Badge tone="published">{groupPublished} {t("contentLibrary.published", "publicados")}</Badge><Badge tone="warning">{groupPending} {t("contentLibrary.pending", "pendientes")}</Badge></Inline>
-          <div className="ui-content-library-assets">
-            {group.assets.slice(0, 12).map((asset) => <article className="ui-content-library-asset" key={asset.key}>
-              {asset.url ? asset.kind === "video" ? <video className="ui-content-library-visual" src={asset.url} controls preload="metadata" aria-label={asset.title} /> : <img className="ui-content-library-visual" src={asset.url} alt={asset.title} loading="lazy" decoding="async" /> : <div className="ui-content-library-visual ui-content-library-placeholder" role="img" aria-label={t("contentLibrary.pendingAsset", "Activo pendiente")}><span>{t("contentLibrary.noAssetYet", "Sin activo todavía")}</span></div>}
-              <div className="ui-content-library-asset-meta"><strong title={asset.title}>{asset.title}</strong><StatusBadge status={asset.status} label={statusLabel(asset.status)} /></div>
-              <Button variant="ghost" size="sm" onClick={() => onOpen(asset.item)}>{t("contentLibrary.openContent", "Abrir contenido")}</Button>
-            </article>)}
-          </div>
-          {group.assets.length > 12 && <p className="ui-field-hint">{t("contentLibrary.limitHint", "Se muestran 12 activos. Usa los filtros para acotar la biblioteca.")}</p>}
-        </Card>;
-      })}
-    </div>
+    {visibleLibraryAssets.length > 0 ? <Card className="ui-content-library-channel ui-content-library-unified">
+      <div className="ui-card-head"><div><span className="ui-eyebrow">{t("contentLibrary.channelApp", "Canal / app")}</span><h2>{filterChannel === "all" ? t("contentLibrary.allAssets", "Todos los activos") : channelLabel(filterChannel)}</h2></div>{filterChannel === "all" ? <Badge tone="info">{libraryAssets.length}</Badge> : <ChannelBadge channel={filterChannel} />}</div>
+      <Inline gap="sm" className="ui-content-library-counts"><Badge tone="success">{generated} {t("contentLibrary.generated", "generados")}</Badge><Badge tone="published">{published} {t("contentLibrary.published", "publicados")}</Badge><Badge tone="warning">{pending} {t("contentLibrary.pending", "pendientes")}</Badge></Inline>
+      <div className="ui-content-library-assets">
+        {visibleLibraryAssets.map((asset) => <article className="ui-content-library-asset" key={asset.key}>
+          {asset.kind === "video" ? <video className="ui-content-library-visual" src={asset.url} controls preload="metadata" aria-label={asset.title} /> : <img className="ui-content-library-visual" src={asset.url} alt={asset.title} loading="lazy" decoding="async" />}
+          <div className="ui-content-library-asset-meta">{filterChannel === "all" && <ChannelBadge channel={asset.channel} />}<strong title={asset.title}>{asset.title}</strong><StatusBadge status={asset.status} label={statusLabel(asset.status)} /></div>
+          <Button variant="ghost" size="sm" onClick={() => onOpen(asset.item)}>{t("contentLibrary.openContent", "Abrir contenido")}</Button>
+        </article>)}
+      </div>
+      {libraryAssets.length > visibleLibraryAssets.length && <p className="ui-field-hint">{t("contentLibrary.limitHint", "Se muestran 60 activos. Usa los filtros para acotar la biblioteca.")}</p>}
+    </Card> : null}
     {!visibleGroups.length && <EmptyState title={t("contentLibrary.noChannelAssets", "No hay activos para este canal")} description={t("contentLibrary.noChannelAssetsHelp", "Prueba otro canal o cambia los filtros de estado y búsqueda.")} />}
     </div>
     <Card className="ui-content-library-standalone">
@@ -550,6 +546,7 @@ export function ContentBatches({ site, brandId, previewItemId, creationEnabled =
     { id: "no_date", label: t("contentFilters.noDate", "Sin fecha") },
     { id: "overdue", label: t("contentFilters.overdue", "Vencidas") },
   ];
+  const activeFilterCount = [filterQuery, filterPlan !== "all", filterStatus !== "all", filterChannel !== "all", filterDate !== "all", filterArchive !== "active"].filter(Boolean).length;
 
   return <main className="ui-page ui-plans-page">
     {previewItemId ? <section className="ui-plan-preview-screen">
@@ -568,13 +565,17 @@ export function ContentBatches({ site, brandId, previewItemId, creationEnabled =
       {loading ? <Stack gap="md"><Card><Progress value={35} /><p className="ui-muted">Cargando contenido…</p></Card></Stack> : !setupRequired && (view === "library" || items.length > 0 || plans.length > 0 || standaloneAssets.length > 0) && <div className="ui-plans-workspace">
         <Tabs items={[{ id: "campaigns", label: "Campañas" }, { id: "library", label: "Biblioteca de activos" }]} value={view} onChange={(next) => updateSearchParam("view", next, "campaigns")} idPrefix="content-view-tabs" panelIdPrefix="content-view-panel" ariaLabel="Vista del contenido" />
         <div className="ui-content-filterbar">
-          <Field label={t("contentFilters.search", "Buscar")}><TextField value={filterQuery} onChange={(event) => updateSearchParam("q", event.target.value, "")} placeholder={t("contentFilters.searchPlaceholder", "Título, brief o campaña")} /></Field>
-          <div className="ui-content-filter-group"><span className="ui-field-label">{t("contentFilters.archive", "Archivo")}</span><MultiSelectPills options={archiveFilterOptions} value={[filterArchive]} onChange={(values) => updateSearchParam("archive", chooseSingleFilter(values), "active")} ariaLabel={t("contentFilters.archive", "Archivo")} /></div>
-          {view !== "library" && <div className="ui-content-filter-group"><span className="ui-field-label">{t("contentFilters.channel", "Canal")}</span><MultiSelectPills options={[{ id: "all", label: t("contentFilters.allChannels", "Todos") }, ...channels.map((channel) => ({ id: channel, label: channelLabel(channel) }))]} value={[filterChannel]} onChange={(values) => updateSearchParam("channel", chooseSingleFilter(values))} ariaLabel={t("contentFilters.channel", "Canal")} /></div>}
-          <div className="ui-content-filter-group"><span className="ui-field-label">{t("contentFilters.status", "Estado")}</span><MultiSelectPills options={statusFilterOptions} value={[filterStatus]} onChange={(values) => updateSearchParam("status", chooseSingleFilter(values))} ariaLabel={t("contentFilters.status", "Estado")} /></div>
-          <div className="ui-content-filter-group"><span className="ui-field-label">{t("contentFilters.date", "Fecha")}</span><MultiSelectPills options={dateFilterOptions} value={[filterDate]} onChange={(values) => updateSearchParam("date", chooseSingleFilter(values))} ariaLabel={t("contentFilters.date", "Fecha")} /></div>
-          <details className="ui-content-filter-more"><summary>{t("contentFilters.more", "Más filtros")}</summary><div className="ui-content-filter-more-grid"><Field label={t("contentFilters.campaign", "Campaña")}><Select value={filterPlan} onChange={(event) => updateSearchParam("plan", event.target.value)}><option value="all">{t("contentFilters.allCampaigns", "Todas las campañas")}</option>{plans.map((plan) => <option key={plan.id} value={plan.id}>{plan.title}</option>)}</Select></Field><Field label={t("contentFilters.sort", "Ordenar por")}><Select value={sortOrder} onChange={(event) => updateSearchParam("sort", event.target.value, "date")}><option value="date">{t("contentFilters.sortDate", "Próxima fecha")}</option><option value="status">{t("contentFilters.sortStatus", "Estado")}</option><option value="title">{t("contentFilters.sortTitle", "Título A-Z")}</option></Select></Field></div></details>
-          <div className="ui-filter-summary"><span>{visibleItems.length} {t("contentFilters.results", "resultados")}</span>{hasActiveFilters && <Button size="sm" variant="ghost" onClick={clearFilters}>{t("contentFilters.clear", "Limpiar filtros")}</Button>}</div>
+          <div className="ui-content-filter-top">
+            <Field label={t("contentFilters.search", "Buscar")}><TextField value={filterQuery} onChange={(event) => updateSearchParam("q", event.target.value, "")} placeholder={t("contentFilters.searchPlaceholder", "Título, brief o campaña")} /></Field>
+            <details className="ui-content-filter-drawer"><summary><span>{t("contentFilters.more", "Filtros")}</span>{activeFilterCount > 0 && <Badge tone="info">{activeFilterCount}</Badge>}</summary><div className="ui-content-filter-drawer-body">
+              <div className="ui-content-filter-group"><span className="ui-field-label">{t("contentFilters.archive", "Archivo")}</span><MultiSelectPills options={archiveFilterOptions} value={[filterArchive]} onChange={(values) => updateSearchParam("archive", chooseSingleFilter(values), "active")} ariaLabel={t("contentFilters.archive", "Archivo")} /></div>
+              {view !== "library" && <div className="ui-content-filter-group"><span className="ui-field-label">{t("contentFilters.channel", "Canal")}</span><MultiSelectPills options={[{ id: "all", label: t("contentFilters.allChannels", "Todos") }, ...channels.map((channel) => ({ id: channel, label: channelLabel(channel) }))]} value={[filterChannel]} onChange={(values) => updateSearchParam("channel", chooseSingleFilter(values))} ariaLabel={t("contentFilters.channel", "Canal")} /></div>}
+              <div className="ui-content-filter-group"><span className="ui-field-label">{t("contentFilters.status", "Estado")}</span><MultiSelectPills options={statusFilterOptions} value={[filterStatus]} onChange={(values) => updateSearchParam("status", chooseSingleFilter(values))} ariaLabel={t("contentFilters.status", "Estado")} /></div>
+              <div className="ui-content-filter-group"><span className="ui-field-label">{t("contentFilters.date", "Fecha")}</span><MultiSelectPills options={dateFilterOptions} value={[filterDate]} onChange={(values) => updateSearchParam("date", chooseSingleFilter(values))} ariaLabel={t("contentFilters.date", "Fecha")} /></div>
+              <div className="ui-content-filter-more-grid"><Field label={t("contentFilters.campaign", "Campaña")}><Select value={filterPlan} onChange={(event) => updateSearchParam("plan", event.target.value)}><option value="all">{t("contentFilters.allCampaigns", "Todas las campañas")}</option>{plans.map((plan) => <option key={plan.id} value={plan.id}>{plan.title}</option>)}</Select></Field><Field label={t("contentFilters.sort", "Ordenar por")}><Select value={sortOrder} onChange={(event) => updateSearchParam("sort", event.target.value, "date")}><option value="date">{t("contentFilters.sortDate", "Próxima fecha")}</option><option value="status">{t("contentFilters.sortStatus", "Estado")}</option><option value="title">{t("contentFilters.sortTitle", "Título A-Z")}</option></Select></Field></div>
+            </div></details>
+            <div className="ui-filter-summary"><span>{visibleItems.length} {t("contentFilters.results", "resultados")}</span>{hasActiveFilters && <Button size="sm" variant="ghost" onClick={clearFilters}>{t("contentFilters.clear", "Limpiar filtros")}</Button>}</div>
+          </div>
         </div>
         {view !== "library" && visibleItems.length > 0 && <Inline gap="sm" className="ui-content-batch-toolbar"><Checkbox label={t("contentFilters.selectVisible", "Seleccionar visibles")} checked={allVisibleItemsSelected} onChange={() => setSelectedItemIds(allVisibleItemsSelected ? [] : visibleItems.map((item) => item.id))} /><Button size="sm" variant="ghost" disabled={!selectedItemIds.length} onClick={() => setSelectedItemIds([])}>{t("contentFilters.clearSelection", "Limpiar")}</Button>{selectedItemIds.length > 0 && <><Badge tone="info">{selectedItemIds.length} {t("contentFilters.selected", "seleccionadas")}</Badge><Button size="sm" variant="secondary" disabled={busy} onClick={() => void archiveSelectedItems()}>{filterArchive === "archived" ? t("contentRun.restore", "Restaurar") : t("contentRun.archive", "Archivar")}</Button></>}</Inline>}
         {view === "library" ? <div id="content-view-panel-library" role="tabpanel" aria-labelledby="content-view-tabs-library" tabIndex={0}><ContentAssetLibrary groups={libraryGroups} standaloneAssets={visibleStandaloneAssets} filterChannel={filterChannel} channelOptions={channels} onChannelChange={(channel) => updateSearchParam("channel", channel)} t={t} onOpen={openPreview} onDeleteMany={deleteStandaloneAssets} onEditMany={editStandaloneAssets} onUpload={uploadStandaloneAssets} /></div> : <div id="content-view-panel-campaigns" role="tabpanel" aria-labelledby="content-view-tabs-campaigns" tabIndex={0}>{visibleItems.length ? <Stack gap="sm">{visibleItems.map((item) => {
