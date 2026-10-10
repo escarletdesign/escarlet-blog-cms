@@ -366,6 +366,7 @@ function ToastProvider({ children }: { children: ReactNode }) {
 function ContentPlansRoute({ site, creationEnabled, activeChannels }: { site: string; creationEnabled: boolean; activeChannels: AppState["channels"] }) {
   const { showToast } = useToast();
   const { productContext } = useApp();
+  const { t } = useI18n();
   const { itemId } = useParams();
   const location = useLocation();
   if (!itemId && new URLSearchParams(location.search).get("view") === "calendar") {
@@ -374,7 +375,7 @@ function ContentPlansRoute({ site, creationEnabled, activeChannels }: { site: st
     const query = search.toString();
     return <Navigate to={`/calendar${query ? `?${query}` : ""}`} replace />;
   }
-  return <ContentPlans site={site} brandId={productContext?.activeBrand?.id} previewItemId={itemId} creationEnabled={creationEnabled} activeChannels={activeChannels} onNotify={showToast} />;
+  return <ContentPlans site={site} brandId={productContext?.activeBrand?.id} previewItemId={itemId} creationEnabled={creationEnabled} activeChannels={activeChannels} onNotify={showToast} t={t} />;
 }
 
 function App() {
@@ -913,18 +914,18 @@ function Shell() {
   const publishingEnabled = brandCapabilities.content_publishing !== false;
   const adminUser = isWorkspaceAdmin(session);
   const links = [
-    { to: "/", label: t("nav.home", "Resumen"), icon: "home" },
-    { to: "/apps", label: t("nav.apps", "Apps"), icon: "apps" },
+    { to: "/", label: t("nav.home", "Inicio"), icon: "home" },
+    { to: "/apps", label: t("nav.apps", "Crear"), icon: "apps" },
     { to: "/plans", label: t("nav.plans", "Contenido"), icon: "plans" },
-    { to: "/production/food-to-reel", label: t("nav.foodToReel", "Food to Reel"), icon: "video" },
-    ...(publishingEnabled ? [{ to: "/publication/publisher", label: t("nav.publisher", "Publisher"), icon: "send" }] : []),
     ...(publishingEnabled ? [{ to: "/calendar", label: t("nav.calendar", "Calendario"), icon: "calendar" }] : []),
-    ...(!adminUser ? [
-      { to: "/brands", label: t("nav.brands", "Marcas"), icon: "brands" },
-      { to: "/team", label: t("nav.team", "Equipo y acceso"), icon: "team" },
-      ...(workflowFlags.cmsAiEnabled ? [{ to: "/billing", label: t("nav.planUsage", "Plan y uso"), icon: "billing" }] : []),
-    ] : []),
     ...(workflowFlags.assistantEnabled && publishingEnabled ? [{ to: "/chat", label: t("nav.assistant"), icon: "assistant" }] : []),
+  ];
+  const adminLinks = adminUser ? [
+    { to: "/admin", label: t("nav.admin", "Administración"), icon: "admin" },
+  ] : [
+    { to: "/brands", label: t("nav.brands", "Marca"), icon: "brands" },
+    { to: "/team", label: t("nav.team", "Equipo"), icon: "team" },
+    ...(workflowFlags.cmsAiEnabled ? [{ to: "/billing", label: t("nav.planUsage", "Plan y uso"), icon: "billing" }] : []),
   ];
   const mobileLinks = links.slice(0, 3);
   return (
@@ -961,7 +962,7 @@ function Shell() {
             {t("nav.newChat")}
           </button>
         )}
-        <nav>
+        <nav className="primary-nav" aria-label={t("nav.primary", "Navegación principal")}>
           {links.map((link) => (
             <div className="nav-group" key={link.to}>
               <NavLink
@@ -975,13 +976,18 @@ function Shell() {
               {link.icon === "assistant" && <SidebarConversations site={site} />}
             </div>
           ))}
-          {isWorkspaceAdmin(session) && (
-            <NavLink to="/admin" className="nav-link">
-              <NavIcon kind="admin" />
-              {t("nav.admin")}
-            </NavLink>
-          )}
         </nav>
+        <div className="sidebar-nav-section">
+          <span className="sidebar-nav-label">{t("nav.manage", "Administrar")}</span>
+          <nav aria-label={t("nav.manage", "Administrar")}>
+            {adminLinks.map((link) => (
+              <NavLink key={link.to} to={link.to} className="nav-link">
+                <NavIcon kind={link.icon} />
+                {link.label}
+              </NavLink>
+            ))}
+          </nav>
+        </div>
         <div className="sidebar-bottom">
           <NavLink to="/settings" className="profile">
             <UserAvatar src={session.avatarUrl} name={session.displayName || session.email || session.userId} size="sm" />

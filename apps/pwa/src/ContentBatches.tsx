@@ -249,10 +249,36 @@ function ContentAssetLibrary({ groups, standaloneAssets, onOpen, onDeleteMany, o
   </Stack>;
 }
 
-type Props = { site: string; brandId?: string; previewItemId?: string; creationEnabled?: boolean; activeChannels?: Array<{ channel: string; enabled: boolean; connectionStatus?: string }>; onNotify?: (message: string, kind?: "success" | "error" | "info") => void };
+type Props = { site: string; brandId?: string; previewItemId?: string; creationEnabled?: boolean; activeChannels?: Array<{ channel: string; enabled: boolean; connectionStatus?: string }>; t: (key: string, fallback?: string) => string; onNotify?: (message: string, kind?: "success" | "error" | "info") => void };
 type Dialog = { type: "edit" | "schedule" | "blog-edit"; item: ContentItem } | { type: "details"; item: ContentItem } | null;
 
-export function ContentBatches({ site, brandId, previewItemId, creationEnabled = false, activeChannels, onNotify }: Props) {
+function ContentRunReviewRail({ item, busy, t, onApprove, onOpenChannels }: { item: ContentItem; busy: boolean; t: (key: string, fallback?: string) => string; onApprove: () => void; onOpenChannels: () => void }) {
+  const status = aggregateStatus(item);
+  const findings = Array.isArray(item.metadata?.brandOs?.findings) ? item.metadata.brandOs.findings : [];
+  const blockers = findings.filter((finding: any) => finding?.severity === "blocker");
+  const brandContext = item.metadata?.brandOs?.brandContext;
+  const variants = item.variants || [];
+  const hasPublished = variants.some((variant) => (variant.scheduleStatus || variant.status) === "published");
+  const actionRequired = status === "action_required" || status === "failed" || blockers.length > 0;
+  return <aside className="ui-content-run-review" aria-label={t("contentRun.reviewLabel", "Revisión del contenido")}>
+    <Card className="ui-content-run-review-card">
+      <div className="ui-card-head"><div><span className="ui-eyebrow">{t("contentRun.reviewEyebrow", "REVISIÓN")}</span><h2>{actionRequired ? t("contentRun.needsAttention", "Hay algo que revisar") : t("contentRun.nextStep", "Siguiente paso")}</h2></div><StatusBadge status={status} label={statusLabel(status)} /></div>
+      <div className="ui-content-run-checklist" role="list">
+        <div className="ui-content-run-check" role="listitem"><span aria-hidden="true">{blockers.length ? "!" : "✓"}</span><div><strong>{t("contentRun.brandCopy", "Marca y copy")}</strong><small>{blockers.length ? `${blockers.length} ${t(blockers.length === 1 ? "contentRun.blocker" : "contentRun.blockers", blockers.length === 1 ? "bloqueo detectado" : "bloqueos detectados")}` : t("contentRun.noBlockers", "Sin bloqueos de marca")}</small></div></div>
+        <div className="ui-content-run-check" role="listitem"><span aria-hidden="true">✓</span><div><strong>{t("contentRun.variants", "Variantes")}</strong><small>{variants.length} {t(variants.length === 1 ? "contentRun.channelReady" : "contentRun.channelsReady", variants.length === 1 ? "canal preparado" : "canales preparados")}</small></div></div>
+      </div>
+      {findings.length > 0 && <Stack gap="sm" className="ui-content-run-findings">{findings.slice(0, 3).map((finding: any, index: number) => <p className={finding?.severity === "blocker" ? "ui-field-error" : "ui-field-hint"} key={`${finding?.code || "finding"}-${index}`}>{finding?.message || t("contentRun.findingFallback", "Revisa esta pieza antes de continuar.")}</p>)}</Stack>}
+      <div className="ui-content-run-provenance"><span className="ui-eyebrow">{t("contentRun.provenance", "PROCEDENCIA")}</span><p>{brandContext?.identity?.name || t("brand.active", "Marca activa")}</p><small>{brandContext?.brandKitVersionId ? `Brand Kit ${brandContext.brandKitVersion ?? t("brand.active", "activo")}` : t("contentRun.activeBrandKit", "Brand Kit activo")} · {item.planTitle || t("contentRun.content", "Contenido")}</small></div>
+      <div className="ui-content-run-channels"><span className="ui-eyebrow">{t("contentRun.channels", "CANALES")}</span><div className="ui-channel-list">{variants.map((variant) => <ChannelBadge key={variant.id} channel={variant.channel} />)}</div></div>
+      <Stack gap="sm" className="ui-content-run-actions">
+        {canApproveStatus(status) && <Button disabled={busy} loading={busy} onClick={onApprove}>{t("contentRun.approve", "Aprobar contenido")}</Button>}
+        <Button variant="secondary" disabled={busy} onClick={onOpenChannels}>{hasPublished ? t("contentRun.viewPublication", "Ver publicación") : t("contentRun.channelsAndPublication", "Canales y publicación")}</Button>
+      </Stack>
+    </Card>
+  </aside>;
+}
+
+export function ContentBatches({ site, brandId, previewItemId, creationEnabled = false, activeChannels, t, onNotify }: Props) {
   const [plans, setPlans] = useState<ContentPlanSummary[]>([]);
   const [items, setItems] = useState<ContentItem[]>([]);
   const [standaloneAssets, setStandaloneAssets] = useState<MediaItem[]>([]);
@@ -480,14 +506,12 @@ export function ContentBatches({ site, brandId, previewItemId, creationEnabled =
 
   return <main className="ui-page ui-plans-page">
     {previewItemId ? <section className="ui-plan-preview-screen">
-      <PageHeader eyebrow="Vista previa" title={previewItem ? itemTitle(previewItem) : "Vista previa"} description="Revisa el contenido completo antes de publicar." back={<Button variant="ghost" onClick={closePreview}>← Volver al contenido</Button>} />
+      <PageHeader eyebrow={t("contentRun.resultEyebrow", "RESULTADO")} title={previewItem ? itemTitle(previewItem) : t("contentRun.previewTitle", "Vista previa")} description={t("contentRun.previewDescription", "Revisa la pieza, sus variantes y el siguiente paso antes de publicar.")} back={<Button variant="ghost" onClick={closePreview}>← {t("contentRun.backToContent", "Volver al contenido")}</Button>} />
       {loading ? <Stack gap="md"><Card><Progress value={35} /><p className="ui-muted">Cargando contenido…</p></Card></Stack> : previewItem ? <Stack gap="md">
-        {previewItem.metadata?.brandOs?.brandContext && <Card>
-          <Inline gap="sm"><Badge tone="info">Contexto de marca</Badge><Badge tone="neutral">{previewItem.metadata.brandOs.brandContext.brandKitVersionId ? `Versión ${previewItem.metadata.brandOs.brandContext.brandKitVersion ?? "activa"}` : "Versión activa"}</Badge></Inline>
-          <p className="ui-muted">{previewItem.metadata.brandOs.brandContext.identity?.name || site} · La generación se conserva como borrador y requiere aprobación humana.</p>
-          {previewItem.metadata.brandOs.findings?.length ? <Stack gap="xs">{previewItem.metadata.brandOs.findings.map((finding, index) => <p className={finding.severity === "blocker" ? "ui-field-error" : "ui-field-hint"} key={`${finding.code}-${index}`}>{finding.message}</p>)}</Stack> : <p className="ui-field-hint">No hay advertencias de consistencia registradas.</p>}
-        </Card>}
-        <ContentPackPreview site={site} item={previewItem} autoRecord={searchParams.get("record") === "1"} bufferReady={bufferReady} publishChannels={publishChannels} busy={busy} onVideoUploaded={(replacedPrevious) => { onNotify?.(replacedPrevious ? "Vídeo guardado. Se reemplazó el anterior del mismo formato." : "Vídeo guardado."); void load(); }} onNotify={onNotify} onClose={closePreview} onEditBlog={() => openBlogEditor(previewItem)} onPublish={(channel, copy) => void publishBuffer(previewItem, channel, copy)} onPublishAll={() => void publishBufferAll(previewItem)} />
+        <div className="ui-content-run-layout">
+          <div className="ui-content-run-artifacts"><ContentPackPreview site={site} item={previewItem} autoRecord={searchParams.get("record") === "1"} bufferReady={bufferReady} publishChannels={publishChannels} busy={busy} onVideoUploaded={(replacedPrevious) => { onNotify?.(replacedPrevious ? "Vídeo guardado. Se reemplazó el anterior del mismo formato." : "Vídeo guardado."); void load(); }} onNotify={onNotify} onClose={closePreview} onEditBlog={() => openBlogEditor(previewItem)} onPublish={(channel, copy) => void publishBuffer(previewItem, channel, copy)} onPublishAll={() => void publishBufferAll(previewItem)} /></div>
+          <ContentRunReviewRail item={previewItem} busy={busy} t={t} onApprove={() => void approve(previewItem.id)} onOpenChannels={() => setDialog({ type: "details", item: previewItem })} />
+        </div>
       </Stack> : <EmptyState title={error ? "No se pudo abrir la vista previa" : "No se encontró este contenido"} description={error || "Puede que se haya eliminado o que ya no tengas acceso."} action={<Button variant="secondary" onClick={closePreview}>Volver al contenido</Button>} />}
     </section> : <>
       <PageHeader eyebrow="Espacio editorial" title="Contenido" description={bufferReady ? "Revisa piezas en «Pendiente de revisión» antes de aprobar. Buffer listo para redes; blog sale por Coolify/webhook al publicar." : "Revisa piezas en «Pendiente de revisión» antes de aprobar. Conecta Buffer (redes) y Coolify/webhook (blog) en Ajustes → Conexiones antes de publicar."} actions={<Inline gap="sm"><Button variant="ghost" disabled={busy || loading} onClick={() => void syncRemoteStatuses()}>Sincronizar estados</Button><Button variant="secondary" onClick={() => navigate("/calendar")}>Calendario editorial</Button>{creationEnabled && <Button onClick={() => { setCampaignStep(0); setCreateOpen(true); }}>Nueva campaña</Button>}</Inline>} />

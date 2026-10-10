@@ -20,18 +20,6 @@ const appRoutes: Record<string, string> = {
   "publication.destination.list": "/publication/publisher",
 };
 
-const appLabels: Record<string, string> = {
-  "recipe.food-to-reel": "Food to Reel",
-  "recipe.reel-from-image": "Imagen y guion a Reel",
-  "recipe.menu-to-reel": "Menú del día a Reel",
-  "recipe.product-to-social": "Producto a publicación social",
-  "publication.destination.list": "Publisher",
-};
-
-function entryLabel(entry: CatalogEntry) {
-  return appLabels[entry.id] || entry.title || entry.id;
-}
-
 function entryRoute(entry: CatalogEntry) {
   return String(entry.metadata?.uiRoute || appRoutes[entry.id] || "").trim();
 }
@@ -81,39 +69,45 @@ export function AppsDashboard({ site, t }: AppsDashboardProps) {
     });
     return [...recipes, ...capabilityApps];
   }, [catalog]);
+  const availableRoutes = useMemo(() => new Set(apps.map(entryRoute).filter(Boolean)), [apps]);
+  const creationModes = useMemo(() => [
+    { id: "idea", title: t("apps.modeIdea", "Desde una idea"), description: t("apps.modeIdeaHelp", "Convierte un objetivo y varios temas en una campaña lista para revisar."), route: "/plans", icon: "✦", available: true },
+    { id: "image", title: t("apps.modeImage", "Desde una imagen"), description: t("apps.modeImageHelp", "Crea un Reel o Story a partir de una imagen y un guion."), route: "/production/reel-from-image", icon: "◒", available: availableRoutes.has("/production/reel-from-image") },
+    { id: "menu", title: t("apps.modeMenu", "Desde un menú"), description: t("apps.modeMenuHelp", "Transforma el menú del día en una pieza social con el formato adecuado."), route: "/production/menu-to-reel", icon: "▤", available: availableRoutes.has("/production/menu-to-reel") },
+    { id: "product", title: t("apps.modeProduct", "Desde un producto"), description: t("apps.modeProductHelp", "Adapta una imagen de producto a un canal social sin perder el original."), route: "/production/product-to-social", icon: "◇", available: availableRoutes.has("/production/product-to-social") },
+    { id: "food", title: t("apps.modeFood", "Desde un plato"), description: t("apps.modeFoodHelp", "Prepara un Reel de comida con imagen, contexto y revisión de marca."), route: "/production/food-to-reel", icon: "◉", available: availableRoutes.has("/production/food-to-reel") },
+    { id: "reuse", title: t("apps.modeReuse", "Reutilizar contenido"), description: t("apps.modeReuseHelp", "Abre tu bandeja para convertir una pieza existente en nuevas variantes."), route: "/plans", icon: "↻", available: true },
+  ].filter((mode) => mode.available), [availableRoutes, t]);
 
   if (loading) {
-    return <main className="ui-page"><PageHeader eyebrow={t("apps.eyebrow", "ESCARLET OS")} title={t("apps.title", "Apps y recipes")} description={t("apps.description", "Elige una tarea. Cada app combina capabilities pequeñas y deja el resultado listo para revisar.")} /><div className="os-app-grid">{[1, 2, 3].map((item) => <Card key={item}><Stack gap="sm"><Skeleton width="55%" height="24px" /><Skeleton height="48px" /><Skeleton width="35%" height="34px" /></Stack></Card>)}</div></main>;
+    return <main className="ui-page"><PageHeader eyebrow={t("apps.eyebrow", "CREAR")} title={t("apps.title", "¿Qué quieres preparar?")} description={t("apps.description", "Elige una entrada. El resultado terminará en un mismo espacio de revisión.")} /><div className="os-app-grid">{[1, 2, 3, 4].map((item) => <Card key={item}><Stack gap="sm"><Skeleton width="55%" height="24px" /><Skeleton height="48px" /><Skeleton width="35%" height="34px" /></Stack></Card>)}</div></main>;
   }
 
   if (error) {
-    return <main className="ui-page"><PageHeader eyebrow={t("apps.eyebrow", "ESCARLET OS")} title={t("apps.title", "Apps y recipes")} description={t("apps.description", "Elige una tarea. Cada app combina capabilities pequeñas y deja el resultado listo para revisar.")} /><Card><p className="ui-field-error" role="alert">{error}</p><Button variant="secondary" onClick={() => window.location.reload()}>{t("common.retry", "Reintentar")}</Button></Card></main>;
+    return <main className="ui-page"><PageHeader eyebrow={t("apps.eyebrow", "CREAR")} title={t("apps.title", "¿Qué quieres preparar?")} description={t("apps.description", "Elige una entrada. El resultado terminará en un mismo espacio de revisión.")} /><Card><p className="ui-field-error" role="alert">{error}</p><Button variant="secondary" onClick={() => window.location.reload()}>{t("common.retry", "Reintentar")}</Button></Card></main>;
   }
 
-  if (!catalog || !apps.length) {
-    return <main className="ui-page"><PageHeader eyebrow={t("apps.eyebrow", "ESCARLET OS")} title={t("apps.title", "Apps y recipes")} /><EmptyState title={t("apps.empty", "Todavía no hay apps disponibles")} description={t("apps.emptyHelp", "Cuando una capability tenga manifest y permisos, aparecerá aquí automáticamente.")} /></main>;
+  if (!catalog || !creationModes.length) {
+    return <main className="ui-page"><PageHeader eyebrow={t("apps.eyebrow", "CREAR")} title={t("apps.title", "¿Qué quieres preparar?")} /><EmptyState title={t("apps.empty", "Todavía no hay entradas disponibles")} description={t("apps.emptyHelp", "Cuando una app esté disponible para esta marca, aparecerá aquí.")} /></main>;
   }
 
   return <main className="ui-page os-apps-page">
-    <PageHeader eyebrow={t("apps.eyebrow", "ESCARLET OS")} title={t("apps.title", "Apps y recipes")} description={t("apps.description", "Elige una tarea. Cada app combina capabilities pequeñas y deja el resultado listo para revisar.")} />
-    <section className="os-app-guide" aria-labelledby="os-app-guide-title">
+    <PageHeader eyebrow={t("apps.eyebrow", "CREAR")} title={t("apps.title", "¿Qué quieres preparar?")} description={t("apps.description", "Elige una entrada. El resultado terminará en un mismo espacio de revisión.")} actions={<Button variant="secondary" onClick={() => navigate("/plans")}>{t("apps.openContent", "Ver contenido")}</Button>} />
+    <section className="os-create-intro" aria-labelledby="os-create-intro-title">
       <Card>
-        <div className="ui-card-head"><div><span className="ui-eyebrow">{t("apps.guideEyebrow", "CÓMO FUNCIONA")}</span><h2 id="os-app-guide-title">{t("apps.guideTitle", "Una tarea, una entrada clara")}</h2></div><Badge tone="info">MCP v3</Badge></div>
-        <p className="ui-muted">{t("apps.guideDescription", "El sistema descubre la app, fija la marca y conserva cada resultado como un artefacto revisable.")}</p>
-        <ol className="os-app-steps">{catalog.guide.firstSteps.slice(0, 4).map((step) => <li key={step}>{step}</li>)}</ol>
+        <div className="os-create-intro-copy"><span className="ui-eyebrow">{t("apps.guideEyebrow", "UN MISMO RESULTADO")}</span><h2 id="os-create-intro-title">{t("apps.guideTitle", "Crea, revisa y publica sin perder el hilo")}</h2><p className="ui-muted">{t("apps.guideDescription", "Cada entrada conserva la marca, los assets y las variantes en un mismo espacio de revisión.")}</p></div>
+        <Inline gap="sm"><Badge tone="success">Entrada clara</Badge><Badge tone="info">Revisión humana</Badge><Badge tone="neutral">Por canal</Badge></Inline>
       </Card>
     </section>
-    <div className="os-app-grid" aria-label={t("apps.gridLabel", "Apps disponibles")}>
-      {apps.map((entry) => {
-        const route = entryRoute(entry);
-        const isRecipe = entry.kind === "recipe";
-        return <Card className="os-app-card" key={entry.id}>
-          <div className="ui-card-head"><div><span className="ui-eyebrow">{isRecipe ? t("apps.recipe", "RECIPE") : t("apps.capability", "CAPABILITY")}</span><h2>{entryLabel(entry)}</h2></div><Badge tone={isRecipe ? "success" : "info"}>{entry.id}</Badge></div>
-          <p className="ui-muted">{entry.description || t("apps.noDescription", "Capability disponible desde el MCP.")}</p>
-          <div className="os-app-tags">{(entry.tags || []).slice(0, 4).map((tag) => <Badge key={tag} tone="neutral">{tag}</Badge>)}</div>
-          <Inline gap="sm"><Button disabled={!route} onClick={() => route && navigate(route)}>{route ? t("apps.open", "Abrir app") : t("apps.mcpOnly", "Usar desde MCP")}</Button>{entry.reviewPolicy === "human_required" || entry.humanReviewRequired ? <Badge tone="warning">{t("apps.review", "Revisión humana")}</Badge> : null}</Inline>
-        </Card>;
-      })}
-    </div>
+    <section aria-labelledby="os-create-modes-title">
+      <div className="os-create-section-head"><div><span className="ui-eyebrow">{t("apps.modesEyebrow", "EMPEZAR")}</span><h2 id="os-create-modes-title">{t("apps.modesTitle", "Elige cómo quieres empezar")}</h2></div><span className="ui-muted">{creationModes.length} {t("apps.modesCount", "opciones disponibles")}</span></div>
+      <div className="os-app-grid os-create-grid" aria-label={t("apps.gridLabel", "Formas de crear contenido")}>
+        {creationModes.map((mode) => <Card className="os-app-card os-create-card" key={mode.id}>
+          <span className="os-create-icon" aria-hidden="true">{mode.icon}</span>
+          <div><h2>{mode.title}</h2><p className="ui-muted">{mode.description}</p></div>
+          <Button onClick={() => navigate(mode.route)}>{t("apps.open", "Empezar")}</Button>
+        </Card>)}
+      </div>
+    </section>
   </main>;
 }
