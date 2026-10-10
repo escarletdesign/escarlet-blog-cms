@@ -142,6 +142,297 @@ function listRecipes(catalog, auth, args = {}) {
   return { contractVersion: MCP_V3_CONTRACT, recipes }
 }
 
+const WORKFLOW_CHANNEL_OPTIONS = Object.freeze([
+  { id: 'instagram_reel', label: 'Instagram Reel', description: 'Video vertical 9:16.' },
+  { id: 'instagram_story', label: 'Instagram Story', description: 'Video vertical 9:16 para Stories.' },
+  { id: 'youtube_landscape', label: 'YouTube horizontal', description: 'Video horizontal 16:9.' },
+  { id: 'instagram_post', label: 'Instagram post', description: 'Imagen o carrusel para el feed.' },
+  { id: 'linkedin_post', label: 'LinkedIn', description: 'Publicación editorial para LinkedIn.' },
+  { id: 'wordpress_post', label: 'Blog WordPress', description: 'Entrada para el blog.' }
+])
+
+function workflowError(message, code = 'workflow_invalid', details = {}) {
+  const error = new Error(message)
+  error.code = code
+  error.status = 422
+  error.retryable = false
+  error.details = details
+  return error
+}
+
+function visibleRecipeOptions(catalog, auth) {
+  return catalog.recipes
+    .filter((entry) => canUseCapability(auth, entry))
+    .map((entry) => ({
+      id: entry.id,
+      label: entry.title || entry.id,
+      description: entry.description,
+      next: 'format'
+    }))
+}
+
+function contentWorkflow(catalog, auth) {
+  return {
+    id: 'content.create',
+    title: 'Crear contenido',
+    description: 'Elige una recipe, formato, asset y brief. El flujo prepara una ejecución para revisión, pero no genera ni publica por sí solo.',
+    entryStep: 'mode',
+    freeMode: true,
+    steps: [
+      {
+        id: 'mode',
+        question: '¿Querés trabajar con un flujo guiado o usar las herramientas libremente?',
+        type: 'single_select',
+        responseKey: 'mode',
+        required: true,
+        options: [
+          { id: 'guided', label: 'Flujo guiado', description: 'Te muestro selectores y valido cada paso.', next: 'recipe' },
+          { id: 'free', label: 'Modo libre', description: 'ChatGPT decide qué capabilities usar dentro del Brand Kit.', next: 'free_goal' }
+        ]
+      },
+      {
+        id: 'recipe',
+        question: '¿Qué querés crear?',
+        type: 'single_select',
+        responseKey: 'recipe',
+        required: true,
+        options: visibleRecipeOptions(catalog, auth),
+        next: 'format'
+      },
+      {
+        id: 'format',
+        question: '¿En qué canal o formato lo necesitás?',
+        type: 'single_select',
+        responseKey: 'formatProfile',
+        required: true,
+        options: WORKFLOW_CHANNEL_OPTIONS,
+        next: 'asset'
+      },
+      {
+        id: 'asset',
+        question: 'Seleccioná o subí el asset principal.',
+        type: 'asset',
+        responseKey: 'asset',
+        required: true,
+        help: 'Respondé con un assetId o con una referencia de asset autorizada.',
+        next: 'brief'
+      },
+      {
+        id: 'brief',
+        question: '¿Qué querés comunicar y para quién?',
+        type: 'textarea',
+        responseKey: 'brief',
+        required: true,
+        placeholder: 'Tema, mensaje, audiencia, tono y CTA opcional.',
+        next: 'review'
+      },
+      {
+        id: 'free_goal',
+        question: 'Contame el resultado que querés y qué libertad creativa necesitás.',
+        type: 'textarea',
+        responseKey: 'goal',
+        required: true,
+        placeholder: 'Por ejemplo: crear un Reel de 15 segundos con movimiento editorial y el logo SVG.',
+        next: null
+      },
+      {
+        id: 'review',
+        question: '¿Confirmás esta preparación para que ChatGPT ejecute la recipe y la deje para revisión?',
+        type: 'confirm',
+        responseKey: 'confirm',
+        required: true,
+        next: null
+      }
+    ]
+  }
+}
+
+function publicationWorkflow() {
+  return {
+    id: 'publication.prepare',
+    title: 'Preparar publicación',
+    description: 'Elige canal, asset y copy para preparar un bundle. La publicación externa siempre requiere aprobación.',
+    entryStep: 'mode',
+    freeMode: true,
+    steps: [
+      {
+        id: 'mode',
+        question: '¿Querés una preparación guiada o trabajar libremente?',
+        type: 'single_select',
+        responseKey: 'mode',
+        required: true,
+        options: [
+          { id: 'guided', label: 'Flujo guiado', next: 'channel' },
+          { id: 'free', label: 'Modo libre', next: 'free_goal' }
+        ]
+      },
+      {
+        id: 'channel',
+        question: '¿Dónde querés publicar?',
+        type: 'single_select',
+        responseKey: 'channel',
+        required: true,
+        options: WORKFLOW_CHANNEL_OPTIONS,
+        next: 'asset'
+      },
+      {
+        id: 'asset',
+        question: '¿Qué asset querés preparar?',
+        type: 'asset',
+        responseKey: 'asset',
+        required: true,
+        next: 'copy'
+      },
+      {
+        id: 'copy',
+        question: '¿Qué copy debe acompañar el asset?',
+        type: 'textarea',
+        responseKey: 'copy',
+        required: true,
+        next: 'review'
+      },
+      {
+        id: 'free_goal',
+        question: 'Describí la publicación que querés preparar.',
+        type: 'textarea',
+        responseKey: 'goal',
+        required: true,
+        next: null
+      },
+      {
+        id: 'review',
+        question: '¿Confirmás que prepare el bundle para revisión humana?',
+        type: 'confirm',
+        responseKey: 'confirm',
+        required: true,
+        next: null
+      }
+    ]
+  }
+}
+
+function workflowDefinitions(catalog, auth) {
+  return [contentWorkflow(catalog, auth), publicationWorkflow()]
+}
+
+function findWorkflow(catalog, auth, workflowId) {
+  return workflowDefinitions(catalog, auth).find((entry) => entry.id === String(workflowId || '').trim()) || null
+}
+
+function workflowStep(workflow, stepId) {
+  return workflow.steps.find((step) => step.id === stepId) || null
+}
+
+function normalizeWorkflowAnswer(step, value) {
+  if (value === undefined || value === null || value === '') {
+    if (step.required) throw workflowError(`El paso ${step.id} requiere una respuesta.`, 'workflow_answer_required', { stepId: step.id })
+    return value
+  }
+  if (step.type === 'single_select') {
+    if (typeof value !== 'string') throw workflowError(`El paso ${step.id} espera una opción única.`, 'workflow_option_invalid', { stepId: step.id })
+    const option = (step.options || []).find((candidate) => candidate.id === value && candidate.disabled !== true)
+    if (!option) throw workflowError(`La opción ${value} no es válida para ${step.id}.`, 'workflow_option_invalid', { stepId: step.id, allowed: (step.options || []).map((candidate) => candidate.id) })
+    return value
+  }
+  if (step.type === 'multi_select') {
+    if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) throw workflowError(`El paso ${step.id} espera varias opciones.`, 'workflow_option_invalid', { stepId: step.id })
+    const allowed = new Set((step.options || []).filter((candidate) => candidate.disabled !== true).map((candidate) => candidate.id))
+    if (value.some((entry) => !allowed.has(entry))) throw workflowError(`Hay opciones no válidas en ${step.id}.`, 'workflow_option_invalid', { stepId: step.id })
+    return [...new Set(value)]
+  }
+  if (step.type === 'confirm') {
+    if (typeof value !== 'boolean') throw workflowError(`El paso ${step.id} espera una confirmación.`, 'workflow_confirmation_invalid', { stepId: step.id })
+    return value
+  }
+  if (step.type === 'asset') {
+    if (typeof value === 'string' && value.trim()) return { assetId: value.trim() }
+    if (typeof value === 'object' && String(value.assetId || '').trim()) return { assetId: String(value.assetId).trim(), ...(value.sha256 ? { sha256: String(value.sha256) } : {}) }
+    throw workflowError(`El paso ${step.id} necesita un assetId autorizado.`, 'workflow_asset_invalid', { stepId: step.id })
+  }
+  if (typeof value !== 'string' || !value.trim()) throw workflowError(`El paso ${step.id} necesita texto.`, 'workflow_text_required', { stepId: step.id })
+  return value.trim()
+}
+
+function workflowPrompt(workflow, step, answers, mode = 'guided') {
+  return {
+    contractVersion: MCP_V3_CONTRACT,
+    workflowId: workflow.id,
+    mode,
+    stepId: step?.id || null,
+    complete: false,
+    question: step?.question || null,
+    type: step?.type || null,
+    responseKey: step?.responseKey || null,
+    options: step?.options || [],
+    answers,
+    execution: null,
+    review: { required: true, status: 'pending', message: 'La ejecución y la publicación requieren confirmación humana.' }
+  }
+}
+
+function nextWorkflowStep(workflow, step, value) {
+  if (step.id === 'mode') return value === 'free' ? 'free_goal' : step.options.find((option) => option.id === value)?.next || 'recipe'
+  return step.next || null
+}
+
+function workflowNext(catalog, auth, args = {}) {
+  const workflow = findWorkflow(catalog, auth, args.workflowId)
+  if (!workflow) throw workflowError(`Flujo desconocido: ${args.workflowId || ''}`, 'workflow_not_found', { workflowId: args.workflowId })
+  const suppliedAnswers = args.answers && typeof args.answers === 'object' && !Array.isArray(args.answers) ? { ...args.answers } : {}
+  const stepId = String(args.stepId || workflow.entryStep)
+  const step = workflowStep(workflow, stepId)
+  if (!step) throw workflowError(`Paso desconocido: ${stepId}`, 'workflow_step_not_found', { workflowId: workflow.id, stepId })
+  const hasAnswer = args.answer !== undefined || Object.prototype.hasOwnProperty.call(suppliedAnswers, step.responseKey)
+  if (!hasAnswer) return workflowPrompt(workflow, step, suppliedAnswers)
+  const rawValue = args.answer !== undefined ? args.answer : suppliedAnswers[step.responseKey]
+  const value = normalizeWorkflowAnswer(step, rawValue)
+  const answers = { ...suppliedAnswers, [step.responseKey]: value }
+  const mode = answers.mode === 'free' ? 'free' : 'guided'
+  if (mode === 'free' && step.id === 'free_goal') {
+    return {
+      ...workflowPrompt(workflow, null, answers, 'free'),
+      complete: true,
+      execution: {
+        mode: 'free',
+        goal: value,
+        suggestedTools: ['capability.search', 'capability.get', 'recipe.get', 'production.motion.plan', 'recipe.run'],
+        instruction: 'Usá las capabilities autorizadas que mejor resuelvan el objetivo, manteniendo el Brand Kit y la revisión humana.'
+      },
+      review: { required: true, status: 'pending', message: 'El modo libre deja la selección de tools en manos de ChatGPT y no ejecuta nada automáticamente.' }
+    }
+  }
+  if (step.id === 'review') {
+    if (value !== true) return { ...workflowPrompt(workflow, step, answers, mode), review: { required: true, status: 'needs_changes', message: 'Podés cambiar las respuestas y volver a confirmar.' } }
+    if (workflow.id === 'content.create') {
+      const asset = answers.asset?.assetId
+      return {
+        ...workflowPrompt(workflow, null, answers, 'guided'),
+        complete: true,
+        execution: { tool: 'recipe.run', arguments: { recipeId: answers.recipe, formatProfile: answers.formatProfile, channel: answers.formatProfile, sourceMediaId: asset, text: answers.brief } },
+        review: { required: true, status: 'pending', message: 'La recipe se puede ejecutar y quedará para revisión humana. No se publica automáticamente.' }
+      }
+    }
+    return {
+      ...workflowPrompt(workflow, null, answers, 'guided'),
+      complete: true,
+      execution: { tool: 'publication.destination.list', arguments: { formatProfile: answers.channel } },
+      review: { required: true, status: 'pending', message: 'Primero se consultan destinos compatibles. La publicación requiere aprobación explícita.' }
+    }
+  }
+  const nextId = nextWorkflowStep(workflow, step, value)
+  const next = nextId ? workflowStep(workflow, nextId) : null
+  return workflowPrompt(workflow, next, answers, mode)
+}
+
+function listWorkflows(catalog, auth, args = {}) {
+  const query = searchNormalize(args.query || '')
+  const workflows = workflowDefinitions(catalog, auth).filter((workflow) => !query || searchNormalize(`${workflow.id} ${workflow.title} ${workflow.description}`).includes(query)).map((workflow) => ({
+    ...workflow,
+    steps: workflow.steps.map((step) => ({ ...step, options: step.options || [] }))
+  }))
+  return { contractVersion: MCP_V3_CONTRACT, workflows }
+}
+
 function agentGuide(catalog, auth, args = {}) {
   const goal = String(args.goal || '').trim()
   const recipes = catalog.recipes
@@ -151,17 +442,19 @@ function agentGuide(catalog, auth, args = {}) {
     contractVersion: MCP_V3_CONTRACT,
     goal: goal || null,
     firstSteps: [
+      'Si querés una interacción guiada, llama workflow.list y luego workflow.next. Sus respuestas incluyen question, type, options y responseKey para que puedas mostrar selectores, campos o confirmaciones. También podés elegir mode=free y continuar con discovery.',
       'Llama capability.search o recipe.list para encontrar una capability autorizada. Si es tu primera vez, usa capability.get o recipe.get antes de ejecutar.',
       'Fija site o brandId y llama brand.context.get para trabajar con el Brand Kit versionado correcto.',
       'Para una imagen de Instagram, llama brand.generation.prepare con assetType=social_image y usa el modelo de imágenes del host para crear cada slide final con el generationPrompt y las referencias resueltas. Esta capability solo prepara, no genera píxeles.',
       'Después de generar cada PNG final, llama asset.upload con preparationId, contentBase64 o file, assetIndex y el copy exacto. No cierres el trabajo hasta recibir assetId, url y status ready_for_review.',
-      'Para un Reel o Story, llama brand.visual_style.get para consultar motionAssets. Genera o selecciona las imágenes limpias, fondos, audio y copy en ChatGPT; sube cualquier archivo nuevo mediante asset.upload y luego entrega al motor motion los assetId con sus roles (source, slide, background, overlay, logo o audio). Usa scenes para decidir ritmo, fit, motionPreset y textAnimation por escena, y transition para elegir crossfade, fade, wipe o slide sin enviar filtros ni código FFmpeg. production.motion.compose crea el job y el motor anima esos insumos. Consulta production.motion.status.get para el render, y usa production.motion.retry o production.motion.cancel solo como acciones explícitas.',
+      'Para un Reel, Story o video horizontal de YouTube, llama brand.visual_style.get para consultar motionAssets. Genera o selecciona las imágenes limpias, fondos, audio, logo SVG y copy en ChatGPT; sube cualquier archivo nuevo mediante asset.upload y luego entrega al motor motion los assetId con sus roles. Elige formatProfile=instagram_reel, instagram_story o youtube_landscape. Antes de renderizar, usa production.motion.plan para validar un storyboard. Cada escena puede declarar layers independientes de fondo, foreground, logo, headline, body, caption, icon o shape, con animaciones y keyframes acotados. Usa production.motion.compose con ese storyboard, y el motor ajusta el wrapping y elimina guiones tipográficos no permitidos. Usa transition para elegir crossfade, fade, wipe o slide sin enviar filtros ni código FFmpeg. Consulta production.motion.status.get para el render, y usa production.motion.retry o production.motion.cancel solo como acciones explícitas.',
       'Entrega referencias de artefactos con assetId y, cuando exista, sha256. No envíes blobs ni credenciales entre capabilities.',
       'Ejecuta una recipe solo con los inputs que indique su manifest. El resultado queda ready_for_review y no se publica automáticamente.',
       'Para publicar, usa publication.destination.list, publication.prepare y después espera aprobación humana antes de schedule o publish.'
     ],
     rules: [
       'Las capabilities usan nombres namespaced y los IDs de recipes usan el prefijo recipe.',
+      'Los workflows solo guían y validan respuestas. No generes ni publiques hasta que el flujo devuelva execution y la persona confirme. El modo libre conserva discovery y revisión humana.',
       'Una respuesta con status blocked, awaiting_provider o failed requiere una acción explícita, no un reintento ciego.',
       'El motor motion es creativo pero acotado: el agente puede diseñar la secuencia, el ritmo, las animaciones de copy y las transiciones declarativas. Nunca envíes HTML, SVG generado, URLs externas, filtros FFmpeg ni blobs como instrucciones de render.',
       'Escarlet no compone imágenes sociales finales. No uses SVG, HTML, CSS, plantillas locales ni content-system/instagram-renderer para sustituir la generación de imágenes de ChatGPT. El motor motion sí puede animar los assets que ChatGPT entrega en production.motion.compose. Si falta el proveedor de vídeo, conserva awaiting_provider.',
@@ -219,6 +512,13 @@ async function invokeRegisteredCapability(catalog, capability, name, args, auth,
 async function callCapability(catalog, auth, name, args, runtime) {
   if (name === 'capability.guide') return validateCapabilityResult(catalog, name, agentGuide(catalog, auth, args))
   if (name === 'capability.search') return validateCapabilityResult(catalog, name, searchCapabilities(catalog, auth, args))
+  if (name === 'workflow.list') return validateCapabilityResult(catalog, name, listWorkflows(catalog, auth, args))
+  if (name === 'workflow.get') {
+    const workflow = findWorkflow(catalog, auth, args?.workflowId)
+    if (!workflow) throw workflowError(`Flujo desconocido: ${args?.workflowId || ''}`, 'workflow_not_found', { workflowId: args?.workflowId })
+    return validateCapabilityResult(catalog, name, { contractVersion: MCP_V3_CONTRACT, workflow })
+  }
+  if (name === 'workflow.next') return validateCapabilityResult(catalog, name, workflowNext(catalog, auth, args))
   if (name === 'capability.get') {
     const capability = findCapability(catalog, args?.capabilityId || args?.id)
     if (!capability || (args?.version && String(capability.version) !== String(args.version))) {
@@ -295,6 +595,7 @@ function resourceList(catalog, auth) {
 function readResource(catalog, auth, uri) {
   if (uri === 'escarlet://capabilities/index') return { uri, mimeType: 'application/json', text: JSON.stringify({ contractVersion: MCP_V3_CONTRACT, capabilities: visibleCapabilities(catalog, auth).map(publicCapabilityManifest) }) }
   if (uri === 'escarlet://recipes/index') return { uri, mimeType: 'application/json', text: JSON.stringify({ contractVersion: MCP_V3_CONTRACT, recipes: catalog.recipes.filter((entry) => canUseCapability(auth, entry)).map(publicCapabilityManifest) }) }
+  if (uri === 'escarlet://workflows/index') return { uri, mimeType: 'application/json', text: JSON.stringify(listWorkflows(catalog, auth)) }
   if (uri === 'escarlet://brand/kernel') return { uri, mimeType: 'application/json', text: JSON.stringify(brandKernelResource()) }
   const capabilityMatch = uri.match(/^escarlet:\/\/capabilities\/(.+)$/)
   if (capabilityMatch) {
@@ -318,7 +619,7 @@ function createServer(auth, catalog, runtime = null) {
     { name: MCP_V3_SERVER_NAME, version: MCP_V3_SERVER_VERSION, title: 'Escarlet OS' },
     {
       capabilities: { tools: { listChanged: true }, resources: { subscribe: false, listChanged: true } },
-      instructions: 'Escarlet OS expone capabilities namespaced. Descubre primero y fija la marca y su Brand Kit. Para imágenes sociales, brand.generation.prepare solo prepara referencias y prompts: el agente debe usar su modelo de imágenes para generar cada PNG final con texto integrado y después subirlo con asset.upload. El CMS no dibuja, no compone y no sustituye esa generación con SVG, HTML, CSS ni plantillas locales. Registra procedencia y deja la publicación para el Publisher tras revisión humana.'
+      instructions: 'Escarlet OS expone capabilities namespaced y workflows interactivos. Para una experiencia guiada, llama workflow.list, workflow.get o workflow.next y transforma sus question, type, options y responseKey en selectores, campos y confirmaciones. Para una experiencia libre, usa capability.search y las capabilities directamente. Descubre primero y fija la marca y su Brand Kit. Para imágenes sociales, brand.generation.prepare solo prepara referencias y prompts: el agente debe usar su modelo de imágenes para generar cada PNG final con texto integrado y después subirlo con asset.upload. El CMS no dibuja, no compone y no sustituye esa generación con SVG, HTML, CSS ni plantillas locales. Registra procedencia y deja la publicación para el Publisher tras revisión humana.'
     }
   )
 

@@ -39,6 +39,7 @@ test('resources/list expone el índice, recipes y Brand Kernel sin archivos priv
   assert.equal(new Set(uris).size, uris.length)
   assert.ok(uris.includes('escarlet://capabilities/index'))
   assert.ok(uris.includes('escarlet://recipes/index'))
+  assert.ok(uris.includes('escarlet://workflows/index'))
   assert.ok(uris.includes('escarlet://brand/kernel'))
   assert.ok(uris.some((uri) => uri === 'escarlet://capabilities/brand.context.get'))
   assert.equal(uris.some((uri) => /voice\.md|AGENT\.md|secret|token/i.test(uri)), false)
@@ -89,6 +90,37 @@ test('discovery progresivo separa resumen de schema completo', async () => {
   assert.equal(legacyLookup.structuredContent.recipe.id, 'recipe.food-to-reel')
 })
 
+test('workflow expone selectores, valida respuestas y conserva un modo libre', async () => {
+  const auth = { role: 'admin', site: 'escarlet' }
+  const listed = await invokeMcpToolV3('workflow.list', {}, auth)
+  const workflow = listed.structuredContent.workflows.find((entry) => entry.id === 'content.create')
+  assert.ok(workflow)
+  assert.equal(workflow.steps.find((step) => step.id === 'mode').type, 'single_select')
+  assert.ok(workflow.steps.find((step) => step.id === 'recipe').options.some((option) => option.id === 'recipe.food-to-reel'))
+
+  let step = await invokeMcpToolV3('workflow.next', { workflowId: 'content.create' }, auth)
+  assert.equal(step.structuredContent.stepId, 'mode')
+  step = await invokeMcpToolV3('workflow.next', { workflowId: 'content.create', stepId: 'mode', answer: 'guided' }, auth)
+  const recipeId = step.structuredContent.options[0].id
+  step = await invokeMcpToolV3('workflow.next', { workflowId: 'content.create', stepId: 'recipe', answer: recipeId, answers: step.structuredContent.answers }, auth)
+  step = await invokeMcpToolV3('workflow.next', { workflowId: 'content.create', stepId: 'format', answer: 'youtube_landscape', answers: step.structuredContent.answers }, auth)
+  step = await invokeMcpToolV3('workflow.next', { workflowId: 'content.create', stepId: 'asset', answer: { assetId: 'asset-1' }, answers: step.structuredContent.answers }, auth)
+  step = await invokeMcpToolV3('workflow.next', { workflowId: 'content.create', stepId: 'brief', answer: 'Una historia breve de la marca.', answers: step.structuredContent.answers }, auth)
+  step = await invokeMcpToolV3('workflow.next', { workflowId: 'content.create', stepId: 'review', answer: true, answers: step.structuredContent.answers }, auth)
+  assert.equal(step.structuredContent.complete, true)
+  assert.equal(step.structuredContent.execution.tool, 'recipe.run')
+  assert.equal(step.structuredContent.execution.arguments.formatProfile, 'youtube_landscape')
+
+  const free = await invokeMcpToolV3('workflow.next', { workflowId: 'content.create', stepId: 'mode', answer: 'free' }, auth)
+  const freeDone = await invokeMcpToolV3('workflow.next', { workflowId: 'content.create', stepId: 'free_goal', answer: 'Crear una pieza editorial con libertad de motion.', answers: free.structuredContent.answers }, auth)
+  assert.equal(freeDone.structuredContent.complete, true)
+  assert.equal(freeDone.structuredContent.execution.mode, 'free')
+
+  const invalid = await invokeMcpToolV3('workflow.next', { workflowId: 'content.create', stepId: 'mode', answer: 'no-existe' }, auth)
+  assert.equal(invalid.isError, true)
+  assert.equal(invalid.structuredContent.error.code, 'workflow_option_invalid')
+})
+
 test('capability.search entiende una intención editorial en español', async () => {
   const result = await invokeMcpToolV3('capability.search', { query: 'generación de contenido, imágenes, vídeo y publicación' }, { role: 'admin' })
   assert.equal(result.isError, false)
@@ -114,6 +146,9 @@ test('adapta manifests OS a semántica MCP sin perder recetas ni efectos', async
   assert.equal(motion._meta.humanReviewRequired, true)
   assert.ok(motion.inputSchema.properties.motionAssets)
   assert.ok(motion.inputSchema.properties.copyBlocks)
+  assert.deepEqual(motion.inputSchema.properties.scenes.items.properties.textPosition.enum, ['top_left', 'center_left', 'bottom_left'])
+  const statusManifest = await server._requestHandlers.get('tools/call')({ method: 'tools/call', params: { name: 'capability.get', arguments: { capabilityId: 'production.motion.status.get' } } }, { mcpReq: { requestState: () => undefined } })
+  assert.deepEqual(statusManifest.structuredContent.capability.outputSchema.properties.outputs.items.required, ['kind', 'mimeType', 'url'])
   assert.ok(motion.inputSchema.oneOf.some((branch) => branch.required?.includes('runId')))
   const recipes = await server._requestHandlers.get('tools/call')({ method: 'tools/call', params: { name: 'recipe.list', arguments: {} } }, { mcpReq: { requestState: () => undefined } })
   assert.ok(recipes.structuredContent.recipes.some((entry) => entry.id === 'recipe.food-to-reel'))

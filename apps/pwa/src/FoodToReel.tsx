@@ -18,6 +18,10 @@ import {
 } from "./ui";
 
 type FoodToReelStatus = "idle" | "loading" | "queued" | "review" | "error";
+type MotionRenderMode = "flat_slides" | "layered_motion";
+type MotionPreset = "none" | "subtle_editorial" | "dynamic_editorial";
+type MotionBackgroundMode = "blurred_source" | "brand_color" | "generated";
+type MotionTransition = "none" | "crossfade";
 
 export type FoodToReelProps = {
   site: string;
@@ -65,7 +69,12 @@ export function FoodToReel({ site, t, recipeId = "recipe.food-to-reel" }: FoodTo
   const [uploadPreview, setUploadPreview] = useState("");
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const [text, setText] = useState("");
-  const [formatProfile, setFormatProfile] = useState(isMenuRecipe ? "instagram_reel" : "instagram_reel");
+  const [formatProfile, setFormatProfile] = useState("instagram_reel");
+  const [renderMode, setRenderMode] = useState<MotionRenderMode>("layered_motion");
+  const [motionPreset, setMotionPreset] = useState<MotionPreset>("dynamic_editorial");
+  const [backgroundMode, setBackgroundMode] = useState<MotionBackgroundMode>("blurred_source");
+  const [transition, setTransition] = useState<MotionTransition>("crossfade");
+  const [storyboard, setStoryboard] = useState("");
   const [status, setStatus] = useState<FoodToReelStatus>("idle");
   const [error, setError] = useState("");
   const [job, setJob] = useState<Record<string, unknown> | null>(null);
@@ -97,6 +106,11 @@ export function FoodToReel({ site, t, recipeId = "recipe.food-to-reel" }: FoodTo
 
   useEffect(() => {
     setFormatProfile("instagram_reel");
+    setRenderMode("layered_motion");
+    setMotionPreset("dynamic_editorial");
+    setBackgroundMode("blurred_source");
+    setTransition("crossfade");
+    setStoryboard("");
   }, [recipeId]);
 
   useEffect(() => {
@@ -115,8 +129,8 @@ export function FoodToReel({ site, t, recipeId = "recipe.food-to-reel" }: FoodTo
   }, [media]);
   const selectedMedia = imageMedia.find((item) => String(item.id || "") === selectedMediaId) || null;
   const selectedSource = uploadPreview || (selectedMedia ? imageSource(selectedMedia) : "");
-  const outputChannel = formatProfile === "instagram_story" ? "instagram_story" : "instagram_reel";
-  const outputLabel = formatProfile === "instagram_story" ? t("menuReel.story", "Story") : t("menuReel.reel", "Reel");
+  const outputChannel = formatProfile === "instagram_story" ? "instagram_story" : formatProfile === "youtube_video" ? "youtube_video" : "instagram_reel";
+  const outputLabel = formatProfile === "instagram_story" ? t("foodReel.story", "Story") : formatProfile === "youtube_video" ? t("foodReel.youtube", "YouTube") : t("foodReel.reel", "Reel");
   const canSubmit = Boolean((selectedMediaId || uploadFile) && text.trim()) && status !== "loading";
 
   const selectMedia = (item: MediaItem) => {
@@ -174,9 +188,14 @@ export function FoodToReel({ site, t, recipeId = "recipe.food-to-reel" }: FoodTo
         sourceMediaId,
         channel: outputChannel,
         formatProfile,
+        renderMode,
+        motionPreset,
+        backgroundMode,
+        transition: { type: transition, durationMs: transition === "none" ? 0 : 400 },
+        prompt: storyboard.trim().slice(0, 12000),
         text: text.trim().slice(0, 500),
         createContentIfMissing: true,
-        idempotencyKey: `pwa-${isGenericRecipe ? "reel-from-image" : "food-to-reel"}:${site}:${sourceMediaId}:${text.trim()}`,
+        idempotencyKey: `pwa-${isGenericRecipe ? "reel-from-image" : "food-to-reel"}:${site}:${sourceMediaId}:${formatProfile}:${renderMode}:${motionPreset}:${backgroundMode}:${transition}:${text.trim()}:${storyboard.trim()}`,
       });
       const motion = (result.motion || {}) as Record<string, unknown>;
       const createdJob = (motion.job || {}) as Record<string, unknown>;
@@ -288,12 +307,39 @@ export function FoodToReel({ site, t, recipeId = "recipe.food-to-reel" }: FoodTo
               <Textarea value={text} onChange={(event) => setText(event.target.value)} maxLength={4000} placeholder={isGenericRecipe ? t("reelFromImage.copyPlaceholder", "Ej. Tres escenas sobre cómo una marca se vuelve reconocible...") : t("foodReel.copyPlaceholder", "Ej. Paella de verduras con producto de temporada, servida al momento...")} aria-describedby="food-reel-copy-count" />
               <span id="food-reel-copy-count" className="ui-field-hint">{text.length}/4000</span>
             </Field>
-            {isMenuRecipe && <Field label={t("menuReel.format", "Formato de salida")} hint={t("menuReel.formatHelp", "Elige si el menú se prepara como Reel o Story. La revisión humana se mantiene en ambos casos.")}>
+            <Field label={t("foodReel.format", "Formato de salida")} hint={t("foodReel.formatHelp", "Elige la relación de aspecto que debe preparar el motor. La revisión humana se mantiene en todos los formatos.")}>
               <Select value={formatProfile} onChange={(event) => setFormatProfile(event.target.value)}>
-                <option value="instagram_reel">{t("menuReel.reel", "Reel")}</option>
-                <option value="instagram_story">{t("menuReel.story", "Story")}</option>
+                <option value="instagram_reel">{t("foodReel.reel", "Instagram Reel · 9:16")}</option>
+                <option value="instagram_story">{t("foodReel.story", "Instagram Story · 9:16")}</option>
+                <option value="youtube_video">{t("foodReel.youtube", "YouTube · 16:9")}</option>
               </Select>
-            </Field>}
+            </Field>
+            <Field label={t("foodReel.renderMode", "Modo de composición")} hint={t("foodReel.renderModeHelp", "Layered motion separa fondos, copy y elementos para permitir animaciones por capa.")}>
+              <Select value={renderMode} onChange={(event) => setRenderMode(event.target.value as MotionRenderMode)}>
+                <option value="layered_motion">{t("foodReel.layeredMotion", "Layered motion · capas animadas")}</option>
+                <option value="flat_slides">{t("foodReel.flatSlides", "Flat slides · piezas completas")}</option>
+              </Select>
+            </Field>
+            <Inline gap="md">
+              <Field label={t("foodReel.motionPreset", "Movimiento")} hint={t("foodReel.motionPresetHelp", "El preset controla el ritmo sin salir de la zona segura de la marca.")}>
+                <Select value={motionPreset} onChange={(event) => setMotionPreset(event.target.value as MotionPreset)}>
+                  <option value="dynamic_editorial">{t("foodReel.dynamicEditorial", "Editorial dinámico")}</option>
+                  <option value="subtle_editorial">{t("foodReel.subtleEditorial", "Editorial sutil")}</option>
+                  <option value="none">{t("foodReel.noMotion", "Sin movimiento")}</option>
+                </Select>
+              </Field>
+              <Field label={t("foodReel.backgroundMode", "Fondo de encuadre")} hint={t("foodReel.backgroundModeHelp", "Completa el formato cuando la imagen no coincide con la relación de salida.")}>
+                <Select value={backgroundMode} onChange={(event) => setBackgroundMode(event.target.value as MotionBackgroundMode)}>
+                  <option value="blurred_source">{t("foodReel.blurredSource", "Fuente desenfocada")}</option>
+                  <option value="brand_color">{t("foodReel.brandColor", "Color de marca")}</option>
+                  <option value="generated">{t("foodReel.generatedBackground", "Fondo generado")}</option>
+                </Select>
+              </Field>
+            </Inline>
+            <Field label={t("foodReel.storyboard", "Storyboard y dirección visual")} hint={t("foodReel.storyboardHelp", "Opcional. Describe apertura, escenas, ritmo, elementos que entran y cierre. El motor lo valida con el Brand Kit.")}>
+              <Textarea value={storyboard} onChange={(event) => setStoryboard(event.target.value)} maxLength={12000} placeholder={t("foodReel.storyboardPlaceholder", "Ej. Apertura con logo SVG. Tres escenas con entradas escalonadas. Cierre con CTA y firma de marca.")} aria-describedby="food-reel-storyboard-count" />
+              <span id="food-reel-storyboard-count" className="ui-field-hint">{storyboard.length}/12000</span>
+            </Field>
             {error && <p className="ui-field-error" role="alert">{error}</p>}
             <Inline gap="sm">
               <Button variant="primary" loading={status === "loading"} disabled={!canSubmit} onClick={() => void launch()}>

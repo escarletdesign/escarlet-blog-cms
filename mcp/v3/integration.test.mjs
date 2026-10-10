@@ -338,8 +338,8 @@ test('motion expone libertad editorial acotada para layered_motion', async () =>
       { assetId: 'slide-02', role: 'source', kind: 'image' }
     ],
     scenes: [
-      { sceneId: 'intro', assetId: 'slide-01', durationMs: 4000, textAnimation: 'fade_up' },
-      { sceneId: 'close', assetId: 'slide-02', durationMs: 4000, textAnimation: 'slide_left', motionPreset: 'subtle_editorial' }
+      { sceneId: 'intro', assetId: 'slide-01', durationMs: 4000, textAnimation: 'fade_up', textPosition: 'top_left', textTone: 'dark' },
+      { sceneId: 'close', assetId: 'slide-02', durationMs: 4000, textAnimation: 'slide_left', motionPreset: 'subtle_editorial', textPosition: 'center_left' }
     ],
     idempotencyKey: 'motion:layered-editorial-test'
   })
@@ -348,7 +348,85 @@ test('motion expone libertad editorial acotada para layered_motion', async () =>
   assert.equal(metadata.motionPreset, 'dynamic_editorial')
   assert.deepEqual(metadata.transition, { type: 'wipeleft', durationMs: 450 })
   assert.deepEqual(metadata.scenes.map((scene) => scene.textAnimation), ['fade_up', 'slide_left'])
+  assert.deepEqual(metadata.scenes.map((scene) => scene.textPosition), ['top_left', 'center_left'])
+  assert.equal(metadata.scenes[0].textTone, 'dark')
   assert.equal(metadata.scenes[1].motionPreset, 'subtle_editorial')
+})
+
+test('motion plan normaliza capas, keyframes y formato horizontal de YouTube', async () => {
+  const server = createMcpServerV3Sync({ role: 'agent', site: 'escarlet', workspaceId: 'test-workspace', siteId: 'test-site' }, { runtime: testRuntime() })
+  const result = await call(server, 'production.motion.plan', {
+    site: 'escarlet',
+    formatProfile: 'youtube_landscape',
+    motionAssets: [
+      { assetId: 'background-01', role: 'background', kind: 'image' },
+      { assetId: 'logo-svg', role: 'logo', kind: 'image', mimeType: 'image/svg+xml' }
+    ],
+    storyboard: {
+      scenes: [{
+        sceneId: 'intro',
+        assetId: 'background-01',
+        durationMs: 5000,
+        layers: [
+          { layerId: 'logo-intro', assetId: 'logo-svg', role: 'logo', animation: 'scale_in', keyframes: [{ timeMs: 0, scale: 0.8, opacity: 0, easing: 'ease_out' }, { timeMs: 700, scale: 1, opacity: 1 }] },
+          { layerId: 'headline-intro', role: 'headline', text: 'Una idea que se mueve', animation: 'reveal', keyframes: [{ timeMs: 300, x: -80 }, { timeMs: 900, x: 0 }] }
+        ]
+      }]
+    }
+  })
+  assert.equal(result.isError, false, JSON.stringify(result.structuredContent))
+  assert.equal(result.structuredContent.format.width, 1920)
+  assert.equal(result.structuredContent.format.height, 1080)
+  assert.equal(result.structuredContent.format.aspectRatio, '16:9')
+  const layers = result.structuredContent.storyboard.scenes[0].layers
+  assert.deepEqual(layers.map((layer) => layer.role), ['logo', 'headline'])
+  assert.deepEqual(layers[0].keyframes.map((frame) => frame.timeMs), [0, 700])
+  assert.equal(result.structuredContent.review.next, 'production.motion.compose')
+})
+
+test('motion compose conserva el storyboard y el perfil horizontal para el worker', async () => {
+  const server = createMcpServerV3Sync({ role: 'agent', site: 'escarlet', workspaceId: 'test-workspace', siteId: 'test-site' }, { runtime: testRuntime() })
+  const result = await call(server, 'production.motion.compose', {
+    site: 'escarlet',
+    formatProfile: 'youtube_16_9',
+    motionAssets: [
+      { assetId: 'background-01', role: 'background', kind: 'image' },
+      { assetId: 'logo-svg', role: 'logo', kind: 'image', mimeType: 'image/svg+xml' }
+    ],
+    storyboard: {
+      scenes: [{
+        sceneId: 'intro',
+        assetId: 'background-01',
+        durationMs: 5000,
+        layers: [{ layerId: 'logo-intro', assetId: 'logo-svg', role: 'logo', animation: 'fade_in' }]
+      }]
+    },
+    idempotencyKey: 'motion:youtube-storyboard-test'
+  })
+  assert.equal(result.isError, false, JSON.stringify(result.structuredContent))
+  const metadata = result.structuredContent.job.metadata
+  assert.equal(metadata.formatSpec.width, 1920)
+  assert.equal(metadata.formatSpec.height, 1080)
+  assert.equal(metadata.formatSpec.aspectRatio, '16:9')
+  assert.equal(metadata.storyboard.scenes[0].layers[0].animation, 'fade_in')
+})
+
+test('motion rechaza keyframes inseguros o roles de capa desconocidos', async () => {
+  const server = createMcpServerV3Sync({ role: 'agent', site: 'escarlet', workspaceId: 'test-workspace', siteId: 'test-site' }, { runtime: testRuntime() })
+  const invalidRole = await call(server, 'production.motion.plan', {
+    site: 'escarlet',
+    formatProfile: 'instagram_reel',
+    storyboard: { scenes: [{ assetId: 'background-01', layers: [{ role: 'script', text: 'No permitido' }] }] }
+  })
+  assert.equal(invalidRole.isError, true)
+  assert.equal(invalidRole.structuredContent.error.code, 'motion_layer_role_invalid')
+  const duplicateTime = await call(server, 'production.motion.plan', {
+    site: 'escarlet',
+    formatProfile: 'instagram_reel',
+    storyboard: { scenes: [{ assetId: 'background-01', layers: [{ role: 'headline', text: 'Titular', keyframes: [{ timeMs: 100 }, { timeMs: 100 }] }] }] }
+  })
+  assert.equal(duplicateTime.isError, true)
+  assert.equal(duplicateTime.structuredContent.error.code, 'motion_keyframe_time_duplicate')
 })
 
 test('motion no declara audio suministrado sin un asset de audio', async () => {

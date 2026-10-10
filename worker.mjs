@@ -11,7 +11,7 @@ import { blogPublicationIsLive, blogPublicationSlug, blogPublicationTitle, blogP
 import { blogPublishJobKey, dueBlogJobAction } from './lib/blog-publish.mjs'
 import { fetchRemote } from './lib/remote-fetch.mjs'
 import { nextProviderPollAt, providerRowNeedsRemoteSync } from './lib/provider-poll.mjs'
-import { ingestVideoUpload, motionRenderAvailability, VIDEO_RENDER_JOB_TYPE } from './lib/video-jobs.mjs'
+import { ingestVideoUpload, motionRenderAvailability, normalizeVideoFormatProfile, validateMotionTimeline, VIDEO_RENDER_JOB_TYPE } from './lib/video-jobs.mjs'
 import { mediaDir } from './lib/db.mjs'
 import { renderMotionVideo } from './lib/motion-renderer.mjs'
 import { getMotionBrandAssets } from './lib/brand-kit.mjs'
@@ -56,6 +56,47 @@ async function enqueueBufferStatusPolls(workspaceId, rows, now = Date.now(), quo
       idempotencyKey: `buffer:poll:${workspaceId}:${siteKey}:${Math.floor(nextPoll.getTime() / 60_000)}`,
       availableAt: nextPoll
     })
+  }
+}
+
+function nestedMotionAssetIds(value, ids = new Set()) {
+  if (Array.isArray(value)) {
+    value.forEach((entry) => nestedMotionAssetIds(entry, ids))
+    return ids
+  }
+  if (!value || typeof value !== 'object') return ids
+  for (const key of ['assetId', 'backgroundAssetId', 'audioAssetId', 'logoAssetId']) {
+    const assetId = String(value[key] || '').trim()
+    if (assetId) ids.add(assetId)
+  }
+  Object.values(value).forEach((entry) => {
+    if (entry && typeof entry === 'object') nestedMotionAssetIds(entry, ids)
+  })
+  return ids
+}
+
+function nestedMotionAssetRefs(value, refs = []) {
+  if (Array.isArray(value)) {
+    value.forEach((entry) => nestedMotionAssetRefs(entry, refs))
+    return refs
+  }
+  if (!value || typeof value !== 'object') return refs
+  const assetId = String(value.assetId || '').trim()
+  if (assetId) refs.push({ assetId, role: String(value.role || '').trim().toLowerCase() })
+  Object.values(value).forEach((entry) => {
+    if (entry && typeof entry === 'object') nestedMotionAssetRefs(entry, refs)
+  })
+  return refs
+}
+
+function motionRenderResult(result) {
+  if (Buffer.isBuffer(result)) return { buffer: result, qa: { passed: true } }
+  if (!result || !Buffer.isBuffer(result.buffer)) throw Object.assign(new Error('El renderer no devolvió un vídeo válido.'), { code: 'motion_render_output_invalid', status: 502 })
+  return {
+    buffer: result.buffer,
+    qa: result.qa && typeof result.qa === 'object' ? result.qa : { passed: true },
+    output: result.output && typeof result.output === 'object' ? result.output : {},
+    profile: result.profile && typeof result.profile === 'object' ? result.profile : {}
   }
 }
 
@@ -503,7 +544,10 @@ async function processMotionCompositionJob(job) {
     video.metadata?.audioAssetId,
     video.metadata?.logoAssetId,
     video.metadata?.backgroundAssetId,
-    ...motionAssets.map((asset) => asset?.assetId)
+    ...motionAssets.map((asset) => asset?.assetId),
+    ...nestedMotionAssetIds(video.metadata?.scenes),
+    ...nestedMotionAssetIds(video.metadata?.storyboard),
+    ...nestedMotionAssetIds(video.metadata?.composition)
   ].filter(Boolean))]
   const motionAssetRows = motionAssetIds.length
     ? await pool.query('SELECT id,storage_key,content_type FROM media_assets WHERE id=ANY($1::text[]) AND workspace_id=$2 AND site_id=$3', [motionAssetIds, video.workspace_id, video.site_id])
@@ -522,7 +566,7 @@ async function processMotionCompositionJob(job) {
   brandAssetRows.rows.forEach((row) => mediaById.set(row.id, row))
   const virtualBrandById = new Map(getMotionBrandAssets(video.site_handle).map((asset) => [asset.assetId || asset.id, asset]))
   const assetForRole = (role) => {
-    const reference = motionAssets.find((asset) => asset?.role === role)
+    const reference = motionAssets.find((asset) => asset?.role === role) || nestedMotionAssetRefs(video.metadata?.storyboard).find((asset) => asset.role === role)
     return reference ? (mediaById.get(reference.assetId) || virtualBrandById.get(reference.assetId)) : null
   }
 
@@ -548,6 +592,13 @@ async function processMotionCompositionJob(job) {
         : await assertMotionAssetFile(logoKey, { root: mediaDir, assetId: logo?.id || video.metadata?.logoAssetId, required: Boolean(logoKey || video.metadata?.logoAssetId) })
       const firstCopy = Array.isArray(video.metadata?.copyBlocks) ? video.metadata.copyBlocks[0] : null
       const declaredScenes = Array.isArray(video.metadata?.scenes) ? video.metadata.scenes : []
+      const timeline = validateMotionTimeline({
+        scenes: declaredScenes,
+        durationMs: video.metadata?.durationMs,
+        durationSeconds: video.metadata?.durationSeconds,
+        transition: video.metadata?.transition
+      })
+      const profile = normalizeVideoFormatProfile(video.metadata?.formatProfile, video.format === 'landscape' ? 'youtube_16_9' : 'instagram_reel_9_16')
       const scenes = []
       for (const [index, scene] of declaredScenes.entries()) {
         const sceneAsset = mediaById.get(scene.assetId) || virtualBrandById.get(scene.assetId)
@@ -556,9 +607,21 @@ async function processMotionCompositionJob(job) {
         const sceneBackgroundAsset = scene.backgroundAssetId ? (mediaById.get(scene.backgroundAssetId) || virtualBrandById.get(scene.backgroundAssetId)) : null
         const sceneBackgroundKey = sceneBackgroundAsset?.storage_key || sceneBackgroundAsset?.storageKey || sceneBackgroundAsset?.path
         const sceneBackgroundPath = sceneBackgroundKey ? await assertMotionAssetFile(sceneBackgroundKey, { root: mediaDir, assetId: scene.backgroundAssetId, required: false }) : ''
-        scenes.push({ ...scene, path: scenePath, ...(sceneBackgroundPath ? { backgroundPath: sceneBackgroundPath } : {}) })
+        const layers = Array.isArray(scene.layers)
+          ? await Promise.all(scene.layers.map(async (layer, layerIndex) => {
+            const value = layer && typeof layer === 'object' ? layer : {}
+            const layerAssetId = String(value.assetId || '').trim()
+            if (!layerAssetId) return { ...value, path: undefined, sourcePath: undefined }
+            const layerAsset = mediaById.get(layerAssetId) || virtualBrandById.get(layerAssetId)
+            const layerKey = layerAsset?.storage_key || layerAsset?.storageKey || layerAsset?.path
+            const layerPath = await assertMotionAssetFile(layerKey, { root: mediaDir, assetId: layerAssetId || `scene-${index + 1}-layer-${layerIndex + 1}` })
+            const { path: ignoredPath, sourcePath: ignoredSourcePath, ...safeLayer } = value
+            return { ...safeLayer, assetId: layerAssetId, path: layerPath }
+          }))
+          : undefined
+        scenes.push({ ...scene, path: scenePath, ...(sceneBackgroundPath ? { backgroundPath: sceneBackgroundPath } : {}), ...(layers ? { layers } : {}) })
       }
-      const buffer = await renderMotionVideo({
+      const rendered = motionRenderResult(await renderMotionVideo({
         sourcePath,
         scenes,
         audioPath,
@@ -571,8 +634,19 @@ async function processMotionCompositionJob(job) {
         renderMode,
         backgroundMode: video.metadata?.backgroundMode || 'blurred_source',
         motionPreset: video.metadata?.motionPreset || 'subtle_editorial',
-        transition: video.metadata?.transition || { type: 'crossfade', durationMs: 400 }
-      })
+        transition: video.metadata?.transition || { type: 'crossfade', durationMs: 400 },
+        formatProfile: profile.id,
+        width: profile.width,
+        height: profile.height,
+        fps: profile.fps,
+        minVideoBitrate: profile.minVideoBitrate,
+        videoBitrate: profile.videoBitrate,
+        audioBitrate: profile.audioBitrate,
+        storyboard: video.metadata?.storyboard || video.metadata?.composition || null
+      }))
+      if (rendered.qa.passed === false) {
+        throw Object.assign(new Error('El renderer devolvió un QA fallido.'), { code: 'motion_qa_failed', status: 422 })
+      }
       const currentStatus = await pool.query('SELECT status FROM video_jobs WHERE id=$1 AND workspace_id=$2', [video.id, video.workspace_id])
       if (currentStatus.rows[0]?.status !== 'running') return { videoJobId, status: currentStatus.rows[0]?.status || 'cancelled', skipped: true }
       const uploaded = await ingestVideoUpload({
@@ -581,17 +655,31 @@ async function processMotionCompositionJob(job) {
         siteHandle: video.site_handle,
         userId: null,
         role: 'editor',
-        payload: { buffer, filename: `escarlet-${video.id}.mp4`, mimeType: 'video/mp4' },
+        payload: { buffer: rendered.buffer, filename: `escarlet-${video.id}.mp4`, mimeType: 'video/mp4' },
         mediaRole: 'final_video',
         format: video.format === 'landscape' ? 'landscape' : 'portrait',
         contentItemId: video.content_item_id,
         videoJobId: video.id
       })
-      const processing = { state: 'ready_for_review', code: 'local_renderer_completed', retryable: false, provider: 'local', rendered: true, mediaAssetId: uploaded.mediaAssetId, updatedAt: new Date().toISOString() }
+      const processing = {
+        state: 'ready_for_review',
+        code: 'local_renderer_completed',
+        retryable: false,
+        provider: 'local',
+        rendered: true,
+        mediaAssetId: uploaded.mediaAssetId,
+        formatProfile: profile.id,
+        profile,
+        timeline: { sceneCount: timeline.sceneCount, totalMs: timeline.totalMs, transitionMs: timeline.transitionMs },
+        qa: { passed: rendered.qa?.passed !== false, ...rendered.qa },
+        ...(Object.keys(rendered.output).length ? { output: rendered.output } : {}),
+        updatedAt: new Date().toISOString()
+      }
       await pool.query('UPDATE video_jobs SET metadata=metadata || jsonb_build_object(\'processing\',$3::jsonb),updated_at=NOW() WHERE id=$1 AND workspace_id=$2', [video.id, video.workspace_id, JSON.stringify(processing)])
       return { videoJobId, status: 'ready_for_review', provider: 'local', rendered: true, mediaAssetId: uploaded.mediaAssetId, retryable: false, code: 'local_renderer_completed' }
     } catch (error) {
-      const processing = { state: error.code === 'motion_qa_failed' ? 'qa_failed' : 'failed', code: error.code || 'local_renderer_failed', retryable: true, provider: 'local', rendered: false, message: String(error.message || '').slice(0, 500), updatedAt: new Date().toISOString() }
+      const qaFailure = new Set(['motion_qa_failed', 'motion_timeline_invalid', 'motion_timeline_duration_mismatch', 'motion_render_output_invalid']).has(error.code)
+      const processing = { state: qaFailure ? 'qa_failed' : 'failed', code: error.code || 'local_renderer_failed', retryable: true, provider: 'local', rendered: false, message: String(error.message || '').slice(0, 500), updatedAt: new Date().toISOString() }
       await pool.query("UPDATE video_jobs SET status='failed',metadata=metadata || jsonb_build_object('processing',$3::jsonb),updated_at=NOW() WHERE id=$1 AND workspace_id=$2", [video.id, video.workspace_id, JSON.stringify(processing)])
       return { videoJobId, status: 'failed', provider: 'local', rendered: false, retryable: true, code: processing.code, error: processing.message }
     }

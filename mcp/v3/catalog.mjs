@@ -13,11 +13,27 @@ const objectSchema = {
 
 const assetReferenceSchema = ARTIFACT_REFERENCE_SCHEMA
 
+export const MOTION_FORMAT_PROFILES = Object.freeze({
+  instagram_reel: Object.freeze({ channel: 'instagram', format: 'reel', width: 1080, height: 1920, aspectRatio: '9:16', fps: 30, maxDurationMs: 90000 }),
+  instagram_reel_9_16: Object.freeze({ channel: 'instagram', format: 'reel', width: 1080, height: 1920, aspectRatio: '9:16', fps: 30, maxDurationMs: 90000 }),
+  instagram_story: Object.freeze({ channel: 'instagram_story', format: 'story', width: 1080, height: 1920, aspectRatio: '9:16', fps: 30, maxDurationMs: 60000 }),
+  instagram_story_9_16: Object.freeze({ channel: 'instagram_story', format: 'story', width: 1080, height: 1920, aspectRatio: '9:16', fps: 30, maxDurationMs: 60000 }),
+  youtube_landscape: Object.freeze({ channel: 'youtube', format: 'landscape', width: 1920, height: 1080, aspectRatio: '16:9', fps: 30, maxDurationMs: 3600000 }),
+  youtube_landscape_16_9: Object.freeze({ channel: 'youtube', format: 'landscape', width: 1920, height: 1080, aspectRatio: '16:9', fps: 30, maxDurationMs: 3600000 }),
+  youtube_16_9: Object.freeze({ channel: 'youtube', format: 'landscape', width: 1920, height: 1080, aspectRatio: '16:9', fps: 30, maxDurationMs: 3600000 }),
+  youtube_video: Object.freeze({ channel: 'youtube', format: 'landscape', width: 1920, height: 1080, aspectRatio: '16:9', fps: 30, maxDurationMs: 3600000 })
+})
+
+const motionFormatProfileSchema = {
+  type: 'string',
+  description: 'Perfil de salida. instagram_reel/story usan 1080x1920; youtube_landscape/youtube_16_9 usan 1920x1080. Se aceptan aliases existentes.'
+}
+
 const motionAssetReferenceSchema = {
   type: 'object',
   properties: {
     assetId: { type: 'string', minLength: 1 },
-    role: { type: 'string', minLength: 1, description: 'source, slide, background, foreground, overlay, logo o audio' },
+    role: { type: 'string', enum: ['source', 'slide', 'background', 'foreground', 'overlay', 'logo', 'audio', 'reference', 'icon', 'shape'], description: 'Rol del asset dentro del storyboard. Los textos se declaran como layers, no como assets.' },
     sha256: { type: 'string', minLength: 1 },
     kind: { type: 'string', enum: ['image', 'video', 'audio', 'text', 'caption'] },
     mimeType: { type: 'string', maxLength: 120 }
@@ -35,6 +51,45 @@ const motionTransitionSchema = {
   additionalProperties: false
 }
 
+const motionKeyframeSchema = {
+  type: 'object',
+  properties: {
+    timeMs: { type: 'integer', minimum: 0, maximum: 120000 },
+    x: { type: 'number', minimum: -2000, maximum: 4000 },
+    y: { type: 'number', minimum: -2000, maximum: 4000 },
+    scale: { type: 'number', minimum: 0.1, maximum: 4 },
+    rotate: { type: 'number', minimum: -360, maximum: 360 },
+    opacity: { type: 'number', minimum: 0, maximum: 1 },
+    easing: { type: 'string', enum: ['linear', 'ease_in', 'ease_out', 'ease_in_out', 'spring'] }
+  },
+  required: ['timeMs'],
+  additionalProperties: false
+}
+
+const motionLayerSchema = {
+  type: 'object',
+  properties: {
+    layerId: { type: 'string', maxLength: 120 },
+    assetId: { type: 'string', minLength: 1 },
+    role: { type: 'string', enum: ['background', 'foreground', 'overlay', 'logo', 'headline', 'body', 'caption', 'icon', 'shape'] },
+    text: { type: 'string', maxLength: 2000 },
+    animation: { type: 'string', enum: ['none', 'fade_in', 'fade_up', 'slide_left', 'slide_right', 'scale_in', 'float', 'ken_burns', 'reveal', 'pop'] },
+    startMs: { type: 'integer', minimum: 0, maximum: 120000 },
+    endMs: { type: 'integer', minimum: 0, maximum: 120000 },
+    x: { type: 'number', minimum: -2000, maximum: 4000 },
+    y: { type: 'number', minimum: -2000, maximum: 4000 },
+    width: { type: 'number', minimum: 1, maximum: 4000 },
+    height: { type: 'number', minimum: 1, maximum: 4000 },
+    scale: { type: 'number', minimum: 0.1, maximum: 4 },
+    rotate: { type: 'number', minimum: -360, maximum: 360 },
+    opacity: { type: 'number', minimum: 0, maximum: 1 },
+    easing: { type: 'string', enum: ['linear', 'ease_in', 'ease_out', 'ease_in_out', 'spring'] },
+    keyframes: { type: 'array', maxItems: 24, items: motionKeyframeSchema }
+  },
+  required: ['role'],
+  additionalProperties: false
+}
+
 const motionSceneSchema = {
   type: 'object',
   properties: {
@@ -46,10 +101,41 @@ const motionSceneSchema = {
     durationMs: { type: 'integer', minimum: 0, maximum: 120000 },
     fit: { type: 'string', enum: ['contain', 'cover'] },
     motionPreset: { type: 'string', enum: ['none', 'subtle_editorial', 'dynamic_editorial'] },
-    textAnimation: { type: 'string', enum: ['none', 'fade_in', 'fade_up', 'slide_left', 'slide_right'], description: 'Animación del copy seguro por escena. Se aplica sólo en layered_motion.' }
+    textAnimation: { type: 'string', enum: ['none', 'fade_in', 'fade_up', 'slide_left', 'slide_right'], description: 'Animación del copy seguro por escena. Se aplica sólo en layered_motion.' },
+    textPosition: { type: 'string', enum: ['top_left', 'center_left', 'bottom_left'], description: 'Zona editorial segura para el copy. dynamic_editorial alterna la posición si no se indica.' },
+    textTone: { type: 'string', enum: ['auto', 'light', 'dark'], description: 'Contraste del copy. auto estima la luminosidad del fondo.' },
+    layers: { type: 'array', maxItems: 24, items: motionLayerSchema, description: 'Capas declarativas. El renderer decide la implementación dentro de sus límites seguros.' }
   },
   required: ['assetId'],
   additionalProperties: false
+}
+
+const motionStoryboardSchema = {
+  type: 'object',
+  properties: {
+    version: { type: 'string', const: '1.0' },
+    title: { type: 'string', maxLength: 160 },
+    formatProfile: motionFormatProfileSchema,
+    transition: motionTransitionSchema,
+    scenes: { type: 'array', minItems: 1, maxItems: 50, items: motionSceneSchema }
+  },
+  required: ['scenes'],
+  additionalProperties: false
+}
+
+const motionPlanOutputSchema = {
+  type: 'object',
+  properties: {
+    contractVersion: { type: 'string', const: MCP_V3_CONTRACT },
+    capability: { type: 'string', const: 'production.motion.plan' },
+    formatProfile: motionFormatProfileSchema,
+    format: { type: 'object' },
+    storyboard: motionStoryboardSchema,
+    review: { type: 'object' },
+    warnings: { type: 'array' }
+  },
+  required: ['contractVersion', 'capability', 'formatProfile', 'format', 'storyboard', 'review'],
+  additionalProperties: true
 }
 
 const motionCopyBlockSchema = {
@@ -61,6 +147,116 @@ const motionCopyBlockSchema = {
     durationMs: { type: 'integer', minimum: 0, maximum: 120000 }
   },
   additionalProperties: false
+}
+
+const motionOutputSchema = {
+  type: 'object',
+  properties: {
+    assetId: { type: 'string' },
+    kind: { type: 'string' },
+    mimeType: { type: 'string' },
+    url: { type: 'string' },
+    width: { type: 'number' },
+    height: { type: 'number' }
+  },
+  required: ['kind', 'mimeType', 'url'],
+  additionalProperties: true
+}
+
+const motionStatusOutputSchema = {
+  type: 'object',
+  properties: {
+    contractVersion: { type: 'string', const: MCP_V3_CONTRACT },
+    status: { type: 'string' },
+    terminal: { type: 'boolean' },
+    outputs: { type: 'array', items: motionOutputSchema }
+  },
+  required: ['contractVersion', 'status', 'terminal'],
+  additionalProperties: true
+}
+
+const workflowOptionSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', minLength: 1, maxLength: 120 },
+    label: { type: 'string', minLength: 1, maxLength: 160 },
+    description: { type: 'string', maxLength: 500 },
+    next: { type: 'string', maxLength: 120 },
+    disabled: { type: 'boolean' }
+  },
+  required: ['id', 'label'],
+  additionalProperties: false
+}
+
+const workflowStepSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', minLength: 1, maxLength: 120 },
+    question: { type: 'string', minLength: 1, maxLength: 500 },
+    type: { type: 'string', enum: ['single_select', 'multi_select', 'text', 'textarea', 'asset', 'confirm'] },
+    responseKey: { type: 'string', minLength: 1, maxLength: 120 },
+    required: { type: 'boolean' },
+    options: { type: 'array', items: workflowOptionSchema, maxItems: 100 },
+    placeholder: { type: 'string', maxLength: 300 },
+    help: { type: 'string', maxLength: 500 },
+    next: { type: ['string', 'null'], maxLength: 120 }
+  },
+  required: ['id', 'question', 'type', 'responseKey'],
+  additionalProperties: false
+}
+
+const workflowSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', minLength: 1 },
+    title: { type: 'string' },
+    description: { type: 'string' },
+    entryStep: { type: 'string' },
+    freeMode: { type: 'boolean' },
+    steps: { type: 'array', items: workflowStepSchema, minItems: 1 }
+  },
+  required: ['id', 'title', 'description', 'entryStep', 'freeMode', 'steps'],
+  additionalProperties: false
+}
+
+const workflowListOutputSchema = {
+  type: 'object',
+  properties: {
+    contractVersion: { type: 'string', const: MCP_V3_CONTRACT },
+    workflows: { type: 'array', items: workflowSchema }
+  },
+  required: ['contractVersion', 'workflows'],
+  additionalProperties: false
+}
+
+const workflowGetOutputSchema = {
+  type: 'object',
+  properties: {
+    contractVersion: { type: 'string', const: MCP_V3_CONTRACT },
+    workflow: workflowSchema
+  },
+  required: ['contractVersion', 'workflow'],
+  additionalProperties: false
+}
+
+const workflowNextOutputSchema = {
+  type: 'object',
+  properties: {
+    contractVersion: { type: 'string', const: MCP_V3_CONTRACT },
+    workflowId: { type: 'string' },
+    mode: { type: 'string', enum: ['guided', 'free'] },
+    stepId: { type: ['string', 'null'] },
+    complete: { type: 'boolean' },
+    question: { type: ['string', 'null'] },
+    type: { type: ['string', 'null'] },
+    responseKey: { type: ['string', 'null'] },
+    options: { type: 'array', items: workflowOptionSchema },
+    answers: { type: 'object' },
+    execution: { type: ['object', 'null'] },
+    review: { type: 'object' }
+  },
+  required: ['contractVersion', 'workflowId', 'mode', 'stepId', 'complete', 'answers', 'execution', 'review'],
+  additionalProperties: true
 }
 
 const runSchema = {
@@ -149,6 +345,40 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     tags: ['discovery']
   }),
   manifest({
+    id: 'workflow.list',
+    description: 'Lista flujos guiados disponibles y sus pasos interactivos. No ejecuta trabajos.',
+    inputSchema: { type: 'object', properties: { query: { type: 'string', maxLength: 160 } }, additionalProperties: false },
+    outputSchema: workflowListOutputSchema,
+    permissions: [],
+    tags: ['discovery', 'workflow', 'interactive']
+  }),
+  manifest({
+    id: 'workflow.get',
+    description: 'Devuelve el flujo guiado completo para que el agente pueda mostrar selectores y campos.',
+    inputSchema: { type: 'object', properties: { workflowId: { type: 'string', minLength: 1 } }, required: ['workflowId'], additionalProperties: false },
+    outputSchema: workflowGetOutputSchema,
+    permissions: [],
+    tags: ['discovery', 'workflow', 'interactive']
+  }),
+  manifest({
+    id: 'workflow.next',
+    description: 'Valida una respuesta de un flujo y devuelve la siguiente pregunta o una ejecución preparada. No ejecuta generación ni publicación.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workflowId: { type: 'string', minLength: 1 },
+        stepId: { type: 'string', minLength: 1 },
+        answer: {},
+        answers: { type: 'object', additionalProperties: true }
+      },
+      required: ['workflowId'],
+      additionalProperties: false
+    },
+    outputSchema: workflowNextOutputSchema,
+    permissions: [],
+    tags: ['workflow', 'interactive', 'review']
+  }),
+  manifest({
     id: 'recipe.list',
     description: 'Lista recetas autorizadas sin ejecutar ningún paso.',
     inputSchema: { type: 'object', properties: { query: { type: 'string', maxLength: 160 }, tag: { type: 'string', maxLength: 80 } }, additionalProperties: false },
@@ -167,12 +397,43 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
   manifest({
     id: 'recipe.run',
     description: 'Ejecuta una recipe compuesta y devuelve sus trabajos, validaciones y siguiente revisión.',
-    inputSchema: { type: 'object', properties: { recipeId: { type: 'string' }, site: { type: 'string' }, brandId: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, brandKitVersionId: { type: 'string' }, inputs: { type: 'array', items: motionAssetReferenceSchema, maxItems: 50 }, motionAssets: { type: 'array', items: motionAssetReferenceSchema, maxItems: 50 }, sourceMediaId: { type: 'string' }, audioAsset: motionAssetReferenceSchema, audioAssetId: { type: 'string' }, logoAssetId: { type: 'string' }, backgroundAssetId: { type: 'string' }, contentItemId: { type: 'string' }, renderMode: { type: 'string', enum: ['flat_slides', 'layered_motion'] }, audioMode: { type: 'string', enum: ['none', 'supplied'] }, backgroundMode: { type: 'string', enum: ['blurred_source', 'brand_color', 'generated'] }, motionPreset: { type: 'string', enum: ['none', 'subtle_editorial', 'dynamic_editorial'] }, transition: motionTransitionSchema, scenes: { type: 'array', maxItems: 50, items: motionSceneSchema }, text: { type: 'string', maxLength: 50000 }, script: { type: 'string', maxLength: 50000 }, copyBlocks: { type: 'array', maxItems: 50, items: motionCopyBlockSchema }, menuText: { type: 'string', maxLength: 50000 }, purpose: { type: 'string' }, audience: { type: 'string' }, cta: { type: 'string' }, formatProfile: { type: 'string' }, channel: { type: 'string' }, provider: { type: 'string' }, idempotencyKey: { type: 'string' }, createContentIfMissing: { type: 'boolean' } }, additionalProperties: false },
+    inputSchema: { type: 'object', properties: { recipeId: { type: 'string' }, site: { type: 'string' }, brandId: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, brandKitVersionId: { type: 'string' }, inputs: { type: 'array', items: motionAssetReferenceSchema, maxItems: 50 }, motionAssets: { type: 'array', items: motionAssetReferenceSchema, maxItems: 50 }, sourceMediaId: { type: 'string' }, audioAsset: motionAssetReferenceSchema, audioAssetId: { type: 'string' }, logoAssetId: { type: 'string' }, backgroundAssetId: { type: 'string' }, contentItemId: { type: 'string' }, renderMode: { type: 'string', enum: ['flat_slides', 'layered_motion'] }, audioMode: { type: 'string', enum: ['none', 'supplied'] }, backgroundMode: { type: 'string', enum: ['blurred_source', 'brand_color', 'generated'] }, motionPreset: { type: 'string', enum: ['none', 'subtle_editorial', 'dynamic_editorial'] }, transition: motionTransitionSchema, storyboard: motionStoryboardSchema, scenes: { type: 'array', maxItems: 50, items: motionSceneSchema }, text: { type: 'string', maxLength: 50000 }, script: { type: 'string', maxLength: 50000 }, copyBlocks: { type: 'array', maxItems: 50, items: motionCopyBlockSchema }, menuText: { type: 'string', maxLength: 50000 }, purpose: { type: 'string' }, audience: { type: 'string' }, cta: { type: 'string' }, formatProfile: motionFormatProfileSchema, channel: { type: 'string' }, provider: { type: 'string' }, idempotencyKey: { type: 'string' }, createContentIfMissing: { type: 'boolean' } }, additionalProperties: false },
     outputSchema: { type: 'object', properties: { recipe: { type: 'string' }, runId: { type: ['string', 'null'] }, status: { type: 'string' }, review: { type: 'object' } }, required: ['recipe', 'runId', 'status', 'review'], additionalProperties: true },
     permissions: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'production:motion', 'publication:read'],
     sideEffects: 'write',
     humanReviewRequired: true,
     tags: ['composition', 'recipe', 'workflow']
+  }),
+  manifest({
+    id: 'production.motion.plan',
+    description: 'Valida y normaliza un storyboard de motion graphics por capas antes de crear un trabajo de render. No escribe assets ni ejecuta proveedores.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site: { type: 'string' },
+        brandId: { type: 'string' },
+        workspaceId: { type: 'string' },
+        siteId: { type: 'string' },
+        brandKitVersionId: { type: 'string' },
+        formatProfile: motionFormatProfileSchema,
+        format: { type: 'string' },
+        motionAssets: { type: 'array', items: motionAssetReferenceSchema, maxItems: 50 },
+        inputs: { type: 'array', items: motionAssetReferenceSchema, maxItems: 50 },
+        storyboard: motionStoryboardSchema,
+        scenes: { type: 'array', maxItems: 50, items: motionSceneSchema },
+        copyBlocks: { type: 'array', maxItems: 50, items: motionCopyBlockSchema },
+        transition: motionTransitionSchema,
+        backgroundMode: { type: 'string', enum: ['blurred_source', 'brand_color', 'generated'] },
+        motionPreset: { type: 'string', enum: ['none', 'subtle_editorial', 'dynamic_editorial'] },
+        prompt: { type: 'string', maxLength: 12000 }
+      },
+      required: ['formatProfile'],
+      additionalProperties: false
+    },
+    outputSchema: motionPlanOutputSchema,
+    permissions: ['brand:read', 'asset:read'],
+    sideEffects: 'none',
+    tags: ['production', 'motion', 'video', 'storyboard', 'planning']
   }),
   manifest({
     id: 'brand.context.get',
@@ -353,7 +614,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
         motionAssets: { type: 'array', items: motionAssetReferenceSchema, maxItems: 50 },
         sourceMediaId: { type: 'string' },
         contentItemId: { type: 'string' },
-        formatProfile: { type: 'string' },
+        formatProfile: motionFormatProfileSchema,
         channel: { type: 'string' },
         format: { type: 'string' },
         provider: { type: 'string' },
@@ -368,6 +629,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
         backgroundMode: { type: 'string', enum: ['blurred_source', 'brand_color', 'generated'] },
         motionPreset: { type: 'string', enum: ['none', 'subtle_editorial', 'dynamic_editorial'] },
         transition: motionTransitionSchema,
+        storyboard: motionStoryboardSchema,
         scenes: { type: 'array', maxItems: 50, items: motionSceneSchema },
         copyBlocks: { type: 'array', maxItems: 50, items: motionCopyBlockSchema },
         audioAsset: motionAssetReferenceSchema,
@@ -393,7 +655,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     id: 'production.motion.status.get',
     description: 'Consulta el estado real de un trabajo de motion y sus outputs, separado del estado de publicación.',
     inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, siteId: { type: 'string' }, site: { type: 'string' }, videoJobId: { type: 'string' }, jobId: { type: 'string' }, runId: { type: 'string' } }, anyOf: [{ required: ['videoJobId'] }, { required: ['jobId'] }, { required: ['runId'] }], additionalProperties: false },
-    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, status: { type: 'string' }, terminal: { type: 'boolean' }, outputs: { type: 'array' } }, required: ['contractVersion', 'status', 'terminal'], additionalProperties: true },
+    outputSchema: motionStatusOutputSchema,
     permissions: ['production:motion'],
     tags: ['production', 'motion', 'video', 'status']
   }),
@@ -401,7 +663,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     id: 'production.motion.retry',
     description: 'Reencola un trabajo de motion fallido o bloqueado y devuelve su estado actual.',
     inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, siteId: { type: 'string' }, site: { type: 'string' }, videoJobId: { type: 'string' }, jobId: { type: 'string' }, runId: { type: 'string' } }, anyOf: [{ required: ['videoJobId'] }, { required: ['jobId'] }, { required: ['runId'] }], additionalProperties: false },
-    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, status: { type: 'string' }, terminal: { type: 'boolean' } }, required: ['contractVersion', 'status'], additionalProperties: true },
+    outputSchema: motionStatusOutputSchema,
     permissions: ['production:motion'],
     sideEffects: 'write',
     humanReviewRequired: true,
@@ -411,7 +673,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     id: 'production.motion.cancel',
     description: 'Cancela un trabajo de motion que todavía no ha terminado.',
     inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, siteId: { type: 'string' }, site: { type: 'string' }, videoJobId: { type: 'string' }, jobId: { type: 'string' }, runId: { type: 'string' } }, anyOf: [{ required: ['videoJobId'] }, { required: ['jobId'] }, { required: ['runId'] }], additionalProperties: false },
-    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, status: { type: 'string', const: 'cancelled' }, terminal: { type: 'boolean' } }, required: ['contractVersion', 'status'], additionalProperties: true },
+    outputSchema: motionStatusOutputSchema,
     permissions: ['production:motion'],
     sideEffects: 'destructive',
     humanReviewRequired: true,
@@ -543,6 +805,7 @@ export const BUILTIN_RECIPES = Object.freeze([
 export const BUILTIN_RESOURCES = Object.freeze([
   Object.freeze({ uri: 'escarlet://capabilities/index', name: 'Escarlet OS capability index', mimeType: 'application/json' }),
   Object.freeze({ uri: 'escarlet://recipes/index', name: 'Escarlet OS recipe index', mimeType: 'application/json' }),
+  Object.freeze({ uri: 'escarlet://workflows/index', name: 'Escarlet OS guided workflow index', mimeType: 'application/json' }),
   Object.freeze({ uri: 'escarlet://brand/kernel', name: 'Escarlet OS Brand Kernel contract', mimeType: 'application/json' })
 ])
 

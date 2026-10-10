@@ -22,6 +22,7 @@ import {
   validatePublicationCompatibility
 } from '../../lib/publication/index.mjs'
 import { getPublicationRun, persistPublicationOperation } from '../../lib/publication/persistence.mjs'
+import { MOTION_FORMAT_PROFILES } from './catalog.mjs'
 
 const FORMAT_ASSET_TYPES = Object.freeze({
   blog: 'blog_cover',
@@ -355,16 +356,23 @@ function validateCopy(args, context) {
   }
 }
 
-function motionProfile(formatProfile = '') {
-  const profile = String(formatProfile || '').trim().toLowerCase()
-  if (profile.includes('story')) return { channel: 'instagram_story', format: 'story' }
-  return { channel: 'instagram', format: 'reel' }
+function motionProfile(formatProfile = '', format = '') {
+  const requested = String(formatProfile || '').trim().toLowerCase()
+  const explicitFormat = String(format || '').trim().toLowerCase()
+  const profile = requested || (explicitFormat === 'landscape' || explicitFormat === 'youtube' ? 'youtube_landscape' : 'instagram_reel')
+  const selected = MOTION_FORMAT_PROFILES[profile] || MOTION_FORMAT_PROFILES.instagram_reel
+  return { profile: MOTION_FORMAT_PROFILES[profile] ? profile : 'instagram_reel', ...selected }
 }
 
-const MOTION_ASSET_ROLES = new Set(['source', 'slide', 'background', 'foreground', 'overlay', 'logo', 'audio', 'reference'])
+const MOTION_ASSET_ROLES = new Set(['source', 'slide', 'background', 'foreground', 'overlay', 'logo', 'audio', 'reference', 'icon', 'shape'])
 const MOTION_PRESETS = new Set(['none', 'subtle_editorial', 'dynamic_editorial'])
 const MOTION_TEXT_ANIMATIONS = new Set(['none', 'fade_in', 'fade_up', 'slide_left', 'slide_right'])
+const MOTION_TEXT_POSITIONS = new Set(['top_left', 'center_left', 'bottom_left'])
+const MOTION_TEXT_TONES = new Set(['auto', 'light', 'dark'])
 const MOTION_TRANSITIONS = new Set(['none', 'crossfade', 'fade', 'wipeleft', 'wiperight', 'slideleft', 'slideright', 'circleopen', 'fadeblack', 'fadewhite'])
+const MOTION_LAYER_ROLES = new Set(['background', 'foreground', 'overlay', 'logo', 'headline', 'body', 'caption', 'icon', 'shape'])
+const MOTION_LAYER_ANIMATIONS = new Set(['none', 'fade_in', 'fade_up', 'slide_left', 'slide_right', 'scale_in', 'float', 'ken_burns', 'reveal', 'pop'])
+const MOTION_EASINGS = new Set(['linear', 'ease_in', 'ease_out', 'ease_in_out', 'spring'])
 
 function normalizeMotionAssets(args = {}) {
   const declared = [
@@ -396,10 +404,19 @@ function normalizeMotionAssets(args = {}) {
   if (args.audioAssetId) append({ assetId: args.audioAssetId, role: 'audio', kind: 'audio' })
   if (args.logoAssetId) append({ assetId: args.logoAssetId, role: 'logo', kind: 'image' })
   if (args.backgroundAssetId) append({ assetId: args.backgroundAssetId, role: 'background', kind: 'image' })
-  if (Array.isArray(args.scenes)) args.scenes.forEach((scene) => {
+  const declaredScenes = [
+    ...(Array.isArray(args.scenes) ? args.scenes : []),
+    ...(Array.isArray(args.storyboard?.scenes) ? args.storyboard.scenes : [])
+  ]
+  if (declaredScenes.length) declaredScenes.forEach((scene) => {
     if (scene && typeof scene === 'object') {
       if (scene.assetId) append({ assetId: scene.assetId, role: 'source', kind: 'image' })
       if (scene.backgroundAssetId) append({ assetId: scene.backgroundAssetId, role: 'background', kind: 'image' })
+      if (Array.isArray(scene.layers)) scene.layers.forEach((layer) => {
+        if (layer?.assetId && ['background', 'foreground', 'overlay', 'logo', 'icon', 'shape'].includes(String(layer.role || '').trim().toLowerCase())) {
+          append({ assetId: layer.assetId, role: String(layer.role).trim().toLowerCase(), kind: layer.role === 'logo' ? 'image' : undefined, mimeType: layer.role === 'logo' ? 'image/svg+xml' : undefined })
+        }
+      })
     }
   })
   return normalized
@@ -409,8 +426,8 @@ function normalizeMotionCopyBlocks(value) {
   if (!Array.isArray(value)) return []
   return value.slice(0, 50).map((block, index) => {
     const source = block && typeof block === 'object' ? block : {}
-    const headline = String(source.headline || '').trim().slice(0, 160)
-    const body = String(source.body || '').trim().slice(0, 1000)
+    const headline = String(source.headline || '').replace(/[\u2014\u2013]/g, '-').trim().slice(0, 160)
+    const body = String(source.body || '').replace(/[\u2014\u2013]/g, '-').trim().slice(0, 1000)
     const durationMs = Number(source.durationMs)
     return {
       sceneId: String(source.sceneId || `scene-${index + 1}`).trim().slice(0, 120),
@@ -419,6 +436,78 @@ function normalizeMotionCopyBlocks(value) {
       ...(Number.isFinite(durationMs) && durationMs > 0 ? { durationMs: Math.min(120000, Math.round(durationMs)) } : {})
     }
   }).filter((block) => block.headline || block.body)
+}
+
+function finiteNumber(value, fallback = null) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : fallback
+}
+
+function boundedNumber(value, minimum, maximum, fallback = null) {
+  const number = finiteNumber(value, fallback)
+  return number === null ? null : Math.min(maximum, Math.max(minimum, number))
+}
+
+function normalizeMotionKeyframes(value, layerId) {
+  if (!Array.isArray(value)) return []
+  const keyframes = value.slice(0, 24).map((frame, index) => {
+    const source = frame && typeof frame === 'object' ? frame : {}
+    const timeMs = finiteNumber(source.timeMs)
+    if (!Number.isInteger(timeMs) || timeMs < 0 || timeMs > 120000) {
+      throw Object.assign(new Error(`El keyframe ${index + 1} de ${layerId} tiene un timeMs inválido.`), { code: 'motion_keyframe_time_invalid', status: 422 })
+    }
+    const normalized = { timeMs: Math.round(timeMs) }
+    const x = boundedNumber(source.x, -2000, 4000)
+    const y = boundedNumber(source.y, -2000, 4000)
+    const scale = boundedNumber(source.scale, 0.1, 4)
+    const rotate = boundedNumber(source.rotate, -360, 360)
+    const opacity = boundedNumber(source.opacity, 0, 1)
+    if (x !== null) normalized.x = x
+    if (y !== null) normalized.y = y
+    if (scale !== null) normalized.scale = scale
+    if (rotate !== null) normalized.rotate = rotate
+    if (opacity !== null) normalized.opacity = opacity
+    const easing = String(source.easing || '').trim().toLowerCase()
+    if (easing && !MOTION_EASINGS.has(easing)) throw Object.assign(new Error(`Easing no permitido en ${layerId}: ${easing}.`), { code: 'motion_easing_invalid', status: 422 })
+    if (easing) normalized.easing = easing
+    return normalized
+  }).sort((left, right) => left.timeMs - right.timeMs)
+  for (let index = 1; index < keyframes.length; index += 1) {
+    if (keyframes[index].timeMs === keyframes[index - 1].timeMs) throw Object.assign(new Error(`Los keyframes de ${layerId} no pueden repetir timeMs.`), { code: 'motion_keyframe_time_duplicate', status: 422 })
+  }
+  return keyframes
+}
+
+function normalizeMotionLayers(value, sceneIndex = 0, sceneDurationMs = 120000) {
+  if (!Array.isArray(value)) return []
+  return value.slice(0, 24).map((layer, index) => {
+    const source = layer && typeof layer === 'object' ? layer : {}
+    const role = String(source.role || '').trim().toLowerCase()
+    if (!MOTION_LAYER_ROLES.has(role)) throw Object.assign(new Error(`Rol de capa no válido en escena ${sceneIndex + 1}: ${role || 'vacío'}.`), { code: 'motion_layer_role_invalid', status: 422 })
+    const layerId = String(source.layerId || `${role}-${index + 1}`).trim().slice(0, 120)
+    const assetId = String(source.assetId || '').trim()
+    const text = String(source.text || '').replace(/[\u2014\u2013]/g, '-').trim().slice(0, 2000)
+    if (['background', 'foreground', 'overlay', 'logo', 'icon'].includes(role) && !assetId) throw Object.assign(new Error(`La capa ${layerId} necesita assetId.`), { code: 'motion_layer_asset_required', status: 422 })
+    if (['headline', 'body', 'caption'].includes(role) && !assetId && !text) throw Object.assign(new Error(`La capa ${layerId} necesita text o assetId.`), { code: 'motion_layer_content_required', status: 422 })
+    const animation = String(source.animation || 'none').trim().toLowerCase()
+    if (!MOTION_LAYER_ANIMATIONS.has(animation)) throw Object.assign(new Error(`Animación no permitida en ${layerId}: ${animation}.`), { code: 'motion_layer_animation_invalid', status: 422 })
+    const startMs = boundedNumber(source.startMs, 0, 120000)
+    const endMs = boundedNumber(source.endMs, 0, 120000)
+    if (startMs !== null && endMs !== null && endMs <= startMs) throw Object.assign(new Error(`La capa ${layerId} tiene un intervalo inválido.`), { code: 'motion_layer_timeline_invalid', status: 422 })
+    if ((startMs !== null && startMs > sceneDurationMs) || (endMs !== null && endMs > sceneDurationMs)) throw Object.assign(new Error(`La capa ${layerId} excede la duración de su escena.`), { code: 'motion_layer_timeline_invalid', status: 422 })
+    const normalized = { layerId, role, ...(assetId ? { assetId } : {}), ...(text ? { text } : {}), animation }
+    for (const [key, minimum, maximum] of [['startMs', 0, 120000], ['endMs', 0, 120000], ['x', -2000, 4000], ['y', -2000, 4000], ['width', 1, 4000], ['height', 1, 4000], ['scale', 0.1, 4], ['rotate', -360, 360], ['opacity', 0, 1]]) {
+      const number = boundedNumber(source[key], minimum, maximum)
+      if (number !== null) normalized[key] = ['startMs', 'endMs'].includes(key) ? Math.round(number) : number
+    }
+    const easing = String(source.easing || '').trim().toLowerCase()
+    if (easing && !MOTION_EASINGS.has(easing)) throw Object.assign(new Error(`Easing no permitido en ${layerId}: ${easing}.`), { code: 'motion_easing_invalid', status: 422 })
+    if (easing) normalized.easing = easing
+    const keyframes = normalizeMotionKeyframes(source.keyframes, layerId)
+    if (keyframes.some((frame) => frame.timeMs > sceneDurationMs)) throw Object.assign(new Error(`Los keyframes de ${layerId} exceden la duración de su escena.`), { code: 'motion_keyframe_timeline_invalid', status: 422 })
+    if (keyframes.length) normalized.keyframes = keyframes
+    return normalized
+  })
 }
 
 function normalizeMotionScenes(value, motionAssets, copyBlocks) {
@@ -439,13 +528,37 @@ function normalizeMotionScenes(value, motionAssets, copyBlocks) {
       assetId,
       fit: String(item.fit || 'contain').toLowerCase() === 'cover' ? 'cover' : 'contain',
       ...(item.backgroundAssetId ? { backgroundAssetId: String(item.backgroundAssetId).trim() } : {}),
-      ...(item.headline || item.title ? { headline: String(item.headline || item.title).trim().slice(0, 160) } : {}),
-      ...(item.body || item.text ? { body: String(item.body || item.text).trim().slice(0, 1000) } : {}),
+      ...(item.headline || item.title ? { headline: String(item.headline || item.title).replace(/[\u2014\u2013]/g, '-').trim().slice(0, 160) } : {}),
+      ...(item.body || item.text ? { body: String(item.body || item.text).replace(/[\u2014\u2013]/g, '-').trim().slice(0, 1000) } : {}),
       ...(MOTION_TEXT_ANIMATIONS.has(String(item.textAnimation || '').trim().toLowerCase()) ? { textAnimation: String(item.textAnimation).trim().toLowerCase() } : {}),
       ...(MOTION_PRESETS.has(String(item.motionPreset || '').trim().toLowerCase()) ? { motionPreset: String(item.motionPreset).trim().toLowerCase() } : {}),
+      ...(MOTION_TEXT_POSITIONS.has(String(item.textPosition || '').trim().toLowerCase()) ? { textPosition: String(item.textPosition).trim().toLowerCase() } : {}),
+      ...(MOTION_TEXT_TONES.has(String(item.textTone || '').trim().toLowerCase()) ? { textTone: String(item.textTone).trim().toLowerCase() } : {}),
+      ...(Array.isArray(item.layers) ? { layers: normalizeMotionLayers(item.layers, index, Number.isFinite(durationMs) && durationMs > 0 ? Math.min(120000, Math.round(durationMs)) : 120000) } : {}),
       ...(Number.isFinite(durationMs) && durationMs > 0 ? { durationMs: Math.min(120000, Math.round(durationMs)) } : {})
     }
   })
+}
+
+function normalizeMotionStoryboard({ storyboard, scenes, motionAssets, copyBlocks, transition, formatProfile } = {}) {
+  const source = storyboard && typeof storyboard === 'object' ? storyboard : {}
+  let normalizedScenes = normalizeMotionScenes(source.scenes || scenes, motionAssets, copyBlocks)
+  if (!normalizedScenes.length) {
+    const fallbackAsset = motionAssets.find((asset) => !['audio', 'logo', 'reference'].includes(asset.role))
+    if (fallbackAsset) normalizedScenes = normalizeMotionScenes([{ assetId: fallbackAsset.assetId, ...(copyBlocks[0] || {}) }], motionAssets, copyBlocks)
+  }
+  if (!normalizedScenes.length) throw Object.assign(new Error('El storyboard de motion necesita al menos una escena.'), { code: 'motion_storyboard_required', status: 422 })
+  const selectedTransition = transition || source.transition || {}
+  const requestedTransition = String(selectedTransition.type || 'crossfade').trim().toLowerCase()
+  const transitionType = MOTION_TRANSITIONS.has(requestedTransition) ? requestedTransition : 'crossfade'
+  const transitionDurationMs = Number(selectedTransition.durationMs)
+  return {
+    version: '1.0',
+    ...(source.title ? { title: String(source.title).trim().slice(0, 160) } : {}),
+    formatProfile,
+    transition: { type: transitionType, durationMs: transitionType === 'none' ? 0 : Number.isFinite(transitionDurationMs) && transitionDurationMs >= 0 ? Math.min(1000, Math.round(transitionDurationMs)) : 400 },
+    scenes: normalizedScenes
+  }
 }
 
 async function assertMotionAssetsBelongToScope(motionAssets, scope) {
@@ -485,7 +598,7 @@ async function assertMotionAssetsBelongToScope(motionAssets, scope) {
 
 function motionIdempotencyKey(args, site, sourceMediaId) {
   if (args.idempotencyKey || args.runId) return String(args.idempotencyKey || args.runId)
-  const payload = JSON.stringify({ site, sourceMediaId, motionAssets: args.motionAssets || args.inputs || [], scenes: args.scenes || [], copyBlocks: args.copyBlocks || [], renderMode: args.renderMode || '', audioMode: args.audioMode || '', backgroundMode: args.backgroundMode || '', backgroundAssetId: args.backgroundAssetId || '', transition: args.transition || {}, motionPreset: args.motionPreset || '', prompt: args.prompt || '', brandKitVersionId: args.brandKitVersionId || '', recipeId: args.recipeId || '', formatProfile: args.formatProfile, text: args.text || args.script || args.topic || '' })
+  const payload = JSON.stringify({ site, sourceMediaId, motionAssets: args.motionAssets || args.inputs || [], storyboard: args.storyboard || null, scenes: args.scenes || [], copyBlocks: args.copyBlocks || [], renderMode: args.renderMode || '', audioMode: args.audioMode || '', backgroundMode: args.backgroundMode || '', backgroundAssetId: args.backgroundAssetId || '', transition: args.transition || {}, motionPreset: args.motionPreset || '', prompt: args.prompt || '', brandKitVersionId: args.brandKitVersionId || '', recipeId: args.recipeId || '', formatProfile: args.formatProfile, format: args.format || '', text: args.text || args.script || args.topic || '' })
   return `motion:${createHash('sha256').update(payload).digest('hex').slice(0, 32)}`
 }
 
@@ -506,6 +619,34 @@ async function motionScope(args, auth, runtime) {
   return { site: selected.handle || site, workspaceId: context.workspaceId, siteId: selected.id, siteHandle: selected.handle || site }
 }
 
+async function planMotionStoryboard(args, auth, runtime) {
+  const site = siteFor(args, auth)
+  const profile = motionProfile(args.formatProfile, args.format)
+  const motionAssets = normalizeMotionAssets(args)
+  const copyBlocks = normalizeMotionCopyBlocks(args.copyBlocks)
+  const storyboard = normalizeMotionStoryboard({
+    storyboard: args.storyboard,
+    scenes: args.scenes,
+    motionAssets,
+    copyBlocks,
+    transition: args.transition,
+    formatProfile: profile.profile
+  })
+  const brandOptions = await activeBrandOptions(site, args, auth)
+  const brand = getBrandContext(site, { auth: { ...auth, role: auth.role === 'agent' ? 'editor' : auth.role }, ...brandOptions })
+  return {
+    contractVersion: 'os.production.v1',
+    capability: 'production.motion.plan',
+    formatProfile: profile.profile,
+    format: profile,
+    storyboard,
+    brandKitVersionId: brand.brandKitVersionId,
+    brandKitSnapshotHash: brand.brandKitSnapshotHash,
+    review: { required: false, status: 'planned', next: 'production.motion.compose' },
+    warnings: []
+  }
+}
+
 async function composeMotionJob(args, auth, runtime) {
   if (args.runId && !args.sourceMediaId && !args.motionAssets && !args.inputs && !args.scenes) return motionJobAction(args, auth, runtime, 'status')
   const motionAssets = normalizeMotionAssets(args)
@@ -518,7 +659,16 @@ async function composeMotionJob(args, auth, runtime) {
   const backgroundAssetId = String(args.backgroundAssetId || motionAssets.find((asset) => asset.role === 'background')?.assetId || '').trim()
   if (args.audioMode === 'supplied' && !audioAssetId) throw Object.assign(new Error('audioMode=supplied requiere audioAssetId o audioAsset.'), { code: 'motion_audio_required', status: 422 })
   const copyBlocks = normalizeMotionCopyBlocks(args.copyBlocks)
-  const scenes = normalizeMotionScenes(args.scenes, motionAssets, copyBlocks)
+  const profile = motionProfile(args.formatProfile, args.format)
+  const storyboard = normalizeMotionStoryboard({
+    storyboard: args.storyboard,
+    scenes: args.scenes,
+    motionAssets,
+    copyBlocks,
+    transition: args.transition,
+    formatProfile: profile.profile
+  })
+  const scenes = storyboard.scenes
   const backgroundMode = ['blurred_source', 'brand_color', 'generated'].includes(args.backgroundMode) ? args.backgroundMode : 'blurred_source'
   const motionPreset = MOTION_PRESETS.has(String(args.motionPreset || '').trim().toLowerCase()) ? String(args.motionPreset).trim().toLowerCase() : 'subtle_editorial'
   const requestedTransition = String(args.transition?.type || 'crossfade').trim().toLowerCase()
@@ -527,8 +677,7 @@ async function composeMotionJob(args, auth, runtime) {
   const transition = { type: transitionType, durationMs: transitionType === 'none' ? 0 : Number.isFinite(transitionDurationMs) && transitionDurationMs >= 0 ? Math.min(1000, Math.round(transitionDurationMs)) : 400 }
   const brandOptions = await activeBrandOptions(scope.site, args, auth)
   const brand = getBrandContext(scope.site, { auth: { ...auth, role: auth.role === 'agent' ? 'editor' : auth.role }, ...brandOptions })
-  const profile = motionProfile(args.formatProfile)
-  const text = String(args.text || args.script || args.topic || copyBlocks.map((block) => [block.headline, block.body].filter(Boolean).join('\n')).filter(Boolean).join('\n') || '').trim()
+  const text = String(args.text || args.script || args.topic || copyBlocks.map((block) => [block.headline, block.body].filter(Boolean).join('\n')).filter(Boolean).join('\n') || '').replace(/[\u2014\u2013]/g, '-').trim()
   const copy = text
     ? validateCopy({ ...args, site: scope.site, text, purpose: args.purpose || 'motion' }, brand)
     : { contractVersion: 'os.production.v1', valid: true, findings: [], brandKitVersionId: brand.brandKitVersionId, brandKitSnapshotHash: brand.brandKitSnapshotHash }
@@ -565,7 +714,8 @@ async function composeMotionJob(args, auth, runtime) {
       capabilityVersion: '1.0.0',
       correlationId: args.correlationId || args.runId || null,
       recipeId: args.recipeId || null,
-      formatProfile: args.formatProfile,
+      formatProfile: profile.profile,
+      formatSpec: profile,
       sourceMediaId,
       inputs: motionAssets,
       motionAssets,
@@ -574,6 +724,7 @@ async function composeMotionJob(args, auth, runtime) {
       backgroundAssetId: backgroundAssetId || null,
       copyBlocks,
       scenes,
+      storyboard,
       renderMode: args.renderMode === 'flat_slides' ? 'flat_slides' : 'layered_motion',
       audioMode: args.audioMode === 'none' ? 'none' : audioAssetId ? 'supplied' : 'none',
       backgroundMode,
@@ -918,6 +1069,7 @@ export async function invokeBuiltinCapability(name, args = {}, { auth = {}, runt
   if (name === 'asset.delete') return deleteCanonicalAssets(args, auth)
   if (name === 'asset.upload') return uploadGeneratedAsset(args, auth, runtime)
   if (name === 'production.image.product.transform') return prepareProductTransform(args, auth, runtime)
+  if (name === 'production.motion.plan') return planMotionStoryboard(args, auth, runtime)
   if (name === 'production.motion.compose') return composeMotionJob(args, auth, runtime)
   if (name === 'production.motion.status.get') return motionJobAction(args, auth, runtime, 'status')
   if (name === 'production.motion.retry') return motionJobAction(args, auth, runtime, 'retry')

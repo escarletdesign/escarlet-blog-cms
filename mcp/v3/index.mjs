@@ -5,6 +5,7 @@ export {
   MCP_V3_CONTRACT,
   MCP_V3_SERVER_NAME,
   MCP_V3_SERVER_VERSION,
+  MOTION_FORMAT_PROFILES,
   assertNamespacedTools,
   brandKernelResource,
   loadOsRegistry,
