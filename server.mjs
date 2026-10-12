@@ -879,11 +879,28 @@ async function readV2PublicBlogPosts(siteHandle) {
       const storyPack = storyBody.socialPack?.instagramStory
       if (storyPack && typeof storyPack === 'object') {
         const storyMedia = Array.isArray(storyRow?.media) ? storyRow.media : []
+        const socialMedia = Array.isArray(socialRow?.media) ? socialRow.media : []
+        const storyFrames = Array.isArray(storyPack.frames) ? storyPack.frames : []
+        const frameCount = storyFrames.length || (storyMedia.length > 1 ? storyMedia.length : socialMedia.length || (storyPack.imageUrl || storyPack.url ? 1 : 0))
         socialPack.instagramStory = {
           ...storyPack,
           imageUrl: storyPack.imageUrl || storyPack.url || storyMedia[0]?.url || storyMedia[0]?.path || '',
           previewUrl: storyPack.previewUrl || storyPack.imagePreviewUrl || storyMedia[0]?.previewUrl || storyMedia[0]?.metadata?.previewUrl || '',
-          thumbUrl: storyPack.thumbUrl || storyPack.imageThumbUrl || storyMedia[0]?.thumbUrl || storyMedia[0]?.metadata?.thumbUrl || ''
+          thumbUrl: storyPack.thumbUrl || storyPack.imageThumbUrl || storyMedia[0]?.thumbUrl || storyMedia[0]?.metadata?.thumbUrl || '',
+          frames: Array.from({ length: frameCount }, (_, index) => {
+            const frame = storyFrames[index] || {}
+            const media = storyMedia[index] || socialMedia[index] || {}
+            const fallback = socialPack.instagramSlides?.[index] || {}
+            return {
+              ...fallback,
+              ...media,
+              ...(index === 0 ? storyPack : {}),
+              ...frame,
+              imageUrl: frame.imageUrl || frame.url || frame.image || media.url || media.path || fallback.imageUrl || fallback.url || fallback.image || '',
+              previewUrl: frame.previewUrl || frame.imagePreviewUrl || media.previewUrl || media.metadata?.previewUrl || fallback.previewUrl || '',
+              thumbUrl: frame.thumbUrl || frame.imageThumbUrl || media.thumbUrl || media.metadata?.thumbUrl || fallback.thumbUrl || ''
+            }
+          })
         }
       }
       return {

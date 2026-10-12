@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom";
 
 type AppsDashboardProps = { site: string; t: (key: string, fallback?: string) => string };
 type CatalogEntry = Record<string, any> & {
-  id: string;
+  id?: string;
   description?: string;
   title?: string;
   tags?: string[];
@@ -21,7 +21,7 @@ const appRoutes: Record<string, string> = {
 };
 
 function entryRoute(entry: CatalogEntry) {
-  return String(entry.metadata?.uiRoute || appRoutes[entry.id] || "").trim();
+  return String(entry.metadata?.uiRoute || appRoutes[entry.id || ""] || "").trim();
 }
 
 function errorText(error: unknown, fallback: string) {
@@ -51,10 +51,10 @@ export function AppsDashboard({ site, t }: AppsDashboardProps) {
     return () => { active = false; };
   }, [site, t]);
 
-  const apps = useMemo(() => {
+  const apps = useMemo<CatalogEntry[]>(() => {
     if (!catalog) return [];
     const recipes = catalog.recipes.map((entry) => ({ ...entry, kind: "recipe" }));
-    const capabilityApps = catalog.capabilities.flatMap((entry) => {
+    const capabilityApps: CatalogEntry[] = catalog.capabilities.flatMap((entry): CatalogEntry[] => {
       const uiApps = Array.isArray(entry.metadata?.uiApps) ? entry.metadata.uiApps : [];
       if (uiApps.length) {
         return uiApps.map((app) => ({
@@ -65,11 +65,11 @@ export function AppsDashboard({ site, t }: AppsDashboardProps) {
           metadata: { ...entry.metadata, uiRoute: app.route || app.uiRoute },
         }));
       }
-      return entry.metadata?.uiRoute || appRoutes[entry.id] ? [{ ...entry, kind: "app" }] : [];
+      return entry.metadata?.uiRoute || appRoutes[entry.id || ""] ? [{ ...entry, kind: "app" }] : [];
     });
     return [...recipes, ...capabilityApps];
   }, [catalog]);
-  const availableRoutes = useMemo(() => new Set(apps.map(entryRoute).filter(Boolean)), [apps]);
+  const availableRoutes = useMemo(() => new Set<string>(apps.map(entryRoute).filter(Boolean)), [apps]);
   const creationModes = useMemo(() => [
     { id: "idea", title: t("apps.modeIdea", "Desde una idea"), description: t("apps.modeIdeaHelp", "Convierte un objetivo y varios temas en una campaña lista para revisar."), route: "/plans", icon: "✦", available: true },
     { id: "image", title: t("apps.modeImage", "Desde una imagen"), description: t("apps.modeImageHelp", "Crea un Reel o Story a partir de una imagen y un guion."), route: "/production/reel-from-image", icon: "◒", available: availableRoutes.has("/production/reel-from-image") },

@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "./api";
-import type { ContentChannel, ContentItem, ContentPlanSummary, ContentVariant, MediaItem } from "./types";
+import type { ContentChannel, ContentItem, ContentPlanSummary, ContentStatus, ContentVariant, MediaItem } from "./types";
 import { aggregateStatus, canApproveStatus, CONTENT_TITLE_MAX, contentPreviewPath, itemTitle, statusLabel } from "./content-format";
 import { ContentPackPreview } from "./ContentPackPreview";
 import { Badge, Button, Card, ChannelBadge, Checkbox, Drawer, EmptyState, Field, Inline, Modal, MultiSelectPills, PageHeader, Progress, Select, Stack, StatusBadge, Tabs, TextField, Textarea } from "./ui";
@@ -50,7 +50,7 @@ const bufferPublishableChannels = (rows: Array<{ channel: string; enabled?: bool
   return ready;
 };
 
-type LibraryAsset = { key: string; item: ContentItem; channel: ContentChannel; status: string; url: string; kind: "image" | "video"; title: string };
+type LibraryAsset = { key: string; item: ContentItem; channel: ContentChannel; status: ContentStatus; url: string; kind: "image" | "video"; title: string };
 type LibraryGroup = { channel: ContentChannel; assets: LibraryAsset[]; pending: number };
 
 function assetKind(value: unknown, url: string, channel: ContentChannel): "image" | "video" {

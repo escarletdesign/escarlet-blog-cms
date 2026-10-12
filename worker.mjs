@@ -266,12 +266,13 @@ async function processExternalPublicationEvent(event) {
         ? socialPack.videoScript || body.videoScript || body.script || body.text || body.title || body.topic || variant.topic || ''
       : socialPack.instagramCaption || socialPack.caption || body.text || body.caption || body.body || body.bodyHtml || body.title || body.topic || '')
     let mediaRows = await pool.query('SELECT ma.public_url AS "url",ma.content_type AS "mimeType",ma.metadata FROM content_variant_media cvm JOIN media_assets ma ON ma.id=cvm.media_asset_id WHERE cvm.variant_id=$1 ORDER BY cvm.sort_order', [variant.id])
-    if (story && !mediaRows.rowCount) {
-      mediaRows = await pool.query(`SELECT ma.public_url AS "url",ma.content_type AS "mimeType",ma.metadata
+    if (story && mediaRows.rows.filter((asset) => asset.url).length < 2) {
+      const feedMedia = await pool.query(`SELECT ma.public_url AS "url",ma.content_type AS "mimeType",ma.metadata
         FROM content_variant_media cvm JOIN media_assets ma ON ma.id=cvm.media_asset_id
         JOIN content_variants feed ON feed.id=cvm.variant_id
         WHERE feed.item_id=(SELECT item_id FROM content_variants WHERE id=$1) AND feed.channel='instagram'
         ORDER BY cvm.sort_order`, [variant.id])
+      if (feedMedia.rows.filter((asset) => asset.url).length > mediaRows.rows.filter((asset) => asset.url).length) mediaRows = feedMedia
     }
     if (story && provider !== 'buffer') {
       const message = 'Instagram Story requiere una conexión Buffer.'

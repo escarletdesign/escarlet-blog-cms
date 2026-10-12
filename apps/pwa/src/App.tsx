@@ -1,8 +1,8 @@
 import {
-  createContext,
   FormEvent,
   ReactNode,
-  useContext,
+  Suspense,
+  lazy,
   useEffect,
   useMemo,
   useRef,
@@ -12,7 +12,6 @@ import {
   BrowserRouter,
   NavLink,
   Navigate,
-  Outlet,
   Route,
   Routes,
   useLocation,
@@ -29,16 +28,21 @@ import type { Author, BrandSummary, ContentItem, MediaItem, Post, Session } from
 import { contentPreviewPath, itemTitle, statusLabel } from "./content-format";
 import { createVideoCapture } from "./portrait-recorder";
 import type { VideoCapture, VideoFormat } from "./portrait-recorder";
-import { ContentBatches as ContentPlans } from "./ContentBatches";
-import { DesignSystem } from "./DesignSystem";
-import { FoodToReel } from "./FoodToReel";
-import { Publisher } from "./Publisher";
-import { AppsDashboard } from "./AppsDashboard";
-import { ProductToSocial } from "./ProductToSocial";
-import { Badge, Button, Card, ChannelBadge, Checkbox, ConnectionCard, Drawer, EmptyState as UiEmptyState, Field, IconButton, Inline, Modal, MultiSelectPills, PageHeader, Select, Stack, StatusBadge, Tabs, TeleprompterLineControls, TextField, Toast as UiToast } from "./ui";
+import { Badge, Button, Card, ChannelBadge, Checkbox, ConnectionCard, Drawer, EmptyState as UiEmptyState, Field, IconButton, Inline, Modal, MultiSelectPills, PageHeader, Select, Stack, StatusBadge, Tabs, TeleprompterLineControls, Textarea, TextField, Toast as UiToast } from "./ui";
+import { AppShell, NavIcon } from "./app/layouts/AppShell";
+import { SidebarConversations } from "./features/chat/SidebarConversations";
+import { I18nContext, SessionContext, ToastContext, useApp, useI18n, useToast } from "./app/context";
+import type { AppState, Toast, ToastKind, WorkflowFlags } from "./app/context";
+
+const ContentPlans = lazy(() => import("./ContentBatches").then(({ ContentBatches }) => ({ default: ContentBatches })));
+const DesignSystem = lazy(() => import("./DesignSystem").then(({ DesignSystem }) => ({ default: DesignSystem })));
+const FoodToReel = lazy(() => import("./FoodToReel").then(({ FoodToReel }) => ({ default: FoodToReel })));
+const Publisher = lazy(() => import("./Publisher").then(({ Publisher }) => ({ default: Publisher })));
+const AppsDashboard = lazy(() => import("./AppsDashboard").then(({ AppsDashboard }) => ({ default: AppsDashboard })));
+const ProductToSocial = lazy(() => import("./ProductToSocial").then(({ ProductToSocial }) => ({ default: ProductToSocial })));
+const EditorialCalendarRoute = lazy(() => import("./features/calendar/EditorialCalendar").then(({ EditorialCalendar }) => ({ default: EditorialCalendar })));
 
 type Draft = Partial<Post> & { title: string; slug?: string };
-type WorkflowFlags = { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean; legacyPreviewEnabled: boolean; legacySocialPackEnabled: boolean; authorInviteEnabled: boolean; creationUiEnabled: boolean; manualCreationEnabled: boolean };
 type SocialPackChannels = {
   substack: boolean;
   linkedin: boolean;
@@ -74,67 +78,6 @@ const dedupeMedia = (items: MediaItem[] = []) => {
     return true;
   });
 };
-const calendarMediaUrl = (value: unknown) => {
-  const media = value && typeof value === "object" ? value as Record<string, unknown> : null;
-  const candidates = media
-    ? [media.thumbUrl, media.thumbPath, media.previewUrl, media.previewPath, media.url, media.publicUrl, media.imageUrl, media.path]
-    : [value];
-  const url = String(candidates.find((candidate) => candidate) || "").trim();
-  return url.startsWith("/") || /^https?:\/\//i.test(url) ? url : "";
-};
-const calendarMediaKind = (value: unknown, url: string, channel?: string) => {
-  const media = value && typeof value === "object" ? value as Record<string, unknown> : {};
-  const type = String(media.mimeType || media.contentType || media.type || media.kind || "").toLowerCase();
-  return type.includes("video") || (channel === "video" && /\.(?:mp4|webm|mov)(?:[?#]|$)/i.test(url)) ? "video" : "image";
-};
-type AppState = {
-  session: Session;
-  site: string;
-  sites: string[];
-  contentMode: "blog" | "socialmedia";
-  workflowFlags: WorkflowFlags;
-  channels: Array<{ channel: string; enabled: boolean; connectionStatus?: string; provider?: string | null; connectionId?: string | null }>;
-  brandCapabilities: Record<string, boolean>;
-  productContext?: {
-    workspace: { id: string; name?: string };
-    activeBrand?: { id: string; handle?: string; name?: string; role?: string } | null;
-    brands: BrandSummary[];
-    channels?: Array<{ channel: string; enabled: boolean }>;
-    connections: Array<Record<string, any>>;
-    brandCapabilities?: Record<string, boolean>;
-    usage?: Record<string, any>;
-  };
-  setSite: (site: string) => void;
-  refresh: () => Promise<void>;
-};
-const SessionContext = createContext<AppState | null>(null);
-type I18nState = {
-  language: Language;
-  setLanguage: (language: Language) => void;
-  t: (key: string, fallback?: string) => string;
-};
-const I18nContext = createContext<I18nState | null>(null);
-type ToastKind = "success" | "error" | "info";
-type Toast = { id: number; message: string; kind: ToastKind };
-type ToastState = {
-  showToast: (message: string, kind?: ToastKind) => void;
-};
-const ToastContext = createContext<ToastState | null>(null);
-const useApp = () => {
-  const value = useContext(SessionContext);
-  if (!value) throw new Error("App context unavailable");
-  return value;
-};
-const useI18n = () => {
-  const value = useContext(I18nContext);
-  if (!value) throw new Error("I18n context unavailable");
-  return value;
-};
-const useToast = () => {
-  const value = useContext(ToastContext);
-  if (!value) throw new Error("Toast context unavailable");
-  return value;
-};
 const isAdmin = (role?: string) => role === "admin" || role === "agency_admin" || role === "owner";
 const isWorkspaceAdmin = (session?: Pick<Session, "role" | "workspaceRole">) => Boolean(session && (isAdmin(session.workspaceRole) || isAdmin(session.role)));
 function AiOnly({ children }: { children: ReactNode }) {
@@ -143,7 +86,7 @@ function AiOnly({ children }: { children: ReactNode }) {
 }
 const ROLE_RANK: Record<string, number> = { owner: 4, admin: 3, editor: 2, author: 1, viewer: 0 };
 const rankedRole = (roles: Array<string | undefined>, fallback = "viewer") =>
-  roles.reduce((best, role) => {
+  roles.reduce<string>((best, role) => {
     const value = String(role || "").toLowerCase();
     return (ROLE_RANK[value] || 0) > (ROLE_RANK[best] || 0) ? value : best;
   }, fallback);
@@ -218,7 +161,7 @@ const socialImageUrl = (value: unknown, resolution: "thumb" | "preview" | "origi
     ? [media.thumbUrl, media.thumbPath, media.previewUrl, media.previewPath, media.url, media.publicUrl, media.imageUrl, media.path]
     : resolution === "preview"
       ? [media.previewUrl, media.previewPath, media.thumbUrl, media.thumbPath, media.url, media.publicUrl, media.imageUrl, media.path]
-      : [media.url, media.publicUrl, media.imageUrl, media.path]
+      : [media.imageOriginalUrl, media.originalUrl, media.url, media.publicUrl, media.imageUrl, media.path]
     : [value];
   const candidate = candidates.find((entry) => entry);
   const url = String(candidate || "").trim();
@@ -564,7 +507,7 @@ function App() {
           >
             <RouteScrollMemory />
             <Routes>
-              <Route path="/design-system" element={<DesignSystem />} />
+              <Route path="/design-system" element={<Suspense fallback={<RouteLoading />}><DesignSystem /></Suspense>} />
               {session.userId && session.profileComplete === false ? (
                 <>
                   <Route path="/onboarding" element={<Onboarding />} />
@@ -572,12 +515,12 @@ function App() {
                 </>
               ) : <Route element={<Shell />}>
                 <Route path="/" element={<Home />} />
-                <Route path="/apps" element={<AppsDashboard site={site} t={t} />} />
-                <Route path="/production/food-to-reel" element={<FoodToReel site={site} t={t} />} />
-                <Route path="/production/reel-from-image" element={<FoodToReel site={site} t={t} recipeId="recipe.reel-from-image" />} />
-                <Route path="/production/menu-to-reel" element={<FoodToReel site={site} t={t} recipeId="recipe.menu-to-reel" />} />
-                <Route path="/production/product-to-social" element={<ProductToSocial site={site} t={t} />} />
-                <Route path="/publication/publisher" element={<Publisher site={site} t={t} />} />
+                <Route path="/apps" element={<Suspense fallback={<RouteLoading />}><AppsDashboard site={site} t={t} /></Suspense>} />
+                <Route path="/production/food-to-reel" element={<Suspense fallback={<RouteLoading />}><FoodToReel site={site} t={t} /></Suspense>} />
+                <Route path="/production/reel-from-image" element={<Suspense fallback={<RouteLoading />}><FoodToReel site={site} t={t} recipeId="recipe.reel-from-image" /></Suspense>} />
+                <Route path="/production/menu-to-reel" element={<Suspense fallback={<RouteLoading />}><FoodToReel site={site} t={t} recipeId="recipe.menu-to-reel" /></Suspense>} />
+                <Route path="/production/product-to-social" element={<Suspense fallback={<RouteLoading />}><ProductToSocial site={site} t={t} /></Suspense>} />
+                <Route path="/publication/publisher" element={<Suspense fallback={<RouteLoading />}><Publisher site={site} t={t} /></Suspense>} />
                 {workflowFlags.assistantEnabled && brandCapabilities.content_publishing !== false && <Route path="/chat" element={<Chat />} />}
                 {workflowFlags.manualCreationEnabled && workflowFlags.blogWizardEnabled && brandCapabilities.content_publishing !== false && <Route path="/quick-create" element={<QuickCreate />} />}
                 {workflowFlags.manualCreationEnabled && brandCapabilities.content_publishing !== false && <>
@@ -587,26 +530,23 @@ function App() {
                   <Route path="/posts" element={<Posts />} />
                 </>}
                 {workflowFlags.legacyPreviewEnabled && brandCapabilities.content_publishing !== false && <Route path="/preview/:slug" element={<Preview />} />}
-                <Route path="/calendar" element={<EditorialCalendar />} />
-                <Route path="/social-pack" element={<Navigate to="/plans" replace />} />
+                <Route path="/calendar" element={<Suspense fallback={<RouteLoading />}><EditorialCalendarRoute /></Suspense>} />
                 {workflowFlags.legacySocialPackEnabled && <Route path="/social-pack/:slug" element={<SocialPackRoute />} />}
-                <Route path="/plans" element={<ContentPlansRoute site={site} creationEnabled={workflowFlags.creationUiEnabled && brandCapabilities.content_publishing !== false} activeChannels={channels} />} />
-                <Route path="/plans/:itemId/preview" element={<ContentPlansRoute site={site} creationEnabled={workflowFlags.creationUiEnabled && brandCapabilities.content_publishing !== false} activeChannels={channels} />} />
-                <Route path="/review" element={<ReviewRedirect />} />
-                <Route path="/batches" element={<Navigate to="/plans" replace />} />
-                <Route path="/brands" element={<AdminTabRedirect tab="brands"><BrandsView /></AdminTabRedirect>} />
+                <Route path="/plans" element={<Suspense fallback={<RouteLoading />}><ContentPlansRoute site={site} creationEnabled={workflowFlags.creationUiEnabled && brandCapabilities.content_publishing !== false} activeChannels={channels} /></Suspense>} />
+                <Route path="/plans/:itemId/preview" element={<Suspense fallback={<RouteLoading />}><ContentPlansRoute site={site} creationEnabled={workflowFlags.creationUiEnabled && brandCapabilities.content_publishing !== false} activeChannels={channels} /></Suspense>} />
+                <Route path="/brands" element={<BrandsView />} />
                 <Route path="/brands/new" element={<NewBrandView />} />
                 <Route path="/brands/:brandId" element={<BrandDetailView />} />
                 <Route path="/brands/:brandId/setup" element={<BrandSetupWizard />} />
                 <Route path="/brands/:brandId/identity" element={<BrandIdentityView />} />
                 <Route path="/brands/:brandId/channels" element={<BrandChannelsView />} />
                 <Route path="/brands/:brandId/connections" element={<BrandConnectionsView />} />
-                <Route path="/connections" element={<AdminTabRedirect tab="connections"><ConnectionsView /></AdminTabRedirect>} />
-                <Route path="/team" element={<AdminTabRedirect tab="team"><TeamView /></AdminTabRedirect>} />
-                <Route path="/team/invite" element={<AdminTabRedirect tab="team" invite><TeamView /></AdminTabRedirect>} />
+                <Route path="/connections" element={<ConnectionsView />} />
+                <Route path="/team" element={<TeamView />} />
+                <Route path="/team/invite" element={<TeamView autoInvite />} />
                 <Route path="/settings" element={<Settings />} />
                 {workflowFlags.authorInviteEnabled && <Route path="/author-invite" element={<AuthorInvite />} />}
-                {workflowFlags.cmsAiEnabled && <Route path="/billing" element={<AdminTabRedirect tab="billing"><Billing /></AdminTabRedirect>} />}
+                {workflowFlags.cmsAiEnabled && <Route path="/billing" element={<Billing />} />}
                 <Route path="/admin" element={<AdminGate />} />
                   <Route path="*" element={<Navigate to="/plans" replace />} />
               </Route>}
@@ -614,7 +554,7 @@ function App() {
           </SessionContext.Provider>
         ) : (
           <Routes>
-            <Route path="/design-system" element={<DesignSystem />} />
+            <Route path="/design-system" element={<Suspense fallback={<RouteLoading />}><DesignSystem /></Suspense>} />
             <Route path="*" element={<Login onLogin={refresh} />} />
           </Routes>
         )}
@@ -856,11 +796,6 @@ function Onboarding() {
   );
 }
 
-function ReviewRedirect() {
-  const location = useLocation();
-  return <Navigate to={`/plans${location.search}`} replace />;
-}
-
 function RouteScrollMemory() {
   const location = useLocation();
   const navigationType = useNavigationType();
@@ -883,23 +818,13 @@ function RouteScrollMemory() {
   return null;
 }
 
-function AdminTabRedirect({ tab, invite = false, children }: { tab: AdminTabId; invite?: boolean; children: ReactNode }) {
-  const { session } = useApp();
-  if (!isWorkspaceAdmin(session)) return <>{children}</>;
-  return <Navigate to={`/admin?tab=${tab}${invite ? "&invite=1" : ""}`} replace />;
-}
-
 function Shell() {
   const { session, site, sites, setSite, workflowFlags, brandCapabilities, productContext } = useApp();
   const { t } = useI18n();
-  const [open, setOpen] = useState(false);
+  const { showToast } = useToast();
   const nav = useNavigate();
   const location = useLocation();
-  useEffect(() => setOpen(false), [location.pathname]);
-  // A brand-scoped URL is the source of truth for the current view. Keeping
-  // the sidebar selector on the persisted workspace brand while viewing
-  // /brands/:id/* made it possible to edit one brand while the chrome claimed
-  // another was active.
+
   const scopedMatch = location.pathname.match(/^\/brands\/([^/]+)(\/.*)?$/);
   const scopedBrandId = scopedMatch?.[1] ? decodeURIComponent(scopedMatch[1]) : "";
   const scopedBrand = scopedBrandId
@@ -910,12 +835,12 @@ function Shell() {
   const brandOptions = productContext?.brands?.length
     ? productContext.brands.map((brand) => ({ value: brand.handle || brand.id, id: brand.id, label: brand.handle || brand.name || brand.id }))
     : sites.map((handle) => ({ value: handle, id: handle, label: handle }));
+
   useEffect(() => {
-    // Persist the route's brand as the workspace selection too. This keeps
-    // global views (plans and calendar) aligned after leaving a
-    // brand-specific screen instead of silently jumping back to another one.
+    // Keep global views aligned with the brand selected in a brand-scoped route.
     if (scopedBrand?.handle && scopedBrand.handle !== site) setSite(scopedBrand.handle);
   }, [scopedBrand?.handle, site]);
+
   const selectBrand = (next: string) => {
     const selected = brandOptions.find((brand) => brand.value === next || brand.id === next);
     if (scopedBrand && selected) {
@@ -924,254 +849,51 @@ function Shell() {
     }
     setSite(selected?.value || next);
   };
+
   const publishingEnabled = brandCapabilities.content_publishing !== false;
-  const adminUser = isWorkspaceAdmin(session);
-  const links = [
+  const primaryLinks = [
     { to: "/", label: t("nav.home", "Inicio"), icon: "home" },
-    { to: "/apps", label: t("nav.apps", "Crear"), icon: "apps" },
     { to: "/plans", label: t("nav.plans", "Contenido"), icon: "plans" },
+    { to: "/apps", label: t("nav.apps", "Crear"), icon: "apps" },
     ...(publishingEnabled ? [{ to: "/calendar", label: t("nav.calendar", "Calendario"), icon: "calendar" }] : []),
     ...(workflowFlags.assistantEnabled && publishingEnabled ? [{ to: "/chat", label: t("nav.assistant"), icon: "assistant" }] : []),
   ];
-  const adminLinks = adminUser ? [
-    { to: "/admin", label: t("nav.workspace", "Espacio"), icon: "admin" },
-    { to: "/brands", label: t("nav.brands", "Marcas"), icon: "brands" },
-    { to: "/team", label: t("nav.team", "Equipo"), icon: "team" },
-    { to: "/connections", label: t("nav.connections", "Conexiones"), icon: "connections" },
-    ...(workflowFlags.cmsAiEnabled ? [{ to: "/billing", label: t("nav.planUsage", "Plan y uso"), icon: "billing" }] : []),
+  const adminUser = isWorkspaceAdmin(session);
+  const managementLinks = adminUser ? [
+    { to: "/admin", label: t("nav.admin", "Administración"), icon: "admin" },
   ] : [
     { to: "/brands", label: t("nav.brands", "Marca"), icon: "brands" },
     { to: "/connections", label: t("nav.connections", "Conexiones"), icon: "connections" },
     { to: "/team", label: t("nav.team", "Equipo"), icon: "team" },
     ...(workflowFlags.cmsAiEnabled ? [{ to: "/billing", label: t("nav.planUsage", "Plan y uso"), icon: "billing" }] : []),
   ];
-  const mobileLinks = links.slice(0, 3);
-  return (
-    <div className="app-shell">
-      <aside id="primary-navigation" className={`sidebar ${open ? "open" : ""}`}>
-        <div className="sidebar-head">
-          <NavLink to="/" className="brand">
-            <AppBrand />
-          </NavLink>
-          <button
-            className="ui-icon-button close"
-            onClick={() => setOpen(false)}
-            aria-label={t("nav.close")}
-          >
-            ×
-          </button>
-        </div>
-        <div className={`site-switcher ${brandOptions.length < 2 ? "single" : ""} ${scopedBrand ? "route-scoped" : ""}`}>
-          <span className="site-switcher-label">{scopedBrand ? "Marca de esta vista" : t("brand.label", "Marca activa")}</span>
-          {brandOptions.length > 1 ? (
-            <ChoicePills
-              value={scopedBrand?.id || site}
-              ariaLabel={t("site.selector")}
-              onChange={selectBrand}
-              options={brandOptions.map((brand) => ({ value: scopedBrand ? brand.id : brand.value, label: brand.label }))}
-            />
-          ) : (
-            <strong>● {scopedBrand?.name || scopedBrand?.handle || displaySite}</strong>
-          )}
-        </div>
-        <CreditIndicator site={displaySite} />
-        {workflowFlags.assistantEnabled && publishingEnabled && (
-          <button className="new-chat" onClick={() => nav("/chat")}>
-            {t("nav.newChat")}
-          </button>
-        )}
-        <nav className="primary-nav" aria-label={t("nav.primary", "Navegación principal")}>
-          {links.map((link) => (
-            <div className="nav-group" key={link.to}>
-              <NavLink
-                to={link.to}
-                end={link.to === "/"}
-                className="nav-link"
-              >
-                <NavIcon kind={link.icon} />
-                {link.label}
-              </NavLink>
-              {link.icon === "assistant" && <SidebarConversations site={site} />}
-            </div>
-          ))}
-        </nav>
-        <div className="sidebar-nav-section">
-          <span className="sidebar-nav-label">{t("nav.manage", "Administrar")}</span>
-          <nav aria-label={t("nav.manage", "Administrar")}>
-            {adminLinks.map((link) => (
-              <NavLink key={link.to} to={link.to} className="nav-link">
-                <NavIcon kind={link.icon} />
-                {link.label}
-              </NavLink>
-            ))}
-          </nav>
-        </div>
-        <div className="sidebar-bottom">
-          <NavLink to="/settings" className="profile">
-            <UserAvatar src={session.avatarUrl} name={session.displayName || session.email || session.userId} size="sm" />
-            <span>
-              <b>{session.displayName || session.email || t("settings.workspace")}</b>
-              <small>
-                {t("settings.role")}: {sessionRoleLabel(session, t)}
-              </small>
-            </span>
-            <span>···</span>
-          </NavLink>
-        </div>
-      </aside>
-      <button
-        className={`backdrop ${open ? "show" : ""}`}
-        onClick={() => setOpen(false)}
-        aria-label={t("nav.close")}
+  const brandSelector = brandOptions.length > 1
+    ? <ChoicePills
+        value={scopedBrand?.id || site}
+        ariaLabel={t("site.selector")}
+        onChange={selectBrand}
+        options={brandOptions.map((brand) => ({ value: scopedBrand ? brand.id : brand.value, label: brand.label }))}
       />
-      <section className="workspace">
-        <header className="mobile-head">
-          <NavLink to="/" className="brand" aria-label="Escarlet CMS">
-            <img className="brand-icon" src="/app/icon.png" alt="" />
-          </NavLink>
-          <div className="mobile-context"><span className="mobile-brand-label">{displaySite}</span>{brandOptions.length > 1 && <ChoicePills value={scopedBrand?.id || site} ariaLabel={t("site.selector")} onChange={selectBrand} options={brandOptions.map((brand) => ({ value: scopedBrand ? brand.id : brand.value, label: brand.label }))} />}</div>
-          <span className="mobile-version">{t("app.beta")}</span>
-        </header>
-        <Outlet />
-        <nav className="mobile-bottom-nav" aria-label={t("nav.mobile") || t("nav.open")}>
-          {mobileLinks.map((link) => (
-            <NavLink
-              key={link.to}
-              to={link.to}
-              end={link.to === "/"}
-              className={({ isActive }) => `mobile-bottom-link ${isActive ? "active" : ""}`}
-            >
-              <NavIcon kind={link.icon} />
-              <span>{link.label}</span>
-            </NavLink>
-          ))}
-          <button
-            type="button"
-            className={`mobile-menu-toggle ${open ? "open" : ""}`}
-            onClick={() => setOpen((value) => !value)}
-            aria-label={open ? t("nav.close") : t("nav.open")}
-            aria-expanded={open}
-            aria-controls="primary-navigation"
-          >
-            <span className="hamburger-lines" aria-hidden="true"><i /><i /><i /></span>
-            <span>{t("nav.menu") || t("nav.open")}</span>
-          </button>
-        </nav>
-      </section>
-    </div>
-  );
-}
+    : undefined;
 
-function SidebarConversations({ site }: { site: string }) {
-  const { t } = useI18n();
-  const { showToast } = useToast();
-  const nav = useNavigate();
-  const location = useLocation();
-  const [conversations, setConversations] = useState<AiConversation[]>([]);
-  const [deleting, setDeleting] = useState("");
-  useEffect(() => {
-    let active = true;
-    const load = () => api.aiConversations(site)
-      .then((result) => active && setConversations(result.conversations || []))
-      .catch(() => active && setConversations([]));
-    void load();
-    const onSaved = (event: Event) => {
-      const detail = (event as CustomEvent<{ site?: string }>).detail;
-      if (!detail?.site || detail.site === site) void load();
-    };
-    window.addEventListener("escarlet:conversation-saved", onSaved);
-    const onDeleted = (event: Event) => {
-      const detail = (event as CustomEvent<{ site?: string }>).detail;
-      if (!detail?.site || detail.site === site) void load();
-    };
-    const onArchived = (event: Event) => {
-      const detail = (event as CustomEvent<{ site?: string }>).detail;
-      if (!detail?.site || detail.site === site) void load();
-    };
-    window.addEventListener("escarlet:conversation-deleted", onDeleted);
-    window.addEventListener("escarlet:conversation-archived", onArchived);
-    return () => {
-      active = false;
-      window.removeEventListener("escarlet:conversation-saved", onSaved);
-      window.removeEventListener("escarlet:conversation-deleted", onDeleted);
-      window.removeEventListener("escarlet:conversation-archived", onArchived);
-    };
-  }, [site]);
-  if (!conversations.length) return null;
-  const removeConversation = async (event: React.MouseEvent, id: string) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (deleting) return;
-    if (!window.confirm(t("chat.deleteConfirm"))) return;
-    setDeleting(id);
-    try {
-      await api.deleteAiConversation(id, site);
-      setConversations((current) => current.filter((conversation) => conversation.id !== id));
-      try {
-        const storageKey = `escarlet_chat_threads:${site}`;
-        const local = JSON.parse(window.localStorage.getItem(storageKey) || "[]");
-        if (Array.isArray(local)) {
-          window.localStorage.setItem(storageKey, JSON.stringify(local.filter((thread) => thread?.id !== id)));
-        }
-        if (new URLSearchParams(location.search).get("conversation") === id) {
-          window.localStorage.removeItem(`escarlet_chat_active:${site}`);
-        }
-      } catch {
-        // Online deletion is authoritative; local fallback cleanup is best effort.
-      }
-      window.dispatchEvent(new CustomEvent("escarlet:conversation-deleted", { detail: { site, id } }));
-      if (new URLSearchParams(location.search).get("conversation") === id) nav("/chat");
-      showToast(t("chat.deleted"));
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : t("common.error"), "error");
-    } finally {
-      setDeleting("");
-    }
-  };
   return (
-    <div className="sidebar-conversations">
-      <span className="sidebar-conversations-label">{t("chat.history")}</span>
-      {conversations.slice(0, 6).map((conversation) => (
-        <div className="sidebar-conversation-row" key={conversation.id}>
-          <NavLink
-            to={`/chat?conversation=${encodeURIComponent(conversation.id)}`}
-            className="sidebar-conversation"
-            title={conversation.title}
-          >
-            <span>·</span>
-            <span>{conversation.title || t("chat.newConversation")}</span>
-          </NavLink>
-          <button
-            type="button"
-            className="sidebar-conversation-delete"
-            aria-label={`${t("chat.delete")} ${conversation.title || t("chat.newConversation")}`}
-            title={t("chat.delete")}
-            disabled={deleting === conversation.id}
-            onClick={(event) => void removeConversation(event, conversation.id)}
-          >
-            ×
-          </button>
-        </div>
-      ))}
-    </div>
+    <AppShell
+      primaryLinks={primaryLinks}
+      managementLinks={managementLinks}
+      activeBrand={scopedBrand?.id || site}
+      displayBrand={displaySite}
+      brandScoped={Boolean(scopedBrand)}
+      brandSelector={brandSelector}
+      brandLogo={<AppBrand />}
+      mobileBrandLogo={<img className="brand-icon" src="/app/icon.png" alt="" />}
+      creditIndicator={<CreditIndicator site={displaySite} />}
+      renderAssistantContent={(onNavigate) => <SidebarConversations site={site} t={t} showToast={showToast} onNavigate={onNavigate} />}
+      userAvatar={<UserAvatar src={session.avatarUrl} name={session.displayName || session.email || session.userId} size="sm" />}
+      userName={session.displayName || session.email || t("settings.workspace")}
+      userRoleLabel={sessionRoleLabel(session, t)}
+      t={t}
+    />
   );
-}
-
-function NavIcon({ kind }: { kind: string }) {
-  const common = { className: "nav-icon", viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.55, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
-  if (kind === "assistant") return <svg {...common}><path d="m10 2 1.5 5.2L17 9l-5.5 1.8L10 16l-1.5-5.2L3 9l5.5-1.8Z" /><path d="m16 13 .6 2.1L19 16l-2.4.9L16 19l-.6-2.1L13 16l2.4-.9Z" /></svg>;
-  if (kind === "home") return <svg {...common}><path d="m3.5 9 6.5-5 6.5 5v6.2a1.3 1.3 0 0 1-1.3 1.3H4.8a1.3 1.3 0 0 1-1.3-1.3Z" /><path d="M8 16.5v-4h4v4" /></svg>;
-  if (kind === "apps") return <svg {...common}><rect x="3" y="3" width="5" height="5" rx="1" /><rect x="12" y="3" width="5" height="5" rx="1" /><rect x="3" y="12" width="5" height="5" rx="1" /><rect x="12" y="12" width="5" height="5" rx="1" /></svg>;
-  if (kind === "review") return <svg {...common}><rect x="3" y="2.8" width="14" height="14.4" rx="2" /><path d="m6 7.5 1.2 1.2L9.6 6M11 7.5h3M6 12l1.2 1.2L9.6 10.5M11 12h3" /></svg>;
-  if (kind === "plans") return <svg {...common}><rect x="4" y="4" width="11" height="12" rx="1.5" /><path d="M7 2.5h8.5A1.5 1.5 0 0 1 17 4v10.5M7 8h5M7 11h5" /></svg>;
-  if (kind === "video") return <svg {...common}><rect x="3" y="5" width="14" height="10" rx="2" /><path d="m8 8 4 2-4 2Z" /></svg>;
-  if (kind === "send") return <svg {...common}><path d="m3 3 14 7-14 7 3.5-7Z" /><path d="M6.5 10H17" /></svg>;
-  if (kind === "calendar") return <svg {...common}><rect x="3" y="4.5" width="14" height="12" rx="2" /><path d="M6.5 2.5v4M13.5 2.5v4M3 8h14M7 11h.01M10 11h.01M13 11h.01M7 14h.01M10 14h.01" /></svg>;
-  if (kind === "brands") return <svg {...common}><path d="M3 16.5V5.2a1.7 1.7 0 0 1 1.7-1.7h10.6A1.7 1.7 0 0 1 17 5.2v11.3M2 16.5h16M6 8h2M12 8h2M6 11h2M12 11h2M8 16.5v-2.7h4v2.7" /></svg>;
-  if (kind === "connections") return <svg {...common}><path d="M7.4 12.6 5.7 14.3a2.8 2.8 0 0 1-4-4l2.6-2.6a2.8 2.8 0 0 1 4 0M12.6 7.4l1.7-1.7a2.8 2.8 0 0 1 4 4l-2.6 2.6a2.8 2.8 0 0 1-4 0M6.5 13.5l7-7" /></svg>;
-  if (kind === "team") return <svg {...common}><circle cx="8" cy="7" r="2.5" /><path d="M3.5 16a4.5 4.5 0 0 1 9 0M14 6.2a2.1 2.1 0 0 1 0 4.1M14.2 12.3a3.8 3.8 0 0 1 2.3 3.5" /></svg>;
-  if (kind === "billing") return <svg {...common}><path d="M4 15.8V5.2M4 15.8a2.2 2.2 0 0 0 2.2 2.2h9.3M4 5.2A2.2 2.2 0 0 1 6.2 3h9.3a.5.5 0 0 1 .5.5V16M7.3 7.2h5.5M7.3 10.3h4" /></svg>;
-  return <svg {...common}><path d="M8.1 3.4 8.6 2h2.8l.5 1.4 1.2.7 1.4-.4 2 2-.5 1.4.7 1.2 1.4.5v2.8l-1.4.5-.7 1.2.5 1.4-2 2-1.4-.4-1.2.7-.5 1.4H8.6l-.5-1.4-1.2-.7-1.4.4-2-2 .5-1.4-.7-1.2-1.4-.5V8.3l1.4-.5.7-1.2-.5-1.4 2-2 1.4.4 1.2-.7Z" /><circle cx="10" cy="9.7" r="2.5" /></svg>;
 }
 
 function AdminActionIcon({ kind }: { kind: "edit" | "key" | "mail" | "trash" | "plus" }) {
@@ -1290,13 +1012,19 @@ function RecentContentWork() {
   const nav = useNavigate();
   const [items, setItems] = useState<ContentItem[]>([]);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [refresh, setRefresh] = useState(0);
   useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError("");
     api.contentBatches(site)
-      .then((result) => setItems((result.items || []).filter((item) => ["draft", "generated", "needs_review", "approved", "scheduled", "failed"].includes(item.status)).slice(0, 4)))
-      .catch((cause) => setError(cause instanceof Error ? cause.message : "No se pudo cargar el contenido en curso."));
-  }, [site]);
-  if (error || !items.length) return null;
-  return <section className="home-content-work"><div className="section-title"><h2>{t("home.inProgress")}</h2><Button size="sm" variant="ghost" onClick={() => nav("/plans")}>{t("home.openContent")}</Button></div><div className="post-list compact">{items.map((item) => {
+      .then((result) => active && setItems((result.items || []).filter((item) => ["draft", "generated", "needs_review", "approved", "scheduled", "failed"].includes(item.status)).slice(0, 4)))
+      .catch((cause) => active && setError(cause instanceof Error ? cause.message : t("common.error")))
+      .finally(() => active && setLoading(false));
+    return () => { active = false; };
+  }, [site, refresh]);
+  return <section className="home-content-work"><div className="section-title"><h2>{t("home.inProgress")}</h2><Button size="sm" variant="ghost" onClick={() => nav("/plans")}>{t("home.openContent")}</Button></div>{loading ? <p className="ui-muted" role="status">{t("common.loading")}</p> : error ? <Inline gap="md"><p className="ui-field-error" role="alert">{error}</p><Button size="sm" variant="secondary" onClick={() => setRefresh((value) => value + 1)}>{t("common.retry")}</Button></Inline> : !items.length ? <p className="ui-muted">{t("home.noInProgress")}</p> : <div className="post-list compact">{items.map((item) => {
     const imageSrc = (item.variants || []).flatMap((variant) => [variant.body?.imageThumbUrl, variant.body?.imagePreviewUrl, variant.body?.imageUrl, variant.body?.coverUrl, ...(variant.media || [])]).map((value) => socialImageUrl(value, "thumb")).find(Boolean);
     const batchId = String(item.batch_id || item.batchId || "");
     const previewFilters = new URLSearchParams();
@@ -1307,15 +1035,20 @@ function RecentContentWork() {
       <span className="post-row-copy"><StatusBadge status={item.status} /><h3>{itemTitle(item)}</h3><p>{(item.variants || []).map((variant) => variant.channel).join(" · ") || t("home.noChannel")}</p></span>
       <span className="chevron">›</span>
     </button>;
-  })}</div></section>;
+  })}</div>}</section>;
 }
 
 function RecentPosts() {
   const { site } = useApp();
-  const { t, language } = useI18n();
+  const { t } = useI18n();
   const [posts, setPosts] = useState<Post[]>([]);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [refresh, setRefresh] = useState(0);
   useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError("");
     api
       .posts(site)
       .then((r) => {
@@ -1324,11 +1057,14 @@ function RecentPosts() {
             new Date(b.dateModified || b.publishAt || b.datePublished || 0).getTime() -
             new Date(a.dateModified || a.publishAt || a.datePublished || 0).getTime(),
         );
-        setPosts(newest);
+        if (active) setPosts(newest);
       })
-      .catch((e) => setError(e.message));
-  }, [site]);
-  if (error) return <p className="ui-empty-compact">{t("common.noPosts")}</p>;
+      .catch((e) => active && setError(e instanceof Error ? e.message : t("common.error")))
+      .finally(() => active && setLoading(false));
+    return () => { active = false; };
+  }, [site, refresh]);
+  if (loading) return <p className="ui-muted" role="status">{t("common.loading")}</p>;
+  if (error) return <Inline gap="md"><p className="ui-field-error" role="alert">{error}</p><Button size="sm" variant="secondary" onClick={() => setRefresh((value) => value + 1)}>{t("common.retry")}</Button></Inline>;
   if (!posts.length)
     return (
       <p className="ui-empty-compact">
@@ -3777,6 +3513,7 @@ function SocialPack() {
   const [message, setMessage] = useState("");
   const [showTeleprompter, setShowTeleprompter] = useState(false);
   const [activeSlide, setActiveSlide] = useState(0);
+  const [activeStorySlide, setActiveStorySlide] = useState(0);
   const [savedVideoMedia, setSavedVideoMedia] = useState<Array<{ url: string; format: VideoFormat }>>([]);
   const recordRequested = search.get("record") === "1";
   useEffect(() => {
@@ -3801,14 +3538,29 @@ function SocialPack() {
           if (Array.isArray(pack.instagramSlides)) {
             pack.instagramSlides = pack.instagramSlides.map((slide: any, index: number) => ({
               ...slide,
-              imageUrl: slide?.imageUrl || slide?.url || slide?.image || instagram?.media?.[index]?.url || instagram?.media?.[index]?.path || ""
+              imageUrl: slide?.imageUrl || slide?.url || slide?.image || instagram?.media?.[index]?.url || instagram?.media?.[index]?.path || "",
+              previewUrl: slide?.previewUrl || slide?.imagePreviewUrl || instagram?.media?.[index]?.previewUrl || instagram?.media?.[index]?.previewPath || "",
+              thumbUrl: slide?.thumbUrl || slide?.imageThumbUrl || instagram?.media?.[index]?.thumbUrl || instagram?.media?.[index]?.thumbPath || "",
             }));
           }
           const storyPack = instagramStoryBody.socialPack?.instagramStory;
           if ((storyPack && typeof storyPack === "object") || instagramStory?.media?.length) {
+            const storyFrames = Array.isArray(storyPack?.frames) ? storyPack.frames : [];
+            const storyMedia = Array.isArray(instagramStory?.media) ? instagramStory.media : [];
+            const fallbackSlides = Array.isArray(pack.instagramSlides) ? pack.instagramSlides : [];
+            const frameCount = storyFrames.length || (storyMedia.length > 1 ? storyMedia.length : fallbackSlides.length || storyMedia.length || (storyPack?.imageUrl || storyPack?.url ? 1 : 0));
             pack.instagramStory = {
               ...(storyPack && typeof storyPack === "object" ? storyPack : {}),
               imageUrl: storyPack?.imageUrl || storyPack?.url || instagramStory?.media?.[0]?.url || instagramStory?.media?.[0]?.path || "",
+              frames: Array.from({ length: frameCount }, (_, index) => ({
+                ...(fallbackSlides[index] || {}),
+                ...(storyMedia[index] || {}),
+                ...(index === 0 ? storyPack || {} : {}),
+                ...(storyFrames[index] || {}),
+                imageUrl: storyFrames[index]?.imageUrl || storyFrames[index]?.url || storyFrames[index]?.image || storyMedia[index]?.url || storyMedia[index]?.path || fallbackSlides[index]?.imageUrl || fallbackSlides[index]?.url || fallbackSlides[index]?.image || "",
+                previewUrl: storyFrames[index]?.previewUrl || storyFrames[index]?.imagePreviewUrl || storyMedia[index]?.previewUrl || storyMedia[index]?.previewPath || fallbackSlides[index]?.previewUrl || "",
+                thumbUrl: storyFrames[index]?.thumbUrl || storyFrames[index]?.imageThumbUrl || storyMedia[index]?.thumbUrl || storyMedia[index]?.thumbPath || fallbackSlides[index]?.thumbUrl || "",
+              })),
             };
           }
           const video = item.variants?.find((variant) => variant.channel === "video");
@@ -4029,7 +3781,18 @@ function SocialPack() {
   const activeCarouselSlide = carouselSlides[safeSlideIndex];
   const activeCarouselImage = socialImageUrl(activeCarouselSlide?.previewUrl || activeCarouselSlide?.imagePreviewUrl || activeCarouselSlide?.imageUrl || activeCarouselSlide?.url || activeCarouselSlide?.image, "preview");
   const story = socialPack.instagramStory && typeof socialPack.instagramStory === "object" ? socialPack.instagramStory : {};
-  const storyImage = socialImageUrl(story.previewUrl || story.imagePreviewUrl || story.imageUrl || story.image || story.url || story.media || carouselSlides[0]?.imageUrl, "preview");
+  const storySlides = (Array.isArray(story.frames) ? story.frames : []).map((frame: any, index: number) => ({
+    ...carouselSlides[index],
+    ...frame,
+    imageUrl: frame?.imageUrl || frame?.url || frame?.image || frame?.media || carouselSlides[index]?.imageUrl || carouselSlides[index]?.url || carouselSlides[index]?.image || "",
+    previewUrl: frame?.previewUrl || frame?.imagePreviewUrl || carouselSlides[index]?.previewUrl || "",
+    imageOriginalUrl: originalImageUrl(frame?.url || frame?.imageUrl || frame?.image || frame?.media || carouselSlides[index]?.imageOriginalUrl || carouselSlides[index]?.url || carouselSlides[index]?.image),
+  }));
+  const normalizedStorySlides = storySlides.length ? storySlides : (story.imageUrl || story.url || carouselSlides.length ? [{ ...story, ...carouselSlides[0] }] : []);
+  const safeStorySlideIndex = normalizedStorySlides.length ? Math.min(activeStorySlide, normalizedStorySlides.length - 1) : 0;
+  const currentStorySlide = normalizedStorySlides[safeStorySlideIndex];
+  const activeStoryImage = socialImageUrl(currentStorySlide?.previewUrl || currentStorySlide?.imagePreviewUrl || currentStorySlide?.imageUrl || currentStorySlide?.url || currentStorySlide?.image, "preview");
+  const activeStoryOriginalImage = currentStorySlide?.imageOriginalUrl || originalImageUrl(currentStorySlide?.url || currentStorySlide?.imageUrl || currentStorySlide?.image || currentStorySlide?.media) || activeStoryImage;
   return (
     <main className="ui-page social-pack-page">
       <PageTitle
@@ -4195,6 +3958,10 @@ function SocialPack() {
                               activeCarouselSlide?.headline ||
                               `${t("social.slide")} ${safeSlideIndex + 1}`
                             }
+                            onError={(event) => {
+                              const fallback = activeCarouselSlide?.imageOriginalUrl || originalImageUrl(activeCarouselSlide?.url || activeCarouselSlide?.imageUrl || activeCarouselSlide?.image || activeCarouselSlide?.media);
+                              if (fallback && event.currentTarget.src !== fallback) event.currentTarget.src = fallback;
+                            }}
                           />
                         ) : (
                           <div className="carousel-placeholder">{safeSlideIndex + 1}</div>
@@ -4247,8 +4014,25 @@ function SocialPack() {
                 )}
           </article>
           <article className="ui-card social-story-card">
-            <div className="social-channel-head"><div><p className="ui-eyebrow">{t("social.instagramStory")}</p><h2>Story publicada</h2></div><ChannelBadge channel="instagram_story" /></div>
-            {storyImage ? <img src={storyImage} alt={story.imageAlt || post.title} loading="lazy" decoding="async" /> : <div className="carousel-placeholder">Story</div>}
+            <div className="social-channel-head"><div><p className="ui-eyebrow">{t("social.instagramStory")}</p><h2>Stories publicadas</h2></div><ChannelBadge channel="instagram_story" /></div>
+            {normalizedStorySlides.length > 0 ? (
+              <div className="instagram-carousel instagram-story-carousel" role="region" aria-label={t("social.instagramStory")}>
+                <div className="instagram-carousel-stage">
+                  <button className="carousel-nav carousel-prev" type="button" onClick={() => setActiveStorySlide((safeStorySlideIndex - 1 + normalizedStorySlides.length) % normalizedStorySlides.length)} aria-label="Story anterior" title="Story anterior">‹</button>
+                  <figure>
+                    {activeStoryImage ? <img src={activeStoryImage} alt={currentStorySlide?.alt || currentStorySlide?.headline || `${t("social.instagramStory")} ${safeStorySlideIndex + 1}`} loading="lazy" decoding="async" onError={(event) => { if (activeStoryOriginalImage && event.currentTarget.src !== activeStoryOriginalImage) event.currentTarget.src = activeStoryOriginalImage; }} /> : <div className="carousel-placeholder">{safeStorySlideIndex + 1}</div>}
+                    <figcaption>
+                      <span>{currentStorySlide?.headline || currentStorySlide?.text || `${t("social.instagramStory")} ${safeStorySlideIndex + 1}`}</span>
+                      {activeStoryImage && <button className="chip" type="button" onClick={() => void downloadSlide(currentStorySlide, safeStorySlideIndex)}>{t("social.downloadSlide")}</button>}
+                    </figcaption>
+                  </figure>
+                  <button className="carousel-nav carousel-next" type="button" onClick={() => setActiveStorySlide((safeStorySlideIndex + 1) % normalizedStorySlides.length)} aria-label="Story siguiente" title="Story siguiente">›</button>
+                </div>
+                <div className="carousel-dots" role="tablist" aria-label={t("social.instagramStory")}>
+                  {normalizedStorySlides.map((slide: any, index: number) => <button key={slide?.id || `${slide?.imageUrl || "story"}-${index}`} className={`carousel-dot${index === safeStorySlideIndex ? " active" : ""}`} type="button" role="tab" aria-selected={index === safeStorySlideIndex} aria-label={`${t("social.instagramStory")} ${index + 1}`} onClick={() => setActiveStorySlide(index)}>{index + 1}</button>)}
+                </div>
+              </div>
+            ) : <div className="carousel-placeholder">Story</div>}
             {story.text && <p>{story.text}</p>}
             <p className="ui-field-hint">La imagen y el enlace quedan visibles aquí aunque Buffer requiera confirmar el sticker manualmente.</p>
           </article>
@@ -4937,220 +4721,6 @@ function Calendar({ embedded = false, postsOverride }: { embedded?: boolean; pos
 /** Canonical v2 calendar. The legacy Calendar component above remains an
  * adapter for old post routes and embedded views; the visible route uses
  * schedules/variants directly so plans and execution are clearly separate. */
-function EditorialCalendar() {
-  const { site } = useApp();
-  const { language, t } = useI18n();
-  const [entries, setEntries] = useState<Array<Record<string, any>>>([]);
-  const [contentItems, setContentItems] = useState<ContentItem[]>([]);
-  const [view, setView] = useState<"list" | "month">("list");
-  const [cursor, setCursor] = useState(() => new Date());
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [retrySelection, setRetrySelection] = useState<string[]>([]);
-  const [retryDate, setRetryDate] = useState("");
-  const [retryOpen, setRetryOpen] = useState(false);
-  const [retryBusy, setRetryBusy] = useState(false);
-  const [openId, setOpenId] = useState("");
-  const [openDay, setOpenDay] = useState("");
-  const [planId, setPlanId] = useState("all");
-  const [query, setQuery] = useState("");
-  const [channelFilters, setChannelFilters] = useState<string[]>([]);
-  const [statusFilters, setStatusFilters] = useState<string[]>([]);
-  const [retryingChannel, setRetryingChannel] = useState("");
-  const load = (quiet = false) => {
-    if (!quiet) setLoading(true);
-    setError("");
-    return Promise.all([
-      api.calendarV2(site),
-      api.contentBatches(site).catch(() => ({ items: [] as ContentItem[] })),
-    ])
-      .then(([result, content]) => { setEntries(result.entries || []); setContentItems(content.items || []); if (!quiet) setRetrySelection([]); })
-      .catch((err) => setError(err instanceof Error ? err.message : "No se pudo cargar el calendario."))
-      .finally(() => { if (!quiet) setLoading(false); });
-  };
-  useEffect(() => { void load(); }, [site]);
-  const contentById = useMemo(() => new Map(contentItems.map((item) => [item.id, item])), [contentItems]);
-  const validEntries = useMemo(() => entries.filter((entry) => entry.publicationDate), [entries]);
-  const groupedEntries = useMemo(() => {
-    const grouped = new Map<string, Record<string, any>>();
-    for (const entry of validEntries) {
-      const key = String(entry.itemId || entry.variantId);
-      const channel = { channel: entry.channel || "blog", provider: entry.provider, status: entry.status || entry.variantStatus, lastError: entry.lastError || "", publicationDate: entry.publicationDate, timezone: entry.timezone || "UTC", updatedAt: entry.updatedAt || "" };
-      const current = grouped.get(key) || { ...entry, itemKey: key, item: contentById.get(String(entry.itemId)) || null, channels: [] };
-      current.channels = [...current.channels, channel];
-      grouped.set(key, current);
-    }
-    return [...grouped.values()].map((entry) => {
-      const channels = [...entry.channels].sort((a, b) => String(a.publicationDate).localeCompare(String(b.publicationDate)));
-      const updatedAt = channels.map((channel) => channel.updatedAt).filter(Boolean).sort().at(-1) || entry.updatedAt;
-      return { ...entry, channels, publicationDate: channels[0]?.publicationDate, updatedAt };
-    }).sort((a, b) => String(a.publicationDate).localeCompare(String(b.publicationDate)));
-  }, [contentById, validEntries]);
-  const entryKey = (entry: Record<string, any>) => String(entry.itemKey || entry.itemId || entry.variantId);
-  const plans = useMemo(() => {
-    const names = new Map<string, string>();
-    for (const entry of groupedEntries) {
-      const id = String(entry.batchId || "");
-      if (id) names.set(id, String(entry.planTitle || "Campaña"));
-    }
-    return [...names.entries()].sort((a, b) => a[1].localeCompare(b[1], "es"));
-  }, [groupedEntries]);
-  const listedEntries = planId === "all" ? groupedEntries : groupedEntries.filter((entry) => String(entry.batchId) === planId);
-  const calendarChannels = useMemo(() => [...new Set(groupedEntries.flatMap((entry) => entry.channels.map((channel: any) => String(channel.channel))))].sort(), [groupedEntries]);
-  const calendarStatuses = ["scheduled", "syncing", "published", "failed", "action_required"];
-  const filteredEntries = useMemo(() => {
-    const normalizedQuery = query.trim().toLocaleLowerCase();
-    return listedEntries.filter((entry) => {
-      const title = String(entry.item ? itemTitle(entry.item) : entry.topic || "").toLocaleLowerCase();
-      const campaign = String(entry.planTitle || "").toLocaleLowerCase();
-      const queryMatches = !normalizedQuery || title.includes(normalizedQuery) || campaign.includes(normalizedQuery);
-      const channelMatches = !channelFilters.length || entry.channels.some((channel: any) => channelFilters.includes(String(channel.channel)));
-      const statusMatches = !statusFilters.length || entry.channels.some((channel: any) => statusFilters.includes(String(channel.status)));
-      return queryMatches && channelMatches && statusMatches;
-    });
-  }, [channelFilters, listedEntries, query, statusFilters]);
-  const hasCalendarFilters = Boolean(query.trim() || channelFilters.length || statusFilters.length || planId !== "all");
-  const clearCalendarFilters = () => { setQuery(""); setChannelFilters([]); setStatusFilters([]); setPlanId("all"); };
-  const entryItem = (entry: Record<string, any>) => entry.item as ContentItem | null;
-  const entryTitle = (entry: Record<string, any>) => {
-    const item = entryItem(entry);
-    return item ? itemTitle(item) : topicLabel(entry.topic);
-  };
-  const entryVisual = (entry: Record<string, any>) => {
-    const item = entryItem(entry);
-    if (!item) return { url: "", kind: "image" as const };
-    const variants = (item.variants || []).filter((variant) => entry.channels.some((channel: any) => channel.channel === variant.channel)).sort((left, right) => Number(right.channel === "video") - Number(left.channel === "video"));
-    const values = variants.flatMap((variant) => {
-      const body = variant.body || {};
-      return [body.imageThumbUrl, body.imagePreviewUrl, body.imageUrl, body.image_url, body.coverUrl, ...(variant.media || [])].filter(Boolean).map((value) => ({ value, channel: variant.channel }));
-    });
-    const selected = values.map(({ value, channel }) => ({ url: calendarMediaUrl(value), kind: calendarMediaKind(value, calendarMediaUrl(value), channel) })).find((candidate) => candidate.url);
-    return selected || { url: "", kind: "image" as const };
-  };
-  const entryOutputLabels = (entry: Record<string, any>) => entry.channels.map((channel: any) => {
-    if (channel.channel === "video") return "Reel / vídeo";
-    if (channel.channel === "blog") return "Artículo";
-    if (channel.channel === "instagram_story") return "Story";
-    const variant = entryItem(entry)?.variants?.find((candidate) => candidate.channel === channel.channel);
-    const socialPack = variant?.body?.socialPack;
-    return channel.channel === "instagram" && Array.isArray(socialPack?.instagramSlides) ? "Carrusel" : "Post";
-  }).filter((label, index, labels) => labels.indexOf(label) === index);
-  const retryOne = async (entry: Record<string, any>, channel: Record<string, any>) => {
-    const key = `${entry.itemId}:${channel.channel}`;
-    setRetryingChannel(key);
-    setError("");
-    try {
-      const scheduled = new Date(channel.publicationDate);
-      const publicationDate = scheduled.getTime() > Date.now() + 60_000 ? scheduled : new Date(Date.now() + 2 * 60_000);
-      await api.rescheduleContent(entry.itemId, publicationDate.toISOString(), channel.timezone || "UTC", site, [channel.channel]);
-      await load(true);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "No se pudo reintentar el canal.");
-    } finally {
-      setRetryingChannel("");
-    }
-  };
-  const moveToday = async (entry: Record<string, any>, channel: Record<string, any>) => {
-    const key = `move:${entry.itemId}:${channel.channel}`;
-    setRetryingChannel(key);
-    setError("");
-    try {
-      await api.rescheduleContent(entry.itemId, new Date(Date.now() + 2 * 60_000).toISOString(), channel.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", site, [channel.channel]);
-      await load(true);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "No se pudo adelantar el canal.");
-    } finally {
-      setRetryingChannel("");
-    }
-  };
-  const markPublished = async (entry: Record<string, any>, channel: Record<string, any>) => {
-    const key = `mark:${entry.itemId}:${channel.channel}`;
-    setRetryingChannel(key);
-    setError("");
-    try {
-      await api.markChannelPublished(entry.itemId, channel.channel, site);
-      await load(true);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "No se pudo marcar el canal como publicado.");
-    } finally {
-      setRetryingChannel("");
-    }
-  };
-  const retryChannels = (entry: Record<string, any>) => entry.channels.filter((channel: any) => ["failed", "action_required"].includes(channel.status)).map((channel: any) => channel.channel);
-  const retryableEntries = groupedEntries.filter((entry) => retryChannels(entry).length > 0);
-  const retryDateValue = () => {
-    const next = new Date(Date.now() + 60 * 60 * 1000);
-    const pad = (value: number) => String(value).padStart(2, "0");
-    return `${next.getFullYear()}-${pad(next.getMonth() + 1)}-${pad(next.getDate())}T${pad(next.getHours())}:${pad(next.getMinutes())}`;
-  };
-  const openRetry = () => { setRetryDate(retryDate || retryDateValue()); setRetryOpen(true); };
-  const toggleRetry = (key: string) => setRetrySelection((current) => current.includes(key) ? current.filter((value) => value !== key) : [...current, key]);
-  const reschedule = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!retryDate || !retrySelection.length) return;
-    setRetryBusy(true);
-    setError("");
-    try {
-      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-      for (const key of retrySelection) {
-        const entry = retryableEntries.find((candidate) => entryKey(candidate) === key);
-        if (!entry) continue;
-        await api.rescheduleContent(entry.itemId, new Date(retryDate).toISOString(), timezone, site, retryChannels(entry));
-      }
-      setRetryOpen(false);
-      setRetrySelection([]);
-      load();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t("calendar.retryError", "No se pudieron reagendar las publicaciones."));
-    } finally {
-      setRetryBusy(false);
-    }
-  };
-  const dayKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-  const monthDays = useMemo(() => {
-    const year = cursor.getFullYear();
-    const month = cursor.getMonth();
-    const first = (new Date(year, month, 1).getDay() + 6) % 7;
-    const total = new Date(year, month + 1, 0).getDate();
-    return Array.from({ length: 42 }, (_, index) => {
-      const number = index - first + 1;
-      return { date: new Date(year, month, number), inMonth: number >= 1 && number <= total };
-    });
-  }, [cursor]);
-  const monthLabel = new Intl.DateTimeFormat(language === "en" ? "en-GB" : "es-ES", { month: "long", year: "numeric" }).format(cursor);
-  const weekdays = language === "en" ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] : ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
-  const formatDate = (value: string) => new Intl.DateTimeFormat(language === "en" ? "en-GB" : "es-ES", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
-  const dateSpan = (entry: Record<string, any>) => {
-    const dates = [...new Set(entry.channels.map((channel: any) => channel.publicationDate))].sort();
-    if (dates.length <= 1) return formatDate(dates[0] || entry.publicationDate);
-    return `${formatDate(dates[0])} – ${formatDate(dates[dates.length - 1])}`;
-  };
-  const topicLabel = (value: unknown) => {
-    const clean = String(value || "Publicación").replace(/\s+/g, " ").trim();
-    return clean.length > 118 ? `${clean.slice(0, 115).replace(/\s+\S*$/, "").trim()}…` : clean;
-  };
-  const openEntry = groupedEntries.find((entry) => entryKey(entry) === openId) || null;
-  const dayEntries = openDay ? filteredEntries.filter((entry) => entry.channels.some((channel: any) => dayKey(new Date(channel.publicationDate)) === openDay)) : [];
-  const dayLabel = openDay ? new Intl.DateTimeFormat(language === "en" ? "en-GB" : "es-ES", { dateStyle: "full" }).format(new Date(`${openDay}T12:00:00`)) : "Publicaciones del día";
-  const calendarFilterToolbar = <div className="ui-review-toolbar">
-    <Field label={t("calendar.searchLabel", "Buscar contenido")}><TextField value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("calendar.searchPlaceholder", "Título o campaña")} /></Field>
-    {plans.length > 0 && <Field label={t("calendar.campaignFilter", "Campaña")}><Select aria-label={t("calendar.campaignFilter", "Campaña")} value={plans.some(([id]) => id === planId) ? planId : "all"} onChange={(event) => setPlanId(event.target.value)}><option value="all">{t("calendar.allCampaigns", "Todas las campañas")}</option>{plans.map(([id, title]) => <option key={id} value={id}>{title}</option>)}</Select></Field>}
-    <Field label={t("calendar.channelFilter", "Canales")}><MultiSelectPills options={calendarChannels.map((channel) => ({ id: channel, label: channel === "video" ? "Reel / vídeo" : channel === "instagram_story" ? "Story" : channel.charAt(0).toUpperCase() + channel.slice(1) }))} value={channelFilters} onChange={setChannelFilters} ariaLabel={t("calendar.channelFilter", "Canales")} /></Field>
-    <Field label={t("calendar.statusFilter", "Estados")}><MultiSelectPills options={calendarStatuses.map((status) => ({ id: status, label: statusLabel(status) }))} value={statusFilters} onChange={setStatusFilters} ariaLabel={t("calendar.statusFilter", "Estados")} /></Field>
-    <div className="ui-filter-summary"><span>{filteredEntries.length} {t("calendar.results", "publicaciones")}</span>{hasCalendarFilters && <Button size="sm" variant="ghost" onClick={clearCalendarFilters}>{t("calendar.clearFilters", "Limpiar filtros")}</Button>}</div>
-  </div>;
-  return <main className="ui-page ui-calendar-page">
-    <PageHeader eyebrow="Ejecución editorial" title="Calendario editorial" description="Campañas = qué contenido estamos preparando. Calendario = cuándo se publicará y qué está ocurriendo en cada canal. La conexión externa actualiza aquí su estado." actions={<Inline gap="sm">{retryableEntries.length > 0 && <Button variant="primary" disabled={!retrySelection.length || retryBusy} onClick={openRetry}>{t("calendar.retrySelected", "Reagendar seleccionadas")}{retrySelection.length ? ` (${retrySelection.length})` : ""}</Button>}<Button variant={view === "list" ? "secondary" : "ghost"} onClick={() => setView("list")}>Lista</Button><Button variant={view === "month" ? "secondary" : "ghost"} onClick={() => setView("month")}>Mes</Button></Inline>} />
-    {error && <Card><Inline gap="md"><p className="ui-field-error">{error}</p><Button size="sm" variant="ghost" onClick={() => load()}>Reintentar</Button></Inline></Card>}
-    {retryableEntries.length > 0 && <Card className="ui-calendar-retry-help"><strong>{t("calendar.retryTitle", "Publicaciones con error")}</strong><p>{t("calendar.retryHelp", "Selecciona solo los errores que quieras volver a programar. Las publicaciones programadas o publicadas no se incluyen.")}</p></Card>}
-    {!loading && groupedEntries.length > 0 && calendarFilterToolbar}
-    {loading ? <div className="ui-calendar-loading"><span className="ui-skeleton" style={{ height: 180 }} /><span className="ui-skeleton" style={{ height: 90 }} /></div> : !groupedEntries.length && !error ? <UiEmptyState title="Todavía no hay publicaciones programadas" description="Cuando apruebes y agendes una publicación desde Campañas, aparecerá aquí con su zona horaria y conexión." action={<NavLink className="ui-button ui-button-secondary" to="/plans">Abrir campañas</NavLink>} /> : view === "list" ? <div className="ui-calendar-list">{filteredEntries.map((entry) => { const key = entryKey(entry); const channelsToRetry = retryChannels(entry); const statuses = entry.channels.map((channel: any) => channel.status).filter(Boolean); const status = statuses.length && statuses.every((value: string) => value === statuses[0]) ? statuses[0] : ""; const visual = entryVisual(entry); return <Card key={key}><div className="ui-card-head"><div className="ui-calendar-card-title">{channelsToRetry.length > 0 && <Checkbox label="" aria-label={`${t("calendar.retrySelect", "Seleccionar para reagendar")}: ${entryTitle(entry)}`} checked={retrySelection.includes(key)} onChange={() => toggleRetry(key)} />}{visual.url ? visual.kind === "video" ? <video className="ui-review-thumb" src={visual.url} controls muted preload="metadata" aria-label={entryTitle(entry)} /> : <img className="ui-review-thumb" src={visual.url} alt="" loading="lazy" decoding="async" /> : <span className="ui-review-thumb" aria-hidden="true" />}<div><span className="ui-eyebrow">{entry.planTitle || `${entry.channels.length} canales`}</span><h2>{entryTitle(entry)}</h2><p className="ui-muted">{dateSpan(entry)}</p><div className="ui-channel-list"><Badge tone="neutral">{entryOutputLabels(entry).join(" · ")}</Badge>{entry.channels.map((channel: any, index: number) => <ChannelBadge key={`${channel.channel}-${index}`} channel={channel.channel} />)}</div></div></div>{status ? <StatusBadge status={status} label={statusLabel(status)} /> : <Badge tone="neutral">{t("calendar.mixedStatus", "Varios estados")}</Badge>}</div><div className="ui-calendar-channel-groups">{entry.channels.map((channel: any, index: number) => <Inline gap="sm" key={`${channel.channel}-${index}`}><ChannelBadge channel={channel.channel} /><Badge tone="neutral">{channel.channel === "video" ? "Reel / vídeo" : channel.channel === "blog" ? "Artículo" : channel.channel === "instagram_story" ? "Story" : "Post"}</Badge><StatusBadge status={channel.status} label={statusLabel(channel.status)} /></Inline>)}</div><Inline gap="sm"><Button size="sm" variant="secondary" onClick={() => setOpenId(key)}>{t("calendar.openChannels", "Ver canales y estado")}</Button>{entryItem(entry) && <NavLink className="ui-button ui-button-ghost ui-button-sm" to={contentPreviewPath(entryItem(entry) as ContentItem)}>{t("calendar.openContent", "Ver contenido")}</NavLink>}</Inline></Card>; })}{!filteredEntries.length && <UiEmptyState title={hasCalendarFilters ? "No hay publicaciones con estos filtros" : "Ninguna publicación programada"} description={hasCalendarFilters ? "Prueba otra búsqueda o limpia los filtros." : "Agrega una fecha de publicación desde Campañas para verla aquí."} action={hasCalendarFilters ? <Button variant="secondary" onClick={clearCalendarFilters}>Limpiar filtros</Button> : <NavLink className="ui-button ui-button-secondary" to="/plans">Abrir campañas</NavLink>} />}</div> : <Card className="ui-calendar-month"><div className="ui-calendar-month-head"><Button variant="ghost" size="sm" aria-label={t("calendar.previousMonth")} onClick={() => setCursor((date) => new Date(date.getFullYear(), date.getMonth() - 1, 1))}>‹</Button><strong>{monthLabel}</strong><Button variant="ghost" size="sm" aria-label={t("calendar.nextMonth")} onClick={() => setCursor((date) => new Date(date.getFullYear(), date.getMonth() + 1, 1))}>›</Button></div><div className="ui-calendar-weekdays">{weekdays.map((day) => <span key={day}>{day}</span>)}</div><div className="ui-calendar-grid">{monthDays.map(({ date, inMonth }) => { const key = dayKey(date); const rows = filteredEntries.filter((entry) => entry.channels.some((channel: any) => dayKey(new Date(channel.publicationDate)) === key)); return <div className={`ui-calendar-day ${inMonth ? "" : "outside"} ${rows.length ? "has-items" : ""}`} key={key}><span>{date.getDate()}</span>{rows.slice(0, 3).map((entry) => { const channels = entry.channels.filter((channel: any) => dayKey(new Date(channel.publicationDate)) === key); const label = `${entryTitle(entry)} · ${channels.map((channel: any) => channel.channel).join(", ")} · ${formatDate(channels[0]?.publicationDate || entry.publicationDate)}`; return <button type="button" className="ui-calendar-item" key={entryKey(entry)} onClick={() => setOpenId(entryKey(entry))} aria-label={`Ver ${label}`} title={label}><Inline gap="sm">{channels.slice(0, 2).map((channel: any, index: number) => <ChannelBadge key={`${channel.channel}-${index}`} channel={channel.channel} />)}</Inline><small>{entryTitle(entry)}</small></button>; })}{rows.length > 3 && <Button size="sm" variant="ghost" className="ui-calendar-more" onClick={() => setOpenDay(key)}>Ver {rows.length - 3} más</Button>}</div>; })}</div></Card>}
-    <Drawer open={Boolean(openDay)} title={dayLabel} onClose={() => setOpenDay("")}>{dayEntries.length > 0 && <Stack gap="sm">{dayEntries.map((entry) => <Card key={entryKey(entry)}><div className="ui-card-head"><div><h3>{entryTitle(entry)}</h3><p className="ui-muted">{dateSpan(entry)}</p></div><Badge tone="neutral">{entryOutputLabels(entry).join(" · ")}</Badge></div><div className="ui-channel-list">{entry.channels.filter((channel: any) => dayKey(new Date(channel.publicationDate)) === openDay).map((channel: any, index: number) => <ChannelBadge key={`${channel.channel}-${index}`} channel={channel.channel} />)}</div><Button size="sm" variant="ghost" onClick={() => { setOpenDay(""); setOpenId(entryKey(entry)); }}>Ver canales</Button></Card>)}</Stack>}</Drawer>
-    <Drawer open={Boolean(openEntry)} title={openEntry ? entryTitle(openEntry) : "Calendario"} onClose={() => setOpenId("")}>{openEntry && <Stack gap="md">{(() => { const visual = entryVisual(openEntry); return visual.url ? visual.kind === "video" ? <video className="ui-calendar-detail-visual" src={visual.url} controls muted preload="metadata" aria-label={entryTitle(openEntry)} /> : <img className="ui-calendar-detail-visual" src={visual.url} alt="" loading="lazy" decoding="async" /> : null; })()}<p className="ui-muted">{openEntry.planTitle || "Contenido"} · {dateSpan(openEntry)}</p><div className="ui-channel-list">{entryOutputLabels(openEntry).map((label) => <Badge key={label} tone="neutral">{label}</Badge>)}</div>{openEntry.channels.map((channel: any, index: number) => { const retryKey = `${openEntry.itemId}:${channel.channel}`; const canRetry = ["failed", "action_required"].includes(channel.status); const canMove = channel.status === "scheduled"; return <div className="ui-calendar-channel-row" key={`${channel.channel}-${index}`}><Inline gap="sm"><ChannelBadge channel={channel.channel} /><Badge tone="neutral">{channel.channel === "video" ? "Reel / vídeo" : channel.channel === "blog" ? "Artículo" : channel.channel === "instagram_story" ? "Story" : "Post"}</Badge>{channel.provider && <Badge tone="neutral">{channel.provider}</Badge>}<StatusBadge status={channel.status} label={statusLabel(channel.status)} /></Inline><p className="ui-muted">{channel.timezone} · {formatDate(channel.publicationDate)}</p>{channel.updatedAt && <small className="ui-calendar-sync">Actualizado {formatDate(channel.updatedAt)}</small>}{channel.lastError && <p className="ui-field-error">{channel.lastError}</p>}{canMove && <Button size="sm" variant="secondary" loading={retryingChannel === `move:${retryKey}`} onClick={() => void moveToday(openEntry, channel)}>Publicar hoy</Button>}{canRetry && <Inline gap="sm"><Button size="sm" variant="secondary" loading={retryingChannel === retryKey} onClick={() => void retryOne(openEntry, channel)}>Reintentar este canal</Button><Button size="sm" variant="ghost" loading={retryingChannel === `mark:${retryKey}`} onClick={() => void markPublished(openEntry, channel)}>Marcar como publicado</Button></Inline>}</div>; })}{entryItem(openEntry) && <NavLink className="ui-button ui-button-secondary" to={contentPreviewPath(entryItem(openEntry) as ContentItem)}>{t("calendar.openContent", "Ver contenido completo")}</NavLink>}<Button size="sm" variant="ghost" onClick={() => load(true)}>Actualizar estado</Button><p className="ui-field-hint">Publicar hoy adelanta solo ese canal a los próximos minutos y, si ya está en Buffer, mueve el mismo post. Reintentar vuelve a enviar un canal con error. Marcar como publicado cierra el error sin enviar nada.</p></Stack>}</Drawer>
-    <Modal open={retryOpen} title={t("calendar.retryTitle", "Reagendar publicaciones con error")} onClose={() => setRetryOpen(false)}><form className="ui-stack ui-stack-md" onSubmit={reschedule}><Field label={t("calendar.retryDate", "Nueva fecha y hora")} hint={t("calendar.retryDateHelp", "Se usará tu zona horaria local.")} required><TextField type="datetime-local" value={retryDate} onChange={(event) => setRetryDate(event.target.value)} autoFocus required /></Field><p className="ui-field-hint">{t("calendar.retryCount", "Se reagendarán las publicaciones seleccionadas. Las ya programadas o publicadas no se modifican.")}</p><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setRetryOpen(false)}>{t("common.cancel", "Cancelar")}</Button><Button type="submit" loading={retryBusy}>{t("calendar.retryConfirm", "Reagendar")}</Button></Inline></form></Modal>
-  </main>;
-}
-
 function AuthorInvite() {
   const { t } = useI18n();
   const { showToast } = useToast();
@@ -5637,8 +5207,7 @@ function Settings() {
   );
 }
 
-function Billing({ embedded = false }: { embedded?: boolean } = {}) {
-  const Root = embedded ? "section" : "main";
+function Billing() {
   const { site, workflowFlags, session } = useApp();
   const { t, language } = useI18n();
   const { showToast } = useToast();
@@ -5679,14 +5248,14 @@ function Billing({ embedded = false }: { embedded?: boolean } = {}) {
     }
   };
   const ai = snapshot?.ai?.tokenCredits;
-  if (!workflowFlags.cmsAiEnabled) return <Root className={embedded ? "ui-admin-section" : "ui-page ui-page-narrow"}>
-    <PageTitle eyebrow={t("billing.eyebrow")} title={t("billing.title")} description={t("billing.cmsAiDisabled")} back={!embedded} />
+  if (!workflowFlags.cmsAiEnabled) return <main className="ui-page ui-page-narrow">
+    <PageTitle eyebrow={t("billing.eyebrow")} title={t("billing.title")} description={t("billing.cmsAiDisabled")} back backTo="/admin" />
     <section className="ui-card ui-settings-card">
       <h2>{t("billing.cmsAiDisabledTitle")}</h2>
       <p className="ui-muted">{t("billing.cmsAiDisabledHelp")}</p>
       <NavLink className="text-link" to="/plans">{t("nav.plans", "Ver campañas")}</NavLink>
     </section>
-  </Root>;
+  </main>;
   const testCreditsEnabled = Boolean(snapshot?.stripe?.testCreditsEnabled);
   const packs = (snapshot?.creditPacks || []) as Array<{
     id: string;
@@ -5695,12 +5264,13 @@ function Billing({ embedded = false }: { embedded?: boolean } = {}) {
     configured?: boolean;
   }>;
   return (
-    <Root className={embedded ? "ui-admin-section" : "ui-page ui-page-narrow"}>
+    <main className="ui-page ui-page-narrow">
       <PageTitle
         eyebrow={t("billing.eyebrow")}
         title={t("billing.title")}
         description={t("billing.description")}
-        back={!embedded}
+        back
+        backTo="/admin"
       />
       <section className="ui-card quota-card">
         <h2>{t("billing.ai")}</h2>
@@ -5773,7 +5343,7 @@ function Billing({ embedded = false }: { embedded?: boolean } = {}) {
         )}
       </section>}
       {message && <p className="ui-success">{message}</p>}
-    </Root>
+    </main>
   );
 }
 
@@ -5782,29 +5352,9 @@ function AdminGate() {
   return isWorkspaceAdmin(session) ? <AdminIndex /> : <Navigate to="/" replace />;
 }
 
-type AdminTabId = "brands" | "team" | "connections" | "billing";
-
-function AdminTabs({ active, onChange }: { active: AdminTabId; onChange: (tab: AdminTabId) => void }) {
-  const { workflowFlags } = useApp();
-  const { t } = useI18n();
-  const tabs: Array<{ id: AdminTabId; label: string }> = [
-    { id: "brands", label: t("nav.brands", "Marcas") },
-    { id: "team", label: t("nav.team", "Equipo y acceso") },
-    { id: "connections", label: t("nav.connections", "Conexiones") },
-    ...(workflowFlags.cmsAiEnabled ? [{ id: "billing" as const, label: t("nav.planUsage", "Plan y uso") }] : []),
-  ];
-  return <Tabs items={tabs} value={active} onChange={onChange} ariaLabel={t("admin.sections", "Áreas de administración")} className="ui-admin-tabs" idPrefix="admin-tablist" panelIdPrefix="admin-panel" />;
-}
-
 function AdminIndex() {
   const { workflowFlags } = useApp();
   const { t } = useI18n();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const requestedTab = searchParams.get("tab") as AdminTabId | null;
-  const availableTabs: AdminTabId[] = ["brands", "team", "connections"];
-  if (workflowFlags.cmsAiEnabled) availableTabs.push("billing");
-  const active: AdminTabId = requestedTab && availableTabs.includes(requestedTab) ? requestedTab : "brands";
-  const selectTab = (tab: AdminTabId) => setSearchParams({ tab }, { replace: true });
   const sections = [
     { path: "/brands", icon: "brands", title: t("nav.brands", "Marcas"), description: t("admin.brandsHelp", "Gestiona las marcas y su configuración editorial.") },
     { path: "/connections", icon: "connections", title: t("nav.connections", "Conexiones"), description: t("admin.connectionsHelp", "Conecta canales, proveedores y ChatGPT.") },
@@ -5814,13 +5364,6 @@ function AdminIndex() {
   return <main className="ui-page admin-index-page">
     <PageHeader eyebrow={t("admin.eyebrow", "Configuración del espacio")} title={t("admin.title", "Administración")} description={t("admin.description", "Gestiona marcas, accesos, conexiones y uso sin salir de esta pantalla.")} />
     <div className="ui-admin-index-grid" aria-label={t("admin.sections", "Áreas de administración")}>{sections.map((section) => <NavLink className="ui-admin-index-card" key={section.path} to={section.path}><NavIcon kind={section.icon} /><div><h2>{section.title}</h2><p>{section.description}</p></div><span aria-hidden="true">›</span></NavLink>)}</div>
-    <AdminTabs active={active} onChange={selectTab} />
-    <div className="ui-admin-panel" id={`admin-panel-${active}`} role="tabpanel" aria-labelledby={`admin-tablist-${active}`}>
-      {active === "brands" && <BrandsView embedded />}
-      {active === "team" && <TeamView embedded autoInvite={searchParams.get("invite") === "1"} />}
-      {active === "connections" && <ConnectionsView embedded />}
-      {active === "billing" && <Billing embedded />}
-    </div>
   </main>;
 }
 function Admin() {
@@ -7338,6 +6881,11 @@ function EmptyState({
     </section>
   );
 }
+function RouteLoading() {
+  const { t } = useI18n();
+  return <main className="ui-page" role="status" aria-live="polite"><div className="loading">{t("app.loading")}</div></main>;
+}
+
 function Loading() {
   const { t } = useI18n();
   return (
@@ -7372,7 +6920,7 @@ function NewBrandView() {
   return <main className="ui-page ui-page-narrow"><PageHeader eyebrow="Espacio" title="Nueva marca" description="Las marcas nuevas empiezan sin canales activos. Activa y conecta solo lo que necesites." back={<NavLink to="/brands">← Volver a marcas</NavLink>} /><Card><form className="ui-stack ui-stack-md" onSubmit={(event) => void submit(event)}>{error && <p className="ui-field-error" role="alert">{error}</p>}<Field label="Nombre de la marca" required><TextField value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required autoFocus placeholder="Ej. Escarlet" /></Field><Field label="Identificador" hint="Se usa en URLs y debe ser único." required><TextField value={form.handle} onChange={(event) => setForm({ ...form, handle: event.target.value })} required placeholder="escarlet" /></Field><Field label="Dominio web (opcional)"><TextField type="url" value={form.domain} onChange={(event) => setForm({ ...form, domain: event.target.value })} placeholder="https://marca.com" /></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => nav("/brands")}>Cancelar</Button><Button type="submit" loading={busy}>Crear marca</Button></Inline></form></Card></main>;
 }
 
-function TeamView({ embedded = false, autoInvite = false }: { embedded?: boolean; autoInvite?: boolean } = {}) {
+function TeamView({ autoInvite = false }: { autoInvite?: boolean } = {}) {
   const { session, site, productContext } = useApp();
   const nav = useNavigate();
   const { t } = useI18n();
@@ -7923,8 +7471,7 @@ const bufferWaitLabel = (value: unknown) => {
   return `${minutes} minuto${minutes === 1 ? "" : "s"}`;
 };
 
-function ConnectionsView({ brandId, backTo, embedded = false }: { brandId?: string; backTo?: string; embedded?: boolean }) {
-  const Root = embedded ? "section" : "main";
+function ConnectionsView({ brandId, backTo }: { brandId?: string; backTo?: string }) {
   const { site, session, channels: configuredChannels, productContext } = useApp();
   const { t } = useI18n();
   const { showToast } = useToast();
@@ -8085,9 +7632,9 @@ function ConnectionsView({ brandId, backTo, embedded = false }: { brandId?: stri
   };
   const tokenLabel = form.provider === "postiz" ? "API key / OAuth token" : form.provider === "planable" ? "API token" : form.provider === "buffer" ? "API key de Buffer" : "Token";
   const enabledBufferTargets = (availableChannels.length ? BUFFER_TARGET_CHANNELS.filter((target) => availableChannels.some((channel) => channel.channel === target && channel.enabled) || (target === "instagram" && availableChannels.some((channel) => channel.channel === "instagram_story" && channel.enabled))) : BUFFER_TARGET_CHANNELS);
-  if (loading) return <Root className={embedded ? "ui-admin-section" : "ui-page"}><p className="ui-muted">Cargando conexiones...</p></Root>;
-  if (error && !connections.length) return <Root className={embedded ? "ui-admin-section" : "ui-page"}><UiEmptyState title="No se pudieron cargar las conexiones" description={error} action={<Button onClick={() => window.location.reload()}>Reintentar</Button>} /></Root>;
-  return <Root className={embedded ? "ui-admin-section" : "ui-page"}>
+  if (loading) return <main className="ui-page"><p className="ui-muted">Cargando conexiones...</p></main>;
+  if (error && !connections.length) return <main className="ui-page"><UiEmptyState title="No se pudieron cargar las conexiones" description={error} action={<Button onClick={() => window.location.reload()}>Reintentar</Button>} /></main>;
+  return <main className="ui-page">
     <PageHeader eyebrow={`Marca · ${brandOptions.find((brand) => brand.id === selectedBrandId)?.name || brandOptions.find((brand) => brand.id === selectedBrandId)?.handle || selectedBrandId}`} title="Conexiones" description={t("admin.connectionsDescription", "El Blog publica mediante el webhook de Coolify. Las conexiones sociales se gestionan aquí.")} back={backTo ? <NavLink to={backTo}>← Volver a la marca</NavLink> : undefined} actions={canManage ? <Button onClick={() => setFormOpen(true)}>{t("admin.addConnection")}</Button> : undefined} />
     {error && <Card><p className="ui-field-error">{error}</p></Card>}
     <Card className="ui-mcp-card"><div className="ui-card-head"><div><span className="ui-eyebrow">{t("settings.mcpConnectEyebrow")}</span><h2>{t("settings.mcpConnectTitle")}</h2><p className="ui-muted">{t("settings.mcpConnectHelp")}</p></div></div>{mcpInfo?.mcpUrl && <div className="ui-mcp-value"><div><span className="ui-field-label">{t("settings.mcpUrlLabel")}</span><code>{mcpInfo.mcpUrl}</code></div><Button type="button" variant="ghost" size="sm" onClick={() => void copyMcpUrl()}>{t("settings.mcpUrlCopy")}</Button></div>}<Stack gap="sm"><p className="ui-field-hint">{t("settings.mcpConnectStep1")}</p><p className="ui-field-hint">{t("settings.mcpConnectStep2")}</p><p className="ui-field-hint">{t("settings.mcpConnectStep3")}</p></Stack><Inline gap="sm"><Button type="button" variant="secondary" onClick={openChatGpt}>{t("settings.chatgptOpen")}</Button><NavLink className="ui-button ui-button-ghost" to="/settings#chatgpt-account">{t("settings.chatgptConnectHere")}</NavLink></Inline></Card>
@@ -8104,7 +7651,7 @@ function ConnectionsView({ brandId, backTo, embedded = false }: { brandId?: stri
       <Field label="Zona horaria"><TextField value={form.timezone} onChange={(event) => setForm({ ...form, timezone: event.target.value })} /></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setFormOpen(false)}>{t("editor.cancel")}</Button><Button type="submit" loading={busy}>Guardar conexión</Button></Inline>
     </form>
     </Modal>
-  </Root>;
+  </main>;
 }
 
 export default App;

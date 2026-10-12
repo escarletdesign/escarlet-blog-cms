@@ -166,7 +166,7 @@ export function FoodToReel({ site, t, recipeId = "recipe.food-to-reel" }: FoodTo
   };
 
   const launch = async () => {
-    if (!canSubmit || status === "loading") return;
+    if (!canSubmit) return;
     setStatus("loading");
     setError("");
     try {
@@ -352,7 +352,7 @@ export function FoodToReel({ site, t, recipeId = "recipe.food-to-reel" }: FoodTo
       </div>
       {status === "loading" && <Card role="status" aria-live="polite"><Inline gap="sm"><StatusBadge status="syncing" label={t("foodReel.processing", "Preparando")}/><span>{t("foodReel.processingHelp", "Guardando la entrada y creando el trabajo...")}</span></Inline></Card>}
       {status === "queued" && <Card role="status" aria-live="polite"><Inline gap="sm"><StatusBadge status={String(job?.status || "queued")} label={String(job?.status || "queued") === "awaiting_provider" ? t("foodReel.awaitingProvider", "Esperando proveedor") : String(job?.status || "queued") === "running" ? t("foodReel.running", "Procesando") : t("foodReel.queued", "En cola")}/><span>{String(job?.status || "queued") === "awaiting_provider" ? t("foodReel.awaitingProviderHelp", "El trabajo está listo para que un proveedor de motion lo procese.") : String(job?.status || "queued") === "running" ? t("foodReel.runningHelp", "El motor local está renderizando el Reel.") : t("foodReel.queuedHelp", "El trabajo se ha creado y está esperando al motor de motion.")}</span></Inline></Card>}
-      {status === "review" && <Card role="status" aria-live="polite"><Inline gap="sm"><StatusBadge status="needs_review" label={t("foodReel.review", "Revisión humana")}/><span>{t("foodReel.reviewHelp", "El Reel queda pendiente de revisión antes de publicar.")}</span></Inline>{job?.id && <p className="ui-field-hint">{t("foodReel.jobId", "Trabajo")}: {String(job.id)}</p>}</Card>}
+      {status === "review" && <Card role="status" aria-live="polite"><Inline gap="sm"><StatusBadge status="needs_review" label={t("foodReel.review", "Revisión humana")}/><span>{t("foodReel.reviewHelp", "El Reel queda pendiente de revisión antes de publicar.")}</span></Inline>{job?.id != null && <p className="ui-field-hint">{t("foodReel.jobId", "Trabajo")}: {String(job.id)}</p>}</Card>}
       {status === "error" && !error && <Card role="alert"><p className="ui-field-error">{t("foodReel.launchError", "No se pudo lanzar el Reel.")}</p></Card>}
     </main>
   );
