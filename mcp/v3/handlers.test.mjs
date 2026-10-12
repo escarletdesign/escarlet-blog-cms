@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createMcpServerV3 } from './index.mjs'
+import { invokeBuiltinCapability } from './handlers.mjs'
 
 async function call(server, name, arguments_ = {}) {
   return server._requestHandlers.get('tools/call')({
@@ -71,4 +72,46 @@ test('asset.delete mantiene la eliminación canónica restringida a owner y admi
   const result = await call(agent, 'asset.delete', { workspaceId: 'workspace-1', siteId: 'site-1', assetIds: ['asset-1'], confirm: true })
   assert.equal(result.isError, true)
   assert.equal(result.structuredContent.error.code, 'media_delete_forbidden')
+})
+
+test('content.campaign.publish encola cada pieza aprobada del blog', async () => {
+  const scheduled = []
+  const result = await invokeBuiltinCapability('content.campaign.publish', {
+    site: 'escarlet',
+    campaignId: 'campaign-1',
+    channels: ['blog']
+  }, {
+    auth: { role: 'editor', site: 'escarlet', userId: 'user-1' },
+    runtime: {
+      resolveWorkspaceContext: async () => ({ workspaceId: 'workspace-1', sites: [{ id: 'site-1', handle: 'escarlet' }] }),
+      getContentBatch: async () => ({ id: 'campaign-1', items: [{ id: 'item-1', variants: [{ channel: 'blog', status: 'approved' }] }, { id: 'item-2', variants: [{ channel: 'blog', status: 'approved' }] }] }),
+      scheduleContentBatch: async (input) => { scheduled.push(input); return { batchId: input.batchId, items: [{ itemId: 'item-1' }, { itemId: 'item-2' }] } }
+    }
+  })
+  assert.equal(result.status, 'scheduled')
+  assert.equal(scheduled.length, 1)
+  assert.equal(scheduled[0].publishNow, true)
+  assert.equal(scheduled[0].channels[0], 'blog')
+})
+
+test('publication.publish enlaza Coolify con la variante blog real', async () => {
+  let scheduled = null
+  const result = await invokeBuiltinCapability('publication.publish', {
+    site: 'escarlet',
+    channel: 'wordpress_post',
+    provider: 'web',
+    contentItemId: 'item-1',
+    approval: { status: 'approved' },
+    connections: [{ provider: 'web', channel: 'blog', status: 'connected' }]
+  }, {
+    auth: { role: 'editor', site: 'escarlet', userId: 'user-1' },
+    runtime: {
+      resolveWorkspaceContext: async () => ({ workspaceId: 'workspace-1', sites: [{ id: 'site-1', handle: 'escarlet' }] }),
+      scheduleContentItem: async (input) => { scheduled = input; return { itemId: input.itemId, status: 'scheduled' } }
+    }
+  })
+  assert.equal(result.status, 'publish_requested')
+  assert.equal(result.execution.status, 'scheduled')
+  assert.equal(scheduled.itemId, 'item-1')
+  assert.equal(scheduled.channels[0], 'blog')
 })

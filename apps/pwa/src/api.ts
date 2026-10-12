@@ -368,7 +368,7 @@ const baseApi = {
       capabilities: Array<Record<string, any>>;
       recipes: Array<Record<string, any>>;
     }>(`/api/v3/catalog?${new URLSearchParams({ ...(site ? { site } : {}), ...(goal ? { goal } : {}) }).toString()}`),
-  publicationOperation: (input: { site?: string; operation: "destination.list" | "route" | "prepare" | "status.get"; channel?: string; provider?: string; assetIds?: string[]; text?: string; runId?: string; publicationId?: string }) =>
+  publicationOperation: (input: { site?: string; operation: "destination.list" | "route" | "prepare" | "schedule" | "publish" | "status.get"; channel?: string; provider?: string; contentItemId?: string; assetIds?: string[]; text?: string; runId?: string; publicationId?: string; publicationDate?: string; timezone?: string; approval?: Record<string, any> }) =>
     request<Record<string, any>>("/api/v3/publication", {
       method: "POST",
       body: JSON.stringify(input),

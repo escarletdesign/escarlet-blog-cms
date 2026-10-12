@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ApiError, api } from "./api";
-import type { MediaItem } from "./types";
+import { canApproveStatus, itemTitle } from "./content-format";
+import type { ContentItem, MediaItem } from "./types";
 import { Badge, Button, Card, EmptyState, Field, Inline, PageHeader, Select, Skeleton, Stack, StatusBadge, Textarea, TextField } from "./ui";
 import { useSearchParams } from "react-router-dom";
 
@@ -15,6 +16,8 @@ const channels = [
   ["wordpress_post", "WordPress"],
   ["youtube_video", "YouTube"],
 ] as const;
+
+const blogPublishableStatuses = new Set(["generated", "needs_review", "approved", "scheduled", "failed", "action_required"]);
 
 function errorText(error: unknown, fallback: string) {
   return error instanceof ApiError || error instanceof Error ? error.message : fallback;
@@ -39,10 +42,14 @@ export function Publisher({ site, t }: PublisherProps) {
   const [assetSearch, setAssetSearch] = useState("");
   const [provider, setProvider] = useState("");
   const [copy, setCopy] = useState("");
+  const [blogItems, setBlogItems] = useState<ContentItem[]>([]);
+  const [blogItemsLoading, setBlogItemsLoading] = useState(false);
+  const [blogItemId, setBlogItemId] = useState(searchParams.get("itemId") || "");
   const [destinations, setDestinations] = useState<Array<Record<string, any>>>([]);
   const [result, setResult] = useState<Record<string, any> | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const isBlog = channel === "wordpress_post";
 
   const updateSelection = (next: string[]) => {
     setAssetIds(next);
@@ -65,6 +72,31 @@ export function Publisher({ site, t }: PublisherProps) {
     });
     return () => { active = false; };
   }, [site, t]);
+
+  useEffect(() => {
+    if (!isBlog) {
+      setBlogItems([]);
+      setBlogItemId("");
+      return;
+    }
+    const controller = new AbortController();
+    setBlogItemsLoading(true);
+    void api.reviewItems(site, controller.signal).then((response) => {
+      if (controller.signal.aborted) return;
+      const items = (response.items || []).filter((item) => {
+        if (["draft", "published", "canceled"].includes(item.status)) return false;
+        const variant = item.variants?.find((entry) => entry.channel === "blog");
+        return Boolean(variant && blogPublishableStatuses.has(variant.scheduleStatus || variant.status));
+      });
+      setBlogItems(items);
+      setBlogItemId((current) => items.some((item) => item.id === current) ? current : items[0]?.id || "");
+    }).catch((loadError) => {
+      if (!controller.signal.aborted) setError(errorText(loadError, t("publisher.blogItemsError", "No se pudieron cargar las campañas de blog.")));
+    }).finally(() => {
+      if (!controller.signal.aborted) setBlogItemsLoading(false);
+    });
+    return () => controller.abort();
+  }, [isBlog, site, t]);
 
   const loadDestinations = async () => {
     setBusy(true);
@@ -96,19 +128,48 @@ export function Publisher({ site, t }: PublisherProps) {
     }
   };
 
+  const publishBlog = async () => {
+    const item = blogItems.find((entry) => entry.id === blogItemId);
+    const variant = item?.variants?.find((entry) => entry.channel === "blog");
+    if (!item || !variant) return;
+    const status = variant.scheduleStatus || variant.status;
+    setBusy(true);
+    setError("");
+    try {
+      if (canApproveStatus(status)) await api.approveContent(item.id, site);
+      const publicationDate = new Date().toISOString();
+      const retry = ["scheduled", "failed", "action_required"].includes(status);
+      const response = await (retry ? api.rescheduleContent : api.scheduleContent)(item.id, publicationDate, "UTC", site, ["blog"], { publishNow: true });
+      setResult({ ...response, state: "syncing", campaignTitle: itemTitle(item), itemId: item.id });
+    } catch (publishError) {
+      setError(errorText(publishError, t("publisher.blogPublishError", "No se pudo encolar el blog en Coolify.")));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const assetOptions = useMemo(() => {
     const query = assetSearch.trim().toLowerCase();
     return assets.filter((asset) => !query || [assetLabel(asset), asset.kind, asset.alt].some((value) => String(value || "").toLowerCase().includes(query))).slice(0, 100);
   }, [assets, assetSearch]);
   const selectedAssets = useMemo(() => assets.filter((asset) => asset.id && assetIds.includes(String(asset.id))), [assets, assetIds]);
-  const isBlog = channel === "wordpress_post";
+  const selectedBlogItem = blogItems.find((item) => item.id === blogItemId);
+  const selectedBlogVariant = selectedBlogItem?.variants?.find((variant) => variant.channel === "blog");
+  const selectedBlogStatus = selectedBlogVariant?.scheduleStatus || selectedBlogVariant?.status;
+  const blogPublishable = Boolean(selectedBlogVariant && blogPublishableStatuses.has(selectedBlogStatus || ""));
   return <main className="ui-page">
-    <PageHeader eyebrow={t("publisher.eyebrow", "MICRO APP · PUBLISHER")} title={isBlog ? t("publisher.blogTitle", "Publicar blog") : t("publisher.title", "Elige dónde publicar")} description={isBlog ? t("publisher.blogDescription", "Prepara una entrada para WordPress con su asset y copy. El envío queda pendiente de revisión humana.") : t("publisher.description", "Selecciona el canal, el proveedor y el asset. El Publisher prepara el envío, pero mantiene la revisión humana antes de contactar una plataforma.")} />
+    <PageHeader eyebrow={t("publisher.eyebrow", "MICRO APP · PUBLISHER")} title={isBlog ? t("publisher.blogTitle", "Publicar blog") : t("publisher.title", "Elige dónde publicar")} description={isBlog ? t("publisher.blogDescription", "Selecciona una campaña de blog aprobada y encola su despliegue mediante Coolify.") : t("publisher.description", "Selecciona el canal, el proveedor y el asset. El Publisher prepara el envío, pero mantiene la revisión humana antes de contactar una plataforma.")} />
     <div className="ui-brand-detail-grid">
       <Card><Stack gap="md">
         <div><span className="ui-eyebrow">{t("publisher.destinationEyebrow", "DESTINO")}</span><h2>{t("publisher.destinationTitle", "Canal y herramienta")}</h2></div>
         <Field label={t("publisher.channel", "Canal")}><Select value={channel} onChange={(event) => { setChannel(event.target.value); setDestinations([]); setProvider(""); }}><option value="">{t("publisher.chooseChannel", "Elige un canal")}</option>{channels.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select></Field>
-        <div className="ui-publisher-assets-field">
+        {isBlog && <Field label={t("publisher.blogCampaign", "Campaña de blog")} hint={t("publisher.blogCampaignHelp", "Elige una pieza aprobada o pendiente de revisión. El worker enviará el despliegue a Coolify.")}>
+          <Select value={blogItemId} onChange={(event) => { setBlogItemId(event.target.value); setResult(null); }} disabled={blogItemsLoading || !blogItems.length}>
+            <option value="">{blogItemsLoading ? t("publisher.blogCampaignLoading", "Cargando campañas…") : t("publisher.blogCampaignChoose", "Elige una campaña")}</option>
+            {blogItems.map((item) => <option key={item.id} value={item.id}>{itemTitle(item)} · {item.status}</option>)}
+          </Select>
+        </Field>}
+        {!isBlog && <div className="ui-publisher-assets-field">
           <div className="ui-field-label-row"><span className="ui-field-label">{t("publisher.asset", "Assets")}</span><Badge tone={assetIds.length ? "success" : "neutral"}>{assetIds.length} {t("publisher.selected", "seleccionados")}</Badge></div>
           <p className="ui-field-hint">{t("publisher.assetHelp", "Selecciona una o varias piezas. La publicación siempre referencia assets registrados en la marca.")}</p>
           {assetsLoading ? <div className="ui-publisher-asset-grid">{[1, 2, 3].map((item) => <Skeleton key={item} height="190px" />)}</div> : assets.length ? <>
@@ -130,16 +191,20 @@ export function Publisher({ site, t }: PublisherProps) {
               })}
             </div> : <EmptyState title={t("publisher.assetSearchEmpty", "No hay coincidencias")} description={t("publisher.assetSearchEmptyHelp", "Prueba con otro nombre o tipo de asset.")} />}
           </> : <EmptyState title={t("publisher.assetsEmpty", "No hay assets disponibles")} description={t("publisher.assetsEmptyHelp", "Genera o sube una pieza desde una micro app de producción.")} />}
-        </div>
-        <Field label={t("publisher.copy", "Copy")} hint={t("publisher.copyHelp", "Opcional. Se valida con las reglas de la marca antes de preparar el bundle.")}><Textarea rows={5} value={copy} onChange={(event) => setCopy(event.target.value)} placeholder={t("publisher.copyPlaceholder", "Escribe el texto que acompañará al asset.")} /></Field>
+        </div>}
+        {!isBlog && <Field label={t("publisher.copy", "Copy")} hint={t("publisher.copyHelp", "Opcional. Se valida con las reglas de la marca antes de preparar el bundle.")}><Textarea rows={5} value={copy} onChange={(event) => setCopy(event.target.value)} placeholder={t("publisher.copyPlaceholder", "Escribe el texto que acompañará al asset.")} /></Field>}
         {error && <p className="ui-field-error" role="alert">{error}</p>}
-        <Inline gap="sm"><Button variant="secondary" disabled={!channel || !assetIds.length || busy} loading={busy && !destinations.length} onClick={() => void loadDestinations()}>{t("publisher.find", "Buscar destinos")}</Button>{destinations.length > 0 && <Badge tone="success">{destinations.length} {t("publisher.available", "disponibles")}</Badge>}</Inline>
+        {isBlog ? (
+          <Inline gap="sm"><Button disabled={!blogPublishable || busy} loading={busy} onClick={() => void publishBlog()}>{t("publisher.publishCoolify", "Publicar mediante Coolify")}</Button>{selectedBlogItem && <Badge tone="info">{t("publisher.coolifyQueued", "Se enviará al worker")}</Badge>}</Inline>
+        ) : (
+          <Inline gap="sm"><Button variant="secondary" disabled={!channel || !assetIds.length || busy} loading={busy && !destinations.length} onClick={() => void loadDestinations()}>{t("publisher.find", "Buscar destinos")}</Button>{destinations.length > 0 && <Badge tone="success">{destinations.length} {t("publisher.available", "disponibles")}</Badge>}</Inline>
+        )}
       </Stack></Card>
       <Card><Stack gap="md">
         <div><span className="ui-eyebrow">{t("publisher.providerEyebrow", "ADAPTADOR")}</span><h2>{t("publisher.providerTitle", "Revisión antes de enviar")}</h2></div>
         {selectedAssets.length > 0 && <div className="ui-publisher-selection-summary"><span className="ui-eyebrow">{t("publisher.selectionEyebrow", "SELECCIÓN")}</span><strong>{selectedAssets.length} {t("publisher.assetsReady", "assets listos para este destino")}</strong><div className="ui-publisher-selection-strip">{selectedAssets.slice(0, 4).map((asset) => { const image = assetUrl(asset); return image ? <img key={String(asset.id)} src={image} alt="" /> : <span key={String(asset.id)}>{assetLabel(asset).slice(0, 1)}</span>; })}{selectedAssets.length > 4 && <small>+{selectedAssets.length - 4}</small>}</div></div>}
-        {destinations.length ? <><Field label={t("publisher.provider", "Proveedor")}><Select value={provider} onChange={(event) => setProvider(event.target.value)}>{destinations.map((destination) => <option key={destination.id} value={destination.providerId}>{destination.providerLabel || destination.providerId}</option>)}</Select></Field><Stack gap="sm"><Inline gap="sm"><Badge tone="info">{destinations.find((entry) => entry.providerId === provider)?.channelLabel || channel}</Badge><Badge tone="neutral">{destinations.find((entry) => entry.providerId === provider)?.providerLabel || provider}</Badge></Inline><Button disabled={!provider || !assetIds.length || busy} loading={busy && Boolean(destinations.length)} onClick={() => void prepare()}>{t("publisher.prepare", "Preparar para revisión")}</Button></Stack></> : <EmptyState title={t("publisher.noDestinations", "Busca un destino conectado")} description={t("publisher.noDestinationsHelp", "El Publisher solo muestra adaptadores compatibles y conectados para esta marca.")} />}
-        {result && <Card><Stack gap="sm"><Inline gap="sm"><StatusBadge status={String(result.state || "ready_for_review")} /><Badge tone="success">{t("publisher.prepared", "Bundle preparado")}</Badge></Inline><p className="ui-muted">{t("publisher.reviewNext", "El siguiente paso es la revisión humana. Ningún proveedor externo ha recibido todavía este contenido.")}</p><small>{String(result.publicationId || result.runId || "")}</small></Stack></Card>}
+        {isBlog ? <EmptyState title={selectedBlogItem ? t("publisher.blogReady", "Listo para publicar") : t("publisher.blogSelectCampaign", "Selecciona una campaña")} description={selectedBlogItem ? t("publisher.blogReadyHelp", "La publicación usará la variante blog de esta campaña y el webhook de Coolify configurado.") : t("publisher.blogSelectCampaignHelp", "Las piezas sueltas se publican después de asociarlas a una campaña.")} /> : destinations.length ? <><Field label={t("publisher.provider", "Proveedor")}><Select value={provider} onChange={(event) => setProvider(event.target.value)}>{destinations.map((destination) => <option key={destination.id} value={destination.providerId}>{destination.providerLabel || destination.providerId}</option>)}</Select></Field><Stack gap="sm"><Inline gap="sm"><Badge tone="info">{destinations.find((entry) => entry.providerId === provider)?.channelLabel || channel}</Badge><Badge tone="neutral">{destinations.find((entry) => entry.providerId === provider)?.providerLabel || provider}</Badge></Inline><Button disabled={!provider || !assetIds.length || busy} loading={busy && Boolean(destinations.length)} onClick={() => void prepare()}>{t("publisher.prepare", "Preparar para revisión")}</Button></Stack></> : <EmptyState title={t("publisher.noDestinations", "Busca un destino conectado")} description={t("publisher.noDestinationsHelp", "El Publisher solo muestra adaptadores compatibles y conectados para esta marca.")} />}
+        {result && <Card><Stack gap="sm"><Inline gap="sm"><StatusBadge status={String(result.state || "ready_for_review")} /><Badge tone="success">{isBlog ? t("publisher.coolifyQueuedBadge", "Encolado en Coolify") : t("publisher.prepared", "Bundle preparado")}</Badge></Inline><p className="ui-muted">{isBlog ? t("publisher.coolifyQueuedHelp", "El worker está comprobando el despliegue y actualizará el estado cuando la URL pública responda.") : t("publisher.reviewNext", "El siguiente paso es la revisión humana. Ningún proveedor externo ha recibido todavía este contenido.")}</p><small>{String(result.campaignTitle || result.publicationId || result.runId || result.itemId || "")}</small></Stack></Card>}
       </Stack></Card>
     </div>
   </main>;

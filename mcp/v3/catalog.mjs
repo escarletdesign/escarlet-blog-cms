@@ -680,6 +680,72 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     tags: ['production', 'motion', 'video', 'cancel']
   }),
   manifest({
+    id: 'content.campaign.list',
+    description: 'Lista las campañas de contenido de una marca, con su estado y canales preparados.',
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, status: { type: 'string' }, channel: { type: 'string' }, query: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 200 } }, additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string' }, campaigns: { type: 'array' } }, required: ['contractVersion', 'capability', 'campaigns'], additionalProperties: true },
+    permissions: ['content:read'],
+    tags: ['content', 'campaign', 'read']
+  }),
+  manifest({
+    id: 'content.campaign.get',
+    description: 'Devuelve una campaña y sus piezas, variantes, assets y estados de publicación.',
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, campaignId: { type: 'string' }, batchId: { type: 'string' } }, anyOf: [{ required: ['campaignId'] }, { required: ['batchId'] }], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string' }, campaign: { type: 'object' } }, required: ['contractVersion', 'capability', 'campaign'], additionalProperties: true },
+    permissions: ['content:read'],
+    tags: ['content', 'campaign', 'read']
+  }),
+  manifest({
+    id: 'content.campaign.create',
+    description: 'Crea una campaña y sus piezas en estado de borrador para continuar el flujo de revisión.',
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, title: { type: 'string', minLength: 1 }, topics: { type: 'array', items: { type: 'string' }, maxItems: 100 }, items: { type: 'array', items: { type: 'object' }, maxItems: 100 }, channels: { type: 'array', items: { type: 'string' }, minItems: 1 }, brief: { type: 'object' }, metadata: { type: 'object' }, brandKitVersionId: { type: 'string' }, idempotencyKey: { type: 'string' } }, required: ['title', 'channels'], anyOf: [{ required: ['topics'] }, { required: ['items'] }], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string' }, campaign: { type: 'object' } }, required: ['contractVersion', 'capability', 'campaign'], additionalProperties: true },
+    permissions: ['content:write'],
+    sideEffects: 'write',
+    humanReviewRequired: true,
+    tags: ['content', 'campaign', 'create']
+  }),
+  manifest({
+    id: 'content.campaign.approve',
+    description: 'Aprueba todas las piezas completas de una campaña para que puedan programarse.',
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, campaignId: { type: 'string' }, batchId: { type: 'string' } }, anyOf: [{ required: ['campaignId'] }, { required: ['batchId'] }], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string' }, batchId: { type: 'string' }, items: { type: 'array' } }, required: ['contractVersion', 'capability'], additionalProperties: true },
+    permissions: ['content:publish'],
+    sideEffects: 'write',
+    humanReviewRequired: true,
+    tags: ['content', 'campaign', 'approval']
+  }),
+  manifest({
+    id: 'content.campaign.schedule',
+    description: 'Programa una campaña aprobada. Cada pieza se separa una hora para conservar un orden editorial estable.',
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, campaignId: { type: 'string' }, batchId: { type: 'string' }, channels: { type: 'array', items: { type: 'string' }, minItems: 1 }, publicationDate: { type: 'string' }, timezone: { type: 'string' } }, required: ['publicationDate', 'channels'], anyOf: [{ required: ['campaignId'] }, { required: ['batchId'] }], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string' }, batchId: { type: 'string' }, items: { type: 'array' } }, required: ['contractVersion', 'capability'], additionalProperties: true },
+    permissions: ['content:publish'],
+    sideEffects: 'external',
+    humanReviewRequired: true,
+    tags: ['content', 'campaign', 'schedule']
+  }),
+  manifest({
+    id: 'content.campaign.publish',
+    description: 'Publica ahora una campaña ya aprobada. Para el canal blog encola el despliegue mediante el webhook de Coolify.',
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, campaignId: { type: 'string' }, batchId: { type: 'string' }, channels: { type: 'array', items: { type: 'string' }, minItems: 1 }, publicationDate: { type: 'string' }, timezone: { type: 'string' } }, required: ['channels'], anyOf: [{ required: ['campaignId'] }, { required: ['batchId'] }], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string' }, batchId: { type: 'string' }, status: { type: 'string' }, items: { type: 'array' } }, required: ['contractVersion', 'capability', 'batchId', 'status', 'items'], additionalProperties: true },
+    permissions: ['content:publish'],
+    sideEffects: 'external',
+    humanReviewRequired: true,
+    tags: ['content', 'campaign', 'publish', 'coolify']
+  }),
+  manifest({
+    id: 'content.media.attach',
+    description: 'Asocia un asset ya guardado a una pieza de campaña para sacar elementos sueltos del estado sin publicar.',
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, itemId: { type: 'string' }, mediaAssetId: { type: 'string' }, channels: { type: 'array', items: { type: 'string' }, minItems: 1 }, assetIndex: { type: 'integer', minimum: 0, maximum: 19 }, createMissingVariants: { type: 'array', items: { type: 'string' } }, removeReplacedAssets: { type: 'boolean' } }, required: ['itemId', 'mediaAssetId', 'channels'], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string' }, attachment: { type: 'object' } }, required: ['contractVersion', 'capability', 'attachment'], additionalProperties: true },
+    permissions: ['content:write'],
+    sideEffects: 'write',
+    humanReviewRequired: true,
+    tags: ['content', 'media', 'attach']
+  }),
+  manifest({
     id: 'publication.destination.list',
     description: 'Lista destinos y proveedores de publicación compatibles con los assets aprobados.',
     inputSchema: { type: 'object', properties: { brandId: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, assetIds: { type: 'array', items: { type: 'string' } }, assets: { type: 'array', items: { type: 'object' } }, channel: { type: 'string' }, provider: { type: 'string' }, connections: { type: 'array', items: { type: 'object' } }, text: { type: 'string' } }, additionalProperties: false },
@@ -733,8 +799,8 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
   }),
   manifest({
     id: 'publication.publish',
-    description: 'Publica un bundle aprobado mediante el adaptador seleccionado.',
-    inputSchema: { type: 'object', properties: { runId: { type: 'string' }, publicationId: { type: 'string' }, idempotencyKey: { type: 'string' }, channel: { type: 'string' }, provider: { type: 'string' }, assets: { type: 'array' }, assetIds: { type: 'array' }, text: { type: 'string' }, content: { type: 'object' }, approval: { type: 'object' }, permissions: { type: 'array' }, connections: { type: 'array' } }, required: ['channel', 'provider'], additionalProperties: false },
+    description: 'Publica un bundle aprobado mediante el adaptador seleccionado. Para Coolify se requiere contentItemId para encolar la variante blog.',
+    inputSchema: { type: 'object', properties: { runId: { type: 'string' }, publicationId: { type: 'string' }, idempotencyKey: { type: 'string' }, channel: { type: 'string' }, provider: { type: 'string' }, contentItemId: { type: 'string' }, assets: { type: 'array' }, assetIds: { type: 'array' }, text: { type: 'string' }, content: { type: 'object' }, approval: { type: 'object' }, permissions: { type: 'array' }, connections: { type: 'array' } }, required: ['channel', 'provider'], additionalProperties: false },
     outputSchema: { type: 'object', properties: { publicationId: { type: 'string' }, state: { type: 'string' }, status: { type: 'string' } }, required: ['publicationId', 'state', 'status'], additionalProperties: true },
     permissions: ['publication:write'],
     sideEffects: 'external',

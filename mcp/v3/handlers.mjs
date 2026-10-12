@@ -7,7 +7,16 @@ import { getActiveBrandKit, resolveWorkspaceContext } from '../../lib/workspace-
 import { getPgPool } from '../../lib/pg.mjs'
 import { cancelVideoJob, createVideoJob, getVideoJob, retryVideoJob, updateVideoJob } from '../../lib/video-jobs.mjs'
 import { uploadMedia } from '../../lib/cms-ops.mjs'
-import { attachContentMedia, registerContentMedia } from '../../lib/workspace-domain.mjs'
+import {
+  attachContentMedia,
+  approveContentBatch,
+  createContentBatch,
+  getContentBatch,
+  listContentPlans,
+  registerContentMedia,
+  scheduleContentBatch,
+  scheduleContentItem
+} from '../../lib/workspace-domain.mjs'
 import { mediaDir } from '../../lib/db.mjs'
 import { renderProductTransform } from '../../lib/product-renderer.mjs'
 import { resolve as resolvePath, join } from 'node:path'
@@ -22,7 +31,7 @@ import {
   validatePublicationCompatibility
 } from '../../lib/publication/index.mjs'
 import { getPublicationRun, persistPublicationOperation } from '../../lib/publication/persistence.mjs'
-import { MOTION_FORMAT_PROFILES } from './catalog.mjs'
+import { MCP_V3_CONTRACT, MOTION_FORMAT_PROFILES } from './catalog.mjs'
 
 const FORMAT_ASSET_TYPES = Object.freeze({
   blog: 'blog_cover',
@@ -35,13 +44,13 @@ const FORMAT_ASSET_TYPES = Object.freeze({
 
 const ROLE_PERMISSIONS = Object.freeze({
   admin: ['*'],
-  owner: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'publication:write', 'publication:publish'],
-  agency_admin: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'publication:write', 'publication:publish'],
-  editor: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'publication:write'],
-  author: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read'],
-  client: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read'],
+  owner: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'publication:write', 'publication:publish', 'content:read', 'content:write', 'content:publish'],
+  agency_admin: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'publication:write', 'publication:publish', 'content:read', 'content:write', 'content:publish'],
+  editor: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'publication:write', 'content:read', 'content:write', 'content:publish'],
+  author: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'content:read', 'content:write'],
+  client: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'content:read'],
   viewer: ['brand:read', 'asset:read', 'publication:read'],
-  agent: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'publication:write']
+  agent: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'publication:write', 'content:read', 'content:write', 'content:publish']
 })
 
 function authPermissions(auth = {}) {
@@ -333,6 +342,105 @@ async function persistPublicationIfScoped(contract, args, auth, runtime) {
   })
 }
 
+async function contentCampaignAction(name, args, auth, runtime) {
+  const scope = await motionScope(args, auth, runtime)
+  const role = (scope.role || auth.role) === 'agent' ? 'editor' : (scope.role || auth.role)
+  const shared = { workspaceId: scope.workspaceId, siteId: scope.siteId, userId: auth.userId, role, quotaExempt: Boolean(auth.systemAdmin) }
+  const campaignId = args.campaignId || args.batchId
+  const listCampaigns = typeof runtime?.listContentPlans === 'function' ? runtime.listContentPlans : listContentPlans
+  const getCampaign = typeof runtime?.getContentBatch === 'function' ? runtime.getContentBatch : getContentBatch
+  const createCampaign = typeof runtime?.createContentBatch === 'function' ? runtime.createContentBatch : createContentBatch
+  const approveCampaign = typeof runtime?.approveContentBatch === 'function' ? runtime.approveContentBatch : approveContentBatch
+  const scheduleCampaign = typeof runtime?.scheduleContentBatch === 'function' ? runtime.scheduleContentBatch : scheduleContentBatch
+  const attachMedia = typeof runtime?.attachContentMedia === 'function' ? runtime.attachContentMedia : attachContentMedia
+  if (name === 'content.campaign.list') {
+    return {
+      contractVersion: MCP_V3_CONTRACT,
+      capability: name,
+      campaigns: await listCampaigns({ workspaceId: scope.workspaceId, siteId: scope.siteId, status: args.status, channel: args.channel, query: args.query, limit: args.limit })
+    }
+  }
+  if (name === 'content.campaign.get') {
+    return { contractVersion: MCP_V3_CONTRACT, capability: name, campaign: await getCampaign({ workspaceId: scope.workspaceId, siteId: scope.siteId, batchId: campaignId }) }
+  }
+  if (name === 'content.campaign.create') {
+    const metadata = { ...(args.metadata && typeof args.metadata === 'object' ? args.metadata : {}) }
+    if (args.brief && !metadata.contentBrief) metadata.contentBrief = args.brief
+    return {
+      contractVersion: MCP_V3_CONTRACT,
+      capability: name,
+      campaign: await createCampaign({
+        ...shared,
+        title: args.title,
+        topics: args.topics,
+        items: args.items,
+        channels: args.channels,
+        brandKitVersionId: args.brandKitVersionId,
+        metadata,
+        idempotencyKey: args.idempotencyKey
+      })
+    }
+  }
+  if (name === 'content.campaign.approve') {
+    return { contractVersion: MCP_V3_CONTRACT, capability: name, ...await approveCampaign({ ...shared, batchId: campaignId }) }
+  }
+  if (name === 'content.campaign.schedule') {
+    return {
+      contractVersion: MCP_V3_CONTRACT,
+      capability: name,
+      ...await scheduleCampaign({ ...shared, batchId: campaignId, channels: args.channels, publicationDate: args.publicationDate, timezone: args.timezone || 'UTC' })
+    }
+  }
+  if (name === 'content.campaign.publish') {
+    const campaign = await getCampaign({ workspaceId: scope.workspaceId, siteId: scope.siteId, batchId: campaignId })
+    const channels = [...new Set((Array.isArray(args.channels) ? args.channels : []).map((value) => String(value || '').trim().toLowerCase()).filter(Boolean))]
+    if (!channels.length) throw Object.assign(new Error('channels debe contener al menos un canal.'), { code: 'content_channels_required', status: 422 })
+    const variants = (campaign.items || []).flatMap((item) => (item.variants || []).filter((variant) => channels.includes(String(variant.channel || '').toLowerCase())))
+    if (variants.length && variants.every((variant) => ['scheduled', 'syncing', 'published'].includes(String(variant.scheduleStatus || variant.status)))) {
+      return { contractVersion: MCP_V3_CONTRACT, capability: name, batchId: campaign.id, status: variants.every((variant) => String(variant.scheduleStatus || variant.status) === 'published') ? 'published' : 'scheduled', channels, items: campaign.items || [], idempotentReplay: true }
+    }
+    const publicationDate = args.publicationDate || new Date().toISOString()
+    const scheduled = await scheduleCampaign({ ...shared, batchId: campaignId, channels, publicationDate, timezone: args.timezone || 'UTC', publishNow: true })
+    return { contractVersion: MCP_V3_CONTRACT, capability: name, ...scheduled, status: scheduled.status || 'scheduled' }
+  }
+  if (name === 'content.media.attach') {
+    return {
+      contractVersion: MCP_V3_CONTRACT,
+      capability: name,
+      attachment: await attachMedia({ ...shared, itemId: args.itemId, mediaAssetId: args.mediaAssetId, channels: args.channels, assetIndex: args.assetIndex, createMissingVariants: args.createMissingVariants, removeReplacedAssets: args.removeReplacedAssets === true })
+    }
+  }
+  return undefined
+}
+
+async function publishCoolifyContentItem(args, auth, runtime, publication) {
+  const itemId = String(args.contentItemId || '').trim()
+  if (!itemId) throw Object.assign(new Error('contentItemId es obligatorio para publicar el blog mediante Coolify.'), { code: 'content_item_required', status: 422 })
+  const scope = await motionScope(args, auth, runtime)
+  const publishItem = typeof runtime?.scheduleContentItem === 'function' ? runtime.scheduleContentItem : scheduleContentItem
+  const execution = await publishItem({
+    workspaceId: scope.workspaceId,
+    siteId: scope.siteId,
+    itemId,
+    userId: auth.userId,
+    role: (scope.role || auth.role) === 'agent' ? 'editor' : (scope.role || auth.role),
+    channels: ['blog'],
+    publicationDate: args.publicationDate || new Date().toISOString(),
+    timezone: args.timezone || 'UTC',
+    publishNow: true,
+    quotaExempt: Boolean(auth.systemAdmin)
+  })
+  return {
+    ...publication,
+    state: 'publish_requested',
+    status: 'publish_requested',
+    contentItemId: itemId,
+    execution,
+    effects: { ...publication.effects, providerExecution: false, mutatesProvider: false, contentOutboxQueued: true },
+    next: ['content.campaign.get', 'publication.status.get']
+  }
+}
+
 function validateCopy(args, context) {
   const text = String(args.text || '').trim()
   const metadata = buildBrandOsMetadata({
@@ -616,7 +724,7 @@ async function motionScope(args, auth, runtime) {
   })
   const selected = context.sites.find((entry) => entry.id === requestedSiteId || entry.handle === site) || context.sites[0]
   if (!selected) throw Object.assign(new Error('La marca no está disponible para crear el trabajo.'), { code: 'motion_site_required', status: 422 })
-  return { site: selected.handle || site, workspaceId: context.workspaceId, siteId: selected.id, siteHandle: selected.handle || site }
+  return { site: selected.handle || site, workspaceId: context.workspaceId, siteId: selected.id, siteHandle: selected.handle || site, role: selected.role || context.role || auth.role }
 }
 
 async function planMotionStoryboard(args, auth, runtime) {
@@ -1041,6 +1149,9 @@ export async function invokeBuiltinCapability(name, args = {}, { auth = {}, runt
   }
 
   const publication = publicationInput(args, auth)
+  if (name === 'publication.publish' && String(args.channel || '').toLowerCase() === 'wordpress_post' && String(args.provider || '').toLowerCase() === 'web') {
+    return publishCoolifyContentItem(args, auth, runtime, publishPublication(publication))
+  }
   if (name === 'publication.destination.list') return listPublicationDestinations(publication)
   if (name === 'publication.validate') {
     const compatibility = validatePublicationCompatibility(publication)
@@ -1074,6 +1185,7 @@ export async function invokeBuiltinCapability(name, args = {}, { auth = {}, runt
   if (name === 'production.motion.status.get') return motionJobAction(args, auth, runtime, 'status')
   if (name === 'production.motion.retry') return motionJobAction(args, auth, runtime, 'retry')
   if (name === 'production.motion.cancel') return motionJobAction(args, auth, runtime, 'cancel')
+  if (name.startsWith('content.campaign.') || name === 'content.media.attach') return contentCampaignAction(name, args, auth, runtime)
 
   return undefined
 }

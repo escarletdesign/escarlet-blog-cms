@@ -500,8 +500,8 @@ export function ContentBatches({ site, brandId, previewItemId, creationEnabled =
     const status = variantStatus(variant);
     if (canApproveStatus(status)) await api.approveContent(item.id, site);
     const publicationDate = new Date().toISOString();
-    const schedule = status === "approved" || canApproveStatus(status);
-    await (schedule ? api.scheduleContent : api.rescheduleContent)(item.id, publicationDate, "UTC", site, ["blog"], { publishNow: true });
+    const retry = ["scheduled", "failed", "action_required"].includes(status);
+    await (retry ? api.rescheduleContent : api.scheduleContent)(item.id, publicationDate, "UTC", site, ["blog"], { publishNow: true });
   });
   const reopenBlog = (item: ContentItem) => run(async () => { await api.reopenUnsentChannel(item.id, "blog", site); onNotify?.("Blog reabierto. Ya puedes publicarlo de nuevo."); });
   const skipChannel = (item: ContentItem, channel: ContentChannel) => run(() => api.cancelContentChannel(item.id, channel, site));

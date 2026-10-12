@@ -2124,11 +2124,13 @@ async function handleRequest(req, res) {
         'destination.list': 'publication.destination.list',
         route: 'publication.route',
         prepare: 'publication.prepare',
+        schedule: 'publication.schedule',
+        publish: 'publication.publish',
         status: 'publication.status.get',
         'status.get': 'publication.status.get'
       }[operation]
       if (!operationName) {
-        json(res, 422, { code: 'publication_operation_required', message: 'operation debe ser list, route, prepare o status.get.' })
+        json(res, 422, { code: 'publication_operation_required', message: 'operation debe ser list, route, prepare, schedule, publish o status.get.' })
         return
       }
       const auth = { ...scope.auth, workspaceId: scope.workspaceId, siteId: scope.siteId, site: scope.context.siteHandle, role: scope.context.role }
