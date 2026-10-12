@@ -7,7 +7,7 @@
     "dev": "vite --config apps/pwa/vite.config.ts",
     "start": "node scripts/docker-entrypoint.mjs",
     "mcp": "node mcp/index.mjs",
-    "test": "node --test lib/**/*.test.mjs mcp/**/*.test.mjs",
+    "test": "node --test lib/**/*.test.mjs lib/db.test.mjs lib/story-publication-media.test.mjs mcp/**/*.test.mjs",
     "import:escarlet": "node scripts/import-escarlet.mjs",
     "db:migrate": "node scripts/migrate-json-to-postgres.mjs",
     "worker": "node worker.mjs",

@@ -1,4 +1,4 @@
-import type { Author, BrandCapability, BrandChannel, BrandSummary, ContentBatch, ContentItem, GeneratedImage, MediaItem, Post, Session } from "./types";
+import type { Author, BrandCapability, BrandChannel, BrandSummary, CalendarEntry, ContentBatch, ContentItem, GeneratedImage, MediaItem, Post, Session } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -277,7 +277,7 @@ const baseApi = {
       body: JSON.stringify(site ? { site } : {}),
     }),
   calendarV2: (site?: string) =>
-    request<{ entries: Array<Record<string, any>> }>(`/api/v2/calendar${site ? `?site=${encodeURIComponent(site)}` : ""}`),
+    request<{ entries: CalendarEntry[] }>(`/api/v2/calendar${site ? `?site=${encodeURIComponent(site)}` : ""}`),
   teamV2: (site?: string) =>
     request<{ members: Array<Record<string, any>>; canManage: boolean }>(`/api/v2/team${site ? `?site=${encodeURIComponent(site)}` : ""}`),
   updateTeamMember: (userId: string, input: { role: string; brandIds?: string[]; brandRoles?: Record<string, string> }) =>

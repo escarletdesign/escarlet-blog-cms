@@ -16,6 +16,7 @@ import { mediaDir } from './lib/db.mjs'
 import { renderMotionVideo } from './lib/motion-renderer.mjs'
 import { getMotionBrandAssets } from './lib/brand-kit.mjs'
 import { assertMotionAssetFile } from './lib/motion-storage.mjs'
+import { mergeStoryMedia } from './lib/story-publication-media.mjs'
 
 function loadEnv() {
   const path = new URL('./.env', import.meta.url)
@@ -270,9 +271,9 @@ async function processExternalPublicationEvent(event) {
       const feedMedia = await pool.query(`SELECT ma.public_url AS "url",ma.content_type AS "mimeType",ma.metadata
         FROM content_variant_media cvm JOIN media_assets ma ON ma.id=cvm.media_asset_id
         JOIN content_variants feed ON feed.id=cvm.variant_id
-        WHERE feed.item_id=(SELECT item_id FROM content_variants WHERE id=$1) AND feed.channel='instagram'
+        WHERE feed.item_id=(SELECT item_id FROM content_variants WHERE id=$1) AND feed.channel='instagram' AND feed.status IN ('approved','scheduled','syncing','published')
         ORDER BY cvm.sort_order`, [variant.id])
-      if (feedMedia.rows.filter((asset) => asset.url).length > mediaRows.rows.filter((asset) => asset.url).length) mediaRows = feedMedia
+      mediaRows = { ...mediaRows, rows: mergeStoryMedia(mediaRows.rows, feedMedia.rows) }
     }
     if (story && provider !== 'buffer') {
       const message = 'Instagram Story requiere una conexión Buffer.'

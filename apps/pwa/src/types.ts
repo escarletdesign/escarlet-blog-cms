@@ -43,6 +43,24 @@ export interface BrandSummary {
   connections?: Array<Record<string, any>>;
 }
 export type ContentStatus = "draft" | "generated" | "needs_review" | "approved" | "scheduled" | "syncing" | "action_required" | "published" | "failed" | "canceled";
+export interface CalendarEntry {
+  itemId: string;
+  batchId: string | null;
+  planTitle: string | null;
+  siteId: string;
+  topic: string;
+  variantId: string;
+  channel: string;
+  variantStatus: string;
+  publicationDate: string | null;
+  timezone: string | null;
+  status: string;
+  provider: string | null;
+  providerPostId: string | null;
+  attempts: number;
+  lastError: string | null;
+  updatedAt: string | null;
+}
 export interface ContentVariant {
   id: string;
   channel: ContentChannel;

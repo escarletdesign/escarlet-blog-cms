@@ -670,7 +670,7 @@
 }
 
 @media (min-width: 760px) and (max-width: 1023px) {
-  .ui-page, .chat-page { padding: 42px 32px calc(105px + env(safe-area-inset-bottom)); }
+  .ui-page, .chat-page { padding: var(--ui-space-10) var(--ui-space-8) calc(var(--ui-page-bottom-clearance) + env(safe-area-inset-bottom)); }
   .preview-page { padding-bottom: calc(160px + env(safe-area-inset-bottom)); }
   .sticky-actions { left: 0; bottom: calc(62px + env(safe-area-inset-bottom)); }
   .composer { bottom: calc(72px + env(safe-area-inset-bottom)); }

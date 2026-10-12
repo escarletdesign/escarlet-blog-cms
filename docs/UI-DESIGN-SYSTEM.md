@@ -38,7 +38,7 @@ Los nuevos estilos usan exclusivamente variables `--ui-*`.
 - Color: `--ui-bg`, `--ui-surface`, `--ui-surface-raised`, `--ui-text`, `--ui-muted`, `--ui-accent`, `--ui-danger`, `--ui-warning`, `--ui-info`.
 - Bordes y foco: `--ui-border`, `--ui-border-strong`, `--ui-focus-ring`.
 - Forma: `--ui-radius-sm`, `--ui-radius-md`, `--ui-radius-lg`, `--ui-radius-pill`.
-- Ritmo: `--ui-space-1` a `--ui-space-8`.
+- Ritmo: `--ui-space-1` a `--ui-space-10`; `--ui-page-bottom-clearance` reserva espacio para la navegación inferior.
 - Elevación y tipografía: `--ui-shadow`, `--ui-font-sans`.
 - Controles: `--ui-select-chevron-offset` y `--ui-select-chevron-space` mantienen el chevron de todos los desplegables alineado y con espacio táctil suficiente.
 

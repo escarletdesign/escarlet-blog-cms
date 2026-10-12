@@ -852,7 +852,7 @@ async function readV2PublicBlogPosts(siteHandle) {
     // that window an empty canonical feed must not hide the legacy public feed.
     if (!result.rows.length) return null
     const itemIds = result.rows.map((row) => row.item_id).filter(Boolean)
-    const socialResult = itemIds.length ? await pool.query(`SELECT cv.item_id,cv.channel,cv.body,COALESCE(json_agg(json_build_object('url',ma.public_url,'path',ma.storage_key,'metadata',ma.metadata,'thumbUrl',ma.metadata->>'thumbUrl','previewUrl',ma.metadata->>'previewUrl','width',ma.metadata->>'width','height',ma.metadata->>'height') ORDER BY cvm.sort_order) FILTER (WHERE ma.id IS NOT NULL),'[]'::json) AS media FROM content_variants cv LEFT JOIN content_variant_media cvm ON cvm.variant_id=cv.id LEFT JOIN media_assets ma ON ma.id=cvm.media_asset_id WHERE cv.item_id=ANY($1::text[]) AND cv.channel IN ('instagram','instagram_story') GROUP BY cv.item_id,cv.channel,cv.body`, [itemIds]) : { rows: [] }
+    const socialResult = itemIds.length ? await pool.query(`SELECT cv.item_id,cv.channel,cv.body,COALESCE(json_agg(json_build_object('url',ma.public_url,'thumbUrl',ma.metadata->>'thumbUrl','previewUrl',ma.metadata->>'previewUrl','width',ma.metadata->>'width','height',ma.metadata->>'height') ORDER BY cvm.sort_order) FILTER (WHERE ma.id IS NOT NULL),'[]'::json) AS media FROM content_variants cv LEFT JOIN content_variant_media cvm ON cvm.variant_id=cv.id LEFT JOIN media_assets ma ON ma.id=cvm.media_asset_id WHERE cv.item_id=ANY($1::text[]) AND cv.channel IN ('instagram','instagram_story') AND cv.status='published' GROUP BY cv.item_id,cv.channel,cv.body`, [itemIds]) : { rows: [] }
     const socialByItem = new Map()
     for (const row of socialResult.rows) {
       const channels = socialByItem.get(row.item_id) || {}
@@ -871,9 +871,9 @@ async function readV2PublicBlogPosts(siteHandle) {
         const media = Array.isArray(socialRow.media) ? socialRow.media : []
         socialPack.instagramSlides = socialPack.instagramSlides.map((slide, index) => ({
           ...slide,
-          imageUrl: slide?.imageUrl || slide?.url || slide?.image || media[index]?.url || media[index]?.path || '',
-          previewUrl: slide?.previewUrl || slide?.imagePreviewUrl || media[index]?.previewUrl || media[index]?.metadata?.previewUrl || '',
-          thumbUrl: slide?.thumbUrl || slide?.imageThumbUrl || media[index]?.thumbUrl || media[index]?.metadata?.thumbUrl || ''
+          imageUrl: slide?.imageUrl || slide?.url || slide?.image || media[index]?.url || '',
+          previewUrl: slide?.previewUrl || slide?.imagePreviewUrl || media[index]?.previewUrl || '',
+          thumbUrl: slide?.thumbUrl || slide?.imageThumbUrl || media[index]?.thumbUrl || ''
         }))
       }
       const storyPack = storyBody.socialPack?.instagramStory
@@ -884,9 +884,9 @@ async function readV2PublicBlogPosts(siteHandle) {
         const frameCount = storyFrames.length || (storyMedia.length > 1 ? storyMedia.length : socialMedia.length || (storyPack.imageUrl || storyPack.url ? 1 : 0))
         socialPack.instagramStory = {
           ...storyPack,
-          imageUrl: storyPack.imageUrl || storyPack.url || storyMedia[0]?.url || storyMedia[0]?.path || '',
-          previewUrl: storyPack.previewUrl || storyPack.imagePreviewUrl || storyMedia[0]?.previewUrl || storyMedia[0]?.metadata?.previewUrl || '',
-          thumbUrl: storyPack.thumbUrl || storyPack.imageThumbUrl || storyMedia[0]?.thumbUrl || storyMedia[0]?.metadata?.thumbUrl || '',
+          imageUrl: storyPack.imageUrl || storyPack.url || storyMedia[0]?.url || '',
+          previewUrl: storyPack.previewUrl || storyPack.imagePreviewUrl || storyMedia[0]?.previewUrl || '',
+          thumbUrl: storyPack.thumbUrl || storyPack.imageThumbUrl || storyMedia[0]?.thumbUrl || '',
           frames: Array.from({ length: frameCount }, (_, index) => {
             const frame = storyFrames[index] || {}
             const media = storyMedia[index] || socialMedia[index] || {}
@@ -896,9 +896,9 @@ async function readV2PublicBlogPosts(siteHandle) {
               ...media,
               ...(index === 0 ? storyPack : {}),
               ...frame,
-              imageUrl: frame.imageUrl || frame.url || frame.image || media.url || media.path || fallback.imageUrl || fallback.url || fallback.image || '',
-              previewUrl: frame.previewUrl || frame.imagePreviewUrl || media.previewUrl || media.metadata?.previewUrl || fallback.previewUrl || '',
-              thumbUrl: frame.thumbUrl || frame.imageThumbUrl || media.thumbUrl || media.metadata?.thumbUrl || fallback.thumbUrl || ''
+              imageUrl: frame.imageUrl || frame.url || frame.image || media.url || fallback.imageUrl || fallback.url || fallback.image || '',
+              previewUrl: frame.previewUrl || frame.imagePreviewUrl || media.previewUrl || fallback.previewUrl || '',
+              thumbUrl: frame.thumbUrl || frame.imageThumbUrl || media.thumbUrl || fallback.thumbUrl || ''
             }
           })
         }

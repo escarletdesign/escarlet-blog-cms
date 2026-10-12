@@ -282,7 +282,7 @@ Se aplicaron también estos cambios en el frontend:
 - `npm run build`: aprobado, con aviso de bundle principal por encima de 500 kB.
 - `npx tsc --noEmit -p apps/pwa/tsconfig.json`: aprobado.
 - `npm test` en un `CMS_DATA_DIR` temporal: 61/61 pruebas aprobadas, incluidas las de MCP.
-- No se modificaron contratos CMS, autenticación, API, servidor, worker ni implementación MCP en esta actualización. No se pudo completar una prueba visual autenticada porque el backend local no estaba disponible.
+- Esa fase no modificó contratos CMS, autenticación, API, servidor, worker ni implementación MCP. No se pudo completar una prueba visual autenticada porque el backend local no estaba disponible.
 
 ### Trabajo estructural pendiente
 
@@ -293,5 +293,14 @@ Se aplicaron también estos cambios en el frontend:
 - La ruta `/calendar` ahora carga de forma diferida `apps/pwa/src/features/calendar/EditorialCalendar.tsx`. Sus filtros, vistas de lista y mes, detalle por canal, estados de carga/error/vacío y acciones de reintento/reagendado se trasladaron sin cambiar su comportamiento.
 - La lógica de presentación multimedia específica del calendario también quedó en el feature. Se conservaron las llamadas existentes a `calendarV2`, `contentBatches`, `rescheduleContent` y `markChannelPublished`; `api.ts`, los contratos CMS y MCP no cambiaron.
 - El componente `Calendar` incrustado en Posts sigue en `App.tsx` porque esa pantalla todavía lo consume.
-- Verificación: `npm run ui:check`, `npx tsc --noEmit -p apps/pwa/tsconfig.json`, `npm run build` y 61/61 pruebas con `CMS_DATA_DIR` temporal pasan. Vite reporta 608.07 kB para el chunk principal, frente a 625.49 kB antes de este corte, y conserva el aviso del límite de 500 kB.
+- Verificación inicial del corte: `npm run ui:check`, `npx tsc --noEmit -p apps/pwa/tsconfig.json`, `npm run build` y 61/61 pruebas con `CMS_DATA_DIR` temporal pasaron. El chunk inicial se dividió después, como se registra en las correcciones de revisión.
 - No se pudo hacer validación visual autenticada, móvil ni con lector de pantalla en esta sesión. El cambio preserva la interfaz y los flujos existentes, pero requiere ese recorrido manual antes de cerrar la migración de calendario.
+
+### Correcciones de revisión Thermos
+
+- El feed público del Blog solo incorpora variantes sociales publicadas. Las imágenes se proyectan con URL pública, dimensiones y vistas previas; `publicPost` elimina rutas internas y metadatos privados del `socialPack`.
+- El worker conserva primero los medios de la variante Story y completa desde el carrusel de Instagram solo con assets aprobados, programados, en sincronización o publicados. El merge elimina URLs duplicadas y respeta el máximo de 20 imágenes de Buffer.
+- `calendarV2` y el calendario tienen tipos explícitos de respuesta. El espacio de tablet usa tokens compartidos.
+- Rolldown separa las dependencias en un chunk reutilizable: el entry queda en 348 kB y vendor en 265 kB, sin superar el límite de 500 kB por chunk.
+- Verificación tras estas correcciones: `npm run ui:check`, `npx tsc --noEmit -p apps/pwa/tsconfig.json`, `npm run build` y 66/66 pruebas de `npm test` pasan con `CMS_DATA_DIR` temporal.
+- No cambiaron rutas ni contratos del CMS, autenticación o MCP. `api.ts` solo recibió tipos de TypeScript. La comprobación visual autenticada y con lector de pantalla sigue pendiente.
