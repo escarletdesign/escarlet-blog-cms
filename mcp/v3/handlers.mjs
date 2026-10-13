@@ -396,9 +396,15 @@ async function contentCampaignAction(name, args, auth, runtime) {
     const channels = [...new Set((Array.isArray(args.channels) ? args.channels : []).map((value) => String(value || '').trim().toLowerCase()).filter(Boolean))]
     if (!channels.length) throw Object.assign(new Error('channels debe contener al menos un canal.'), { code: 'content_channels_required', status: 422 })
     const variants = (campaign.items || []).flatMap((item) => (item.variants || []).filter((variant) => channels.includes(String(variant.channel || '').toLowerCase())))
+    const missing = (campaign.items || []).filter((item) => !(item.variants || []).some((variant) => channels.includes(String(variant.channel || '').toLowerCase())))
+    if (missing.length) throw Object.assign(new Error('Todas las piezas de la campaña deben tener una variante en los canales seleccionados.'), { code: 'content_campaign_variant_missing', status: 409, details: { itemIds: missing.map((item) => item.id) } })
     if (variants.length && variants.every((variant) => ['scheduled', 'syncing', 'published'].includes(String(variant.scheduleStatus || variant.status)))) {
       return { contractVersion: MCP_V3_CONTRACT, capability: name, batchId: campaign.id, status: variants.every((variant) => String(variant.scheduleStatus || variant.status) === 'published') ? 'published' : 'scheduled', channels, items: campaign.items || [], idempotentReplay: true }
     }
+    const published = variants.filter((variant) => String(variant.scheduleStatus || variant.status) === 'published')
+    if (published.length) throw Object.assign(new Error('La campaña está parcialmente publicada. Consulta sus piezas y publica solo un lote pendiente.'), { code: 'content_campaign_partial_published', status: 409 })
+    const pendingApproval = variants.filter((variant) => !['approved', 'scheduled', 'syncing'].includes(String(variant.scheduleStatus || variant.status)))
+    if (pendingApproval.length) throw Object.assign(new Error('Aprueba todas las variantes seleccionadas antes de publicar la campaña.'), { code: 'content_campaign_approval_required', status: 409, details: { statuses: pendingApproval.map((variant) => ({ channel: variant.channel, status: variant.scheduleStatus || variant.status })) } })
     const publicationDate = args.publicationDate || new Date().toISOString()
     const scheduled = await scheduleCampaign({ ...shared, batchId: campaignId, channels, publicationDate, timezone: args.timezone || 'UTC', publishNow: true })
     return { contractVersion: MCP_V3_CONTRACT, capability: name, ...scheduled, status: scheduled.status || 'scheduled' }

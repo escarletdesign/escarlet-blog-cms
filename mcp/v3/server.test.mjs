@@ -71,6 +71,17 @@ test('discovery es invocable y no ejecuta generacion por defecto', async () => {
   assert.ok(recipes.structuredContent.capabilities.some((entry) => entry.id === 'recipe.food-to-reel' || entry.id === 'food-to-reel'))
 })
 
+test('las respuestas grandes no duplican el payload completo en content.text', async () => {
+  const server = createMcpServerV3Sync({ role: 'admin' })
+  const result = await server._requestHandlers.get('tools/call')({
+    method: 'tools/call',
+    params: { name: 'capability.search', arguments: { includeSchemas: true } }
+  }, { mcpReq: { requestState: () => undefined } })
+  assert.equal(result.isError, false)
+  assert.ok(result.content[0].text.length < JSON.stringify(result.structuredContent).length)
+  assert.match(result.content[0].text, /structuredContent/)
+})
+
 test('discovery progresivo separa resumen de schema completo', async () => {
   const search = await invokeMcpToolV3('capability.search', { query: 'motion' }, { role: 'admin' })
   assert.equal(search.structuredContent.capabilities.some((entry) => entry.id === 'production.motion.compose'), true)
@@ -178,10 +189,10 @@ test('tools/call delega en el registro OS sin dar acceso implícito a generació
       }
     }
   })
-  const result = await server._requestHandlers.get('tools/call')({ method: 'tools/call', params: { name: 'brand.context.get', arguments: { brandKitVersionId: 'kit-1' } } }, { mcpReq: { requestState: () => undefined } })
+  const result = await server._requestHandlers.get('tools/call')({ method: 'tools/call', params: { name: 'brand.context.get', arguments: { site: 'escarlet', brandKitVersionId: 'kit-1' } } }, { mcpReq: { requestState: () => undefined } })
   assert.equal(result.isError, false)
   assert.equal(result.structuredContent.brandKitVersionId, 'kit-1')
-  assert.deepEqual(calls, [{ name: 'brand.context.get', args: { brandKitVersionId: 'kit-1' }, contractVersion: MCP_V3_CONTRACT }])
+  assert.deepEqual(calls, [{ name: 'brand.context.get', args: { site: 'escarlet', brandKitVersionId: 'kit-1' }, contractVersion: MCP_V3_CONTRACT }])
 })
 
 test('tools/call rechaza cualquier nombre legacy incluso si no está catalogado', async () => {
@@ -191,6 +202,17 @@ test('tools/call rechaza cualquier nombre legacy incluso si no está catalogado'
     assert.equal(result.isError, true, name)
     assert.equal(result.structuredContent.error.code, 'namespaced_tool_required', name)
   }
+})
+
+test('tools/call valida los argumentos declarados antes de ejecutar una capability', async () => {
+  const server = createMcpServerV3Sync({ role: 'admin' })
+  const result = await server._requestHandlers.get('tools/call')({
+    method: 'tools/call',
+    params: { name: 'content.campaign.list', arguments: { limit: 201 } }
+  }, { mcpReq: { requestState: () => undefined } })
+  assert.equal(result.isError, true)
+  assert.equal(result.structuredContent.error.code, 'capability_input_invalid')
+  assert.ok(result.structuredContent.error.details.fields.some((field) => field.includes('limit')))
 })
 
 test('el catálogo inicial mantiene los contratos de Brand Kernel y Publisher', () => {

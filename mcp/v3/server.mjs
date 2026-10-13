@@ -11,15 +11,30 @@ import {
   publicToolManifest
 } from './catalog.mjs'
 import { authPermissions, invokeBuiltinCapability } from './handlers.mjs'
-import { validateOutput } from './schema-validation.mjs'
+import { validateInput, validateOutput } from './schema-validation.mjs'
 
 const LEGACY_NAME = /^(?:blog|social|content|video|brand)_/
+const MAX_TEXT_RESULT_BYTES = 32 * 1024
+
+function textProjection(value) {
+  const serialized = JSON.stringify(value)
+  if (Buffer.byteLength(serialized, 'utf8') <= MAX_TEXT_RESULT_BYTES) return serialized
+  const summary = { truncated: true, bytes: Buffer.byteLength(serialized, 'utf8') }
+  for (const key of ['contractVersion', 'capability', 'operation', 'state', 'status', 'publicationId', 'runId', 'batchId']) {
+    if (value && value[key] !== undefined) summary[key] = value[key]
+  }
+  for (const [key, entry] of Object.entries(value || {})) {
+    if (Array.isArray(entry)) summary[`${key}Count`] = entry.length
+  }
+  summary.hint = 'La respuesta completa está en structuredContent.'
+  return JSON.stringify(summary)
+}
 
 function jsonResult(value) {
   return {
     isError: false,
     structuredContent: value,
-    content: [{ type: 'text', text: JSON.stringify(value) }]
+    content: [{ type: 'text', text: textProjection(value) }]
   }
 }
 
@@ -29,7 +44,7 @@ function errorResult(error, fallbackCode = 'capability_failed') {
   const retryable = error?.retryable === true || (error?.retryable === undefined && status >= 500)
   const action = String(error?.action || (status === 404 ? 'check_capability_id' : status === 403 ? 'request_permission' : retryable ? 'retry_after_fix' : 'inspect_error')).trim()
   const value = { error: { code, status, retryable, action, message: String(error?.message || 'La capability no está disponible.'), ...(error?.details ? { details: error.details } : {}) } }
-  return { isError: true, structuredContent: value, content: [{ type: 'text', text: JSON.stringify(value) }] }
+  return { isError: true, structuredContent: value, content: [{ type: 'text', text: textProjection(value) }] }
 }
 
 function findCapability(catalog, name) {
@@ -564,6 +579,16 @@ async function callCapability(catalog, auth, name, args, runtime) {
     error.code = 'capability_permission_missing'
     error.status = 403
     error.retryable = false
+    throw error
+  }
+  const inputErrors = validateInput(args, capability.inputSchema)
+  if (inputErrors.length) {
+    const error = new Error(`Los argumentos de ${name} no cumplen su inputSchema.`)
+    error.code = 'capability_input_invalid'
+    error.status = 422
+    error.retryable = false
+    error.action = 'fix_capability_arguments'
+    error.details = { fields: inputErrors }
     throw error
   }
   if (name === 'recipe.get') return { contractVersion: MCP_V3_CONTRACT, recipe: publicCapabilityManifest(capability) }

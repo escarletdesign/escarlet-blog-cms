@@ -541,9 +541,12 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
         siteId: { type: 'string' },
         filename: { type: 'string', minLength: 1, maxLength: 300 },
         mimeType: { type: 'string', maxLength: 120 },
-        contentBase64: { type: 'string', minLength: 1, maxLength: 30000000 },
-        blob: { type: 'string', minLength: 1, maxLength: 30000000 },
+        contentBase64: { type: 'string', minLength: 1, maxLength: 10000000, description: 'Para archivos mayores, usa uploadId, chunkIndex y chunkCount.' },
+        blob: { type: 'string', minLength: 1, maxLength: 10000000, description: 'Para archivos mayores, usa uploadId, chunkIndex y chunkCount.' },
         file: { type: 'object' },
+        uploadId: { type: 'string', minLength: 1, maxLength: 200 },
+        chunkIndex: { type: 'integer', minimum: 0, maximum: 39 },
+        chunkCount: { type: 'integer', minimum: 1, maximum: 40 },
         kind: { type: 'string', enum: ['post', 'social', 'reference'] },
         preparationId: { type: 'string' },
         assetType: { type: 'string', enum: ['blog_cover', 'social_image', 'instagram_story', 'presentation', 'generic'] },
@@ -562,8 +565,10 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
       oneOf: [
         { required: ['preparationId', 'filename', 'contentBase64', 'textRendered', 'templateId', 'renderedBy', 'textContent'] },
         { required: ['preparationId', 'filename', 'file', 'textRendered', 'templateId', 'renderedBy', 'textContent'] },
+        { required: ['preparationId', 'filename', 'blob', 'textRendered', 'templateId', 'renderedBy', 'textContent'] },
         { required: ['kind', 'filename', 'contentBase64'] },
-        { required: ['kind', 'filename', 'file'] }
+        { required: ['kind', 'filename', 'file'] },
+        { required: ['kind', 'filename', 'blob'] }
       ],
       additionalProperties: false
     },
@@ -607,6 +612,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
       type: 'object',
       properties: {
         brandId: { type: 'string' },
+        site: { type: 'string' },
         workspaceId: { type: 'string' },
         siteId: { type: 'string' },
         brandKitVersionId: { type: 'string' },
@@ -770,7 +776,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
   manifest({
     id: 'publication.route',
     description: 'Selecciona explícita o recomendadamente el proveedor para un canal.',
-    inputSchema: { type: 'object', properties: { channel: { type: 'string' }, provider: { type: 'string' }, assetIds: { type: 'array', items: { type: 'string' } }, runId: { type: 'string' } }, required: ['channel', 'assetIds'], additionalProperties: false },
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, channel: { type: 'string' }, provider: { type: 'string' }, assetIds: { type: 'array', items: { type: 'string' } }, assets: { type: 'array' }, text: { type: 'string' }, connections: { type: 'array' }, permissions: { type: 'array' }, runId: { type: 'string' }, idempotencyKey: { type: 'string' } }, required: ['channel', 'assetIds'], additionalProperties: false },
     outputSchema: { type: 'object', properties: { contractVersion: { type: 'string' }, operation: { type: 'string' }, state: { type: 'string' }, destinationId: { type: 'string' }, channel: { type: ['string', 'object'] }, provider: { type: ['string', 'object'] }, candidates: { type: 'array' }, permissions: { type: 'object' }, effects: { type: 'object' } }, required: ['contractVersion', 'operation', 'state'], additionalProperties: true },
     permissions: ['publication:write'],
     sideEffects: 'audit',
@@ -780,8 +786,8 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
   manifest({
     id: 'publication.prepare',
     description: 'Construye y persiste un bundle listo para revisión humana sin contactar proveedores.',
-    inputSchema: { type: 'object', properties: { runId: { type: 'string' }, channel: { type: 'string' }, provider: { type: 'string' }, assetIds: { type: 'array', items: { type: 'string' } }, text: { type: 'string' } }, required: ['channel', 'provider', 'assetIds'], additionalProperties: false },
-    outputSchema: { type: 'object', properties: { publicationId: { type: 'string' }, state: { type: 'string' }, bundle: { type: 'object' } }, required: ['publicationId', 'state'], additionalProperties: true },
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, runId: { type: 'string' }, idempotencyKey: { type: 'string' }, channel: { type: 'string' }, provider: { type: 'string' }, contentItemId: { type: 'string' }, batchId: { type: 'string' }, assetIds: { type: 'array', items: { type: 'string' } }, assets: { type: 'array' }, text: { type: 'string' }, content: { type: 'object' }, approval: { type: 'object' }, permissions: { type: 'array' }, connections: { type: 'array' } }, required: ['channel', 'provider', 'assetIds'], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { publicationId: { type: 'string' }, state: { type: 'string' }, previewUrl: { type: ['string', 'null'] }, editUrl: { type: ['string', 'null'] }, cmsUrl: { type: 'string' }, bundle: { type: 'object' } }, required: ['publicationId', 'state'], additionalProperties: true },
     permissions: ['publication:write'],
     sideEffects: 'audit',
     humanReviewRequired: true,
@@ -790,7 +796,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
   manifest({
     id: 'publication.schedule',
     description: 'Programa un bundle aprobado usando el adaptador de destino seleccionado.',
-    inputSchema: { type: 'object', properties: { runId: { type: 'string' }, publicationId: { type: 'string' }, channel: { type: 'string' }, provider: { type: 'string' }, publicationDate: { type: 'string' }, timezone: { type: 'string' }, assets: { type: 'array' }, assetIds: { type: 'array' }, text: { type: 'string' }, content: { type: 'object' }, approval: { type: 'object' }, permissions: { type: 'array' }, connections: { type: 'array' } }, required: ['channel', 'provider', 'publicationDate'], additionalProperties: false },
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, runId: { type: 'string' }, publicationId: { type: 'string' }, idempotencyKey: { type: 'string' }, channel: { type: 'string' }, provider: { type: 'string' }, contentItemId: { type: 'string' }, batchId: { type: 'string' }, publicationDate: { type: 'string' }, timezone: { type: 'string' }, assets: { type: 'array' }, assetIds: { type: 'array' }, text: { type: 'string' }, content: { type: 'object' }, approval: { type: 'object' }, permissions: { type: 'array' }, connections: { type: 'array' } }, required: ['channel', 'provider', 'publicationDate'], additionalProperties: false },
     outputSchema: { type: 'object', properties: { publicationId: { type: 'string' }, state: { type: 'string' }, status: { type: 'string' } }, required: ['publicationId', 'state', 'status'], additionalProperties: true },
     permissions: ['publication:write'],
     sideEffects: 'external',
@@ -800,7 +806,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
   manifest({
     id: 'publication.publish',
     description: 'Publica un bundle aprobado mediante el adaptador seleccionado. Para Coolify se requiere contentItemId para encolar la variante blog.',
-    inputSchema: { type: 'object', properties: { runId: { type: 'string' }, publicationId: { type: 'string' }, idempotencyKey: { type: 'string' }, channel: { type: 'string' }, provider: { type: 'string' }, contentItemId: { type: 'string' }, assets: { type: 'array' }, assetIds: { type: 'array' }, text: { type: 'string' }, content: { type: 'object' }, approval: { type: 'object' }, permissions: { type: 'array' }, connections: { type: 'array' } }, required: ['channel', 'provider'], additionalProperties: false },
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, runId: { type: 'string' }, publicationId: { type: 'string' }, idempotencyKey: { type: 'string' }, channel: { type: 'string' }, provider: { type: 'string' }, contentItemId: { type: 'string' }, batchId: { type: 'string' }, assets: { type: 'array' }, assetIds: { type: 'array' }, text: { type: 'string' }, content: { type: 'object' }, approval: { type: 'object' }, permissions: { type: 'array' }, connections: { type: 'array' } }, required: ['channel', 'provider'], additionalProperties: false },
     outputSchema: { type: 'object', properties: { publicationId: { type: 'string' }, state: { type: 'string' }, status: { type: 'string' } }, required: ['publicationId', 'state', 'status'], additionalProperties: true },
     permissions: ['publication:write'],
     sideEffects: 'external',
@@ -810,7 +816,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
   manifest({
     id: 'publication.status.get',
     description: 'Consulta el estado interno y externo de una publicación. Si no existe un runId o publicationId persistido, devuelve status unknown y terminal false para indicar que el estado no está confirmado.',
-    inputSchema: { type: 'object', properties: { runId: { type: 'string' }, publicationId: { type: 'string' } }, additionalProperties: false },
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, runId: { type: 'string' }, publicationId: { type: 'string' } }, additionalProperties: false },
     outputSchema: { type: 'object', properties: { contractVersion: { type: 'string' }, operation: { type: 'string' }, publicationId: { type: ['string', 'null'] }, status: { type: 'string' }, providerStatus: { type: ['string', 'null'] }, terminal: { type: 'boolean' }, persisted: { type: 'boolean' } }, required: ['contractVersion', 'status', 'terminal'], additionalProperties: true },
     permissions: ['publication:read'],
     tags: ['publication', 'publisher', 'status']
