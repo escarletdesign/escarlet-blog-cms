@@ -147,23 +147,28 @@ type ContentAssetLibraryProps = {
   groups: LibraryGroup[];
   standaloneAssets: MediaItem[];
   protectedAssets: MediaItem[];
+  contentItems: ContentItem[];
   filterChannel: string;
   channelOptions: ContentChannel[];
   onChannelChange: (channel: string) => void;
   t: (key: string, fallback?: string) => string;
   onOpen: (item: ContentItem) => void;
+  onAttachMany: (assets: MediaItem[], item: ContentItem, channel: ContentChannel) => Promise<boolean>;
   onDeleteMany: (assets: MediaItem[]) => Promise<boolean>;
   onUnlockMany: (assets: MediaItem[]) => Promise<boolean>;
   onEditMany: (assets: MediaItem[], changes: AssetEditChanges) => Promise<boolean>;
   onUpload: (files: File[]) => Promise<boolean>;
 };
 
-function ContentAssetLibrary({ groups, standaloneAssets, protectedAssets, filterChannel, channelOptions, onChannelChange, t, onOpen, onDeleteMany, onUnlockMany, onEditMany, onUpload }: ContentAssetLibraryProps) {
+function ContentAssetLibrary({ groups, standaloneAssets, protectedAssets, contentItems, filterChannel, channelOptions, onChannelChange, t, onOpen, onAttachMany, onDeleteMany, onUnlockMany, onEditMany, onUpload }: ContentAssetLibraryProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [unlockSelection, setUnlockSelection] = useState<MediaItem[]>([]);
   const [unlockDialog, setUnlockDialog] = useState<MediaItem[]>([]);
   const [deleteSelection, setDeleteSelection] = useState<MediaItem[]>([]);
   const [editSelection, setEditSelection] = useState<MediaItem[]>([]);
+  const [attachSelection, setAttachSelection] = useState<MediaItem[]>([]);
+  const [attachItemId, setAttachItemId] = useState("");
+  const [attachChannel, setAttachChannel] = useState<ContentChannel | "">("");
   const [editForm, setEditForm] = useState<AssetEditChanges>({ filename: "", alt: "", usage: "" });
   const [uploading, setUploading] = useState(false);
   const selectableIds = standaloneAssets.filter((asset) => asset.id && asset.deletable !== false).map((asset) => String(asset.id));
@@ -188,6 +193,30 @@ function ContentAssetLibrary({ groups, standaloneAssets, protectedAssets, filter
   const openEdit = (assets: MediaItem[]) => {
     setEditForm({ filename: "", alt: "", usage: "" });
     setEditSelection(assets);
+  };
+  const openAttach = (assets: MediaItem[]) => {
+    const firstItem = contentItems[0];
+    const declaredChannels = assets.flatMap((asset) => {
+      const metadata = asset.metadata || {};
+      const grounding = metadata.brandGrounding && typeof metadata.brandGrounding === "object" ? metadata.brandGrounding : {};
+      return [metadata.channel, metadata.channels, grounding.channel, grounding.channels].flatMap((value) => Array.isArray(value) ? value : [value]).map((value) => String(value || "").trim().toLowerCase());
+    });
+    const itemChannels = (firstItem?.variants || []).map((variant) => variant.channel);
+    setAttachSelection(assets);
+    setAttachItemId(firstItem?.id || "");
+    setAttachChannel((itemChannels.find((channel) => declaredChannels.includes(channel)) || itemChannels[0] || channelOptions.find((channel) => declaredChannels.includes(channel)) || channelOptions[0] || "") as ContentChannel | "");
+  };
+  const attachItem = contentItems.find((item) => item.id === attachItemId);
+  const attachChannels = (attachItem?.variants || []).map((variant) => variant.channel);
+  const submitAttach = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!attachSelection.length || !attachItem || !attachChannel) return;
+    if (await onAttachMany(attachSelection, attachItem, attachChannel)) {
+      setAttachSelection([]);
+      setAttachItemId("");
+      setAttachChannel("");
+      setSelectedIds([]);
+    }
   };
   const submitEdit = async (event: FormEvent) => {
     event.preventDefault();
@@ -243,7 +272,7 @@ function ContentAssetLibrary({ groups, standaloneAssets, protectedAssets, filter
       <div className="ui-card-head"><div><span className="ui-eyebrow">{t("contentLibrary.globalEyebrow", "Biblioteca global")}</span><h2>{t("contentLibrary.unassignedTitle", "Assets sin campaña")}</h2></div><Inline gap="sm"><Badge tone="info">{standaloneAssets.length}</Badge>{uploadAction}</Inline></div>
       <p className="ui-muted">{t("contentLibrary.unassignedHelp", "Archivos generados o subidos por una micro app que todavía no están asociados a una campaña.")}</p>
       {standaloneAssets.length > 0 ? <>
-        <Inline gap="sm" className="ui-content-library-batch-toolbar"><Checkbox label={t("contentLibrary.selectDeletable", "Seleccionar editables") } checked={allVisibleSelected} onChange={() => setSelectedIds(allVisibleSelected ? [] : selectableIds)} /><Button size="sm" variant="ghost" disabled={!selectableIds.length} onClick={() => setSelectedIds(selectableIds)}>{t("contentLibrary.selectVisible", "Seleccionar visibles")}</Button><Button size="sm" variant="ghost" disabled={!selectedAssets.length} onClick={() => setSelectedIds([])}>{t("contentLibrary.clearSelection", "Limpiar")}</Button>{selectedAssets.length > 0 && <><Badge tone="info">{selectedAssets.length} {t("contentLibrary.selected", "seleccionados")}</Badge><Button size="sm" variant="secondary" onClick={() => openEdit(selectedAssets)}>{t("contentLibrary.bulkEdit", "Editar en lote")}</Button><Button size="sm" variant="danger" onClick={() => setDeleteSelection(selectedAssets)}>{t("contentLibrary.bulkDelete", "Eliminar en lote")}</Button></>}</Inline>
+        <Inline gap="sm" className="ui-content-library-batch-toolbar"><Checkbox label={t("contentLibrary.selectDeletable", "Seleccionar editables") } checked={allVisibleSelected} onChange={() => setSelectedIds(allVisibleSelected ? [] : selectableIds)} /><Button size="sm" variant="ghost" disabled={!selectableIds.length} onClick={() => setSelectedIds(selectableIds)}>{t("contentLibrary.selectVisible", "Seleccionar visibles")}</Button><Button size="sm" variant="ghost" disabled={!selectedAssets.length} onClick={() => setSelectedIds([])}>{t("contentLibrary.clearSelection", "Limpiar")}</Button>{selectedAssets.length > 0 && <><Badge tone="info">{selectedAssets.length} {t("contentLibrary.selected", "seleccionados")}</Badge>{contentItems.length > 0 && <Button size="sm" variant="secondary" onClick={() => openAttach(selectedAssets)}>{t("contentLibrary.attachToCampaign", "Añadir a campaña")}</Button>}<Button size="sm" variant="secondary" onClick={() => openEdit(selectedAssets)}>{t("contentLibrary.bulkEdit", "Editar en lote")}</Button><Button size="sm" variant="danger" onClick={() => setDeleteSelection(selectedAssets)}>{t("contentLibrary.bulkDelete", "Eliminar en lote")}</Button></>}</Inline>
         {standaloneProtectedAssets.length > 0 && <p className="ui-content-library-protected"><strong>{standaloneProtectedAssets.length} {t("contentLibrary.protectedAssets", "assets protegidos")}</strong> {t("contentLibrary.protectedHelp", "Los archivos publicados o vinculados no se pueden eliminar. Para ocultar una pieza completa, archívala desde Campañas; las publicaciones externas no se modifican.")}</p>}
         <div className="ui-content-library-assets">
         {standaloneAssets.map((asset) => {
@@ -257,6 +286,7 @@ function ContentAssetLibrary({ groups, standaloneAssets, protectedAssets, filter
             <div className="ui-content-library-asset-meta"><Checkbox label={t("contentLibrary.select", "Seleccionar")} checked={selected} disabled={asset.deletable === false || !id} onChange={() => toggleSelected(asset)} /><strong title={assetFilename(asset)}>{assetFilename(asset)}</strong><StatusBadge status={status} label={statusLabel(status)} /><span className="ui-muted">{String(asset.metadata?.kind || asset.kind || t("contentLibrary.production", "producción"))}</span></div>
             <Inline gap="sm">
               {url && <a className="ui-button ui-button-ghost ui-button-sm" href={url} target="_blank" rel="noreferrer">{t("contentLibrary.openFile", "Abrir archivo")}</a>}
+              {asset.id && contentItems.length > 0 && <Button variant="secondary" size="sm" onClick={() => openAttach([asset])}>{t("contentLibrary.attach", "Añadir a campaña")}</Button>}
               {asset.id && <Button variant="ghost" size="sm" onClick={() => openEdit([asset])}>{t("contentLibrary.edit", "Editar")}</Button>}
               {asset.deletable !== false && asset.id && <Button variant="ghost" size="sm" onClick={() => setDeleteSelection([asset])}>{t("contentLibrary.delete", "Eliminar")}</Button>}
               {asset.deletable === false && <span className="ui-field-hint">{t("contentLibrary.protected", "Protegido")}</span>}
@@ -288,13 +318,14 @@ function ContentAssetLibrary({ groups, standaloneAssets, protectedAssets, filter
     <Modal open={Boolean(unlockDialog.length)} title={t("contentLibrary.unlockConfirmTitle", "Desbloquear assets") } onClose={() => setUnlockDialog([])}><Stack gap="md"><p>{t("contentLibrary.unlockConfirm", "Se quitarán los vínculos internos de estos assets y se revocarán sus recibos de generación. El contenido seguirá existiendo, pero puede quedarse sin imagen. Después podrás eliminarlos.")}</p><Inline gap="md"><Button variant="ghost" onClick={() => setUnlockDialog([])}>{t("common.cancel", "Cancelar")}</Button><Button variant="danger" onClick={() => void submitUnlock()}>{t("contentLibrary.unlockConfirmAction", "Desbloquear y continuar")}</Button></Inline></Stack></Modal>
     <Modal open={Boolean(deleteSelection.length)} title={deleteSelection.length > 1 ? t("contentLibrary.deleteAssets", "Eliminar assets") : t("contentLibrary.deleteAsset", "Eliminar asset")} onClose={() => setDeleteSelection([])}><Stack gap="md"><p>{t("contentLibrary.deleteConfirm", `Se eliminarán ${deleteSelection.length} asset${deleteSelection.length === 1 ? "" : "s"} del repositorio canónico. El contenido seguirá existiendo, pero puede quedarse sin imagen. Las publicaciones externas no se modifican.`)}</p><Inline gap="md"><Button variant="ghost" onClick={() => setDeleteSelection([])}>{t("common.cancel", "Cancelar")}</Button><Button variant="danger" onClick={() => void submitDelete()}>{t("contentLibrary.deleteForever", "Eliminar definitivamente")}</Button></Inline></Stack></Modal>
     <Modal open={Boolean(editSelection.length)} title={editSelection.length > 1 ? t("contentLibrary.editAssets", "Editar assets en lote") : t("contentLibrary.editAsset", "Editar asset")} onClose={() => setEditSelection([])}><form className="ui-stack ui-stack-md" onSubmit={(event) => void submitEdit(event)}><p className="ui-field-hint">{t("contentLibrary.emptyFieldsHint", "Los campos vacíos no cambian el valor actual.")}</p><Field label={t("contentLibrary.filename", "Nombre del archivo")}><TextField value={editForm.filename} onChange={(event) => setEditForm((current) => ({ ...current, filename: event.target.value }))} placeholder="Ejemplo: plato-del-dia.webp" /></Field><Field label={t("contentLibrary.alt", "Texto alternativo")}><Textarea value={editForm.alt} onChange={(event) => setEditForm((current) => ({ ...current, alt: event.target.value }))} rows={3} placeholder={t("contentLibrary.altPlaceholder", "Describe la imagen para accesibilidad y contexto.")} /></Field><Field label={t("contentLibrary.usage", "Uso")}><TextField value={editForm.usage} onChange={(event) => setEditForm((current) => ({ ...current, usage: event.target.value }))} placeholder="Ejemplo: blog, social, reel" /></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setEditSelection([])}>{t("common.cancel", "Cancelar")}</Button><Button type="submit" disabled={!Object.values(editForm).some((value) => String(value || "").trim())}>{t("common.save", "Guardar cambios")}</Button></Inline></form></Modal>
+    <Modal open={Boolean(attachSelection.length)} title={t("contentLibrary.attachTitle", "Añadir assets a una campaña")} onClose={() => setAttachSelection([])}><form className="ui-stack ui-stack-md" onSubmit={(event) => void submitAttach(event)}><p className="ui-field-hint">{t("contentLibrary.attachHelp", "Los assets se asociarán a la variante elegida y dejarán de aparecer como sueltos.")}</p><Field label={t("contentLibrary.attachCampaign", "Contenido de la campaña")} required><Select value={attachItemId} onChange={(event) => { const nextId = event.target.value; const nextItem = contentItems.find((item) => item.id === nextId); const nextChannels = (nextItem?.variants || []).map((variant) => variant.channel); setAttachItemId(nextId); setAttachChannel(nextChannels.includes(attachChannel as ContentChannel) ? attachChannel : nextChannels[0] || ""); }} required><option value="">{t("contentLibrary.attachCampaignChoose", "Elige una pieza")}</option>{contentItems.map((item) => <option key={item.id} value={item.id}>{itemTitle(item)} · {item.planTitle || t("contentRun.content", "Contenido")}</option>)}</Select></Field><Field label={t("contentLibrary.attachChannel", "Canal") } required><Select value={attachChannel} onChange={(event) => setAttachChannel(event.target.value as ContentChannel)} disabled={!attachChannels.length} required><option value="">{t("contentLibrary.attachChannelChoose", "Elige un canal")}</option>{attachChannels.map((channel) => <option key={channel} value={channel}>{channelLabel(channel)}</option>)}</Select></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setAttachSelection([])}>{t("common.cancel", "Cancelar")}</Button><Button type="submit" disabled={!attachSelection.length || !attachItem || !attachChannel}>{t("contentLibrary.attachAction", "Asociar assets")}</Button></Inline></form></Modal>
   </Stack>;
 }
 
 type Props = { site: string; brandId?: string; previewItemId?: string; creationEnabled?: boolean; activeChannels?: Array<{ channel: string; enabled: boolean; connectionStatus?: string }>; t: (key: string, fallback?: string) => string; onNotify?: (message: string, kind?: "success" | "error" | "info") => void };
 type Dialog = { type: "edit" | "schedule" | "blog-edit"; item: ContentItem } | { type: "details"; item: ContentItem } | null;
 
-function ContentRunReviewRail({ item, busy, t, onApprove, onOpenChannels, onArchive }: { item: ContentItem; busy: boolean; t: (key: string, fallback?: string) => string; onApprove: () => void; onOpenChannels: () => void; onArchive: () => void }) {
+function ContentRunReviewRail({ item, busy, t, onPrepare, onApprove, onOpenChannels, onArchive }: { item: ContentItem; busy: boolean; t: (key: string, fallback?: string) => string; onPrepare: () => void; onApprove: () => void; onOpenChannels: () => void; onArchive: () => void }) {
   const status = aggregateStatus(item);
   const findings = Array.isArray(item.metadata?.brandOs?.findings) ? item.metadata.brandOs.findings : [];
   const blockers = findings.filter((finding: any) => finding?.severity === "blocker");
@@ -314,6 +345,7 @@ function ContentRunReviewRail({ item, busy, t, onApprove, onOpenChannels, onArch
       <div className="ui-content-run-provenance"><span className="ui-eyebrow">{t("contentRun.provenance", "PROCEDENCIA")}</span><p>{brandContext?.identity?.name || t("brand.active", "Marca activa")}</p><small>{brandContext?.brandKitVersionId ? `Brand Kit ${brandContext.brandKitVersion ?? t("brand.active", "activo")}` : t("contentRun.activeBrandKit", "Brand Kit activo")} · {item.planTitle || t("contentRun.content", "Contenido")}</small></div>
       <div className="ui-content-run-channels"><span className="ui-eyebrow">{t("contentRun.channels", "CANALES")}</span><div className="ui-channel-list">{variants.map((variant) => <ChannelBadge key={variant.id} channel={variant.channel} />)}</div></div>
       <Stack gap="sm" className="ui-content-run-actions">
+        {status === "draft" && <Button disabled={busy} loading={busy} onClick={onPrepare}>{t("contentRun.prepareReview", "Preparar para revisión")}</Button>}
         {canApproveStatus(status) && <Button disabled={busy} loading={busy} onClick={onApprove}>{t("contentRun.approve", "Aprobar contenido")}</Button>}
         <Button variant="secondary" disabled={busy} onClick={onOpenChannels}>{hasPublished ? t("contentRun.viewPublication", "Ver publicación") : t("contentRun.channelsAndPublication", "Canales y publicación")}</Button>
         <Button variant="ghost" disabled={busy} onClick={onArchive}>{archived ? t("contentRun.restore", "Restaurar contenido") : t("contentRun.archive", "Archivar contenido")}</Button>
@@ -510,6 +542,20 @@ export function ContentBatches({ site, brandId, previewItemId, creationEnabled =
       onNotify?.(`${assetIds.length} asset${assetIds.length === 1 ? "" : "s"} actualizado${assetIds.length === 1 ? "" : "s"}.`, "success");
     });
   };
+  const attachStandaloneAssets = (assets: MediaItem[], item: ContentItem, channel: ContentChannel) => {
+    const selectedIds = assets.map((asset) => String(asset.id || "")).filter(Boolean);
+    if (!selectedIds.length) return Promise.resolve(false);
+    if (selectedIds.length > 20) {
+      notifyError("Puedes asociar como máximo 20 assets a una variante.");
+      return Promise.resolve(false);
+    }
+    const currentIds = (item.variants || []).find((variant) => variant.channel === channel)?.media?.map((media) => String(media.id || "")).filter(Boolean) || [];
+    const mediaAssetIds = [...new Set([...currentIds, ...selectedIds])].slice(0, 20);
+    return run(async () => {
+      await api.updateContentItem(item.id, { site, channel, mediaAssetIds });
+      onNotify?.(`${selectedIds.length} asset${selectedIds.length === 1 ? "" : "s"} asociado${selectedIds.length === 1 ? "" : "s"} a la campaña.`, "success");
+    });
+  };
   const uploadStandaloneAssets = (files: File[]) => run(async () => {
     for (const file of files) {
       if (!file.type.startsWith("image/")) throw new Error("La biblioteca global solo admite imágenes.");
@@ -520,6 +566,7 @@ export function ContentBatches({ site, brandId, previewItemId, creationEnabled =
   });
   const create = async (event: FormEvent) => { event.preventDefault(); const cleanTopics = topics.split(/\r?\n|,/).map((topic) => topic.trim()).filter(Boolean); if (!cleanTopics.length) { notifyError("Añade al menos un tema."); return; } const idempotencyKey = createIdempotencyKey.current || (createIdempotencyKey.current = crypto.randomUUID()); const ok = await run(async () => { await api.createContentBatch({ site, title: title.trim() || "Campaña " + new Date().toLocaleDateString(), topics: cleanTopics, channels, brief: campaignBrief, idempotencyKey }); setTitle(""); setTopics(""); setCampaignBrief({ objective: "", audience: "", cta: "" }); setCampaignStep(0); setCreateOpen(false); }); if (ok) createIdempotencyKey.current = null; };
   const approve = (id: string) => run(() => api.approveContent(id, site));
+  const prepareForReview = (id: string) => run(() => api.updateContentItem(id, { site, readyForReview: true }));
   const variantStatus = (variant: ContentVariant) => variant.scheduleStatus || variant.status;
   const ensureApproved = (item: ContentItem) => (item.variants || []).some((variant) => canApproveStatus(variantStatus(variant))) ? api.approveContent(item.id, site) : Promise.resolve();
   const update = (id: string, topic: string) => run(() => api.updateContentItem(id, { site, topic }));
@@ -606,7 +653,7 @@ export function ContentBatches({ site, brandId, previewItemId, creationEnabled =
       {loading ? <Stack gap="md"><Card><Progress value={35} /><p className="ui-muted">Cargando contenido…</p></Card></Stack> : previewItem ? <Stack gap="md">
         <div className="ui-content-run-layout">
           <div className="ui-content-run-artifacts"><ContentPackPreview site={site} item={previewItem} autoRecord={searchParams.get("record") === "1"} bufferReady={bufferReady} publishChannels={publishChannels} busy={busy} onVideoUploaded={(replacedPrevious) => { onNotify?.(replacedPrevious ? "Vídeo guardado. Se reemplazó el anterior del mismo formato." : "Vídeo guardado."); void load(); }} onNotify={onNotify} onClose={closePreview} onEditBlog={() => openBlogEditor(previewItem)} onPublish={(channel, copy) => void publishBuffer(previewItem, channel, copy)} onPublishAll={() => void publishBufferAll(previewItem)} /></div>
-          <ContentRunReviewRail item={previewItem} busy={busy} t={t} onApprove={() => void approve(previewItem.id)} onOpenChannels={() => setDialog({ type: "details", item: previewItem })} onArchive={() => void archiveContent(previewItem)} />
+          <ContentRunReviewRail item={previewItem} busy={busy} t={t} onPrepare={() => void prepareForReview(previewItem.id)} onApprove={() => void approve(previewItem.id)} onOpenChannels={() => setDialog({ type: "details", item: previewItem })} onArchive={() => void archiveContent(previewItem)} />
         </div>
       </Stack> : <EmptyState title={error ? "No se pudo abrir la vista previa" : "No se encontró este contenido"} description={error || "Puede que se haya eliminado o que ya no tengas acceso."} action={<Button variant="secondary" onClick={closePreview}>Volver al contenido</Button>} />}
     </section> : <>
@@ -633,7 +680,7 @@ export function ContentBatches({ site, brandId, previewItemId, creationEnabled =
             {activeFilterLabels.length > 0 && <div className="ui-content-filter-active" aria-label={t("contentFilters.activeFilters", "Filtros activos")}>{activeFilterLabels.map((filter) => <Button key={filter.key} size="sm" variant="ghost" className="ui-content-filter-chip" onClick={() => updateSearchParam(filter.key, "", filter.key === "archive" ? "active" : filter.key === "q" ? "" : "all")}>{filter.label} ×</Button>)}</div>}
         </div>
         {view !== "library" && visibleItems.length > 0 && <Inline gap="sm" className="ui-content-batch-toolbar"><Checkbox label={t("contentFilters.selectVisible", "Seleccionar visibles")} checked={allVisibleItemsSelected} onChange={() => setSelectedItemIds(allVisibleItemsSelected ? [] : visibleItems.map((item) => item.id))} /><Button size="sm" variant="ghost" disabled={!selectedItemIds.length} onClick={() => setSelectedItemIds([])}>{t("contentFilters.clearSelection", "Limpiar")}</Button>{selectedItemIds.length > 0 && <><Badge tone="info">{selectedItemIds.length} {t("contentFilters.selected", "seleccionadas")}</Badge><Button size="sm" variant="secondary" disabled={busy} onClick={() => void archiveSelectedItems()}>{filterArchive === "archived" ? t("contentRun.restore", "Restaurar") : t("contentRun.archive", "Archivar")}</Button></>}</Inline>}
-        {view === "library" ? <div id="content-view-panel-library" role="tabpanel" aria-labelledby="content-view-tabs-library" tabIndex={0}><ContentAssetLibrary groups={libraryGroups} standaloneAssets={visibleStandaloneAssets} protectedAssets={visibleProtectedAssets} filterChannel={filterChannel} channelOptions={channels} onChannelChange={(channel) => updateSearchParam("channel", channel)} t={t} onOpen={openPreview} onDeleteMany={deleteStandaloneAssets} onUnlockMany={unlockStandaloneAssets} onEditMany={editStandaloneAssets} onUpload={uploadStandaloneAssets} /></div> : <div id="content-view-panel-campaigns" role="tabpanel" aria-labelledby="content-view-tabs-campaigns" tabIndex={0}>{visibleItems.length ? <Stack gap="sm">{visibleItems.map((item) => {
+        {view === "library" ? <div id="content-view-panel-library" role="tabpanel" aria-labelledby="content-view-tabs-library" tabIndex={0}><ContentAssetLibrary groups={libraryGroups} standaloneAssets={visibleStandaloneAssets} protectedAssets={visibleProtectedAssets} contentItems={items} filterChannel={filterChannel} channelOptions={channels} onChannelChange={(channel) => updateSearchParam("channel", channel)} t={t} onOpen={openPreview} onAttachMany={attachStandaloneAssets} onDeleteMany={deleteStandaloneAssets} onUnlockMany={unlockStandaloneAssets} onEditMany={editStandaloneAssets} onUpload={uploadStandaloneAssets} /></div> : <div id="content-view-panel-campaigns" role="tabpanel" aria-labelledby="content-view-tabs-campaigns" tabIndex={0}>{visibleItems.length ? <Stack gap="sm">{visibleItems.map((item) => {
           const status = aggregateStatus(item); const titleText = itemTitle(item); const cover = itemCover(item); const excerpt = itemExcerpt(item);
           return <Card className="ui-review-item" key={item.id}><div className="ui-card-head"><div className="ui-review-item-title"><Checkbox label="" aria-label={`${item.metadata?.archivedAt ? t("contentRun.restore", "Restaurar") : t("contentRun.archive", "Archivar")}: ${titleText}`} checked={selectedItemIds.includes(item.id)} onChange={() => toggleItemSelection(item)} />{cover ? <img className="ui-review-thumb" src={cover} alt="" loading="lazy" decoding="async" /> : <span className="ui-review-thumb" aria-hidden="true" />}<div><span className="ui-eyebrow">{item.planTitle || "Contenido"}</span><h3>{titleText}</h3>{excerpt && <p className="ui-review-excerpt">{excerpt}</p>}<p className="ui-muted">{dateSummary(item)}</p></div></div><StatusBadge status={status} label={statusLabel(status)} /></div><div className="ui-channel-list">{(item.variants || []).map((variant) => <ChannelBadge key={variant.id} channel={variant.channel} />)}</div>{item.error && <p className="ui-field-error">{item.error}</p>}<div className="ui-card-actions"><Button variant="secondary" size="sm" disabled={busy} onClick={() => setDialog({ type: "details", item })}>Canales y publicación</Button><Link className="ui-button ui-button-ghost ui-button-sm" to={contentPreviewPath(item, location.search)} state={{ returnToContentList: true }}>Vista previa</Link><Button variant="ghost" size="sm" disabled={busy} onClick={() => void archiveContent(item)}>{item.metadata?.archivedAt ? t("contentRun.restore", "Restaurar") : t("contentRun.archive", "Archivar")}</Button></div></Card>;
         })}</Stack> : <EmptyState title="No hay publicaciones con estos filtros" description="Prueba otra combinación de búsqueda, estado, canal o fecha." action={hasActiveFilters ? <Button variant="secondary" onClick={clearFilters}>Limpiar filtros</Button> : undefined} />}</div>}
@@ -675,6 +722,7 @@ export function ContentBatches({ site, brandId, previewItemId, creationEnabled =
           <h3>Opciones del contenido completo</h3>
           <p className="ui-field-hint">Estas acciones afectan todos los canales que todavía no se publicaron.</p>
           <Inline gap="sm">
+            {aggregateStatus(detailItem) === "draft" && <Button size="sm" disabled={busy} onClick={() => void prepareForReview(detailItem.id)}>{t("contentRun.prepareReview", "Preparar para revisión")}</Button>}
             {detailItem.variants.some((variant) => canApproveStatus(variant.scheduleStatus || variant.status)) && <Button size="sm" variant="secondary" disabled={busy} onClick={() => void approve(detailItem.id)}>Aprobar canales pendientes</Button>}
             {!detailItem.variants.every((variant) => ["published", "canceled"].includes(variant.scheduleStatus || variant.status)) && <Button size="sm" variant="ghost" disabled={busy} onClick={() => { setDialog({ type: "edit", item: detailItem }); setModalValue(detailItem.topic); }}>Editar brief original</Button>}
           </Inline>
