@@ -340,7 +340,7 @@ const baseApi = {
   productionAssets: (site?: string) =>
     request<{ assets: MediaItem[] }>(`/api/v2/assets${site ? `?site=${encodeURIComponent(site)}` : ""}`),
   managedProductionAssets: (site?: string) =>
-    request<{ assets: MediaItem[] }>(`/api/v2/assets/manage?${new URLSearchParams({ ...(site ? { site } : {}), mode: "standalone" }).toString()}`),
+    request<{ assets: MediaItem[]; protectedAssets?: MediaItem[] }>(`/api/v2/assets/manage?${new URLSearchParams({ ...(site ? { site } : {}), mode: "standalone", includeProtected: "1" }).toString()}`),
   updateProductionAssets: (input: { site?: string; assetIds: string[]; filename?: string; alt?: string; usage?: string }) =>
     request<{ updated: boolean; count: number; assetIds: string[] }>("/api/v2/assets/update", {
       method: "POST",
@@ -350,6 +350,11 @@ const baseApi = {
     request<{ deleted: boolean; count: number; blocked?: Array<{ id: string; blockers: string[] }> }>("/api/v2/assets/delete", {
       method: "POST",
       body: JSON.stringify({ ...input, mode: "selected", confirm: true }),
+    }),
+  unlockProductionAssets: (input: { site?: string; assetIds: string[] }) =>
+    request<{ unlocked: boolean; count: number; assetIds: string[]; blocked?: Array<{ id: string; blockers: string[] }> }>("/api/v2/assets/unlock", {
+      method: "POST",
+      body: JSON.stringify({ ...input, confirm: true }),
     }),
   uploadProductionAsset: (input: { site?: string; filename: string; contentBase64: string; alt?: string; idempotencyKey?: string }) =>
     request<{ asset: Record<string, unknown>; media: MediaItem }>("/api/v2/assets/upload", {

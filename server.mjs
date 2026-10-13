@@ -156,7 +156,7 @@ import {
   getQuotaSnapshot as cmsGetQuotaSnapshot
 } from './lib/cms-ops.mjs'
 import { mediaForClient, findMediaForClient, repairMediaInDb, repairPostsInDb, resolveImageSrc, resolvePostImageSrc, inspectImageBuffer } from './lib/media-url.mjs'
-import { deleteCanonicalMedia, listCanonicalMedia, updateCanonicalMedia } from './lib/media-admin.mjs'
+import { deleteCanonicalMedia, listCanonicalMedia, unlockCanonicalMedia, updateCanonicalMedia } from './lib/media-admin.mjs'
 import { recordPublicationMemory, runChat, runGenerateOperation, splitSseChunks } from './lib/ai-gateway.mjs'
 import { assertCmsAiAllowed } from './lib/generation-policy.mjs'
 import { disconnectChatGpt, getChatGptConnection, saveChatGptConnection } from './lib/chatgpt-siwc.mjs'
@@ -2215,6 +2215,7 @@ async function handleRequest(req, res) {
           path: asset.path ? `/${String(asset.path).replace(/^\//, '')}` : '',
           filename: asset.metadata?.filename || asset.metadata?.fileName || asset.id,
           alt: asset.metadata?.alt || '',
+          ...Object.fromEntries(['thumbUrl', 'thumbPath', 'previewUrl', 'previewPath', 'width', 'height', 'thumbWidth', 'thumbHeight', 'previewWidth', 'previewHeight', 'originalBytes', 'storedBytes', 'thumbBytes', 'previewBytes'].filter((key) => asset.metadata?.[key] !== undefined).map((key) => [key, asset.metadata[key]])),
           metadata: asset.metadata || {}
         }))
         json(res, 200, { assets })
@@ -2228,6 +2229,7 @@ async function handleRequest(req, res) {
           siteId: scope.siteId,
           mode: url.searchParams.get('mode') === 'standalone' ? 'standalone' : '',
           temporaryOnly: url.searchParams.get('temporaryOnly') === '1' || url.searchParams.get('mode') === 'temporary',
+          includeProtected: url.searchParams.get('includeProtected') === '1',
           assetIds: String(url.searchParams.get('assetIds') || '').split(',').map((value) => value.trim()).filter(Boolean),
           limit: url.searchParams.get('limit')
         })
@@ -2261,6 +2263,19 @@ async function handleRequest(req, res) {
           assetIds: body.assetIds,
           confirm: body.confirm,
           idempotencyKey: req.headers['idempotency-key'] || body.idempotencyKey
+        }))
+        return
+      }
+      if (req.method === 'POST' && path === '/api/v2/assets/unlock') {
+        const scope = await requireV2Context(req, url, res, body)
+        if (!scope) return
+        json(res, 200, await unlockCanonicalMedia({
+          workspaceId: scope.workspaceId,
+          siteId: scope.siteId,
+          userId: scope.auth.userId,
+          role: scope.context.role,
+          assetIds: body.assetIds,
+          confirm: body.confirm
         }))
         return
       }
