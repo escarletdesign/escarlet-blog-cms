@@ -77,6 +77,16 @@ const dedupeMedia = (items: MediaItem[] = []) => {
     return true;
   });
 };
+const brandKitAssetMedia = (asset: Record<string, any>): MediaItem => ({
+  id: asset.id,
+  filename: asset.name,
+  url: asset.publicUrl || asset.metadata?.url || asset.metadata?.path || "",
+  publicUrl: asset.publicUrl || undefined,
+  contentType: asset.contentType,
+  kind: "reference",
+  alt: asset.metadata?.alt || asset.name,
+  metadata: { ...(asset.metadata || {}), source: asset.metadata?.source || "brand-kit", usage: asset.metadata?.usage || asset.metadata?.role || "reference" },
+});
 const isAdmin = (role?: string) => role === "admin" || role === "agency_admin" || role === "owner";
 const isWorkspaceAdmin = (session?: Pick<Session, "role" | "workspaceRole">) => Boolean(session && (isAdmin(session.workspaceRole) || isAdmin(session.role)));
 function AiOnly({ children }: { children: ReactNode }) {
@@ -7144,10 +7154,7 @@ function BrandIdentityView() {
         setForm({ name: String(nextBrand.name || ""), domain: String(nextBrand.domain || "") });
         setKit(kitResult);
         const manifestBrandCore = parseBrandDocument(kitResult?.manifest?.["brand-core.json"] || kitResult?.manifest?.["brand-core"]);
-        const [legacy, references] = await Promise.all([
-          nextBrand.handle ? api.brand(nextBrand.handle).catch(() => null) : Promise.resolve(null),
-          nextBrand.handle ? api.media(nextBrand.handle, "reference").catch(() => ({ media: [] })) : Promise.resolve({ media: [] }),
-        ]);
+        const legacy = nextBrand.handle ? await api.brand(nextBrand.handle).catch(() => null) : null;
         if (!active) return;
         const coreFile = canEdit && nextBrand.handle
           ? await api.brandFile(nextBrand.handle, "brand-core.json").catch(() => ({ content: "" }))
@@ -7156,20 +7163,9 @@ function BrandIdentityView() {
         const loadedBrandCore = parseBrandDocument(coreFile.content);
         setBrandCore(Object.keys(loadedBrandCore).length ? loadedBrandCore : manifestBrandCore);
         const kitReferences = Array.isArray(kitResult?.assets)
-          ? kitResult.assets
-              .filter((asset: any) => asset?.publicUrl || asset?.metadata?.url || asset?.metadata?.path)
-              .map((asset: any) => ({
-                id: asset.id,
-                filename: asset.name,
-                url: asset.publicUrl || asset.metadata?.url || asset.metadata?.path,
-                path: asset.metadata?.path,
-                alt: asset.metadata?.alt || asset.name,
-                kind: "reference",
-                metadata: { ...(asset.metadata || {}), source: asset.metadata?.source || "brand-kit", usage: asset.metadata?.usage || asset.metadata?.role || "reference" },
-              }))
+          ? kitResult.assets.filter((asset: any) => asset?.publicUrl || asset?.metadata?.url || asset?.metadata?.path).map((asset: any) => brandKitAssetMedia(asset))
           : [];
-        // Prefer canonical Postgres assets when legacy and v2 expose the same file.
-        setReferenceMedia(dedupeMedia([...kitReferences, ...(references.media || [])]));
+        setReferenceMedia(dedupeMedia(kitReferences));
         const manifest = kitResult && typeof kitResult.manifest === "object" ? kitResult.manifest : {};
         const files = [...new Set([...(legacy?.files || []), ...Object.keys(manifest)])];
         setBrandFiles(files);
@@ -7189,6 +7185,14 @@ function BrandIdentityView() {
       .catch(() => { if (active) setBrandContent(""); });
     return () => { active = false; };
   }, [brand?.handle, canEdit, selectedBrandFile]);
+  const refreshBrandKitAssets = async () => {
+    const latest = await api.brandKitV2(brandId);
+    setKit(latest);
+    const assets = Array.isArray(latest?.assets) ? latest.assets.filter((asset: any) => asset?.publicUrl || asset?.metadata?.url || asset?.metadata?.path).map((asset: Record<string, any>) => brandKitAssetMedia(asset)) : [];
+    const media = dedupeMedia(assets);
+    setReferenceMedia(media);
+    return media;
+  };
   const save = async (event: FormEvent) => { event.preventDefault(); setBusy(true); try { const result = await api.updateBrandV2(brandId, { name: form.name, domain: form.domain || undefined }); setBrand(result.brand); showToast("Identidad guardada."); } catch (err: any) { showToast(err?.message || "No se pudo guardar la identidad.", "error"); } finally { setBusy(false); } };
   const saveBrandFile = async () => {
     if (!brand?.handle || !selectedBrandFile) return;
@@ -7209,14 +7213,15 @@ function BrandIdentityView() {
     try {
       const result = await api.importBrandZip(brand.id || brand.handle, await fileAsBase64(file));
       const legacy = await api.brand(brand.handle).catch(() => null);
-      const references = await api.media(brand.handle, "reference").catch(() => ({ media: [] }));
       const core = await api.brandFile(brand.handle, "brand-core.json").catch(() => ({ content: "" }));
       const importedFiles = [...(result.importedMd || []), ...(result.importedData || [])];
       const nextFiles = [...new Set([...(legacy?.files || []), ...brandFiles, ...importedFiles])];
       setBrandFiles(nextFiles);
       const importedCore = parseBrandDocument(core.content);
       if (Object.keys(importedCore).length) setBrandCore(importedCore);
-      setReferenceMedia(dedupeMedia(references.media || []));
+      const refreshedKit = await api.brandKitV2(brandId);
+      setKit(refreshedKit);
+      setReferenceMedia(dedupeMedia((refreshedKit.assets || []).map((asset: Record<string, any>) => brandKitAssetMedia(asset))));
       if (importedFiles.length) setSelectedBrandFile(importedFiles[0]);
       setKit((current) => current ? { ...current, manifest: { ...(current.manifest || {}), ...Object.fromEntries(importedFiles.map((name) => [name, current.manifest?.[name] ?? {}])) } } : current);
       showToast(`${t("admin.brandZipImported")} ${(result.importedImages || []).length} ${t("admin.brandZipImages")}`);
@@ -7231,9 +7236,8 @@ function BrandIdentityView() {
     if (!file || !brand?.handle) return;
     setReferenceBusy(true);
     try {
-      const result = await api.uploadMedia({ site: brand.handle, filename: file.name, contentBase64: await fileAsBase64(file), kind: "reference", alt: file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ") });
-      setReferenceMedia((current) => [result.media, ...current]);
-      showToast("Referencia visual cargada.");
+      await api.uploadMedia({ site: brand.handle, filename: file.name, contentBase64: await fileAsBase64(file), kind: "reference", alt: file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ") });
+      showToast("Asset cargado. Queda disponible para asociarlo a un Post.");
     } catch (err: any) {
       showToast(err?.message || "No se pudo cargar la referencia.", "error");
     } finally {
@@ -7246,7 +7250,7 @@ function BrandIdentityView() {
     try {
       if (media.metadata?.source === "brand-kit") await api.deleteBrandKitAsset(brandId, media.id);
       else await api.deleteMedia({ site: brand.handle, id: media.id, path: media.path });
-      setReferenceMedia((current) => current.filter((item) => item.id !== media.id));
+      await refreshBrandKitAssets();
       setSelectedReference(null);
       showToast(media.metadata?.source === "brand-kit" ? "Asset retirado del Brand Kit." : "Referencia eliminada.");
     } catch (err: any) {
@@ -7262,9 +7266,8 @@ function BrandIdentityView() {
       if (media.metadata?.source === "canonical-reference") return;
       if (media.metadata?.source === "brand-kit") {
         const result = await api.updateBrandKitAsset(brandId, media.id, { alt: details.alt, usage: details.usage });
-        const metadata = { ...(media.metadata || {}), ...(result.asset.metadata || {}) };
-        const updated = { ...media, alt: metadata.alt || details.alt, metadata };
-        setReferenceMedia((current) => current.map((item) => item.id === media.id ? updated : item));
+        const refreshed = await refreshBrandKitAssets();
+        const updated = refreshed.find((item) => item.filename === (result.asset.name || media.filename)) || refreshed.find((item) => item.id === result.asset.id) || null;
         setSelectedReference(updated);
       } else {
         const result = await api.updateMedia({ site: brand.handle, id: media.id, ...details });
@@ -7363,7 +7366,7 @@ function BrandIdentityView() {
         </Card>
         <Card><span className="ui-eyebrow">Datos de la marca</span><h2>Identidad pública</h2>{canEdit ? <form className="ui-stack ui-stack-md" onSubmit={(event) => void save(event)}><Field label="Nombre" required><TextField value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></Field><Field label="Dominio web opcional"><TextField type="url" value={form.domain} onChange={(event) => setForm({ ...form, domain: event.target.value })} placeholder="https://marca.com" /></Field><Button type="submit" loading={busy}>Guardar identidad</Button></form> : <p className="ui-muted">{brand?.domain || "Sin dominio configurado"}</p>}</Card>
       </div>}
-      {selectedReference && <ReferenceMediaModal media={selectedReference} busy={referenceBusy} onClose={() => setSelectedReference(null)} onSave={(details) => void saveReference(selectedReference, details)} onDelete={() => void deleteReference(selectedReference)} canDelete={['brand-kit', 'canonical-reference'].includes(String(selectedReference.metadata?.source || '')) ? selectedReference.metadata?.source === 'brand-kit' : true} readOnlyFilename={['brand-kit', 'canonical-reference'].includes(String(selectedReference.metadata?.source || ''))} />}
+      {selectedReference && <ReferenceMediaModal key={selectedReference.id || selectedReference.filename} media={selectedReference} busy={referenceBusy} onClose={() => setSelectedReference(null)} onSave={(details) => void saveReference(selectedReference, details)} onDelete={() => void deleteReference(selectedReference)} canDelete={['brand-kit', 'canonical-reference'].includes(String(selectedReference.metadata?.source || '')) ? selectedReference.metadata?.source === 'brand-kit' : true} readOnlyFilename={['brand-kit', 'canonical-reference'].includes(String(selectedReference.metadata?.source || ''))} />}
     </main>
   );
 }
