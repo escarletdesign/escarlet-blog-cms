@@ -11,7 +11,7 @@ La fuente de verdad del código está en `apps/pwa/src/ui/index.tsx`. La fuente 
 ### Átomos
 
 - `Button` e `IconButton` para acciones.
-- `TextField`, `Textarea`, `Select`, `Checkbox` y `Field` para formularios.
+- `TextField`, `Textarea`, `Select`, `Checkbox`, `Switch` y `Field` para formularios.
 - `Badge`, `StatusBadge` y `ChannelBadge` para estados y canales.
 - `Skeleton`, `Progress` y `Toast` para feedback.
 
@@ -53,6 +53,7 @@ Los alias antiguos (`--bg`, `--text`, `--accent` y similares) no forman parte de
 - Las pestañas usan `Tabs`. Pasa un `ariaLabel` descriptivo cuando haya más de un grupo de pestañas. El panel asociado debe exponer `role="tabpanel"`, `id` y `aria-labelledby` coherentes.
 - Los estados de una pantalla son explícitos: carga, vacío, error, éxito y acción siguiente.
 - Los estados de contenido usan `StatusBadge`. No se crean colores propios para cada estado.
+- `Switch` se usa para activar o desactivar una opción o canal. Las selecciones masivas de recursos conservan `Checkbox` porque no representan un estado persistente.
 
 ## Reglas responsive
 

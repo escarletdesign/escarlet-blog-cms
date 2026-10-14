@@ -16,7 +16,6 @@ description: Identidad Escarlet v3 — style board, personajes y logo PNG/SVG pa
 | `channels/*.json` | Blog, Instagram, LinkedIn, vídeo |
 | `assets/style-board.png` | Tablero visual maestro |
 | `assets/fondo-escarlet.png` | Fondo de autoridad visual y contexto de generación |
-| `assets/character-board.png` | Tablero de personajes |
 | `assets/character-*.png` / `assets/character-silvia.webp` | Silvia / Charly sueltos |
 | `assets/logo-official-blue.png` | Logo PNG (referencia agente) |
 | `assets/logo-official-*.svg` | Logo SVG (motor motion / web) |

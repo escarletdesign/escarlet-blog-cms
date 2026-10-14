@@ -8,8 +8,6 @@ WHERE ba.brand_kit_version_id = bkv.id
   AND s.handle = 'escarlet'
   AND regexp_replace(ba.name, '^.*/', '') NOT IN (
     'style-board.png',
-    'character-board.png',
-    'character-silvia.png',
     'character-silvia.webp',
     'character-charly.png',
     'fondo-escarlet.png',

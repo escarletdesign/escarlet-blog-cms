@@ -10,7 +10,7 @@
   "styleBoards": {
     "style": { "filename": "style-board.png", "description": "Tablero visual maestro de la marca" },
     "background": { "filename": "fondo-escarlet.png", "description": "Fondo visual de autoridad para el contexto de generación" },
-    "character": { "filename": "character-board.png", "description": "Tablero de personajes (Silvia y Charly)" },
+    "character": { "filename": "character-silvia.webp", "description": "Personajes individuales de Escarlet" },
     "logo": { "filename": "logo-official-blue.png", "description": "Logo PNG para grounding del agente cuando lo pide" }
   },
   "logos": {
@@ -20,8 +20,8 @@
   },
   "routes": {
     "default": ["style-board.png", "fondo-escarlet.png"],
-    "with_character": ["style-board.png", "fondo-escarlet.png", "character-board.png"],
-    "character": ["style-board.png", "fondo-escarlet.png", "character-board.png"],
+    "with_character": ["style-board.png", "fondo-escarlet.png", "character-silvia.webp", "character-charly.png"],
+    "character": ["style-board.png", "fondo-escarlet.png", "character-silvia.webp", "character-charly.png"],
     "background": ["fondo-escarlet.png"],
     "logo": ["logo-official-blue.png"]
   },
@@ -42,25 +42,6 @@
       "required": true,
       "usage": "background",
       "alt": "Fondo visual oficial de Escarlet con textura de montañas y degradado turquesa, verde y oro"
-    },
-    {
-      "id": "esc-character-board",
-      "role": "character-board",
-      "filename": "character-board.png",
-      "approved": true,
-      "required": false,
-      "usage": "character",
-      "alt": "Tablero de personajes Escarlet"
-    },
-    {
-      "id": "esc-character-silvia",
-      "role": "character",
-      "filename": "character-silvia.png",
-      "approved": true,
-      "required": false,
-      "usage": "character",
-      "characterId": "silvia",
-      "alt": "Personaje Silvia"
     },
     {
       "id": "esc-character-silvia-webp",

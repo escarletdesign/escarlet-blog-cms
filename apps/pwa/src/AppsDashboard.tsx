@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError, api } from "./api";
-import { Button, Card, Checkbox, Field, Inline, PageHeader, Stack, TextField, Textarea } from "./ui";
+import { Button, Card, Field, Inline, PageHeader, Stack, Switch, TextField, Textarea } from "./ui";
 
 type AppsDashboardProps = { site: string; t: (key: string, fallback?: string) => string };
 
@@ -62,7 +62,7 @@ export function AppsDashboard({ site, t }: AppsDashboardProps) {
         </Field>
         <Field label={t("apps.channels", "Canales")} hint={t("apps.channelsHint", "Puedes añadir o editar variantes después desde el Post.")}>
           <Inline gap="sm">
-            {channels.map((value) => <Checkbox key={value} label={t(`channel.${value}`, channelLabels[value])} checked={selectedChannels.includes(value)} onChange={() => toggleChannel(value)} />)}
+            {channels.map((value) => <Switch key={value} label={t(`channel.${value}`, channelLabels[value])} checked={selectedChannels.includes(value)} onChange={() => toggleChannel(value)} />)}
           </Inline>
         </Field>
         <div className="ui-actions">

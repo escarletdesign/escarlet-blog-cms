@@ -28,7 +28,7 @@ import type { Author, BrandSummary, ContentItem, MediaItem, Post, Session } from
 import { contentPreviewPath, itemTitle, statusLabel } from "./content-format";
 import { createVideoCapture } from "./portrait-recorder";
 import type { VideoCapture, VideoFormat } from "./portrait-recorder";
-import { Badge, Button, Card, ChannelBadge, Checkbox, ConnectionCard, Drawer, EmptyState as UiEmptyState, Field, IconButton, Inline, Modal, MultiSelectPills, PageHeader, Select, Stack, StatusBadge, Tabs, TeleprompterLineControls, Textarea, TextField, Toast as UiToast } from "./ui";
+import { Badge, Button, Card, ChannelBadge, Checkbox, ConnectionCard, Drawer, EmptyState as UiEmptyState, Field, IconButton, Inline, Modal, MultiSelectPills, PageHeader, Select, Stack, StatusBadge, Switch, Tabs, TeleprompterLineControls, Textarea, TextField, Toast as UiToast } from "./ui";
 import { AppShell, NavIcon } from "./app/layouts/AppShell";
 import { SidebarConversations } from "./features/chat/SidebarConversations";
 import { I18nContext, SessionContext, ToastContext, useApp, useI18n, useToast } from "./app/context";
@@ -4304,7 +4304,6 @@ function Posts() {
   const query = searchParams.get("q") || "";
   const requestedStatus = searchParams.get("status") || "all";
   const statusFilter = ["all", "draft", "scheduled", "published"].includes(requestedStatus) ? requestedStatus : "all";
-  const scheduledView = searchParams.get("view") === "month" ? "month" : "list";
   const updatePostSearch = (key: string, value: string, defaultValue = "") => {
     const next = new URLSearchParams(searchParams);
     if (!value || value === defaultValue) next.delete(key);
@@ -4394,21 +4393,7 @@ function Posts() {
               )}
             </div>
           </div>
-          {statusFilter === "scheduled" && (
-            <div className="posts-view-toolbar">
-              <span>{t("calendar.onlyScheduled")}</span>
-              <button
-                type="button"
-                className="ui-icon-button calendar-view-toggle"
-                onClick={() => updatePostSearch("view", scheduledView === "list" ? "month" : "list", "list")}
-                aria-label={t(scheduledView === "list" ? "calendar.monthView" : "calendar.listView")}
-                title={t(scheduledView === "list" ? "calendar.monthView" : "calendar.listView")}
-              >
-                {scheduledView === "list" ? "▦" : "☷"}
-              </button>
-            </div>
-          )}
-          {statusFilter === "scheduled" && scheduledView === "month" ? (
+          {statusFilter === "scheduled" ? (
             <Calendar embedded postsOverride={visiblePosts} />
           ) : visiblePosts.length ? (
             <div className="post-list">
@@ -4532,13 +4517,12 @@ function PostRow({ post, onDeleted }: { post: Post; onDeleted?: (slug: string) =
 }
 
 function Calendar({ embedded = false, postsOverride }: { embedded?: boolean; postsOverride?: Post[] }) {
-  const { site, workflowFlags } = useApp();
+  const { site } = useApp();
   const { t, language } = useI18n();
   const nav = useNavigate();
   const [posts, setPosts] = useState<Post[]>([]);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
-  const [view, setView] = useState<"list" | "month">(embedded ? "month" : "list");
   const [monthCursor, setMonthCursor] = useState(() => new Date());
   useEffect(() => {
     if (postsOverride) {
@@ -4556,15 +4540,6 @@ function Calendar({ embedded = false, postsOverride }: { embedded?: boolean; pos
       .filter((post) => ["pending_schedule", "scheduled"].includes(post.status) && Boolean(post.publishAt))
       .sort((a, b) => new Date(a.publishAt || 0).getTime() - new Date(b.publishAt || 0).getTime()),
     [posts],
-  );
-  const grouped = useMemo(
-    () =>
-      scheduledPosts.reduce<Record<string, Post[]>>((acc, post) => {
-        const key = (post.publishAt || "").slice(0, 10);
-        (acc[key] ||= []).push(post);
-        return acc;
-      }, {}),
-    [scheduledPosts],
   );
   const monthDays = useMemo(() => {
     const year = monthCursor.getFullYear();
@@ -4616,28 +4591,7 @@ function Calendar({ embedded = false, postsOverride }: { embedded?: boolean; pos
           </div>
         </section>
       )}
-      {!embedded && <div className="calendar-toolbar">
-          <p className="tiny">{t("calendar.onlyScheduled")}</p>
-          <button
-            type="button"
-            className="ui-icon-button calendar-view-toggle"
-            onClick={() => setView((current) => current === "list" ? "month" : "list")}
-            aria-label={t(view === "list" ? "calendar.monthView" : "calendar.listView")}
-            title={t(view === "list" ? "calendar.monthView" : "calendar.listView")}
-          >
-            {view === "list" ? "▦" : "☷"}
-          </button>
-        </div>}
-      {scheduledPosts.length ? (view === "list" ? (
-        <div className="calendar-list">
-          {Object.entries(grouped).map(([date, rows]) => (
-            <section key={date}>
-              <h2>{readableDate(date, language)}</h2>
-              {rows.map((post) => <PostRow key={post.slug || (post as any).id} post={post} />)}
-            </section>
-          ))}
-        </div>
-      ) : (
+      {scheduledPosts.length ? (
         <section className="calendar-month ui-card">
           <div className="calendar-month-head">
             <button type="button" className="ui-icon-button" onClick={() => setMonthCursor((date) => new Date(date.getFullYear(), date.getMonth() - 1, 1))} aria-label={t("calendar.previousMonth")}>‹</button>
@@ -4652,7 +4606,7 @@ function Calendar({ embedded = false, postsOverride }: { embedded?: boolean; pos
                 <div key={dayKey(date)} className={`calendar-day ${inMonth ? "" : "outside"} ${rows.length ? "has-posts" : ""}`}>
                   <span>{date.getDate()}</span>
                   {rows.slice(0, 2).map((post) => (
-                    <button key={post.slug || (post as any).id} type="button" className="calendar-day-post" disabled={!workflowFlags.legacyPreviewEnabled} onClick={() => post.slug && nav(`/preview/${encodeURIComponent(post.slug)}`)} title={!workflowFlags.legacyPreviewEnabled ? t("preview.disabled") : post.title}>{post.title}</button>
+                    <button key={post.slug || (post as any).id} type="button" className="calendar-day-post" disabled={!post.itemId} onClick={() => post.itemId && nav(`/content/${encodeURIComponent(post.itemId)}`)} title={post.title}>{post.title}</button>
                   ))}
                   {rows.length > 2 && <small>+{rows.length - 2}</small>}
                 </div>
@@ -4660,7 +4614,7 @@ function Calendar({ embedded = false, postsOverride }: { embedded?: boolean; pos
             })}
           </div>
         </section>
-      )) : null}
+      ) : null}
       {!scheduledPosts.length && !error && (
           <EmptyState
             title={t("calendar.empty")}
@@ -5076,20 +5030,15 @@ function Settings() {
           <p className="ui-eyebrow">{t("settings.superAdminEyebrow")}</p>
           <h2>{t("settings.assistantInternalTitle")}</h2>
           <p className="ui-muted">{t("settings.assistantInternalHelp")}</p>
-          <label className="switch-row">
-            <span>
-              <b>{t("settings.assistantInternalToggle")}</b>
-              <small>{assistantEnabled ? t("settings.assistantInternalOn") : t("settings.assistantInternalOff")}</small>
-            </span>
-            <input
-              type="checkbox"
-              checked={assistantEnabled}
-              onChange={(event) => {
-                const next = event.target.checked;
-                if (next !== assistantEnabled) setAssistantToggleTarget(next);
-              }}
-            />
-          </label>
+          <Switch
+            label={t("settings.assistantInternalToggle")}
+            description={assistantEnabled ? t("settings.assistantInternalOn") : t("settings.assistantInternalOff")}
+            checked={assistantEnabled}
+            onChange={(event) => {
+              const next = event.target.checked;
+              if (next !== assistantEnabled) setAssistantToggleTarget(next);
+            }}
+          />
           {assistantToggleTarget !== null && (
             <ConfirmModal
               title={assistantToggleTarget ? t("settings.assistantConfirmOnTitle") : t("settings.assistantConfirmOffTitle")}
@@ -6250,10 +6199,7 @@ function Admin() {
                   </label>
                 ))}
               </fieldset>
-              <label className="switch-row">
-                <span><b>{t("settings.authorPermission")}</b><small>{t("settings.authorPermissionHelp")}</small></span>
-                <input type="checkbox" checked={Boolean(userForm.allowPublishingAs)} onChange={(event) => setUserForm({ ...userForm, allowPublishingAs: event.target.checked })} />
-              </label>
+              <Switch label={t("settings.authorPermission")} description={t("settings.authorPermissionHelp")} checked={Boolean(userForm.allowPublishingAs)} onChange={(event) => setUserForm({ ...userForm, allowPublishingAs: event.target.checked })} />
               <div className="ui-actions">
                 <button className="ui-button ui-button-ghost" type="button" onClick={() => setUserForm(null)}>{t("editor.close")}</button>
                 <button className="ui-button ui-button-primary" disabled={userBusy || !userForm.sites.length}>{userBusy ? t("admin.saving") : t("admin.save")}</button>
@@ -6316,10 +6262,7 @@ function Admin() {
                   {t("admin.clearCoolifyToken")}
                 </label>
               )}
-              <label className="switch-row">
-                <span><b>Canal blog</b><small>{t("admin.siteContentModeHelp")}</small></span>
-                <input type="checkbox" checked={siteForm.blogEnabled} onChange={(event) => setSiteForm({ ...siteForm, blogEnabled: event.target.checked, contentMode: event.target.checked ? "blog" : "socialmedia" })} />
-              </label>
+              <Switch label="Canal blog" description={t("admin.siteContentModeHelp")} checked={siteForm.blogEnabled} onChange={(event) => setSiteForm({ ...siteForm, blogEnabled: event.target.checked, contentMode: event.target.checked ? "blog" : "socialmedia" })} />
               <fieldset className="social-pack-channel-settings">
                 <legend>{t("admin.socialPackChannels")}</legend>
                 <p className="tiny">{t("admin.socialPackChannelsHelp")}</p>
@@ -6354,13 +6297,13 @@ function Admin() {
             <p className="ui-eyebrow">{t("admin.cmsAiFlagEyebrow")}</p>
             <h2>{cmsAiEnabled ? t("admin.cmsAiFlagTitle") : t("admin.cmsAiDisabledTitle")}</h2>
             <p className="ui-muted">{cmsAiEnabled ? t("admin.cmsAiFlagHelp") : t("admin.cmsAiDisabledHelp")}</p>
-            <label className="switch-row">
-              <span>
-                <b>{t("admin.cmsAiFlagToggle")}</b>
-                <small>{cmsAiSaving ? t("admin.saving") : cmsAiEnabled ? t("admin.cmsAiFlagOn") : t("admin.cmsAiFlagOff")}</small>
-              </span>
-              <input type="checkbox" checked={cmsAiEnabled} disabled={cmsAiSaving} onChange={(event) => void saveCmsAiFlag(event.target.checked)} />
-            </label>
+            <Switch
+              label={t("admin.cmsAiFlagToggle")}
+              description={cmsAiSaving ? t("admin.saving") : cmsAiEnabled ? t("admin.cmsAiFlagOn") : t("admin.cmsAiFlagOff")}
+              checked={cmsAiEnabled}
+              disabled={cmsAiSaving}
+              onChange={(event) => void saveCmsAiFlag(event.target.checked)}
+            />
           </section>
           {cmsAiEnabled ? <>
           <div className="section-title">
@@ -6558,17 +6501,12 @@ function Admin() {
               <strong>{t("admin.billingTestWarningTitle")}</strong>
               <span>{t("admin.billingTestWarning")}</span>
             </div>
-            <label className="switch-row">
-              <span>
-                <b>{t("admin.billingTestToggle")}</b>
-                <small>{billingTestMode ? t("admin.billingTestOn") : t("admin.billingTestOff")}</small>
-              </span>
-              <input
-                type="checkbox"
-                checked={billingTestMode}
-                onChange={(event) => setBillingTestMode(event.target.checked)}
-              />
-            </label>
+            <Switch
+              label={t("admin.billingTestToggle")}
+              description={billingTestMode ? t("admin.billingTestOn") : t("admin.billingTestOff")}
+              checked={billingTestMode}
+              onChange={(event) => setBillingTestMode(event.target.checked)}
+            />
             <div className="ui-actions">
               <button className="ui-button ui-button-primary" type="button" disabled={billingTestSaving} onClick={() => void saveBillingTestMode()}>
                 {billingTestSaving ? t("admin.saving") : t("admin.saveFeatureFlag")}
@@ -6580,55 +6518,13 @@ function Admin() {
             <p className="ui-eyebrow">{t("admin.workflowFlagsEyebrow")}</p>
             <h2>{t("admin.workflowFlagsTitle")}</h2>
             <p className="ui-muted">{t("admin.workflowFlagsHelp")}</p>
-            <label className="switch-row">
-              <span>
-                <b>{t("admin.assistantFlag")}</b>
-                <small>{assistantEnabled ? t("admin.workflowFlagOn") : t("admin.workflowFlagOff")}</small>
-              </span>
-              <input type="checkbox" checked={assistantEnabled} onChange={(event) => setAssistantEnabled(event.target.checked)} />
-            </label>
-            <label className="switch-row">
-              <span>
-                <b>{t("admin.blogWizardFlag")}</b>
-                <small>{blogWizardEnabled ? t("admin.workflowFlagOn") : t("admin.workflowFlagOff")}</small>
-              </span>
-              <input type="checkbox" checked={blogWizardEnabled} onChange={(event) => setBlogWizardEnabled(event.target.checked)} />
-            </label>
-            <label className="switch-row">
-              <span>
-                <b>{t("admin.legacyPreviewFlag")}</b>
-                <small>{legacyPreviewEnabled ? t("admin.screenFlagHelp") : t("admin.screenFlagHidden")}</small>
-              </span>
-              <input type="checkbox" checked={legacyPreviewEnabled} onChange={(event) => setLegacyPreviewEnabled(event.target.checked)} />
-            </label>
-            <label className="switch-row">
-              <span>
-                <b>{t("admin.legacySocialPackFlag")}</b>
-                <small>{legacySocialPackEnabled ? t("admin.screenFlagHelp") : t("admin.screenFlagHidden")}</small>
-              </span>
-              <input type="checkbox" checked={legacySocialPackEnabled} onChange={(event) => setLegacySocialPackEnabled(event.target.checked)} />
-            </label>
-            <label className="switch-row">
-              <span>
-                <b>{t("admin.authorInviteFlag")}</b>
-                <small>{authorInviteEnabled ? t("admin.screenFlagHelp") : t("admin.screenFlagHidden")}</small>
-              </span>
-              <input type="checkbox" checked={authorInviteEnabled} onChange={(event) => setAuthorInviteEnabled(event.target.checked)} />
-            </label>
-            <label className="switch-row">
-              <span>
-                <b>Creación desde la aplicación</b>
-                <small>{creationUiEnabled ? "Visible para este espacio/marca" : "Desactivada: la creación se hace desde ChatGPT/MCP"}</small>
-              </span>
-              <input type="checkbox" checked={creationUiEnabled} onChange={(event) => setCreationUiEnabled(event.target.checked)} />
-            </label>
-            <label className="switch-row">
-              <span>
-                <b>Creación manual</b>
-                <small>{manualCreationEnabled ? "Editor manual habilitado" : "Oculta mientras se valida el flujo MCP"}</small>
-              </span>
-              <input type="checkbox" checked={manualCreationEnabled} onChange={(event) => setManualCreationEnabled(event.target.checked)} />
-            </label>
+            <Switch label={t("admin.assistantFlag")} description={assistantEnabled ? t("admin.workflowFlagOn") : t("admin.workflowFlagOff")} checked={assistantEnabled} onChange={(event) => setAssistantEnabled(event.target.checked)} />
+            <Switch label={t("admin.blogWizardFlag")} description={blogWizardEnabled ? t("admin.workflowFlagOn") : t("admin.workflowFlagOff")} checked={blogWizardEnabled} onChange={(event) => setBlogWizardEnabled(event.target.checked)} />
+            <Switch label={t("admin.legacyPreviewFlag")} description={legacyPreviewEnabled ? t("admin.screenFlagHelp") : t("admin.screenFlagHidden")} checked={legacyPreviewEnabled} onChange={(event) => setLegacyPreviewEnabled(event.target.checked)} />
+            <Switch label={t("admin.legacySocialPackFlag")} description={legacySocialPackEnabled ? t("admin.screenFlagHelp") : t("admin.screenFlagHidden")} checked={legacySocialPackEnabled} onChange={(event) => setLegacySocialPackEnabled(event.target.checked)} />
+            <Switch label={t("admin.authorInviteFlag")} description={authorInviteEnabled ? t("admin.screenFlagHelp") : t("admin.screenFlagHidden")} checked={authorInviteEnabled} onChange={(event) => setAuthorInviteEnabled(event.target.checked)} />
+            <Switch label="Creación desde la aplicación" description={creationUiEnabled ? "Visible para este espacio/marca" : "Desactivada: la creación se hace desde ChatGPT/MCP"} checked={creationUiEnabled} onChange={(event) => setCreationUiEnabled(event.target.checked)} />
+            <Switch label="Creación manual" description={manualCreationEnabled ? "Editor manual habilitado" : "Oculta mientras se valida el flujo MCP"} checked={manualCreationEnabled} onChange={(event) => setManualCreationEnabled(event.target.checked)} />
             <div className="ui-actions">
               <button className="ui-button ui-button-primary" type="button" disabled={workflowSaving} onClick={() => void saveWorkflowFlags()}>
                 {workflowSaving ? t("admin.saving") : t("admin.saveWorkflowFlags")}
@@ -6777,17 +6673,12 @@ function Admin() {
                   placeholder={t("admin.coolifyTokenPlaceholder")}
                 />
               </label>
-              <label className="switch-row">
-                <span>
-                  <b>{t("admin.requireHumanApproval")}</b>
-                  <small>{t("admin.requireHumanApprovalHelp")}</small>
-                </span>
-                <input
-                  type="checkbox"
-                  checked={newSiteForm.requiresHumanApproval}
-                  onChange={(event) => setNewSiteForm({ ...newSiteForm, requiresHumanApproval: event.target.checked })}
-                />
-              </label>
+              <Switch
+                label={t("admin.requireHumanApproval")}
+                description={t("admin.requireHumanApprovalHelp")}
+                checked={newSiteForm.requiresHumanApproval}
+                onChange={(event) => setNewSiteForm({ ...newSiteForm, requiresHumanApproval: event.target.checked })}
+              />
               <div className="ui-actions">
                 <button className="ui-button ui-button-ghost" type="button" onClick={() => setShowCreateSite(false)} disabled={newSiteSaving}>
                   {t("editor.close")}
@@ -7019,7 +6910,7 @@ function TeamView({ autoInvite = false }: { autoInvite?: boolean } = {}) {
       setUserBusy(false);
     }
   };
-  return <main className="ui-page"><PageHeader eyebrow="Espacio" title="Equipo y acceso" description="Roles y permisos de las personas que pueden revisar este contenido." actions={<Inline gap="sm">{canAdminUsers && <Button variant="ghost" onClick={() => nav("/admin/team")}>{t("admin.users")}</Button>}{canManage && <Button onClick={() => setInviteOpen(true)}>Invitar miembro</Button>}</Inline>} />{error && <Card><p className="ui-field-error">{error}</p></Card>}{members.length ? <div className="ui-member-list">{members.map((member) => { const memberName = member.displayName || member.name || member.email || (member.userId === "system" ? "Escarlet" : member.userId) || "Miembro"; const id = userId(member); const canAct = canAdminUsers && Boolean(id) && id !== "system" && Boolean(member.email); return <Card key={member.id || member.userId || member.email}><div className="ui-card-head"><div className="ui-team-member"><UserAvatar src={member.avatarUrl} name={memberName} size="sm" /><div><h3>{memberName}</h3><p className="ui-muted">{member.email || (member.brands || []).map((brand: any) => brand.name || brand.handle).join(", ")}</p></div></div><Badge tone="info">{roleLabel(memberDisplayRole(member, site, productContext?.activeBrand), t)}</Badge></div>{canAct && <div className="ui-card-actions ui-team-actions"><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => openUserEditor(member)} aria-label={t("admin.editUser")} title={t("admin.editUser")}><AdminActionIcon kind="edit" /></button><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => void issueOrRevokeUserToken(member)} aria-label={member.hasLoginToken ? t("admin.revokeToken") : t("admin.issueToken")} title={member.hasLoginToken ? t("admin.revokeToken") : t("admin.issueToken")}><AdminActionIcon kind="key" /></button><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => void sendUserMagicLink(member)} aria-label={t("admin.magicLink")} title={t("admin.magicLink")}><AdminActionIcon kind="mail" /></button></div>}</Card>; })}</div> : !error && <UiEmptyState title="Todavía no hay miembros" description={canManage ? "Invita a la primera persona para empezar a trabajar en equipo." : "Un administrador debe invitar a los miembros de este espacio."} action={canManage ? <Button onClick={() => setInviteOpen(true)}>Invitar miembro</Button> : undefined} />}<Modal open={inviteOpen} title="Invitar miembro" onClose={() => setInviteOpen(false)}><form className="ui-stack ui-stack-md" onSubmit={(event) => void invite(event)}><Field label="Correo electrónico" required><TextField type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required autoFocus /></Field><Field label="Marcas asignadas"><MultiSelectPills options={inviteBrands.map((brand) => ({ id: brand.id, label: brand.name || brand.handle || brand.id }))} value={form.brandIds} onChange={(brandIds) => setForm((current) => ({ ...current, brandIds, brandRoles: Object.fromEntries(brandIds.map((id) => [id, current.brandRoles[id] || current.role])) }))} ariaLabel="Marcas asignadas" /></Field>{form.brandIds.map((brandId) => { const brand = inviteBrands.find((item) => item.id === brandId); return <Field key={brandId} label={`Rol en ${brand?.name || brand?.handle || brandId}`}><Select value={form.brandRoles[brandId] || "viewer"} onChange={(event) => setForm({ ...form, brandRoles: { ...form.brandRoles, [brandId]: event.target.value } })}><option value="owner">{roleLabel("owner", t)}</option><option value="admin">{roleLabel("admin", t)}</option><option value="approver">{roleLabel("approver", t)}</option><option value="editor">{roleLabel("editor", t)}</option><option value="author">{roleLabel("author", t)}</option><option value="viewer">{roleLabel("viewer", t)}</option></Select></Field>; })}<Inline gap="md"><Button type="button" variant="ghost" onClick={() => setInviteOpen(false)}>Cancelar</Button><Button type="submit" loading={busy}>Enviar invitación</Button></Inline></form></Modal><Modal open={Boolean(userForm)} title={t("admin.editUser")} onClose={() => setUserForm(null)}>{userForm && <form className="ui-stack ui-stack-md" onSubmit={(event) => void saveUser(event)}><Field label={t("admin.userEmail")} required><TextField type="email" required value={userForm.email} onChange={(event) => setUserForm({ ...userForm, email: event.target.value })} /></Field><Field label={t("admin.userRole")} required><Select value={userForm.role} onChange={(event) => setUserForm({ ...userForm, role: event.target.value })}>{["owner", "admin", "approver", "editor", "author", "viewer"].map((role) => <option key={role} value={role}>{roleLabel(role, t)}</option>)}</Select></Field><fieldset className="ui-site-checks"><legend>{t("admin.userSites")}</legend><MultiSelectPills options={availableSiteHandles.map((handle) => ({ id: handle, label: handle }))} value={userForm.sites} onChange={(sites) => setUserForm({ ...userForm, sites })} ariaLabel={t("admin.userSites")} />{userForm.sites.map((handle) => { const brandRole = userForm.brandRoles[handle] || userForm.role; return <div key={handle} className="ui-team-brand-row"><span>{handle}</span><Select aria-label={`Rol en ${handle}`} value={brandRole} onChange={(event) => setUserForm({ ...userForm, brandRoles: { ...userForm.brandRoles, [handle]: event.target.value } })}><option value="owner">{roleLabel("owner", t)}</option><option value="admin">{roleLabel("admin", t)}</option><option value="approver">{roleLabel("approver", t)}</option><option value="editor">{roleLabel("editor", t)}</option><option value="author">{roleLabel("author", t)}</option><option value="viewer">{roleLabel("viewer", t)}</option></Select></div> })}</fieldset><label className="ui-toggle-row"><span><b>{t("settings.authorPermission")}</b><small>{t("settings.authorPermissionHelp")}</small></span><input type="checkbox" checked={userForm.allowPublishingAs} onChange={(event) => setUserForm({ ...userForm, allowPublishingAs: event.target.checked })} /></label><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setUserForm(null)}>{t("editor.close")}</Button><Button type="submit" disabled={!userForm.sites.length} loading={userBusy}>{t("admin.save")}</Button></Inline></form>}</Modal></main>;
+  return <main className="ui-page"><PageHeader eyebrow="Espacio" title="Equipo y acceso" description="Roles y permisos de las personas que pueden revisar este contenido." actions={<Inline gap="sm">{canAdminUsers && <Button variant="ghost" onClick={() => nav("/admin/team")}>{t("admin.users")}</Button>}{canManage && <Button onClick={() => setInviteOpen(true)}>Invitar miembro</Button>}</Inline>} />{error && <Card><p className="ui-field-error">{error}</p></Card>}{members.length ? <div className="ui-member-list">{members.map((member) => { const memberName = member.displayName || member.name || member.email || (member.userId === "system" ? "Escarlet" : member.userId) || "Miembro"; const id = userId(member); const canAct = canAdminUsers && Boolean(id) && id !== "system" && Boolean(member.email); return <Card key={member.id || member.userId || member.email}><div className="ui-card-head"><div className="ui-team-member"><UserAvatar src={member.avatarUrl} name={memberName} size="sm" /><div><h3>{memberName}</h3><p className="ui-muted">{member.email || (member.brands || []).map((brand: any) => brand.name || brand.handle).join(", ")}</p></div></div><Badge tone="info">{roleLabel(memberDisplayRole(member, site, productContext?.activeBrand), t)}</Badge></div>{canAct && <div className="ui-card-actions ui-team-actions"><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => openUserEditor(member)} aria-label={t("admin.editUser")} title={t("admin.editUser")}><AdminActionIcon kind="edit" /></button><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => void issueOrRevokeUserToken(member)} aria-label={member.hasLoginToken ? t("admin.revokeToken") : t("admin.issueToken")} title={member.hasLoginToken ? t("admin.revokeToken") : t("admin.issueToken")}><AdminActionIcon kind="key" /></button><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => void sendUserMagicLink(member)} aria-label={t("admin.magicLink")} title={t("admin.magicLink")}><AdminActionIcon kind="mail" /></button></div>}</Card>; })}</div> : !error && <UiEmptyState title="Todavía no hay miembros" description={canManage ? "Invita a la primera persona para empezar a trabajar en equipo." : "Un administrador debe invitar a los miembros de este espacio."} action={canManage ? <Button onClick={() => setInviteOpen(true)}>Invitar miembro</Button> : undefined} />}<Modal open={inviteOpen} title="Invitar miembro" onClose={() => setInviteOpen(false)}><form className="ui-stack ui-stack-md" onSubmit={(event) => void invite(event)}><Field label="Correo electrónico" required><TextField type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required autoFocus /></Field><Field label="Marcas asignadas"><MultiSelectPills options={inviteBrands.map((brand) => ({ id: brand.id, label: brand.name || brand.handle || brand.id }))} value={form.brandIds} onChange={(brandIds) => setForm((current) => ({ ...current, brandIds, brandRoles: Object.fromEntries(brandIds.map((id) => [id, current.brandRoles[id] || current.role])) }))} ariaLabel="Marcas asignadas" /></Field>{form.brandIds.map((brandId) => { const brand = inviteBrands.find((item) => item.id === brandId); return <Field key={brandId} label={`Rol en ${brand?.name || brand?.handle || brandId}`}><Select value={form.brandRoles[brandId] || "viewer"} onChange={(event) => setForm({ ...form, brandRoles: { ...form.brandRoles, [brandId]: event.target.value } })}><option value="owner">{roleLabel("owner", t)}</option><option value="admin">{roleLabel("admin", t)}</option><option value="approver">{roleLabel("approver", t)}</option><option value="editor">{roleLabel("editor", t)}</option><option value="author">{roleLabel("author", t)}</option><option value="viewer">{roleLabel("viewer", t)}</option></Select></Field>; })}<Inline gap="md"><Button type="button" variant="ghost" onClick={() => setInviteOpen(false)}>Cancelar</Button><Button type="submit" loading={busy}>Enviar invitación</Button></Inline></form></Modal><Modal open={Boolean(userForm)} title={t("admin.editUser")} onClose={() => setUserForm(null)}>{userForm && <form className="ui-stack ui-stack-md" onSubmit={(event) => void saveUser(event)}><Field label={t("admin.userEmail")} required><TextField type="email" required value={userForm.email} onChange={(event) => setUserForm({ ...userForm, email: event.target.value })} /></Field><Field label={t("admin.userRole")} required><Select value={userForm.role} onChange={(event) => setUserForm({ ...userForm, role: event.target.value })}>{["owner", "admin", "approver", "editor", "author", "viewer"].map((role) => <option key={role} value={role}>{roleLabel(role, t)}</option>)}</Select></Field><fieldset className="ui-site-checks"><legend>{t("admin.userSites")}</legend><MultiSelectPills options={availableSiteHandles.map((handle) => ({ id: handle, label: handle }))} value={userForm.sites} onChange={(sites) => setUserForm({ ...userForm, sites })} ariaLabel={t("admin.userSites")} />{userForm.sites.map((handle) => { const brandRole = userForm.brandRoles[handle] || userForm.role; return <div key={handle} className="ui-team-brand-row"><span>{handle}</span><Select aria-label={`Rol en ${handle}`} value={brandRole} onChange={(event) => setUserForm({ ...userForm, brandRoles: { ...userForm.brandRoles, [handle]: event.target.value } })}><option value="owner">{roleLabel("owner", t)}</option><option value="admin">{roleLabel("admin", t)}</option><option value="approver">{roleLabel("approver", t)}</option><option value="editor">{roleLabel("editor", t)}</option><option value="author">{roleLabel("author", t)}</option><option value="viewer">{roleLabel("viewer", t)}</option></Select></div> })}</fieldset><Switch label={t("settings.authorPermission")} description={t("settings.authorPermissionHelp")} checked={userForm.allowPublishingAs} onChange={(event) => setUserForm({ ...userForm, allowPublishingAs: event.target.checked })} /><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setUserForm(null)}>{t("editor.close")}</Button><Button type="submit" disabled={!userForm.sites.length} loading={userBusy}>{t("admin.save")}</Button></Inline></form>}</Modal></main>;
 }
 
 function parseBrandDocument(value: unknown): Record<string, any> {
@@ -7250,8 +7141,9 @@ function BrandIdentityView() {
     try {
       if (media.metadata?.source === "brand-kit") await api.deleteBrandKitAsset(brandId, media.id);
       else await api.deleteMedia({ site: brand.handle, id: media.id, path: media.path });
-      await refreshBrandKitAssets();
       setSelectedReference(null);
+      setReferenceMedia((current) => current.filter((item) => item.id !== media.id));
+      await refreshBrandKitAssets();
       showToast(media.metadata?.source === "brand-kit" ? "Asset retirado del Brand Kit." : "Referencia eliminada.");
     } catch (err: any) {
       showToast(err?.message || "No se pudo eliminar la referencia.", "error");
@@ -7268,12 +7160,12 @@ function BrandIdentityView() {
         const result = await api.updateBrandKitAsset(brandId, media.id, { alt: details.alt, usage: details.usage });
         const refreshed = await refreshBrandKitAssets();
         const updated = refreshed.find((item) => item.filename === (result.asset.name || media.filename)) || refreshed.find((item) => item.id === result.asset.id) || null;
-        setSelectedReference(updated);
+        setReferenceMedia((current) => current.map((item) => item.id === media.id ? updated || { ...item, alt: details.alt, metadata: { ...(item.metadata || {}), usage: details.usage } } : item));
       } else {
         const result = await api.updateMedia({ site: brand.handle, id: media.id, ...details });
         setReferenceMedia((current) => current.map((item) => item.id === media.id ? result.media : item));
-        setSelectedReference(result.media);
       }
+      setSelectedReference(null);
       showToast("Referencia actualizada.");
     } catch (err: any) {
       showToast(err?.message || "No se pudo actualizar la referencia.", "error");
@@ -7389,7 +7281,7 @@ function BrandChannelsView() {
   const blogEnabled = channels.some((channel) => channel.channel === "blog" && channel.enabled);
   if (loading) return <main className="ui-page"><p className="ui-muted">Cargando configuración de canales...</p></main>;
   if (error) return <main className="ui-page"><UiEmptyState title="No se pudo cargar la configuración" description={error} action={<Button onClick={() => window.location.reload()}>Reintentar</Button>} /></main>;
-  return <main className="ui-page"><PageHeader eyebrow="Marca · Canales" title={brand?.name || "Canales activos"} description="Activa solo los canales que esta marca utiliza. Cada uno puede tener su propia conexión primaria." back={<NavLink to={`/brand/${encodeURIComponent(brandId)}`}>← Volver a la marca</NavLink>} actions={canManage ? <Button onClick={() => void save()} loading={busy}>Guardar cambios</Button> : undefined} /><div className="ui-channel-settings-grid"><Card><span className="ui-eyebrow">Canales</span><h2>Publicación multicanal</h2><Stack gap="sm">{channels.map((channel) => <label className="ui-toggle-row" key={channel.channel}><span><b>{channel.channel === "x" ? "X" : channel.channel.charAt(0).toUpperCase() + channel.channel.slice(1)}</b><small>{channel.enabled ? "Activo" : "Inactivo"}</small></span><input type="checkbox" disabled={!canManage} checked={Boolean(channel.enabled)} onChange={(event) => setChannels((current) => current.map((item) => item.channel === channel.channel ? { ...item, enabled: event.target.checked } : item))} /></label>)}</Stack></Card><Card><span className="ui-eyebrow">Usos de marca</span><h2>Capacidades</h2><Stack gap="sm"><label className="ui-toggle-row"><span><b>Presentaciones</b><small>Permite usar el brand kit desde ChatGPT/MCP.</small></span><input type="checkbox" disabled={!canManage} checked={Boolean(caps.presentation_generation)} onChange={(event) => setCaps((current) => ({ ...current, presentation_generation: event.target.checked }))} /></label><label className="ui-toggle-row"><span><b>Publicaciones</b><small>Se activa automáticamente al encender un canal.</small></span><input type="checkbox" checked={Boolean(caps.content_publishing)} readOnly /></label></Stack></Card>{blogEnabled && <Card className="ui-blog-connection-card"><div className="ui-card-head"><div><span className="ui-eyebrow">{t("admin.blogPublishRouteEyebrow", "Publicación del Blog")}</span><h2>{t("admin.blogPublishRouteTitle", "Webhook de Coolify")}</h2></div><Badge tone={web.rebuildWebhookUrl ? "success" : "warning"}>{web.rebuildWebhookUrl ? t("admin.blogPublishRouteConfigured", "Coolify conectado") : t("admin.blogPublishRouteMissing", "Webhook pendiente")}</Badge></div><p className="ui-muted">{t("admin.blogPublishRouteHelp", "El Blog se publica mediante este webhook. Buffer se reserva para Instagram y los demás canales sociales.")}</p><Stack gap="md"><Field label="Dominio público"><TextField type="url" value={web.domain} onChange={(event) => setWeb({ ...web, domain: event.target.value })} placeholder="https://marca.com" /></Field><Field label="Webhook de rebuild"><TextField value={web.rebuildWebhookUrl} onChange={(event) => setWeb({ ...web, rebuildWebhookUrl: event.target.value })} placeholder="https://…" /></Field><Field label="Token de la conexión" hint="Se cifra y no vuelve a mostrarse."><TextField type="password" value={web.token} onChange={(event) => setWeb({ ...web, token: event.target.value })} placeholder="Pega un token nuevo para reemplazarlo" /></Field></Stack></Card>}</div></main>;
+  return <main className="ui-page"><PageHeader eyebrow="Marca · Canales" title={brand?.name || "Canales activos"} description="Activa solo los canales que esta marca utiliza. Cada uno puede tener su propia conexión primaria." back={<NavLink to={`/brand/${encodeURIComponent(brandId)}`}>← Volver a la marca</NavLink>} actions={canManage ? <Button onClick={() => void save()} loading={busy}>Guardar cambios</Button> : undefined} /><div className="ui-channel-settings-grid"><Card><span className="ui-eyebrow">Canales</span><h2>Publicación multicanal</h2><Stack gap="sm">{channels.map((channel) => <Switch key={channel.channel} label={channel.channel === "x" ? "X" : channel.channel.charAt(0).toUpperCase() + channel.channel.slice(1)} description={channel.enabled ? "Activo" : "Inactivo"} disabled={!canManage} checked={Boolean(channel.enabled)} onChange={(event) => setChannels((current) => current.map((item) => item.channel === channel.channel ? { ...item, enabled: event.target.checked } : item))} />)}</Stack></Card><Card><span className="ui-eyebrow">Usos de marca</span><h2>Capacidades</h2><Stack gap="sm"><Switch label="Presentaciones" description="Permite usar el brand kit desde ChatGPT/MCP." disabled={!canManage} checked={Boolean(caps.presentation_generation)} onChange={(event) => setCaps((current) => ({ ...current, presentation_generation: event.target.checked }))} /><Switch label="Publicaciones" description="Se activa automáticamente al encender un canal." checked={Boolean(caps.content_publishing)} readOnly /></Stack></Card>{blogEnabled && <Card className="ui-blog-connection-card"><div className="ui-card-head"><div><span className="ui-eyebrow">{t("admin.blogPublishRouteEyebrow", "Publicación del Blog")}</span><h2>{t("admin.blogPublishRouteTitle", "Webhook de Coolify")}</h2></div><Badge tone={web.rebuildWebhookUrl ? "success" : "warning"}>{web.rebuildWebhookUrl ? t("admin.blogPublishRouteConfigured", "Coolify conectado") : t("admin.blogPublishRouteMissing", "Webhook pendiente")}</Badge></div><p className="ui-muted">{t("admin.blogPublishRouteHelp", "El Blog se publica mediante este webhook. Buffer se reserva para Instagram y los demás canales sociales.")}</p><Stack gap="md"><Field label="Dominio público"><TextField type="url" value={web.domain} onChange={(event) => setWeb({ ...web, domain: event.target.value })} placeholder="https://marca.com" /></Field><Field label="Webhook de rebuild"><TextField value={web.rebuildWebhookUrl} onChange={(event) => setWeb({ ...web, rebuildWebhookUrl: event.target.value })} placeholder="https://…" /></Field><Field label="Token de la conexión" hint="Se cifra y no vuelve a mostrarse."><TextField type="password" value={web.token} onChange={(event) => setWeb({ ...web, token: event.target.value })} placeholder="Pega un token nuevo para reemplazarlo" /></Field></Stack></Card>}</div></main>;
 }
 
 function BrandConnectionsView() {

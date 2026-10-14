@@ -4,7 +4,7 @@ Este archivo manda sobre el flujo de trabajo. El dashboard puede corregirlo si e
 
 ## Antes de escribir
 
-El grounding visual obligatorio combina `style-board.png` con `fondo-escarlet.png`. Si el brief solicita a Silvia, usa `character-board.png` o `character-silvia.webp` como referencia aprobada.
+El grounding visual obligatorio combina `style-board.png` con `fondo-escarlet.png`. Si el brief solicita un personaje, usa la referencia individual aprobada correspondiente.
 
 En este mismo turno llama `brand_get_context` con el `site` pedido. Lee voz, estilo visual, keywords, este archivo y las imágenes de referencia.
 
@@ -66,7 +66,7 @@ Recomendado (aviso, no bloquea):
 ## Imágenes
 
 - `style-board.png` y `fondo-escarlet.png` son referencias obligatorias en toda generación. El cliente no puede escoger, sustituir ni reinterpretar referencias.
-- Las rutas editoriales usan el tablero y el fondo oficiales. Si se solicita un personaje, se añade `character-board.png` o `character-silvia.webp`.
+- Las rutas editoriales usan el tablero y el fondo oficiales. Si se solicita un personaje, se añade la referencia individual aprobada correspondiente.
 - El logo SVG oficial solo se entrega al motor motion cuando la animación lo necesita.
 - El fondo conserva formas orgánicas estratificadas tipo montañas con turquesa a la izquierda, verde suave en el centro y oro a la derecha.
 

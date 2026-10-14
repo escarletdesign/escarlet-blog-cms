@@ -211,7 +211,7 @@ test('tablero logo y personajes se pueden pedir por board', async () => {
   assert.deepEqual(logo.resolvedReferences.map((r) => r.filename), ['logo-official-blue.png'])
   const characters = prepareImageGeneration('escarlet', { site: 'escarlet', assetType: 'social_image', board: 'character' })
   assert.equal(characters.route, 'character')
-  assert.deepEqual(characters.resolvedReferences.map((r) => r.filename), ['style-board.png', 'fondo-escarlet.png', 'character-board.png'])
+  assert.deepEqual(characters.resolvedReferences.map((r) => r.filename), ['style-board.png', 'fondo-escarlet.png', 'character-silvia.webp', 'character-charly.png'])
 })
 
 test('legacy: una preparación puede pedir referenceIndex suelto', async () => {

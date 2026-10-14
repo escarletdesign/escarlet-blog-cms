@@ -147,7 +147,7 @@ export function brandAssetFiles(handle) {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const file = join(directory, entry.name)
       if (entry.isDirectory()) walk(file)
-      else if (entry.isFile() && /\.(?:png|jpe?g|webp|gif|svg)$/i.test(entry.name) && !/_thumb\.(?:png|jpe?g|webp|gif|svg)$/i.test(entry.name)) {
+      else if (entry.isFile() && isApprovedBrandAsset(handle, entry.name) && /\.(?:png|jpe?g|webp|gif|svg)$/i.test(entry.name) && !/_thumb\.(?:png|jpe?g|webp|gif|svg)$/i.test(entry.name)) {
         const resolved = file
         if (!seen.has(resolved)) {
           seen.add(resolved)
