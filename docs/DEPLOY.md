@@ -150,8 +150,8 @@ Si el volumen se montó **después** de subir medios, esos archivos se perdieron
 Con el CMS detenido para escritura, ejecuta una vez:
 
 ```bash
-npm run db:migrate -- --dry-run
-npm run db:migrate
+npm run db:migrate:v3 -- --dry-run
+npm run db:migrate:v3
 ```
 
 El importador crea un backup verificable en `data/migration-backups/`, aplica las migraciones SQL, conserva hashes SHA-256 de media e informa conteos de sitios, miembros, posts, variantes y entitlements. Revisa el resultado antes de habilitar clientes.
@@ -160,7 +160,8 @@ En Coolify puedes abrir **Terminal / Execute Command** sobre el contenedor CMS y
 ejecutar esos comandos allí. Haz primero `--dry-run`, comprueba los conteos y luego
 el import real. Congela las escrituras del CMS durante el corte; no ejecutes el
 importador en cada deploy. El arranque normal solo aplica migraciones SQL
-idempotentes.
+idempotentes. El informe v3 confirma también que no quedan assets publicables
+huérfanos.
 
 ### Metricool (después del primer deploy)
 
