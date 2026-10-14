@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../../api";
 import { asCanonicalPost, postActionLabel, statusTone } from "../../content-model";
-import type { CanonicalPost, ContentChannel, ContentItem, ContentVariant } from "../../types";
-import { Badge, Button, Card, ChannelBadge, Drawer, EmptyState, Field, Inline, Modal, PageHeader, Select, Stack, StatusBadge, Tabs, Textarea, TextField } from "../../ui";
+import type { CanonicalPost, ContentChannel, ContentItem, ContentVariant, PostVariant } from "../../types";
+import { Badge, Button, Card, ChannelBadge, Drawer, EmptyState, Field, IconButton, Inline, Modal, PageHeader, Select, Stack, StatusBadge, Tabs, Textarea, TextField } from "../../ui";
 import { useApp, useI18n, useToast } from "../../app/context";
 
 const channels: ContentChannel[] = ["blog", "instagram", "instagram_story", "linkedin", "x", "video"];
@@ -37,6 +37,53 @@ function mediaUrl(media: NonNullable<ContentVariant["media"]>[number]) {
 function mediaIsVideo(media: NonNullable<ContentVariant["media"]>[number]) {
   const type = String(media.contentType || media.kind || media.metadata?.mimeType || "").toLowerCase();
   return type.includes("video") || /\.(?:mp4|webm|mov)(?:[?#]|$)/i.test(mediaUrl(media));
+}
+
+function previewMediaUrl(value: unknown) {
+  const media = value && typeof value === "object" ? value as Record<string, any> : null;
+  const candidate = media
+    ? [media.previewUrl, media.previewPath, media.url, media.publicUrl, media.imageUrl, media.imagePreviewUrl, media.path, media.src].find(Boolean)
+    : value;
+  const url = String(candidate || "").trim();
+  return url.startsWith("/") || /^https?:\/\//i.test(url) ? url : "";
+}
+
+function previewMediaIsVideo(media: Record<string, any>) {
+  const type = String(media.contentType || media.kind || media.mimeType || media.metadata?.mimeType || "").toLowerCase();
+  return type.includes("video") || /\.(?:mp4|webm|mov)(?:[?#]|$)/i.test(previewMediaUrl(media));
+}
+
+function socialPackFor(variant: PostVariant) {
+  return variant.body?.socialPack && typeof variant.body.socialPack === "object" ? variant.body.socialPack : {};
+}
+
+function variantCopy(variant: PostVariant) {
+  const body = variant.body || {};
+  const socialPack = socialPackFor(variant);
+  if (variant.channel === "instagram") return String(socialPack.instagramCaption || socialPack.caption || body.caption || body.text || body.body || body.topic || "").trim();
+  if (variant.channel === "instagram_story") return String(socialPack.instagramStory?.text || socialPack.instagramStory?.caption || body.text || body.caption || body.topic || "").trim();
+  if (variant.channel === "video") return String(body.publishCopy || body.caption || body.text || socialPack.videoCaption || socialPack.videoCopy || body.videoScript || body.script || "").trim();
+  return bodyText(variant);
+}
+
+function previewItemsFor(variant: PostVariant) {
+  const media = Array.isArray(variant.media) ? variant.media : [];
+  const socialPack = socialPackFor(variant);
+  if (variant.channel === "instagram" && Array.isArray(socialPack.instagramSlides) && socialPack.instagramSlides.length) {
+    return socialPack.instagramSlides.map((slide: Record<string, any>, index: number) => ({ ...(media[index] || {}), ...slide }));
+  }
+  if (variant.channel === "instagram_story") {
+    const story = socialPack.instagramStory && typeof socialPack.instagramStory === "object" ? socialPack.instagramStory : {};
+    const frames = Array.isArray(story.frames) ? story.frames : [];
+    if (frames.length) return frames.map((frame: Record<string, any>, index: number) => ({ ...(media[index] || {}), ...frame }));
+    if (story.imageUrl || story.url || story.image) return [{ ...(media[0] || {}), ...story }];
+  }
+  if (variant.channel === "video" && !media.length) {
+    const body = variant.body || {};
+    const source = body.videoUrl || body.videoPreviewUrl || body.url;
+    return source ? [{ url: source, contentType: "video/mp4" }] : [];
+  }
+  return media;
 }
 
 function campaignLabel(item: ContentItem) {
@@ -258,6 +305,7 @@ export function PostWorkspace() {
             <div className="v3-variant-heading"><div><span className="ui-eyebrow">{channelName(activeVariant.channel, t)}</span><h2>{t("content.variant.title", "Versión para este canal")}</h2></div><StatusBadge status={activeVariant.status} /></div>
             <Field label={t("content.post.title", "Título")}><TextField value={title} onChange={(event) => setTitle(event.target.value)} /></Field>
             <Field label={t("content.post.copy", "Contenido")} hint={t("content.post.copyHint", "La IA externa y el Brand Kit se muestran en el rail de revisión.")}><Textarea className="v3-copy-editor" value={draft} onChange={(event) => setDraft(event.target.value)} /></Field>
+            <PostVariantPreview variant={activeVariant} />
             <div className="v3-variant-media"><div className="v3-card-heading"><div><span className="ui-eyebrow">{t("content.media.eyebrow", "Assets")}</span><h2>{t("content.media.title", "Elementos de esta variante")}</h2></div><Badge tone="neutral">{activeVariant.media.length}</Badge></div>{activeVariant.media.length ? <div className="v3-media-list">{activeVariant.media.map((media) => <Card className="v3-media-item" key={media.id || media.path || media.url}><div>{mediaUrl(media) ? mediaIsVideo(media) ? <video src={mediaUrl(media)} controls muted preload="metadata" aria-label={media.alt || media.filename || "Vídeo"} /> : <img src={mediaUrl(media)} alt={media.alt || media.filename || ""} loading="lazy" decoding="async" /> : <span className="v3-media-placeholder" aria-hidden="true">✦</span>}<div><strong>{media.filename || media.alt || media.id || t("content.media.asset", "Asset")}</strong><span className="ui-muted">{media.kind || media.contentType || "Media"}</span></div></div>{canEdit && !["published", "scheduled"].includes(activeVariant.status) && <Button size="sm" variant="danger" loading={mediaBusy} disabled={!media.id} onClick={() => void removeMedia(String(media.id))}>{t("content.media.remove", "Quitar")}</Button>}</Card>)}</div> : <p className="ui-muted">{t("content.media.empty", "Esta variante todavía no tiene imágenes ni vídeo asociados.")}</p>}</div>
             <Inline gap="sm"><Button loading={saving} onClick={() => void save()}>{t("common.save", "Guardar cambios")}</Button><Button variant="secondary" loading={saving} onClick={() => void save(true)}>{t("content.action.review", "Enviar a revisión")}</Button></Inline>
           </Stack> : <EmptyState title={t("content.variant.empty", "No hay variante para este canal")} />}
@@ -271,6 +319,38 @@ export function PostWorkspace() {
     <Drawer open={reviewOpen} title={t("content.review.title", "Revisión y publicación")} onClose={() => setReviewOpen(false)}><ReviewRail post={post} canApprove={canApprove} saving={saving} scheduleAt={scheduleAt} setScheduleAt={setScheduleAt} onApprove={approve} onSchedule={schedule} /></Drawer>
     <Modal open={deleteOpen} title={t("content.delete.title", "Eliminar este borrador") } onClose={() => setDeleteOpen(false)}><Stack gap="md"><p className="ui-muted">{t("content.delete.description", "El Post se archivará y dejará de aparecer en Contenido y Publicación. Podrás restaurarlo desde el filtro de archivados.")}</p><Inline gap="sm"><Button variant="ghost" onClick={() => setDeleteOpen(false)}>{t("common.cancel", "Cancelar")}</Button><Button variant="danger" loading={saving} onClick={() => void archivePost()}>{t("content.action.deleteConfirm", "Eliminar borrador")}</Button></Inline></Stack></Modal>
   </main>;
+}
+
+function PostVariantPreview({ variant }: { variant: PostVariant }) {
+  const { t } = useI18n();
+  const [activeIndex, setActiveIndex] = useState(0);
+  const items = previewItemsFor(variant);
+  const copy = variantCopy(variant);
+  const isVideoChannel = variant.channel === "video";
+  const isStoryChannel = variant.channel === "instagram_story";
+  const previewLabel = isVideoChannel ? t("content.preview.video", "Vídeo") : isStoryChannel ? t("content.preview.story", "Story") : t("content.preview.carousel", "Carrusel");
+  const safeIndex = items.length ? Math.min(activeIndex, items.length - 1) : 0;
+  const current = items[safeIndex] || {};
+  const source = previewMediaUrl(current);
+  const title = String(current.headline || current.title || current.alt || current.filename || `${previewLabel} ${safeIndex + 1}`);
+
+  useEffect(() => setActiveIndex(0), [variant.id, variant.channel]);
+
+  if (!["instagram", "instagram_story", "video"].includes(variant.channel)) return null;
+
+  return <Card className={`v3-channel-preview v3-channel-preview-${variant.channel}`}>
+    <div className="v3-preview-heading"><div><span className="ui-eyebrow">{t("content.preview.eyebrow", "Vista previa")}</span><h3>{previewLabel}</h3></div><ChannelBadge channel={variant.channel} /></div>
+    <div className="v3-preview-stage" role="region" aria-label={t("content.preview.region", "Vista previa del contenido")}>
+      <IconButton label={t("content.preview.previous", "Anterior")} onClick={() => setActiveIndex((safeIndex - 1 + items.length) % items.length)} disabled={items.length < 2}>‹</IconButton>
+      <figure className="v3-preview-frame">
+        {source ? previewMediaIsVideo(current) ? <video className="v3-preview-media" src={source} controls playsInline preload="metadata" aria-label={title} /> : <img className="v3-preview-media" src={source} alt={title} loading="lazy" decoding="async" /> : <div className="v3-preview-media v3-preview-placeholder">{t("content.preview.missingMedia", "Sin media")}</div>}
+        <figcaption>{title}</figcaption>
+      </figure>
+      <IconButton label={t("content.preview.next", "Siguiente")} onClick={() => setActiveIndex((safeIndex + 1) % items.length)} disabled={items.length < 2}>›</IconButton>
+    </div>
+    {items.length > 1 && <div className="v3-preview-dots" role="tablist" aria-label={previewLabel}>{items.map((item, index) => <Button key={item.id || `${variant.id}-${index}`} className={`v3-preview-dot${index === safeIndex ? " active" : ""}`} variant="ghost" size="sm" role="tab" aria-selected={index === safeIndex} aria-label={`${previewLabel} ${index + 1}`} onClick={() => setActiveIndex(index)}>{index + 1}</Button>)}</div>}
+    <div className="v3-preview-copy"><span className="ui-eyebrow">{t("content.preview.copy", "Copy")}</span><p>{copy || t("content.preview.emptyCopy", "Este canal todavía no tiene copy.")}</p></div>
+  </Card>;
 }
 
 function ReviewRail({ post, canApprove, saving, scheduleAt, setScheduleAt, onApprove, onSchedule }: { post: CanonicalPost; canApprove: boolean; saving: boolean; scheduleAt: string; setScheduleAt: (value: string) => void; onApprove: () => void; onSchedule: () => void }) {

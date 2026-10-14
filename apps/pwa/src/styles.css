@@ -1325,6 +1325,21 @@ button.ui-calendar-item:focus-visible { outline: 2px solid var(--ui-accent); out
 .v3-media-item img, .v3-media-item video, .v3-media-placeholder { width: 56px; height: 56px; flex: 0 0 56px; border-radius: var(--ui-radius-sm); background: var(--ui-surface-soft); object-fit: cover; }
 .v3-media-placeholder { display: grid; place-items: center; color: var(--ui-accent); }
 .v3-media-item strong, .v3-media-item span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v3-channel-preview { display: grid; gap: var(--ui-space-4); padding: var(--ui-space-4); border-color: var(--ui-border-strong); background: var(--ui-surface-raised); }
+.v3-preview-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--ui-space-3); }
+.v3-preview-heading h3 { margin: var(--ui-space-1) 0 0; font-size: 1.05rem; }
+.v3-preview-stage { display: grid; grid-template-columns: 36px minmax(0, 1fr) 36px; align-items: center; gap: var(--ui-space-2); }
+.v3-preview-frame { display: grid; gap: var(--ui-space-2); width: min(100%, 360px); margin: 0 auto; }
+.v3-preview-media { display: block; width: 100%; aspect-ratio: 4 / 5; object-fit: cover; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); background: var(--ui-surface-control); }
+.v3-channel-preview-instagram_story .v3-preview-media { aspect-ratio: 9 / 16; max-height: min(70vh, 620px); object-fit: contain; }
+.v3-channel-preview-video .v3-preview-media { aspect-ratio: 16 / 9; max-height: min(70vh, 620px); object-fit: contain; }
+.v3-preview-placeholder { display: grid; place-items: center; padding: var(--ui-space-4); color: var(--ui-muted); }
+.v3-preview-frame figcaption { overflow: hidden; color: var(--ui-muted); font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
+.v3-preview-dots { display: flex; justify-content: center; gap: var(--ui-space-1); flex-wrap: wrap; }
+.v3-preview-dot { min-width: 30px; border-color: var(--ui-border); }
+.v3-preview-dot.active { color: var(--ui-accent-ink); background: var(--ui-accent); border-color: var(--ui-accent); }
+.v3-preview-copy { display: grid; gap: var(--ui-space-2); padding-top: var(--ui-space-3); border-top: 1px solid var(--ui-border); }
+.v3-preview-copy p { margin: 0; color: var(--ui-text); line-height: 1.6; white-space: pre-wrap; }
 .ui-back-link { color: var(--ui-muted); text-decoration: none; }
 .ui-back-link:hover, .ui-back-link:focus-visible { color: var(--ui-text); }
 
@@ -1339,4 +1354,5 @@ button.ui-calendar-item:focus-visible { outline: 2px solid var(--ui-accent); out
   .v3-content-grid { grid-template-columns: 1fr; }
   .v3-variant-panel { padding: var(--ui-space-4); }
   .v3-post-card { min-height: 180px; }
+  .v3-channel-preview { padding: var(--ui-space-3); }
 }
