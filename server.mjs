@@ -2256,6 +2256,7 @@ async function handleRequest(req, res) {
           mode: body.mode,
           assetIds: body.assetIds,
           confirm: body.confirm,
+          force: body.force === true,
           idempotencyKey: req.headers['idempotency-key'] || body.idempotencyKey
         }))
         return

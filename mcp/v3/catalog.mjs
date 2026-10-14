@@ -597,7 +597,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
   manifest({
     id: 'asset.delete',
     description: 'Elimina assets canónicos seleccionados o temporales después de una confirmación explícita y un preflight de referencias.',
-    inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, siteId: { type: 'string' }, assetIds: { type: 'array', items: { type: 'string' }, maxItems: 100 }, mode: { type: 'string', enum: ['selected', 'temporary'] }, confirm: { type: 'boolean', const: true }, idempotencyKey: { type: 'string' } }, required: ['confirm'], additionalProperties: false },
+    inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, siteId: { type: 'string' }, assetIds: { type: 'array', items: { type: 'string' }, maxItems: 100 }, mode: { type: 'string', enum: ['selected', 'temporary'] }, confirm: { type: 'boolean', const: true }, force: { type: 'boolean' }, idempotencyKey: { type: 'string' } }, required: ['confirm'], additionalProperties: false },
     outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, deleted: { type: 'boolean' }, count: { type: 'integer' }, blocked: { type: 'array' } }, required: ['contractVersion', 'deleted', 'count'], additionalProperties: true },
     permissions: ['asset:write'],
     sideEffects: 'destructive',

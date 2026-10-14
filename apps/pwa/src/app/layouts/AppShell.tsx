@@ -198,6 +198,7 @@ export function NavIcon({ kind }: { kind: string }) {
   if (kind === "send") return <svg {...common}><path d="m3 3 14 7-14 7 3.5-7Z" /><path d="M6.5 10H17" /></svg>;
   if (kind === "calendar") return <svg {...common}><rect x="3" y="4.5" width="14" height="12" rx="2" /><path d="M6.5 2.5v4M13.5 2.5v4M3 8h14M7 11h.01M10 11h.01M13 11h.01M7 14h.01M10 14h.01" /></svg>;
   if (kind === "brands") return <svg {...common}><path d="M3 16.5V5.2a1.7 1.7 0 0 1 1.7-1.7h10.6A1.7 1.7 0 0 1 17 5.2v11.3M2 16.5h16M6 8h2M12 8h2M6 11h2M12 11h2M8 16.5v-2.7h4v2.7" /></svg>;
+  if (kind === "media") return <svg {...common}><rect x="3" y="3" width="14" height="14" rx="2" /><circle cx="7" cy="7" r="1" /><path d="m4.5 14 3.6-3.7 2.5 2.4 1.8-1.8 3.1 3.1" /></svg>;
   if (kind === "connections") return <svg {...common}><path d="M7.4 12.6 5.7 14.3a2.8 2.8 0 0 1-4-4l2.6-2.6a2.8 2.8 0 0 1 4 0M12.6 7.4l1.7-1.7a2.8 2.8 0 0 1 4 4l-2.6 2.6a2.8 2.8 0 0 1-4 0M6.5 13.5l7-7" /></svg>;
   if (kind === "team") return <svg {...common}><circle cx="8" cy="7" r="2.5" /><path d="M3.5 16a4.5 4.5 0 0 1 9 0M14 6.2a2.1 2.1 0 0 1 0 4.1M14.2 12.3a3.8 3.8 0 0 1 2.3 3.5" /></svg>;
   if (kind === "billing") return <svg {...common}><path d="M4 15.8V5.2M4 15.8a2.2 2.2 0 0 0 2.2 2.2h9.3M4 5.2A2.2 2.2 0 0 1 6.2 3h9.3a.5.5 0 0 1 .5.5V16M7.3 7.2h5.5M7.3 10.3h4" /></svg>;

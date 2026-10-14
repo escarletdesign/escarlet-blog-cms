@@ -28,6 +28,8 @@ Toda pantalla debe implementar carga, vacío, error y éxito. Los controles debe
 
 Calendario muestra únicamente la vista mensual. La búsqueda combina título y campaña, por lo que no depende de un selector que crece con el número de campañas. Cada entrada abre el Post o su detalle de ejecución.
 
-Publicación selecciona Posts mediante búsqueda y lista acotada, no mediante un `select` con todos los registros. Los canales se activan con `Switch`; variantes programadas, publicadas o en sincronización quedan visibles pero no se pueden volver a enviar. Los assets huérfanos se agrupan por `generationRunId` o `preparationId`, muestran miniaturas y permiten crear un único Post por grupo o combinar grupos manualmente.
+Publicación selecciona Posts mediante búsqueda y lista acotada, no mediante un `select` con todos los registros. Los canales se activan con `Switch`; variantes programadas, publicadas o en sincronización quedan visibles pero no se pueden volver a enviar. Esta pantalla no mezcla medios ni crea Posts desde assets. La ruta `/media` es la biblioteca independiente de la marca: permite buscar, previsualizar y seleccionar imágenes y vídeos, incluidos los que todavía no tienen Post.
+
+La eliminación desde `/media` es administrativa y requiere confirmación explícita. Un administrador puede eliminar también medios vinculados: el sistema quita sus referencias internas, revoca su procedencia y deja constancia en auditoría. La confirmación advierte que un Post o un vídeo puede quedar sin ese recurso.
 
 Las referencias canónicas retiradas no se vuelven a importar al Brand Kit. La biblioteca visual se actualiza localmente después de editar o eliminar para que la siguiente operación no dependa de recargar la página.

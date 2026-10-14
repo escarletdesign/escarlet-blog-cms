@@ -36,6 +36,7 @@ import type { AppState, Toast, ToastKind, WorkflowFlags } from "./app/context";
 
 const DesignSystem = lazy(() => import("./DesignSystem").then(({ DesignSystem }) => ({ default: DesignSystem })));
 const Publisher = lazy(() => import("./Publisher").then(({ Publisher }) => ({ default: Publisher })));
+const MediaManager = lazy(() => import("./MediaManager").then(({ MediaManager }) => ({ default: MediaManager })));
 const AppsDashboard = lazy(() => import("./AppsDashboard").then(({ AppsDashboard }) => ({ default: AppsDashboard })));
 const EditorialCalendarRoute = lazy(() => import("./features/calendar/EditorialCalendar").then(({ EditorialCalendar }) => ({ default: EditorialCalendar })));
 const ContentInbox = lazy(() => import("./features/content/ContentWorkspace").then(({ ContentInbox }) => ({ default: ContentInbox })));
@@ -508,6 +509,7 @@ function App() {
                 <Route path="/apps" element={<Suspense fallback={<RouteLoading />}><AppsDashboard site={site} t={t} /></Suspense>} />
                 <Route path="/publication/publisher" element={<Suspense fallback={<RouteLoading />}><Publisher site={site} t={t} /></Suspense>} />
                 <Route path="/publication" element={<Suspense fallback={<RouteLoading />}><Publisher site={site} t={t} /></Suspense>} />
+                <Route path="/media" element={<Suspense fallback={<RouteLoading />}><MediaManager site={site} t={t} /></Suspense>} />
                 {workflowFlags.assistantEnabled && brandCapabilities.content_publishing !== false && <Route path="/chat" element={<Chat />} />}
                 <Route path="/content" element={<Suspense fallback={<RouteLoading />}><ContentInbox /></Suspense>} />
                 <Route path="/content/:postId" element={<Suspense fallback={<RouteLoading />}><PostWorkspace /></Suspense>} />
@@ -854,6 +856,7 @@ function Shell() {
   const adminUser = isWorkspaceAdmin(session);
   const managementLinks = [
     { to: "/brand", label: t("nav.brands", "Marca"), icon: "brands" },
+    { to: "/media", label: t("nav.media", "Medios"), icon: "media" },
     ...(adminUser ? [{ to: "/admin/connections", label: t("nav.connections", "Canales y conexiones"), icon: "connections" }] : []),
     ...(adminUser ? [{ to: "/admin/team", label: t("nav.team", "Equipo y permisos"), icon: "team" }] : []),
     ...(adminUser && workflowFlags.cmsAiEnabled ? [{ to: "/admin/billing", label: t("nav.planUsage", "Plan y uso"), icon: "billing" }] : []),

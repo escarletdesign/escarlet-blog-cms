@@ -213,7 +213,7 @@ async function deleteCanonicalAssets(args, auth) {
     throw Object.assign(new Error('Sólo owner o admin pueden eliminar assets canónicos.'), { code: 'media_delete_forbidden', status: 403 })
   }
   const scope = await canonicalAssetScope(args, auth)
-  return { contractVersion: 'os.production.v1', capability: 'asset.delete', ...await deleteCanonicalMedia({ ...scope, userId: auth.userId, role: String(auth.role || '').toLowerCase(), mode: args.mode, assetIds: args.assetIds, confirm: args.confirm, idempotencyKey: args.idempotencyKey }) }
+  return { contractVersion: 'os.production.v1', capability: 'asset.delete', ...await deleteCanonicalMedia({ ...scope, userId: auth.userId, role: String(auth.role || '').toLowerCase(), mode: args.mode, assetIds: args.assetIds, confirm: args.confirm, force: args.force === true, idempotencyKey: args.idempotencyKey }) }
 }
 
 async function uploadGeneratedAsset(args, auth, runtime) {

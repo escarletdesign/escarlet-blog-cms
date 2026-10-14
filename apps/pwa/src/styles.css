@@ -961,6 +961,14 @@ select, .ui-plans-page .ui-select, .ui-page .ui-input.ui-select, .site-switcher 
 .ui-publication-orphan-meta { display: grid; gap: var(--ui-space-1); min-width: 0; }
 .ui-publication-orphan-meta small { color: var(--ui-muted); }
 .ui-publication-result { display: grid; gap: var(--ui-space-3); margin-top: var(--ui-space-4); }
+.ui-media-manager-toolbar { align-items: end; flex-wrap: wrap; padding: var(--ui-space-3); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); background: var(--ui-surface-soft); }
+.ui-media-manager-toolbar .ui-field { flex: 1 1 260px; }
+.ui-media-manager-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--ui-space-3); }
+.ui-media-manager-card { display: grid; gap: var(--ui-space-2); min-width: 0; padding: var(--ui-space-2); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); background: var(--ui-surface-soft); }
+.ui-media-manager-visual { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: var(--ui-radius-sm); background: var(--ui-surface-raised); }
+.ui-media-manager-meta { display: grid; gap: var(--ui-space-1); min-width: 0; }
+.ui-media-manager-meta .ui-switch-copy { min-width: 0; }
+.ui-media-manager-meta .ui-switch-copy > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui-calendar-loading { display: grid; gap: 14px; } .ui-calendar-loading .ui-skeleton { width: 100%; }
 .ui-calendar-filter-panel { display: grid; gap: var(--ui-space-4); margin-bottom: var(--ui-space-4); }
 .ui-calendar-filter-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--ui-space-4); }

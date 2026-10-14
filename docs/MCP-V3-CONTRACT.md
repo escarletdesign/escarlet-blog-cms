@@ -26,6 +26,7 @@ content.post.archive
 content.audit.inventory
 content.audit.repair.plan
 content.media.attach
+asset.delete
 release.create
 release.add_post
 release.schedule
@@ -54,6 +55,8 @@ La revisión es selectiva: `content.post.review` y `content.post.update` aceptan
 `content.audit.inventory` es de solo lectura. Devuelve Posts, variantes, assets, procedencia, vínculos a contenido, vídeo, Brand Kit y publicaciones, además de assets sin Post, assets realmente no usados, reutilización, hashes duplicados y borradores de vídeo sin media.
 
 `content.audit.repair.plan` también es de solo lectura. Propone adjuntar un asset cuando su procedencia identifica un Post y un canal existentes, crear un único Post en Inbox cuando varios assets comparten una preparación o generación verificable, o archivar un borrador de vídeo vacío. Nunca ejecuta la reparación, no borra assets, mantiene el orden `assetIndex` y requiere confirmación humana en una operación posterior.
+
+`asset.delete` requiere `confirm: true` y sólo está disponible para owner o admin. Por defecto respeta el preflight de referencias y devuelve los assets bloqueados. Con `force: true`, elimina de forma irreversible los assets seleccionados, quita sus vínculos a variantes, limpia referencias de vídeo y Brand Kit, revoca receipts y registra la operación en auditoría. El uso de `force` debe explicitarse porque puede dejar un Post o un vídeo sin media.
 
 `content.post.archive` es reversible, exige `confirm: true`, conserva variantes y media, registra auditoría y rechaza archivar un Post ya publicado. `idempotencyKey` permite repetir la misma solicitud sin duplicar el cambio.
 

@@ -349,14 +349,14 @@ const baseApi = {
     ),
   productionAssets: (site?: string) =>
     request<{ assets: MediaItem[] }>(`/api/v2/assets${site ? `?site=${encodeURIComponent(site)}` : ""}`),
-  managedProductionAssets: (site?: string) =>
-    request<{ assets: MediaItem[]; protectedAssets?: MediaItem[] }>(`/api/v2/assets/manage?${new URLSearchParams({ ...(site ? { site } : {}), mode: "standalone", includeProtected: "1" }).toString()}`),
+  managedProductionAssets: (site?: string, mode: "standalone" | "all" = "standalone") =>
+    request<{ assets: MediaItem[]; protectedAssets?: MediaItem[] }>(`/api/v2/assets/manage?${new URLSearchParams({ ...(site ? { site } : {}), ...(mode === "standalone" ? { mode: "standalone", includeProtected: "1" } : {}) }).toString()}`),
   updateProductionAssets: (input: { site?: string; assetIds: string[]; filename?: string; alt?: string; usage?: string }) =>
     request<{ updated: boolean; count: number; assetIds: string[] }>("/api/v2/assets/update", {
       method: "POST",
       body: JSON.stringify(input),
     }),
-  deleteProductionAssets: (input: { site?: string; assetIds: string[] }) =>
+  deleteProductionAssets: (input: { site?: string; assetIds: string[]; force?: boolean }) =>
     request<{ deleted: boolean; count: number; blocked?: Array<{ id: string; blockers: string[] }> }>("/api/v2/assets/delete", {
       method: "POST",
       body: JSON.stringify({ ...input, mode: "selected", confirm: true }),
