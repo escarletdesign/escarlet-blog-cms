@@ -581,10 +581,18 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
   manifest({
     id: 'asset.list',
     description: 'Lista assets canónicos del scope actual y señala cuáles están protegidos o son temporales.',
-    inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, siteId: { type: 'string' }, assetIds: { type: 'array', items: { type: 'string' } }, mode: { type: 'string', enum: ['temporary'] }, temporaryOnly: { type: 'boolean' }, limit: { type: 'integer', minimum: 1, maximum: 100 } }, additionalProperties: false },
+    inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, siteId: { type: 'string' }, site: { type: 'string' }, brandId: { type: 'string' }, assetIds: { type: 'array', items: { type: 'string' } }, mode: { type: 'string', enum: ['temporary', 'standalone'] }, temporaryOnly: { type: 'boolean' }, limit: { type: 'integer', minimum: 1, maximum: 100 } }, additionalProperties: false },
     outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, assets: { type: 'array' }, count: { type: 'integer' } }, required: ['contractVersion', 'assets', 'count'], additionalProperties: true },
     permissions: ['asset:read'],
     tags: ['asset', 'storage', 'read']
+  }),
+  manifest({
+    id: 'workspace.context.get',
+    description: 'Resuelve el workspace y las marcas autorizadas para el token actual sin adivinar IDs.',
+    inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, siteId: { type: 'string' }, site: { type: 'string' }, brandId: { type: 'string' } }, additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, workspace: { type: 'object' }, sites: { type: 'array' } }, required: ['contractVersion', 'workspace', 'sites'], additionalProperties: true },
+    permissions: ['asset:read'],
+    tags: ['workspace', 'context', 'read']
   }),
   manifest({
     id: 'asset.delete',
@@ -704,6 +712,14 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     tags: ['content', 'post', 'read']
   }),
   manifest({
+    id: 'content.post.list',
+    description: 'Lista Posts canónicos paginados, incluidos los que están en Inbox editorial, con variantes, estados y media.',
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, campaignId: { type: 'string' }, batchId: { type: 'string' }, inbox: { type: 'boolean' }, status: { type: 'string' }, channel: { type: 'string' }, contentType: { type: 'string' }, query: { type: 'string' }, archive: { type: 'string', enum: ['active', 'archived', 'all'] }, cursor: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 100 } }, additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string' }, posts: { type: 'array' }, pageInfo: { type: 'object' }, scope: { type: 'object' } }, required: ['contractVersion', 'capability', 'posts', 'pageInfo', 'scope'], additionalProperties: true },
+    permissions: ['content:read'],
+    tags: ['content', 'post', 'list', 'read']
+  }),
+  manifest({
     id: 'content.post.update',
     description: 'Actualiza el título, tema, copy o metadata editorial de un Post.',
     inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, postId: { type: 'string' }, itemId: { type: 'string' }, title: { type: 'string' }, topic: { type: 'string' }, channel: { type: 'string' }, body: { type: 'object' }, visualBrief: { type: 'object' }, mediaAssetIds: { type: 'array', items: { type: 'string' } }, readyForReview: { type: 'boolean' } }, anyOf: [{ required: ['postId'] }, { required: ['itemId'] }], additionalProperties: false },
@@ -741,6 +757,32 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     sideEffects: 'write',
     humanReviewRequired: true,
     tags: ['content', 'post', 'approval']
+  }),
+  manifest({
+    id: 'content.post.archive',
+    description: 'Archiva o restaura un Post de forma reversible, conserva sus variantes y assets y deja auditoría.',
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, postId: { type: 'string' }, itemId: { type: 'string' }, archived: { type: 'boolean' }, confirm: { type: 'boolean', const: true }, idempotencyKey: { type: 'string' } }, anyOf: [{ required: ['postId'] }, { required: ['itemId'] }], required: ['confirm'], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string' }, postId: { type: 'string' }, archived: { type: 'boolean' }, nextAction: { type: 'string' } }, required: ['contractVersion', 'capability', 'postId', 'archived', 'nextAction'], additionalProperties: true },
+    permissions: ['content:write'],
+    sideEffects: 'write',
+    humanReviewRequired: true,
+    tags: ['content', 'post', 'archive', 'review']
+  }),
+  manifest({
+    id: 'content.audit.inventory',
+    description: 'Inspecciona Posts, variantes, assets, procedencia, duplicados, huérfanos y borradores de vídeo sin escribir datos.',
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, cursor: { type: 'string' }, assetCursor: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 100 } }, additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string' }, scope: { type: 'object' }, posts: { type: 'array' }, variants: { type: 'array' }, assets: { type: 'array' }, diagnostics: { type: 'object' }, pageInfo: { type: 'object' }, assetPageInfo: { type: 'object' } }, required: ['contractVersion', 'capability', 'scope', 'posts', 'variants', 'assets', 'diagnostics', 'pageInfo', 'assetPageInfo'], additionalProperties: true },
+    permissions: ['content:read', 'asset:read'],
+    tags: ['content', 'audit', 'inventory', 'read']
+  }),
+  manifest({
+    id: 'content.audit.repair.plan',
+    description: 'Propone reparaciones verificables para huérfanos y borradores de vídeo vacíos sin realizar ninguna escritura.',
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' } }, additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string' }, scope: { type: 'object' }, proposals: { type: 'array' }, diagnostics: { type: 'object' }, writePerformed: { type: 'boolean' }, requiresHumanConfirmation: { type: 'boolean' } }, required: ['contractVersion', 'capability', 'scope', 'proposals', 'diagnostics', 'writePerformed', 'requiresHumanConfirmation'], additionalProperties: true },
+    permissions: ['content:read', 'asset:read'],
+    tags: ['content', 'audit', 'repair', 'read']
   }),
   manifest({
     id: 'release.create',

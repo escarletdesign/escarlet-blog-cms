@@ -44,7 +44,7 @@ Las rutas antiguas no redirigen: devuelven `410` o una pantalla explícita de fl
 
 ## Operación MCP V3
 
-El agente debe pedir `brand.context.get`, crear o actualizar un Post, subir o asociar media, validar copy, solicitar revisión y usar `publication.destination.*` más `publication.*` para publicar. No se permite generar copy, imágenes o vídeo en el servidor. Buffer, Coolify y WordPress son adaptadores detrás de `PublicationRun`.
+El agente debe pedir `workspace.context.get` y `brand.context.get`, listar o crear un Post, subir o asociar media, validar copy, solicitar revisión y usar `publication.destination.*` más `publication.*` para publicar. Para revisar datos existentes puede usar `content.post.list` y `content.audit.inventory`; `content.audit.repair.plan` solo propone cambios y nunca escribe. `content.post.archive` exige confirmación explícita y es reversible. No se permite generar copy, imágenes o vídeo en el servidor. Buffer, Coolify y WordPress son adaptadores detrás de `PublicationRun`.
 
 ## Migración y aceptación
 

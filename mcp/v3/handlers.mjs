@@ -14,7 +14,9 @@ import {
   createContentBatch,
   getContentItem,
   getContentBatch,
+  listContentItems,
   addContentItemToBatch,
+  archiveContentItem,
   listContentPlans,
   registerContentMedia,
   scheduleContentBatch,
@@ -55,7 +57,7 @@ const ROLE_PERMISSIONS = Object.freeze({
   approver: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'publication:write', 'publication:publish', 'content:read', 'content:write', 'content:publish'],
   author: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'content:read', 'content:write'],
   client: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'content:read'],
-  viewer: ['brand:read', 'asset:read', 'publication:read'],
+  viewer: ['brand:read', 'asset:read', 'publication:read', 'content:read'],
   agent: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'publication:write', 'content:read', 'content:write']
 })
 
@@ -168,32 +170,42 @@ async function registerAssetReference(args, auth, runtime) {
   }
 }
 
-async function canonicalAssetScope(args, auth) {
-  const workspaceId = String(args.workspaceId || auth.workspaceId || '').trim()
-  const siteId = String(args.siteId || auth.siteId || '').trim()
-  if (!workspaceId || !siteId) throw Object.assign(new Error('workspaceId y siteId son obligatorios para operar sobre assets canónicos.'), { code: 'asset_scope_required', status: 422 })
-  const site = String(args.site || auth.site || '').trim()
-  if (site) siteFor({ site }, auth)
-  if (auth.role !== 'admin') {
-    if (auth.workspaceId && workspaceId !== String(auth.workspaceId).trim()) {
-      throw Object.assign(new Error('El workspace del asset no pertenece al contexto autenticado.'), { code: 'asset_scope_forbidden', status: 403 })
-    }
-    if (auth.siteId && siteId !== String(auth.siteId).trim()) {
-      throw Object.assign(new Error('El sitio del asset no pertenece al contexto autenticado.'), { code: 'asset_scope_forbidden', status: 403 })
-    }
-    if (!auth.siteId) {
-      const membership = await resolveWorkspaceContext({ userId: auth.userId || undefined, workspaceId, siteId })
-      if (!membership.sites.some((entry) => entry.id === siteId)) {
-        throw Object.assign(new Error('Sin acceso al sitio indicado.'), { code: 'asset_scope_forbidden', status: 403 })
-      }
-    }
+async function resolveReadScope(args = {}, auth = {}, runtime = null) {
+  const requestedWorkspaceId = String(args.workspaceId || auth.workspaceId || '').trim()
+  const requestedSiteId = String(args.siteId || auth.siteId || '').trim()
+  const requestedSite = String(args.site || args.brandId || auth.site || '').trim().toLowerCase()
+  const resolveContext = typeof runtime?.resolveWorkspaceContext === 'function' ? runtime.resolveWorkspaceContext : resolveWorkspaceContext
+  const context = await resolveContext({
+    userId: auth.userId || undefined,
+    workspaceId: requestedWorkspaceId || undefined,
+    siteId: requestedSiteId || undefined,
+    siteHandle: requestedSite || undefined,
+    role: auth.role === 'admin' ? 'admin' : auth.role === 'agent' ? 'editor' : undefined
+  })
+  const sites = Array.isArray(context?.sites) ? context.sites : []
+  const selected = requestedSiteId || requestedSite
+    ? sites.find((entry) => entry.id === requestedSiteId || entry.handle === requestedSite)
+    : sites.length === 1 ? sites[0] : null
+  if (!selected) {
+    throw Object.assign(new Error('Indica una marca autorizada o resuelve primero workspace.context.get.'), {
+      code: 'workspace_context_required',
+      status: 409,
+      details: { workspaceId: context?.workspaceId || requestedWorkspaceId || null, sites: sites.map(({ id, handle, name, role }) => ({ id, handle, name, role })) }
+    })
   }
-  return { workspaceId, siteId }
+  if (requestedWorkspaceId && context.workspaceId !== requestedWorkspaceId) throw Object.assign(new Error('El workspace no pertenece al contexto autenticado.'), { code: 'asset_scope_forbidden', status: 403 })
+  return { workspaceId: context.workspaceId, siteId: selected.id, site: selected.handle || requestedSite, siteName: selected.name || null, role: selected.role || context.role || auth.role, context }
 }
 
-async function listCanonicalAssets(args, auth) {
-  const scope = await canonicalAssetScope(args, auth)
-  return { contractVersion: 'os.production.v1', capability: 'asset.list', ...await listCanonicalMedia({ ...scope, mode: args.mode, temporaryOnly: args.temporaryOnly === true, assetIds: args.assetIds, limit: args.limit }) }
+async function canonicalAssetScope(args, auth, runtime = null) {
+  const scope = await resolveReadScope(args, auth, runtime)
+  return { workspaceId: scope.workspaceId, siteId: scope.siteId, site: scope.site }
+}
+
+async function listCanonicalAssets(args, auth, runtime = null) {
+  const scope = await canonicalAssetScope(args, auth, runtime)
+  const listMedia = typeof runtime?.listCanonicalMedia === 'function' ? runtime.listCanonicalMedia : listCanonicalMedia
+  return { contractVersion: 'os.production.v1', capability: 'asset.list', scope, ...await listMedia({ ...scope, mode: args.mode, temporaryOnly: args.temporaryOnly === true, assetIds: args.assetIds, limit: args.limit }) }
 }
 
 async function deleteCanonicalAssets(args, auth) {
@@ -381,8 +393,167 @@ function contentPostRole(scope, auth) {
   return role === 'agent' || role === 'approver' ? 'editor' : role
 }
 
+function pageOffset(value) {
+  const parsed = Number.parseInt(String(value || '0'), 10)
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : 0
+}
+
+function canonicalContentItem(item) {
+  return item?.brandId && Array.isArray(item?.variants) && item.variants.every((variant) => Object.hasOwn(variant, 'postId'))
+    ? item
+    : canonicalPost(item)
+}
+
+async function contentPostList(args, auth, runtime) {
+  const scope = await resolveReadScope(args, auth, runtime)
+  const limit = Math.min(Math.max(Number(args.limit) || 25, 1), 100)
+  const offset = pageOffset(args.cursor)
+  const readItems = typeof runtime?.listContentItems === 'function' ? runtime.listContentItems : listContentItems
+  const rows = await readItems({
+    workspaceId: scope.workspaceId,
+    siteId: scope.siteId,
+    batchId: args.campaignId || args.batchId || undefined,
+    status: args.status,
+    channel: args.channel,
+    query: args.query,
+    archive: args.archive || 'active',
+    inbox: args.inbox === undefined ? undefined : args.inbox === true,
+    limit: limit + 1,
+    offset
+  })
+  const posts = rows.map(canonicalContentItem).filter((post) => {
+    if (!args.contentType) return true
+    return post.variants.some((variant) => String(variant.channel || '').toLowerCase().includes(String(args.contentType).toLowerCase()))
+  })
+  const hasNext = rows.length > limit
+  return {
+    contractVersion: MCP_V3_CONTRACT,
+    capability: 'content.post.list',
+    scope: { workspaceId: scope.workspaceId, siteId: scope.siteId, site: scope.site },
+    posts: posts.slice(0, limit),
+    pageInfo: { limit, cursor: String(offset), nextCursor: hasNext ? String(offset + limit) : null, hasNext }
+  }
+}
+
+function assetLinksForPosts(posts, assetId) {
+  const links = []
+  for (const post of posts) {
+    for (const variant of post.variants || []) {
+      for (const media of variant.media || []) {
+        if (String(media.id || media.assetId || '') !== String(assetId)) continue
+        links.push({ postId: post.id, variantId: variant.id, channel: variant.channel, assetIndex: media.assetIndex ?? 0 })
+      }
+    }
+  }
+  return links
+}
+
+async function contentAuditInventory(args, auth, runtime) {
+  const scope = await resolveReadScope(args, auth, runtime)
+  const readItems = typeof runtime?.listContentItems === 'function' ? runtime.listContentItems : listContentItems
+  const readMedia = typeof runtime?.listCanonicalMedia === 'function' ? runtime.listCanonicalMedia : listCanonicalMedia
+  const limit = Math.min(Math.max(Number(args.limit) || 100, 1), 100)
+  const offset = pageOffset(args.cursor)
+  const assetOffset = pageOffset(args.assetCursor)
+  const rows = await readItems({ workspaceId: scope.workspaceId, siteId: scope.siteId, archive: 'all', limit: 500, offset: 0 })
+  const posts = rows.map(canonicalContentItem)
+  const mediaResult = await readMedia({ workspaceId: scope.workspaceId, siteId: scope.siteId, limit: 500, hydrate: false })
+  const allAssets = Array.isArray(mediaResult?.assets) ? mediaResult.assets : []
+  const assetIds = allAssets.map((asset) => asset.id).filter(Boolean)
+  const assetLinks = new Map(assetIds.map((assetId) => [assetId, { videoJobs: [], publications: [], brandKit: [] }]))
+  const pool = assetIds.length ? await getPgPool() : null
+  if (pool) {
+    const videoRows = await pool.query('SELECT id,source_media_id AS "sourceMediaId",final_media_id AS "finalMediaId",cover_media_id AS "coverMediaId" FROM video_jobs WHERE workspace_id=$1 AND site_id=$2 AND ($3::text[] && ARRAY[source_media_id,final_media_id,cover_media_id]::text[])', [scope.workspaceId, scope.siteId, assetIds])
+    for (const row of videoRows.rows) for (const field of ['sourceMediaId', 'finalMediaId', 'coverMediaId']) if (row[field] && assetLinks.has(row[field])) assetLinks.get(row[field]).videoJobs.push({ id: row.id, role: field.replace('MediaId', '').toLowerCase() })
+    const publicationRows = await pool.query('SELECT cvm.media_asset_id AS "assetId",s.id,s.status,s.provider,s.provider_post_id AS "providerPostId" FROM content_variant_media cvm JOIN schedules s ON s.variant_id=cvm.variant_id WHERE cvm.media_asset_id=ANY($1::text[])', [assetIds])
+    for (const row of publicationRows.rows) if (assetLinks.has(row.assetId)) assetLinks.get(row.assetId).publications.push({ id: row.id, status: row.status, provider: row.provider || null, providerPostId: row.providerPostId || null })
+  }
+  const assets = allAssets.map((asset) => {
+    const links = assetLinksForPosts(posts, asset.id)
+    const related = assetLinks.get(asset.id) || { videoJobs: [], publications: [], brandKit: [] }
+    if ((asset.deleteBlockers || []).includes('brand_asset_linked')) related.brandKit = [{ protected: true }]
+    return { ...asset, links: { posts: links, ...related }, protected: links.length > 0 || (asset.deleteBlockers || []).length > 0, protectionReasons: asset.deleteBlockers || [] }
+  })
+  const visiblePosts = posts.slice(offset, offset + limit)
+  const draftVideoVariantsWithoutMedia = posts.flatMap((post) => (post.variants || []).filter((variant) => /video|reel|story|youtube/i.test(String(variant.channel || '')) && ['draft', 'ready_for_review', 'changes_requested'].includes(variant.status) && !(variant.media || []).length).map((variant) => ({ postId: post.id, variantId: variant.id, channel: variant.channel })))
+  const draftPostsWithoutAssets = posts.filter((post) => ['draft', 'ready_for_review', 'changes_requested'].includes(post.status) && !(post.variants || []).some((variant) => (variant.media || []).length)).map((post) => post.id)
+  const reusedAssets = assets.filter((asset) => asset.links.posts.length > 1).map((asset) => ({ assetId: asset.id, links: asset.links.posts }))
+  const hashGroups = new Map()
+  for (const asset of assets) if (asset.sha256) hashGroups.set(asset.sha256, [...(hashGroups.get(asset.sha256) || []), asset.id])
+  const hashDuplicates = [...hashGroups.entries()].filter(([, ids]) => ids.length > 1).map(([sha256, assetIds]) => ({ sha256, assetIds }))
+  const assetsWithoutPost = assets.filter((asset) => asset.links.posts.length === 0).map((asset) => ({ assetId: asset.id, protected: asset.protected, reasons: asset.protectionReasons, provenance: asset.metadata || {} }))
+  const postsWithAssetsMissingVariants = assetsWithoutPost.map((asset) => {
+    const metadata = asset.provenance || {}
+    const postId = metadata.postId || metadata.contentItemId || metadata.brandGrounding?.itemId
+    if (!postId) return null
+    const post = posts.find((candidate) => candidate.id === postId)
+    if (!post) return null
+    const channel = String(metadata.channel || metadata.brandGrounding?.channel || '').trim().toLowerCase()
+    if (!channel || post.variants.some((variant) => variant.channel === channel)) return null
+    return { postId, assetId: asset.assetId, channel }
+  }).filter(Boolean)
+  const visibleAssets = assets.slice(assetOffset, assetOffset + limit)
+  return {
+    contractVersion: MCP_V3_CONTRACT,
+    capability: 'content.audit.inventory',
+    scope: { workspaceId: scope.workspaceId, siteId: scope.siteId, site: scope.site },
+    posts: visiblePosts,
+    variants: visiblePosts.flatMap((post) => post.variants || []),
+    assets: visibleAssets,
+    pageInfo: { limit, cursor: String(offset), nextCursor: offset + limit < posts.length ? String(offset + limit) : null, hasNext: offset + limit < posts.length },
+    assetPageInfo: { limit, cursor: String(assetOffset), nextCursor: assetOffset + limit < assets.length ? String(assetOffset + limit) : null, hasNext: assetOffset + limit < assets.length },
+    diagnostics: {
+      assetsWithoutPost,
+      trulyUnusedAssets: assetsWithoutPost.filter((asset) => !asset.protected).map((asset) => asset.assetId),
+      reusedAssets,
+      hashDuplicates,
+      draftPostsWithoutAssets,
+      draftVideoVariantsWithoutMedia,
+      postsWithAssetsMissingVariants
+    }
+  }
+}
+
+async function contentAuditRepairPlan(args, auth, runtime) {
+  const inventory = await contentAuditInventory({ ...args, limit: 100, cursor: '0' }, auth, runtime)
+  const proposals = []
+  const postsById = new Map(inventory.posts.map((post) => [post.id, post]))
+  for (const asset of inventory.diagnostics.assetsWithoutPost) {
+    const metadata = asset.provenance || {}
+    const postId = metadata.postId || metadata.contentItemId || metadata.generationRun?.postId || metadata.brandGrounding?.itemId
+    const post = postId ? postsById.get(postId) : null
+    const channel = String(metadata.channel || metadata.brandGrounding?.channel || '').trim().toLowerCase()
+    const variant = post?.variants?.find((candidate) => !channel || candidate.channel === channel)
+    if (post && variant && !asset.protected) proposals.push({ action: 'attach_asset', assetId: asset.assetId, postId: post.id, variantId: variant.id, assetIndex: Number.isInteger(metadata.assetIndex) ? metadata.assetIndex : 0, justification: 'La procedencia declara un Post y una variante existentes.', risk: 'Verificar que el orden del carrusel siga siendo correcto.', requiresConfirmation: true })
+    else if (post && channel && !asset.protected) proposals.push({ action: 'attach_asset_create_variant', assetId: asset.assetId, postId: post.id, channel, assetIndex: Number.isInteger(metadata.assetIndex) ? metadata.assetIndex : 0, justification: 'La procedencia declara un Post y un canal, pero falta la variante.', risk: 'Se creará una variante vacía para ese canal antes de adjuntar el asset.', requiresConfirmation: true })
+  }
+  for (const empty of inventory.diagnostics.draftVideoVariantsWithoutMedia) {
+    const post = postsById.get(empty.postId)
+    if (post && post.status === 'draft') proposals.push({ action: 'archive_post', postId: post.id, variantId: empty.variantId, justification: 'La variante de vídeo está en borrador y no tiene ningún media asociado.', risk: 'El Post quedará archivado, no eliminado; revisar antes de confirmar.', requiresConfirmation: true })
+  }
+  return { contractVersion: MCP_V3_CONTRACT, capability: 'content.audit.repair.plan', scope: inventory.scope, proposals, diagnostics: inventory.diagnostics, writePerformed: false, requiresHumanConfirmation: proposals.length > 0, nextAction: proposals.length ? 'human_confirmation' : 'no_action' }
+}
+
+async function workspaceContextAction(args, auth, runtime) {
+  const resolveContext = typeof runtime?.resolveWorkspaceContext === 'function' ? runtime.resolveWorkspaceContext : resolveWorkspaceContext
+  const context = await resolveContext({
+    userId: auth.userId || undefined,
+    workspaceId: args.workspaceId || auth.workspaceId || undefined,
+    siteId: args.siteId || auth.siteId || undefined,
+    siteHandle: args.site || args.brandId || auth.site || undefined,
+    role: auth.role === 'admin' ? 'admin' : auth.role === 'agent' ? 'editor' : undefined
+  })
+  return {
+    contractVersion: MCP_V3_CONTRACT,
+    capability: 'workspace.context.get',
+    workspace: { id: context.workspaceId, name: context.workspaceName || null, role: context.workspaceRole || context.role || auth.role },
+    sites: (context.sites || []).map(({ id, handle, name, role }) => ({ id, handle, name, role }))
+  }
+}
+
 async function contentPostAction(name, args, auth, runtime) {
-  const scope = await motionScope(args, auth, runtime)
+  if (name === 'content.post.list') return contentPostList(args, auth, runtime)
+  const scope = await resolveReadScope(args, auth, runtime)
   const role = contentPostRole(scope, auth)
   const shared = {
     workspaceId: scope.workspaceId,
@@ -400,6 +571,12 @@ async function contentPostAction(name, args, auth, runtime) {
     if (!itemId) throw Object.assign(new Error('postId es obligatorio.'), { code: 'post_id_required', status: 422 })
     const item = await readItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId })
     return { contractVersion: MCP_V3_CONTRACT, capability: name, post: canonicalPost(item) }
+  }
+  if (name === 'content.post.archive') {
+    if (args.confirm !== true) throw Object.assign(new Error('Archivar un Post requiere confirm=true.'), { code: 'post_archive_confirmation_required', status: 428 })
+    const archive = typeof runtime?.archiveContentItem === 'function' ? runtime.archiveContentItem : archiveContentItem
+    const result = await archive({ ...shared, itemId, archived: args.archived !== false, idempotencyKey: args.idempotencyKey })
+    return { contractVersion: MCP_V3_CONTRACT, capability: name, postId: itemId, ...result, nextAction: result.archived ? 'restore_or_review' : 'edit' }
   }
   if (name === 'content.post.create') {
     const title = String(args.title || args.topic || 'Nueva publicación').trim().slice(0, 500)
@@ -1326,7 +1503,7 @@ export async function invokeBuiltinCapability(name, args = {}, { auth = {}, runt
     return getPublicationStatus(publication)
   }
   if (name === 'asset.register') return registerAssetReference(args, auth, runtime)
-  if (name === 'asset.list') return listCanonicalAssets(args, auth)
+  if (name === 'asset.list') return listCanonicalAssets(args, auth, runtime)
   if (name === 'asset.delete') return deleteCanonicalAssets(args, auth)
   if (name === 'asset.upload') return uploadGeneratedAsset(args, auth, runtime)
   if (name === 'production.image.product.transform') return prepareProductTransform(args, auth, runtime)
@@ -1335,6 +1512,9 @@ export async function invokeBuiltinCapability(name, args = {}, { auth = {}, runt
   if (name === 'production.motion.status.get') return motionJobAction(args, auth, runtime, 'status')
   if (name === 'production.motion.retry') return motionJobAction(args, auth, runtime, 'retry')
   if (name === 'production.motion.cancel') return motionJobAction(args, auth, runtime, 'cancel')
+  if (name === 'workspace.context.get') return workspaceContextAction(args, auth, runtime)
+  if (name === 'content.audit.inventory') return contentAuditInventory(args, auth, runtime)
+  if (name === 'content.audit.repair.plan') return contentAuditRepairPlan(args, auth, runtime)
   if (name.startsWith('content.post.')) return contentPostAction(name, args, auth, runtime)
   if (name.startsWith('content.campaign.') || name.startsWith('release.') || name === 'content.media.attach') return contentCampaignAction(name, args, auth, runtime)
 

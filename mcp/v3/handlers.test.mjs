@@ -115,3 +115,55 @@ test('publication.publish enlaza Coolify con la variante blog real', async () =>
   assert.equal(scheduled.itemId, 'item-1')
   assert.equal(scheduled.channels[0], 'blog')
 })
+
+test('las capacidades de auditoría resuelven el scope, listan Posts y no escriben durante el dry run', async () => {
+  let writes = 0
+  const runtime = {
+    resolveWorkspaceContext: async () => ({ workspaceId: 'workspace-1', workspaceName: 'Workspace', workspaceRole: 'owner', sites: [{ id: 'site-1', handle: 'escarlet', name: 'Escarlet', role: 'owner' }] }),
+    listContentItems: async () => [{ id: 'post-1', site_id: 'site-1', batch_id: 'batch-1', topic: 'Tema', status: 'draft', metadata: { contentTitle: 'Post de prueba' }, variants: [{ id: 'variant-1', channel: 'instagram_reel', status: 'draft', body: {}, media: [] }] }],
+    listCanonicalMedia: async () => ({ assets: [{ id: 'asset-unused', sha256: 'hash-unused', metadata: {}, deletable: true, deleteBlockers: [] }] }),
+    archiveContentItem: async () => { writes += 1; return { itemId: 'post-1', archived: true, archivedAt: 'now' } }
+  }
+  const server = await createMcpServerV3({ role: 'agent', userId: 'user-1' }, { runtime })
+  const context = await call(server, 'workspace.context.get')
+  assert.equal(context.isError, false)
+  assert.equal(context.structuredContent.workspace.id, 'workspace-1')
+  const listed = await call(server, 'content.post.list')
+  assert.equal(listed.isError, false)
+  assert.equal(listed.structuredContent.posts[0].id, 'post-1')
+  const inventory = await call(server, 'content.audit.inventory')
+  assert.equal(inventory.isError, false)
+  assert.deepEqual(inventory.structuredContent.diagnostics.trulyUnusedAssets, ['asset-unused'])
+  const plan = await call(server, 'content.audit.repair.plan')
+  assert.equal(plan.isError, false)
+  assert.equal(plan.structuredContent.writePerformed, false)
+  assert.equal(writes, 0)
+})
+
+test('content.post.archive exige confirmación explícita y devuelve la operación autorizada', async () => {
+  const calls = []
+  const server = await createMcpServerV3({ role: 'agent', userId: 'user-1' }, {
+    runtime: {
+      resolveWorkspaceContext: async () => ({ workspaceId: 'workspace-1', sites: [{ id: 'site-1', handle: 'escarlet', role: 'editor' }] }),
+      archiveContentItem: async (input) => { calls.push(input); return { itemId: input.itemId, archived: input.archived, archivedAt: 'now' } }
+    }
+  })
+  const missing = await call(server, 'content.post.archive', { site: 'escarlet', postId: 'post-1' })
+  assert.equal(missing.structuredContent.error.code, 'post_archive_confirmation_required')
+  const archived = await call(server, 'content.post.archive', { site: 'escarlet', postId: 'post-1', confirm: true, idempotencyKey: 'archive-1' })
+  assert.equal(archived.isError, false)
+  assert.equal(archived.structuredContent.archived, true)
+  assert.equal(calls[0].idempotencyKey, 'archive-1')
+})
+
+test('asset.list reutiliza la marca activa sin exigir IDs internos', async () => {
+  const server = await createMcpServerV3({ role: 'viewer', site: 'escarlet' }, {
+    runtime: {
+      resolveWorkspaceContext: async () => ({ workspaceId: 'workspace-1', sites: [{ id: 'site-1', handle: 'escarlet', role: 'viewer' }] }),
+      listCanonicalMedia: async (scope) => ({ assets: [{ id: 'asset-1', siteId: scope.siteId }], count: 1 })
+    }
+  })
+  const result = await call(server, 'asset.list', { site: 'escarlet' })
+  assert.equal(result.isError, false)
+  assert.equal(result.structuredContent.assets[0].siteId, 'site-1')
+})

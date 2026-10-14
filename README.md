@@ -87,6 +87,9 @@ Extender el sistema. [docs/MICROAPP-DEVELOPMENT.md](docs/MICROAPP-DEVELOPMENT.md
 | `capability.guide` / `capability.search` / `capability.get` | Explicar el MCP a un agente nuevo y descubrir el contrato correcto |
 | `recipe.list` / `recipe.get` / `recipe.run` | Descubrir y ejecutar recipes compuestas hasta revisión |
 | `brand.context.get` / `brand.voice.get` | Leer contexto y voz del snapshot activo |
+| `workspace.context.get` / `content.post.list` | Resolver el scope autorizado y listar Posts canónicos paginados |
+| `content.audit.inventory` / `content.audit.repair.plan` | Auditar vínculos, huérfanos y borradores vacíos sin escribir datos |
+| `content.post.archive` | Archivar o restaurar Posts con confirmación e idempotencia |
 | `brand.visual_style.get` / `brand.rules.get` | Leer estilo visual y reglas publicables |
 | `brand.references.resolve` | Fijar referencias visuales permitidas |
 | `brand.generation.prepare` | Crear una preparación versionada para un agente externo |
