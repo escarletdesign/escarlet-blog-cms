@@ -48,6 +48,8 @@ En producción crea dos recursos dentro del mismo proyecto/red de Coolify:
 - No configures un proceso/servicio adicional `node worker.mjs`: el entrypoint ya lo
   inicia en el mismo contenedor cuando `WORKER_ENABLED=1`.
 
+Después de cada push que cambie `mcp/v3`, ejecuta un redeploy del servicio CMS en Coolify y reinicia la conexión MCP de ChatGPT. El conector puede conservar el resultado anterior de `tools/list` hasta que se abre una nueva sesión. Verifica que `workspace.context.get`, `content.post.list`, `content.audit.inventory`, `content.audit.repair.plan` y `content.post.archive` aparezcan en el catálogo antes de operar sobre datos reales.
+
 ### Volumen persistente (importante)
 
 Sin este volumen, **cada redeploy borra posts, media y brand kit**.
