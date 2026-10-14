@@ -349,8 +349,8 @@ const baseApi = {
     ),
   productionAssets: (site?: string) =>
     request<{ assets: MediaItem[] }>(`/api/v2/assets${site ? `?site=${encodeURIComponent(site)}` : ""}`),
-  managedProductionAssets: (site?: string, mode: "standalone" | "all" = "standalone") =>
-    request<{ assets: MediaItem[]; protectedAssets?: MediaItem[] }>(`/api/v2/assets/manage?${new URLSearchParams({ ...(site ? { site } : {}), ...(mode === "standalone" ? { mode: "standalone", includeProtected: "1" } : {}) }).toString()}`),
+  managedProductionAssets: (site?: string, mode: "standalone" | "all" = "standalone", limit = 100) =>
+    request<{ assets: MediaItem[]; protectedAssets?: MediaItem[] }>(`/api/v2/assets/manage?${new URLSearchParams({ ...(site ? { site } : {}), limit: String(limit), ...(mode === "standalone" ? { mode: "standalone", includeProtected: "1" } : {}) }).toString()}`),
   updateProductionAssets: (input: { site?: string; assetIds: string[]; filename?: string; alt?: string; usage?: string }) =>
     request<{ updated: boolean; count: number; assetIds: string[] }>("/api/v2/assets/update", {
       method: "POST",

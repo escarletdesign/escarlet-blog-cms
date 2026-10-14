@@ -33,7 +33,7 @@ export function MediaManager({ site, t }: MediaManagerProps) {
   const load = () => {
     setLoading(true);
     setError("");
-    return api.managedProductionAssets(site, "all")
+    return api.managedProductionAssets(site, "all", 1000)
       .then((response) => setAssets(response.assets || []))
       .catch((cause) => setError(errorText(cause, t("media.error", "No se pudo cargar la biblioteca de medios."))))
       .finally(() => setLoading(false));
