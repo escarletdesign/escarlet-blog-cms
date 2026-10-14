@@ -202,6 +202,7 @@ export function PostWorkspace() {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [mediaBusy, setMediaBusy] = useState(false);
+  const [syncBusy, setSyncBusy] = useState(false);
 
   const load = () => {
     if (!postId) return;
@@ -310,6 +311,19 @@ export function PostWorkspace() {
     }
   };
 
+  const syncRemoteStatus = async () => {
+    setSyncBusy(true);
+    try {
+      await api.syncContentRemoteStatus(site);
+      await load();
+      showToast(t("content.toast.syncQueued", "Actualización de estados solicitada."));
+    } catch (cause) {
+      showToast(cause instanceof Error ? cause.message : t("content.toast.syncError", "No se pudo actualizar el estado de las publicaciones."), "error");
+    } finally {
+      setSyncBusy(false);
+    }
+  };
+
   if (loading) return <main className="ui-page"><Card><p role="status">{t("common.loading", "Cargando Post…")}</p></Card></main>;
   if (error || !post) return <main className="ui-page"><Card className="v3-state-card"><p className="ui-field-error" role="alert">{error || t("content.notFound", "No se encontró este Post")}</p><Button variant="secondary" onClick={() => navigate("/content")}>{t("content.back", "Volver a contenido")}</Button></Card></main>;
 
@@ -321,7 +335,7 @@ export function PostWorkspace() {
       eyebrow={post.campaignTitle || t("content.noCampaign", "Sin campaña")}
       title={post.title}
       description={t("content.post.description", "Edita, revisa y publica este Post desde un único espacio.")}
-      actions={<Inline gap="sm"><StatusBadge status={post.status} label={t(`content.status.${post.status}`, post.status.replace(/_/g, " "))} /><Button variant="ghost" onClick={() => setReviewOpen(true)}>{t("content.review.open", "Revisión")}</Button>{canEdit && !["published", "scheduled"].includes(post.status) && <Button variant="danger" onClick={() => setDeleteOpen(true)}>{t("content.action.delete", "Eliminar borrador")}</Button>}</Inline>}
+      actions={<Inline gap="sm"><StatusBadge status={post.status} label={t(`content.status.${post.status}`, post.status.replace(/_/g, " "))} /><Button variant="secondary" loading={syncBusy} onClick={() => void syncRemoteStatus()}>{t("content.refreshStatus", "Actualizar estado")}</Button><Button variant="ghost" onClick={() => setReviewOpen(true)}>{t("content.review.open", "Revisión")}</Button>{canEdit && !["published", "scheduled"].includes(post.status) && <Button variant="danger" onClick={() => setDeleteOpen(true)}>{t("content.action.delete", "Eliminar borrador")}</Button>}</Inline>}
     />
     <div className="v3-post-layout">
       <section className="v3-post-main" aria-label={t("content.post.editor", "Editor del Post")}>

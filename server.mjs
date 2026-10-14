@@ -3082,7 +3082,7 @@ async function handleRequest(req, res) {
       if (req.method === 'POST' && path === '/api/v2/content/sync-remote-status') {
         const scope = await requireV2Context(req, url, res, body)
         if (!scope) return
-        json(res, 202, await enqueueRemotePublicationStatusSync({ workspaceId: scope.workspaceId, siteId: scope.siteId || null, quotaExempt: Boolean(scope.auth.systemAdmin) }))
+        json(res, 202, await enqueueRemotePublicationStatusSync({ workspaceId: scope.workspaceId, siteId: scope.siteId || null, quotaExempt: Boolean(scope.auth.systemAdmin), force: true }))
         return
       }
       json(res, 404, { message: 'Contrato v2 no encontrado.' })

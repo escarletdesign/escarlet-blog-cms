@@ -849,6 +849,7 @@ function Shell() {
     { to: "/", label: t("nav.home", "Inicio"), icon: "home" },
     { to: "/apps", label: t("nav.apps", "Crear"), icon: "apps" },
     { to: "/content", label: t("nav.content", "Contenido"), icon: "plans" },
+    { to: "/media", label: t("nav.media", "Medios"), icon: "media" },
     ...(publishingEnabled ? [{ to: "/calendar", label: t("nav.calendar", "Calendario"), icon: "calendar" }] : []),
     ...(publishingEnabled ? [{ to: "/publication", label: t("nav.publication", "Publicación"), icon: "send" }] : []),
     ...(workflowFlags.assistantEnabled && publishingEnabled ? [{ to: "/chat", label: t("nav.assistant"), icon: "assistant" }] : []),
@@ -856,7 +857,6 @@ function Shell() {
   const adminUser = isWorkspaceAdmin(session);
   const managementLinks = [
     { to: "/brand", label: t("nav.brands", "Marca"), icon: "brands" },
-    { to: "/media", label: t("nav.media", "Medios"), icon: "media" },
     ...(adminUser ? [{ to: "/admin/connections", label: t("nav.connections", "Canales y conexiones"), icon: "connections" }] : []),
     ...(adminUser ? [{ to: "/admin/team", label: t("nav.team", "Equipo y permisos"), icon: "team" }] : []),
     ...(adminUser && workflowFlags.cmsAiEnabled ? [{ to: "/admin/billing", label: t("nav.planUsage", "Plan y uso"), icon: "billing" }] : []),

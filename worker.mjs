@@ -478,7 +478,7 @@ async function processBufferSyncJob(job) {
   let synced = 0
   const now = Date.now()
   for (const row of rows.rows) {
-    if (!providerRowNeedsRemoteSync(row, { now, intervalMs: metricoolPollMs })) {
+    if (!job.payload?.force && !providerRowNeedsRemoteSync(row, { now, intervalMs: metricoolPollMs })) {
       pending.push(row)
       continue
     }
