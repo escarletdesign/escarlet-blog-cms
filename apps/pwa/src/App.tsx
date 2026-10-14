@@ -5331,6 +5331,7 @@ function Admin() {
     role: string;
     sites: string[];
     allowPublishingAs?: boolean;
+    reviewRequired?: boolean;
   } | null>(null);
   const [userBusy, setUserBusy] = useState(false);
   const [pendingDeleteUser, setPendingDeleteUser] = useState<Record<string, any> | null>(null);
@@ -5396,6 +5397,7 @@ function Admin() {
   const [authorInviteEnabled, setAuthorInviteEnabled] = useState(true);
   const [creationUiEnabled, setCreationUiEnabled] = useState(false);
   const [manualCreationEnabled, setManualCreationEnabled] = useState(false);
+  const [contentReviewEnabled, setContentReviewEnabled] = useState(true);
   const [workflowSaving, setWorkflowSaving] = useState(false);
   const [busy, setBusy] = useState("");
   const report = (value: string, kind: "success" | "error" = "success") => {
@@ -5469,6 +5471,7 @@ function Admin() {
         const productContext = await api.context(site);
         setCreationUiEnabled(Boolean(productContext.featureFlags?.creation_ui_enabled));
         setManualCreationEnabled(Boolean(productContext.featureFlags?.manual_creation_enabled));
+        setContentReviewEnabled(productContext.featureFlags?.content_review_enabled !== false);
       } catch { /* Postgres context may not be initialized during cutover */ }
       if (!enabled) {
         setProviders([]);
@@ -5657,6 +5660,8 @@ function Admin() {
     try {
       if (userForm.id) {
         await api.updateUser({ id: userForm.id, email: userForm.email, role: userForm.role, sites: userForm.sites, allowPublishingAs: userForm.allowPublishingAs });
+        const canonicalRole = ["owner", "admin", "approver", "editor", "author", "viewer"].includes(userForm.role) ? userForm.role : userForm.role === "agency_admin" ? "admin" : "viewer";
+        await api.updateTeamMember(userForm.id, { role: canonicalRole, brandIds: userForm.sites, reviewRequired: userForm.reviewRequired !== false });
       } else {
         const result = await api.registerUser({ email: userForm.email, role: userForm.role, sites: userForm.sites, invite: true });
         if (result.invite?.link) {
@@ -5883,7 +5888,7 @@ function Admin() {
     setWorkflowSaving(true);
     try {
       const result = await api.saveFeatureFlags({ assistantEnabled, blogWizardEnabled, legacyPreviewEnabled, legacySocialPackEnabled, authorInviteEnabled });
-      await api.updateFeatureFlags({ creation_ui_enabled: creationUiEnabled, manual_creation_enabled: manualCreationEnabled }, site);
+      await api.updateFeatureFlags({ creation_ui_enabled: creationUiEnabled, manual_creation_enabled: manualCreationEnabled, content_review_enabled: contentReviewEnabled }, site);
       setAssistantEnabled(result.flags?.assistantEnabled !== false);
       setBlogWizardEnabled(result.flags?.blogWizardEnabled !== false);
       setLegacyPreviewEnabled(result.flags?.legacyPreviewEnabled !== false);
@@ -6104,7 +6109,7 @@ function Admin() {
             <button
               className="ui-button ui-button-secondary"
               type="button"
-              onClick={() => setUserForm({ email: "", role: "client", sites: [site], allowPublishingAs: false })}
+              onClick={() => setUserForm({ email: "", role: "client", sites: [site], allowPublishingAs: false, reviewRequired: true })}
             >
               <AdminActionIcon kind="plus" />
               {t("admin.addUser")}
@@ -6127,7 +6132,7 @@ function Admin() {
                     <button
                       className="admin-icon-action"
                       type="button"
-                      onClick={() => setUserForm({ id: user.id, email: user.email || "", role: user.role || "client", sites: user.sites || [user.site || site], allowPublishingAs: Boolean(user.allowPublishingAs) })}
+                      onClick={() => setUserForm({ id: user.id, email: user.email || "", role: user.role || "client", sites: user.sites || [user.site || site], allowPublishingAs: Boolean(user.allowPublishingAs), reviewRequired: user.reviewRequired !== false })}
                       aria-label={t("admin.editUser")}
                       title={t("admin.editUser")}
                     >
@@ -6202,7 +6207,7 @@ function Admin() {
                   </label>
                 ))}
               </fieldset>
-              <Switch label={t("settings.authorPermission")} description={t("settings.authorPermissionHelp")} checked={Boolean(userForm.allowPublishingAs)} onChange={(event) => setUserForm({ ...userForm, allowPublishingAs: event.target.checked })} />
+              <Switch label={t("settings.authorPermission")} description={t("settings.authorPermissionHelp")} checked={Boolean(userForm.allowPublishingAs)} onChange={(event) => setUserForm({ ...userForm, allowPublishingAs: event.target.checked })} /><Switch label={t("admin.reviewRequired", "Requiere revisión")} description={t("admin.reviewRequiredHelp", "Sus Posts deben pasar por aprobación antes de publicar.")} checked={userForm.reviewRequired !== false} onChange={(event) => setUserForm({ ...userForm, reviewRequired: event.target.checked })} />
               <div className="ui-actions">
                 <button className="ui-button ui-button-ghost" type="button" onClick={() => setUserForm(null)}>{t("editor.close")}</button>
                 <button className="ui-button ui-button-primary" disabled={userBusy || !userForm.sites.length}>{userBusy ? t("admin.saving") : t("admin.save")}</button>
@@ -6528,6 +6533,7 @@ function Admin() {
             <Switch label={t("admin.authorInviteFlag")} description={authorInviteEnabled ? t("admin.screenFlagHelp") : t("admin.screenFlagHidden")} checked={authorInviteEnabled} onChange={(event) => setAuthorInviteEnabled(event.target.checked)} />
             <Switch label="Creación desde la aplicación" description={creationUiEnabled ? "Visible para este espacio/marca" : "Desactivada: la creación se hace desde ChatGPT/MCP"} checked={creationUiEnabled} onChange={(event) => setCreationUiEnabled(event.target.checked)} />
             <Switch label="Creación manual" description={manualCreationEnabled ? "Editor manual habilitado" : "Oculta mientras se valida el flujo MCP"} checked={manualCreationEnabled} onChange={(event) => setManualCreationEnabled(event.target.checked)} />
+            <Switch label={t("admin.contentReviewFlag", "Revisión de contenido")} description={contentReviewEnabled ? t("admin.contentReviewEnabled", "Los Posts requieren aprobación, salvo superadministradores y miembros exentos.") : t("admin.contentReviewDisabled", "Los Posts pasan directamente a aprobados.")} checked={contentReviewEnabled} onChange={(event) => setContentReviewEnabled(event.target.checked)} />
             <div className="ui-actions">
               <button className="ui-button ui-button-primary" type="button" disabled={workflowSaving} onClick={() => void saveWorkflowFlags()}>
                 {workflowSaving ? t("admin.saving") : t("admin.saveWorkflowFlags")}
@@ -6800,7 +6806,7 @@ function TeamView({ autoInvite = false }: { autoInvite?: boolean } = {}) {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [form, setForm] = useState({ email: "", role: "viewer", brandIds: [] as string[], brandRoles: {} as Record<string, string> });
   const [busy, setBusy] = useState(false);
-  const [userForm, setUserForm] = useState<{ id: string; email: string; role: string; sites: string[]; brandRoles: Record<string, string>; allowPublishingAs: boolean } | null>(null);
+  const [userForm, setUserForm] = useState<{ id: string; email: string; role: string; sites: string[]; brandRoles: Record<string, string>; allowPublishingAs: boolean; reviewRequired: boolean } | null>(null);
   const [userBusy, setUserBusy] = useState(false);
   const canAdminUsers = isWorkspaceAdmin(session);
   const inviteBrands = productContext?.brands || (session.sites || []).map((handle) => ({ id: handle, handle, name: handle }));
@@ -6856,6 +6862,7 @@ function TeamView({ autoInvite = false }: { autoInvite?: boolean } = {}) {
         return [brand.id, brand.handle].filter(Boolean).map((key) => [String(key), value]);
       })),
       allowPublishingAs: Boolean(member.allowPublishingAs),
+      reviewRequired: member.reviewRequired !== false,
     });
   };
   const saveUser = async (event: FormEvent<HTMLFormElement>) => {
@@ -6864,7 +6871,7 @@ function TeamView({ autoInvite = false }: { autoInvite?: boolean } = {}) {
     setUserBusy(true);
     try {
       await api.updateUser(userForm);
-      if (canonicalTeam) await api.updateTeamMember(userForm.id, { role: userForm.role, brandIds: userForm.sites, brandRoles: userForm.brandRoles });
+      if (canonicalTeam) await api.updateTeamMember(userForm.id, { role: userForm.role, brandIds: userForm.sites, brandRoles: userForm.brandRoles, reviewRequired: userForm.reviewRequired });
       setUserForm(null);
       showToast(t("admin.userSaved"));
       await load();

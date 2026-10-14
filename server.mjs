@@ -2224,6 +2224,8 @@ async function handleRequest(req, res) {
           mode: url.searchParams.get('mode') === 'standalone' ? 'standalone' : '',
           temporaryOnly: url.searchParams.get('temporaryOnly') === '1' || url.searchParams.get('mode') === 'temporary',
           includeProtected: url.searchParams.get('includeProtected') === '1',
+          linked: url.searchParams.get('linked') || '',
+          published: url.searchParams.get('published') || '',
           assetIds: String(url.searchParams.get('assetIds') || '').split(',').map((value) => value.trim()).filter(Boolean),
           limit: url.searchParams.get('limit')
         })
@@ -2733,6 +2735,7 @@ async function handleRequest(req, res) {
             email,
             displayName,
             name: displayName || email || (member.userId === 'system' ? 'Escarlet' : member.userId),
+            reviewRequired: member.reviewRequired !== false,
             bio: String(profile?.bio || ''),
             avatarUrl: String(profile?.avatarDataUrl || profile?.avatarUrl || ''),
             profileComplete: Boolean(profile?.profileCompletedAt),
@@ -2765,7 +2768,7 @@ async function handleRequest(req, res) {
         const brandRoles = body.brandRoles && typeof body.brandRoles === 'object'
           ? Object.fromEntries((catalog || []).flatMap((brand) => body.brandRoles[brand.id] || body.brandRoles[brand.handle] ? [[brand.id, body.brandRoles[brand.id] || body.brandRoles[brand.handle]]] : []))
           : {}
-        const member = await updateWorkspaceMember({ workspaceId: scope.workspaceId, userId, role: String(body.role || 'viewer'), siteIds, brandRoles })
+        const member = await updateWorkspaceMember({ workspaceId: scope.workspaceId, userId, role: String(body.role || 'viewer'), siteIds, brandRoles, reviewRequired: body.reviewRequired === undefined ? undefined : body.reviewRequired === true })
         json(res, 200, { member })
         return
       }
@@ -2955,7 +2958,9 @@ async function handleRequest(req, res) {
       if (req.method === 'PATCH' && itemMatch) {
         const scope = await requireV2Context(req, url, res, body)
         if (!scope) return
-        const result = await updateContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId: decodeURIComponent(itemMatch[1]), userId: scope.auth.userId, role: scope.context.role, topic: body.topic, contentTitle: body.contentTitle, body: body.body, channel: body.channel, visualBrief: body.visualBrief, mediaAssetIds: body.mediaAssetIds, readyForReview: body.readyForReview, reviewChannels: body.reviewChannels, keepPublished: body.keepPublished, quotaExempt: Boolean(scope.auth.systemAdmin) })
+        const reviewFlags = await getWorkspaceFeatureFlags({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined })
+        const reviewRequired = !scope.auth.systemAdmin && reviewFlags.content_review_enabled !== false && scope.context.reviewRequired !== false
+        const result = await updateContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId: decodeURIComponent(itemMatch[1]), userId: scope.auth.userId, role: scope.context.role, topic: body.topic, contentTitle: body.contentTitle, body: body.body, channel: body.channel, visualBrief: body.visualBrief, mediaAssetIds: body.mediaAssetIds, readyForReview: body.readyForReview, reviewChannels: body.reviewChannels, keepPublished: body.keepPublished, quotaExempt: Boolean(scope.auth.systemAdmin), reviewRequired })
         json(res, 200, result)
         return
       }

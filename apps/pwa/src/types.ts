@@ -253,6 +253,8 @@ export interface MediaItem {
   contentType?: string;
   deletable?: boolean;
   deleteBlockers?: string[];
+  contentLinked?: boolean;
+  published?: boolean;
 }
 
 export interface GeneratedImage extends MediaItem {

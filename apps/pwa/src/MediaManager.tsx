@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboa
 import { Link } from "react-router-dom";
 import { ApiError, api } from "./api";
 import type { MediaItem } from "./types";
-import { Badge, Button, Card, EmptyState, Field, Inline, Modal, PageHeader, Skeleton, Stack, TextField } from "./ui";
+import { Badge, Button, Card, EmptyState, Field, Inline, Modal, PageHeader, Select, Skeleton, Stack, TextField } from "./ui";
 
 type MediaManagerProps = { site: string; t: (key: string, fallback?: string) => string };
 
@@ -46,6 +46,8 @@ type DragSelection = { mode: "add" | "remove" } | null;
 export function MediaManager({ site, t }: MediaManagerProps) {
   const [assets, setAssets] = useState<MediaItem[]>([]);
   const [query, setQuery] = useState("");
+  const [linkFilter, setLinkFilter] = useState<"all" | "linked" | "unlinked">("all");
+  const [publishedFilter, setPublishedFilter] = useState<"all" | "published" | "unpublished">("all");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -57,13 +59,13 @@ export function MediaManager({ site, t }: MediaManagerProps) {
   const load = () => {
     setLoading(true);
     setError("");
-    return api.managedProductionAssets(site, "all", 1000)
+    return api.managedProductionAssets(site, "all", 1000, { linked: linkFilter, published: publishedFilter })
       .then((response) => setAssets(response.assets || []))
       .catch((cause) => setError(errorText(cause, t("media.error", "No se pudo cargar la biblioteca de medios."))))
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { void load(); }, [site]);
+  useEffect(() => { void load(); }, [site, linkFilter, publishedFilter]);
   useEffect(() => {
     const stopDrag = () => setDragSelection(null);
     window.addEventListener("pointerup", stopDrag);
@@ -178,6 +180,8 @@ export function MediaManager({ site, t }: MediaManagerProps) {
     <Card><div className="ui-media-manager-gallery" tabIndex={-1} onKeyDown={handleGalleryKeyDown}><Stack gap="md">
       <Inline gap="md" className="ui-media-manager-toolbar">
         <Field label={t("media.searchLabel", "Buscar medios")}><TextField value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("media.searchPlaceholder", "Nombre, tipo o uso")} /></Field>
+        <Field label={t("media.linkFilter", "Vínculo")}><Select value={linkFilter} onChange={(event) => setLinkFilter(event.target.value as typeof linkFilter)}><option value="all">{t("media.filterAll", "Todos")}</option><option value="linked">{t("media.filterLinked", "Vinculados")}</option><option value="unlinked">{t("media.filterUnlinked", "Sin vínculos")}</option></Select></Field>
+        <Field label={t("media.publishedFilter", "Publicación")}><Select value={publishedFilter} onChange={(event) => setPublishedFilter(event.target.value as typeof publishedFilter)}><option value="all">{t("media.filterAll", "Todos")}</option><option value="published">{t("media.filterPublished", "Publicados")}</option><option value="unpublished">{t("media.filterUnpublished", "No publicados")}</option></Select></Field>
         <Badge tone="info">{visibleAssets.length} {t("media.count", "medios")}</Badge>
         <Inline gap="sm" className="ui-media-manager-selection-actions"><Button size="sm" variant="secondary" disabled={!visibleIds.length || busy} onClick={selectVisible}>{allVisibleSelected ? t("media.clearVisible", "Limpiar visibles") : t("media.selectVisible", "Seleccionar visibles")}</Button>{selectedIds.length > 0 && <Button size="sm" variant="ghost" disabled={busy} onClick={() => setSelectedIds([])}>{t("media.clearSelection", "Limpiar selección")}</Button>}</Inline>
         <Button variant="danger" disabled={!selectedIds.length || busy} loading={busy} onClick={() => setDeleteOpen(true)}>{t("media.deleteSelected", "Eliminar seleccionados")} {selectedIds.length ? `(${selectedIds.length})` : ""}</Button>

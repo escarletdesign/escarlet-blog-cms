@@ -251,8 +251,8 @@ export function PostWorkspace() {
         body.bodyHtml = draft;
       }
       const nextBody = activeChannel === "blog" ? body : bodyWithCopy(activeVariant, body, draft);
-      await api.updateContentItem(post.id, { site, channel: activeVariant.channel, body: nextBody, contentTitle: title, readyForReview, reviewChannels: readyForReview ? [activeVariant.channel] : undefined });
-      showToast(readyForReview ? t("content.toast.review", "Post enviado a revisión") : t("content.toast.saved", "Cambios guardados"));
+      const updated = await api.updateContentItem(post.id, { site, channel: activeVariant.channel, body: nextBody, contentTitle: title, readyForReview, reviewChannels: readyForReview ? [activeVariant.channel] : undefined });
+      showToast(readyForReview && updated.status !== "approved" ? t("content.toast.review", "Post enviado a revisión") : readyForReview ? t("content.toast.approved", "Post aprobado") : t("content.toast.saved", "Cambios guardados"));
       load();
     } catch (cause) {
       showToast(cause instanceof Error ? cause.message : t("common.error"), "error");
@@ -382,7 +382,7 @@ function PostVariantPreview({ variant }: { variant: PostVariant }) {
 function ReviewRail({ post, canApprove, saving, scheduleAt, setScheduleAt, onApprove, onSchedule }: { post: CanonicalPost; canApprove: boolean; saving: boolean; scheduleAt: string; setScheduleAt: (value: string) => void; onApprove: () => void; onSchedule: () => void }) {
   const { t } = useI18n();
   return <Stack gap="md">
-    <Card className="v3-review-card"><div className="v3-card-heading"><h2>{t("content.review.title", "Revisión")}</h2><StatusBadge status={post.status} /></div><p>{t("content.review.summary", "Comprueba el contenido, la marca y los destinos antes de publicar.")}</p><div className="v3-channel-summary">{post.variants.map((variant) => <div key={variant.id}><ChannelBadge channel={variant.channel} /><StatusBadge status={variant.status} /></div>)}</div></Card>
+    <Card className="v3-review-card"><div className="v3-card-heading"><h2>{t("content.review.title", "Revisión")}</h2><StatusBadge status={post.status} /></div><p>{t("content.review.summary", "Comprueba el contenido, la marca y los destinos antes de publicar.")}</p><div className="v3-channel-summary">{post.variants.map((variant) => <div key={variant.id}><div><ChannelBadge channel={variant.channel} /><StatusBadge status={variant.status} /></div>{variant.lastError && <p className="ui-field-error" role="alert">{variant.lastError}</p>}</div>)}</div></Card>
     <Card className="v3-review-card"><span className="ui-eyebrow">{t("content.review.next", "Siguiente acción")}</span><h2>{postActionLabel(post.status, t)}</h2>{canApprove && ["ready_for_review", "changes_requested"].includes(post.status) && <Button loading={saving} onClick={onApprove}>{t("content.action.approve", "Aprobar Post")}</Button>}{canApprove && post.status === "approved" && <Stack gap="sm"><Field label={t("content.schedule.label", "Fecha de publicación")}><TextField type="datetime-local" value={scheduleAt} onChange={(event) => setScheduleAt(event.target.value)} /></Field><Button loading={saving} disabled={!scheduleAt} onClick={onSchedule}>{t("content.action.schedule", "Programar")}</Button></Stack>}<p className="ui-muted">{post.variants.length} {post.variants.length === 1 ? t("content.variant.one", "variante") : t("content.variant.many", "variantes")}</p></Card>
   </Stack>;
 }

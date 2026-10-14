@@ -290,7 +290,7 @@ const baseApi = {
     request<{ entries: CalendarEntry[] }>(`/api/v2/calendar${site ? `?site=${encodeURIComponent(site)}` : ""}`),
   teamV2: (site?: string) =>
     request<{ members: Array<Record<string, any>>; canManage: boolean }>(`/api/v2/team${site ? `?site=${encodeURIComponent(site)}` : ""}`),
-  updateTeamMember: (userId: string, input: { role: string; brandIds?: string[]; brandRoles?: Record<string, string> }) =>
+  updateTeamMember: (userId: string, input: { role: string; brandIds?: string[]; brandRoles?: Record<string, string>; reviewRequired?: boolean }) =>
     request<{ member: Record<string, any> }>(`/api/v2/team/members/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify(input) }),
   inviteTeamMember: (input: { email: string; role: string; brandIds?: string[]; brandRoles?: Record<string, string>; site?: string }) =>
     request<{ member: Record<string, any>; invite?: Record<string, any> }>("/api/v2/team/invitations", { method: "POST", body: JSON.stringify(input) }),
@@ -349,8 +349,8 @@ const baseApi = {
     ),
   productionAssets: (site?: string) =>
     request<{ assets: MediaItem[] }>(`/api/v2/assets${site ? `?site=${encodeURIComponent(site)}` : ""}`),
-  managedProductionAssets: (site?: string, mode: "standalone" | "all" = "standalone", limit = 100) =>
-    request<{ assets: MediaItem[]; protectedAssets?: MediaItem[] }>(`/api/v2/assets/manage?${new URLSearchParams({ ...(site ? { site } : {}), limit: String(limit), ...(mode === "standalone" ? { mode: "standalone", includeProtected: "1" } : {}) }).toString()}`),
+  managedProductionAssets: (site?: string, mode: "standalone" | "all" = "standalone", limit = 100, filters?: { linked?: "all" | "linked" | "unlinked"; published?: "all" | "published" | "unpublished" }) =>
+    request<{ assets: MediaItem[]; protectedAssets?: MediaItem[] }>(`/api/v2/assets/manage?${new URLSearchParams({ ...(site ? { site } : {}), limit: String(limit), ...(mode === "standalone" ? { mode: "standalone", includeProtected: "1" } : {}), ...(filters?.linked && filters.linked !== "all" ? { linked: filters.linked } : {}), ...(filters?.published && filters.published !== "all" ? { published: filters.published } : {}) }).toString()}`),
   updateProductionAssets: (input: { site?: string; assetIds: string[]; filename?: string; alt?: string; usage?: string }) =>
     request<{ updated: boolean; count: number; assetIds: string[] }>("/api/v2/assets/update", {
       method: "POST",

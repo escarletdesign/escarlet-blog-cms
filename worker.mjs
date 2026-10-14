@@ -17,6 +17,7 @@ import { renderMotionVideo } from './lib/motion-renderer.mjs'
 import { getMotionBrandAssets } from './lib/brand-kit.mjs'
 import { assertMotionAssetFile } from './lib/motion-storage.mjs'
 import { mergeStoryMedia } from './lib/story-publication-media.mjs'
+import { absoluteMediaUrl } from './lib/preview-url.mjs'
 
 function loadEnv() {
   const path = new URL('./.env', import.meta.url)
@@ -266,14 +267,15 @@ async function processExternalPublicationEvent(event) {
       : variant.channel === 'video'
         ? socialPack.videoScript || body.videoScript || body.script || body.text || body.title || body.topic || variant.topic || ''
       : socialPack.instagramCaption || socialPack.caption || body.text || body.caption || body.body || body.bodyHtml || body.title || body.topic || '')
-    let mediaRows = await pool.query('SELECT ma.public_url AS "url",ma.content_type AS "mimeType",ma.metadata FROM content_variant_media cvm JOIN media_assets ma ON ma.id=cvm.media_asset_id WHERE cvm.variant_id=$1 ORDER BY cvm.sort_order', [variant.id])
+    let mediaRows = await pool.query('SELECT ma.public_url AS "url",ma.storage_key AS "storageKey",ma.content_type AS "mimeType",ma.metadata FROM content_variant_media cvm JOIN media_assets ma ON ma.id=cvm.media_asset_id WHERE cvm.variant_id=$1 ORDER BY cvm.sort_order', [variant.id])
+    mediaRows = { ...mediaRows, rows: mediaRows.rows.map((asset) => ({ ...asset, url: absoluteMediaUrl(asset.url || asset.storageKey || asset.metadata?.previewUrl || asset.metadata?.previewPath || '') })) }
     if (story && mediaRows.rows.filter((asset) => asset.url).length < 2) {
-      const feedMedia = await pool.query(`SELECT ma.public_url AS "url",ma.content_type AS "mimeType",ma.metadata
+      const feedMedia = await pool.query(`SELECT ma.public_url AS "url",ma.storage_key AS "storageKey",ma.content_type AS "mimeType",ma.metadata
         FROM content_variant_media cvm JOIN media_assets ma ON ma.id=cvm.media_asset_id
         JOIN content_variants feed ON feed.id=cvm.variant_id
         WHERE feed.item_id=(SELECT item_id FROM content_variants WHERE id=$1) AND feed.channel='instagram' AND feed.status IN ('approved','scheduled','syncing','published')
         ORDER BY cvm.sort_order`, [variant.id])
-      mediaRows = { ...mediaRows, rows: mergeStoryMedia(mediaRows.rows, feedMedia.rows) }
+      mediaRows = { ...mediaRows, rows: mergeStoryMedia(mediaRows.rows, feedMedia.rows.map((asset) => ({ ...asset, url: absoluteMediaUrl(asset.url || asset.storageKey || asset.metadata?.previewUrl || asset.metadata?.previewPath || '') }))) }
     }
     if (story && provider !== 'buffer') {
       const message = 'Instagram Story requiere una conexión Buffer.'

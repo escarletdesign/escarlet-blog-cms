@@ -3,7 +3,7 @@ import { assertSiteAccess } from '../../lib/auth.mjs'
 import { getBrandContext, getMotionBrandAssets, loadActiveBrandKitSnapshot, prepareImageGeneration, validateImagePreparation } from '../../lib/brand-kit.mjs'
 import { buildBrandOsMetadata } from '../../lib/brand-os.mjs'
 import { assertAssetTypeForMediaKind, assertSocialTextMetadata, getImagePreparation, issueGenerationReceipt, persistImagePreparation } from '../../lib/generation-provenance.mjs'
-import { getActiveBrandKit, resolveWorkspaceContext } from '../../lib/workspace-domain.mjs'
+import { getActiveBrandKit, getWorkspaceFeatureFlags, resolveWorkspaceContext } from '../../lib/workspace-domain.mjs'
 import { getPgPool } from '../../lib/pg.mjs'
 import { cancelVideoJob, createVideoJob, getVideoJob, retryVideoJob, updateVideoJob } from '../../lib/video-jobs.mjs'
 import { uploadMedia } from '../../lib/cms-ops.mjs'
@@ -331,7 +331,8 @@ async function uploadGeneratedAsset(args, auth, runtime) {
       role: auth.role === 'agent' ? 'editor' : auth.role,
       mediaAssetId: asset.id,
       channels: brandGrounding.channels,
-      assetIndex: brandGrounding.assetIndex
+      assetIndex: brandGrounding.assetIndex,
+      removeReplacedAssets: true
     })
   }
   const receipt = preparation
@@ -648,11 +649,17 @@ async function contentPostAction(name, args, auth, runtime) {
   if (name === 'content.post.list') return contentPostList(args, auth, runtime)
   const scope = await resolveReadScope(args, auth, runtime)
   const role = contentPostRole(scope, auth)
+  let reviewRequired = true
+  if (name === 'content.post.update' || name === 'content.post.variant.upsert' || name === 'content.post.review') {
+    const reviewFlags = await getWorkspaceFeatureFlags({ workspaceId: scope.workspaceId, siteId: scope.siteId })
+    reviewRequired = reviewFlags.content_review_enabled !== false && scope.context?.reviewRequired !== false && !auth.systemAdmin
+  }
   const shared = {
     workspaceId: scope.workspaceId,
     siteId: scope.siteId,
     userId: auth.userId,
     role,
+    reviewRequired,
     quotaExempt: Boolean(auth.systemAdmin)
   }
   const readItem = typeof runtime?.getContentItem === 'function' ? runtime.getContentItem : getContentItem
@@ -723,13 +730,13 @@ async function contentPostAction(name, args, auth, runtime) {
     })
     const item = await readItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId })
     const canonical = canonicalPost(item)
-    return { contractVersion: MCP_V3_CONTRACT, capability: name, post: canonical, ...canonicalMutationReferences({ postId: itemId, variantId: item.variants?.find((variant) => variant.channel === selectedChannel)?.id || null, brandKitVersionId: canonical.brandKitVersionId, generationRunId: canonical.generationRunId, nextAction: args.readyForReview ? 'human_approval' : 'edit' }), updated }
+    return { contractVersion: MCP_V3_CONTRACT, capability: name, post: canonical, ...canonicalMutationReferences({ postId: itemId, variantId: item.variants?.find((variant) => variant.channel === selectedChannel)?.id || null, brandKitVersionId: canonical.brandKitVersionId, generationRunId: canonical.generationRunId, nextAction: args.readyForReview ? (shared.reviewRequired ? 'human_approval' : 'schedule') : 'edit' }), updated }
   }
   if (name === 'content.post.review') {
     await updateItem({ ...shared, itemId, readyForReview: true, reviewChannels: Array.isArray(args.reviewChannels) ? args.reviewChannels : undefined })
     const item = await readItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId })
     const canonical = canonicalPost(item)
-    return { contractVersion: MCP_V3_CONTRACT, capability: name, post: canonical, ...canonicalMutationReferences({ postId: itemId, brandKitVersionId: canonical.brandKitVersionId, generationRunId: canonical.generationRunId, nextAction: 'human_approval' }) }
+    return { contractVersion: MCP_V3_CONTRACT, capability: name, post: canonical, ...canonicalMutationReferences({ postId: itemId, brandKitVersionId: canonical.brandKitVersionId, generationRunId: canonical.generationRunId, nextAction: shared.reviewRequired ? 'human_approval' : 'schedule' }) }
   }
   if (name === 'content.post.approve') {
     const result = await approveItem({ ...shared, itemId })
@@ -828,7 +835,7 @@ async function contentCampaignAction(name, args, auth, runtime) {
     return {
       contractVersion: MCP_V3_CONTRACT,
       capability: name,
-      attachment: await attachMedia({ ...shared, itemId: args.itemId, mediaAssetId: args.mediaAssetId, channels: args.channels, assetIndex: args.assetIndex, createMissingVariants: args.createMissingVariants, removeReplacedAssets: args.removeReplacedAssets === true })
+      attachment: await attachMedia({ ...shared, itemId: args.itemId, mediaAssetId: args.mediaAssetId, channels: args.channels, assetIndex: args.assetIndex, createMissingVariants: args.createMissingVariants, removeReplacedAssets: args.removeReplacedAssets !== false })
     }
   }
   return undefined
