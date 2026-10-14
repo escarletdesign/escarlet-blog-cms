@@ -928,8 +928,20 @@ select, .ui-plans-page .ui-select, .ui-page .ui-input.ui-select, .site-switcher 
 @container (max-width: 460px) { .ui-review-toolbar { grid-template-columns: 1fr; } .ui-filter-summary { grid-column: auto; } }
 .ui-file-list { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 18px; }
 .ui-blog-connection-card { grid-column: 1 / -1; } .ui-connection-card p { margin: 6px 0 0; color: var(--ui-muted); }
+.ui-publication-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(300px, .85fr); gap: var(--ui-space-4); }
+.ui-publication-post-summary { display: flex; align-items: center; justify-content: space-between; gap: var(--ui-space-3); padding: var(--ui-space-4); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); background: var(--ui-surface-soft); }
+.ui-publication-post-summary h3 { margin: 0; }
+.ui-publication-post-summary p { margin: 4px 0 0; }
+.ui-publication-channel-list { display: grid; gap: var(--ui-space-2); }
+.ui-publication-channel-list .ui-checkbox { align-items: center; justify-content: space-between; padding: var(--ui-space-3); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); }
+.ui-publication-orphans { display: grid; gap: var(--ui-space-2); }
+.ui-publication-orphan { display: flex; align-items: center; justify-content: space-between; gap: var(--ui-space-3); padding: var(--ui-space-3); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); }
+.ui-publication-orphan strong, .ui-publication-orphan span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-publication-result { display: grid; gap: var(--ui-space-3); margin-top: var(--ui-space-4); }
 .ui-calendar-loading { display: grid; gap: 14px; } .ui-calendar-loading .ui-skeleton { width: 100%; }
 .ui-calendar-list { display: grid; gap: 12px; } .ui-calendar-list .ui-card { padding: 18px 20px; }
+.ui-calendar-post-link { color: inherit; text-decoration: none; }
+.ui-calendar-post-link:hover, .ui-calendar-post-link:focus-visible { color: var(--ui-accent); text-decoration: underline; text-underline-offset: 3px; }
 .ui-calendar-plan-filter { max-width: 360px; }
 .ui-calendar-card-title { display: flex; align-items: flex-start; gap: var(--ui-space-3); min-width: 0; }
 .ui-calendar-card-title > div { min-width: 0; }
@@ -948,6 +960,7 @@ button.ui-calendar-item:focus-visible { outline: 2px solid var(--ui-accent); out
 @container (max-width: 720px) { .ui-calendar-weekdays { display: none; } .ui-calendar-grid { grid-template-columns: 1fr; } .ui-calendar-day.outside:not(.has-items) { display: none; } .ui-calendar-day { display: grid; grid-template-columns: var(--ui-space-8) minmax(0,1fr); align-items: start; min-height: 0; padding: var(--ui-space-2); } .ui-calendar-day > span:first-child { grid-row: 1 / span 5; } .ui-calendar-item { grid-column: 2; grid-template-columns: auto minmax(0,1fr); align-items: center; gap: var(--ui-space-2); } .ui-calendar-item small { white-space: normal; line-height: 1.2; } .ui-calendar-item .ui-badge { padding-inline: 4px; font-size: .55rem; } .ui-calendar-more { grid-column: 2; } }
 .ui-calendar-detail-visual { width: 100%; max-height: 360px; object-fit: contain; border-radius: var(--ui-radius-md); background: var(--ui-surface-soft); }
 @media (max-width: 760px) { .ui-admin-index-grid, .ui-brand-detail-grid, .ui-identity-grid, .ui-channel-settings-grid { grid-template-columns: 1fr; } .ui-blog-connection-card { grid-column: auto; } }
+@media (max-width: 760px) { .ui-publication-grid { grid-template-columns: 1fr; } .ui-publication-post-summary, .ui-publication-orphan { align-items: flex-start; flex-direction: column; } }
 .ui-page-back { display: block; margin-bottom: 14px; }
 .ui-page-back > a { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 7px 11px; border: 1px solid var(--ui-border-strong); border-radius: 9px; color: var(--ui-text); background: transparent; font-size: .8rem; font-weight: 750; text-decoration: none; }
 .ui-page-back > a:hover, .ui-page-back > a:focus-visible { color: var(--ui-accent); border-color: var(--ui-accent); outline: none; background: rgba(185,251,84,.08); }
@@ -1272,6 +1285,13 @@ button.ui-calendar-item:focus-visible { outline: 2px solid var(--ui-accent); out
 .v3-channel-summary > div { display: flex; align-items: center; justify-content: space-between; gap: var(--ui-space-2); padding-bottom: var(--ui-space-2); border-bottom: 1px solid var(--ui-border); }
 .v3-channel-summary > div:last-child { border-bottom: 0; padding-bottom: 0; }
 .v3-provenance-card { padding: var(--ui-space-5); }
+.v3-variant-media { display: grid; gap: var(--ui-space-3); padding-top: var(--ui-space-2); }
+.v3-media-list { display: grid; gap: var(--ui-space-2); }
+.v3-media-item { display: flex; align-items: center; justify-content: space-between; gap: var(--ui-space-3); padding: var(--ui-space-3); }
+.v3-media-item > div { display: flex; align-items: center; gap: var(--ui-space-3); min-width: 0; }
+.v3-media-item img, .v3-media-placeholder { width: 56px; height: 56px; flex: 0 0 56px; border-radius: var(--ui-radius-sm); background: var(--ui-surface-soft); object-fit: cover; }
+.v3-media-placeholder { display: grid; place-items: center; color: var(--ui-accent); }
+.v3-media-item strong, .v3-media-item span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui-back-link { color: var(--ui-muted); text-decoration: none; }
 .ui-back-link:hover, .ui-back-link:focus-visible { color: var(--ui-text); }
 

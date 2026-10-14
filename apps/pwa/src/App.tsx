@@ -994,7 +994,6 @@ function RecentContentWork() {
 function RecentPosts() {
   const { site } = useApp();
   const { t } = useI18n();
-  const nav = useNavigate();
   const [posts, setPosts] = useState<ContentItem[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -1031,15 +1030,7 @@ function RecentPosts() {
       <div className="home-kpis" aria-label={t("home.kpi.label")}>
         {metrics.map((metric) => <Card className="home-kpi" key={metric.key}><span className="ui-eyebrow">{metric.label}</span><strong>{metric.value}</strong></Card>)}
       </div>
-      <div className="post-list compact">
-        {posts.slice(0, 4).map((post) => (
-          <button key={post.id} type="button" className="post-row" onClick={() => nav(`/content/${encodeURIComponent(post.id)}`)}>
-            <span className="post-thumb placeholder-thumb" aria-hidden="true">✦</span>
-            <span className="post-row-copy"><StatusBadge status={post.status} /><h3>{itemTitle(post)}</h3><p>{(post.variants || []).map((variant) => variant.channel).join(" · ") || t("home.noChannel")}</p></span>
-            <span className="chevron">›</span>
-          </button>
-        ))}
-      </div>
+      <p className="ui-field-hint home-summary-hint">{t("home.kpi.help", "Los Posts que necesitan trabajo aparecen arriba. Usa Contenido para ver el historial completo.")}</p>
     </>
   );
 }
@@ -7253,10 +7244,11 @@ function BrandIdentityView() {
     if (!media.id || !brand?.handle) return;
     setReferenceBusy(true);
     try {
-      await api.deleteMedia({ site: brand.handle, id: media.id, path: media.path });
+      if (media.metadata?.source === "brand-kit") await api.deleteBrandKitAsset(brandId, media.id);
+      else await api.deleteMedia({ site: brand.handle, id: media.id, path: media.path });
       setReferenceMedia((current) => current.filter((item) => item.id !== media.id));
       setSelectedReference(null);
-      showToast("Referencia eliminada.");
+      showToast(media.metadata?.source === "brand-kit" ? "Asset retirado del Brand Kit." : "Referencia eliminada.");
     } catch (err: any) {
       showToast(err?.message || "No se pudo eliminar la referencia.", "error");
     } finally {
@@ -7371,7 +7363,7 @@ function BrandIdentityView() {
         </Card>
         <Card><span className="ui-eyebrow">Datos de la marca</span><h2>Identidad pública</h2>{canEdit ? <form className="ui-stack ui-stack-md" onSubmit={(event) => void save(event)}><Field label="Nombre" required><TextField value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></Field><Field label="Dominio web opcional"><TextField type="url" value={form.domain} onChange={(event) => setForm({ ...form, domain: event.target.value })} placeholder="https://marca.com" /></Field><Button type="submit" loading={busy}>Guardar identidad</Button></form> : <p className="ui-muted">{brand?.domain || "Sin dominio configurado"}</p>}</Card>
       </div>}
-      {selectedReference && <ReferenceMediaModal media={selectedReference} busy={referenceBusy} onClose={() => setSelectedReference(null)} onSave={(details) => void saveReference(selectedReference, details)} onDelete={() => void deleteReference(selectedReference)} canDelete={!['brand-kit', 'canonical-reference'].includes(String(selectedReference.metadata?.source || ''))} readOnlyFilename={['brand-kit', 'canonical-reference'].includes(String(selectedReference.metadata?.source || ''))} />}
+      {selectedReference && <ReferenceMediaModal media={selectedReference} busy={referenceBusy} onClose={() => setSelectedReference(null)} onSave={(details) => void saveReference(selectedReference, details)} onDelete={() => void deleteReference(selectedReference)} canDelete={['brand-kit', 'canonical-reference'].includes(String(selectedReference.metadata?.source || '')) ? selectedReference.metadata?.source === 'brand-kit' : true} readOnlyFilename={['brand-kit', 'canonical-reference'].includes(String(selectedReference.metadata?.source || ''))} />}
     </main>
   );
 }

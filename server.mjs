@@ -278,6 +278,7 @@ import {
   getActiveBrandKit,
   cleanupBrandKitAssets,
   updateBrandAsset,
+  removeBrandAsset,
   enqueueJob,
   enqueueRemotePublicationStatusSync,
   assertWorkspaceRole,
@@ -2534,6 +2535,12 @@ async function handleRequest(req, res) {
         const scope = await requireV2Context(req, url, res, { ...body, siteId: decodeURIComponent(brandAssetMatch[1]) })
         if (!scope) return
         json(res, 200, { asset: await updateBrandAsset({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: scope.auth.userId, role: scope.context.role, assetId: decodeURIComponent(brandAssetMatch[2]), alt: body.alt, usage: body.usage, characterId: body.characterId }) })
+        return
+      }
+      if (req.method === 'DELETE' && brandAssetMatch) {
+        const scope = await requireV2Context(req, url, res, { ...body, siteId: decodeURIComponent(brandAssetMatch[1]) })
+        if (!scope) return
+        json(res, 200, await removeBrandAsset({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: scope.auth.userId, role: scope.context.role, assetId: decodeURIComponent(brandAssetMatch[2]) }))
         return
       }
       if (req.method === 'POST' && brandKitImportMatch) {

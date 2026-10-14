@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { api } from "../../api";
 import { asCanonicalPost, postActionLabel, statusTone } from "../../content-model";
 import type { CanonicalPost, ContentChannel, ContentItem, ContentVariant } from "../../types";
-import { Badge, Button, Card, ChannelBadge, Drawer, EmptyState, Field, Inline, PageHeader, Select, Stack, StatusBadge, Tabs, Textarea, TextField } from "../../ui";
+import { Badge, Button, Card, ChannelBadge, Drawer, EmptyState, Field, Inline, Modal, PageHeader, Select, Stack, StatusBadge, Tabs, Textarea, TextField } from "../../ui";
 import { useApp, useI18n, useToast } from "../../app/context";
 
 const channels: ContentChannel[] = ["blog", "instagram", "instagram_story", "linkedin", "x", "video"];
@@ -27,6 +27,11 @@ function bodyText(variant?: ContentVariant | null) {
 
 function variantTitle(variant: ContentVariant, fallback: string) {
   return String(variant.body?.title || fallback);
+}
+
+function mediaUrl(media: NonNullable<ContentVariant["media"]>[number]) {
+  const value = media.thumbUrl || media.previewUrl || media.url || media.publicUrl || media.path || "";
+  return String(value).startsWith("/") || /^https?:\/\//i.test(String(value)) ? String(value) : "";
 }
 
 function campaignLabel(item: ContentItem) {
@@ -116,6 +121,8 @@ export function PostWorkspace() {
   const [saving, setSaving] = useState(false);
   const [scheduleAt, setScheduleAt] = useState("");
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [mediaBusy, setMediaBusy] = useState(false);
 
   const load = () => {
     if (!postId) return;
@@ -145,6 +152,7 @@ export function PostWorkspace() {
 
   const activeVariant = useMemo(() => post?.variants.find((variant) => variant.channel === activeChannel) || post?.variants[0] || null, [post, activeChannel]);
   const canApprove = [session.role, session.workspaceRole].some((role) => ["owner", "admin", "approver"].includes(String(role || "").toLowerCase()));
+  const canEdit = [session.role, session.workspaceRole].some((role) => ["owner", "admin", "editor"].includes(String(role || "").toLowerCase()));
 
   const selectChannel = (channel: ContentChannel) => {
     const variant = post?.variants.find((item) => item.channel === channel);
@@ -195,6 +203,35 @@ export function PostWorkspace() {
     finally { setSaving(false); }
   };
 
+  const archivePost = async () => {
+    if (!post) return;
+    setSaving(true);
+    try {
+      await api.archiveContent(post.id, site);
+      showToast(t("content.toast.archived", "Post eliminado de la bandeja."));
+      navigate("/content");
+    } catch (cause) {
+      showToast(cause instanceof Error ? cause.message : t("common.error"), "error");
+    } finally {
+      setSaving(false);
+      setDeleteOpen(false);
+    }
+  };
+
+  const removeMedia = async (mediaId: string) => {
+    if (!post || !activeVariant || !mediaId || mediaId === "undefined") return;
+    setMediaBusy(true);
+    try {
+      await api.updateContentItem(post.id, { site, channel: activeVariant.channel, mediaAssetIds: activeVariant.media.filter((media) => media.id !== mediaId).map((media) => String(media.id)).filter(Boolean) });
+      showToast(t("content.toast.mediaRemoved", "Imagen retirada de la variante."));
+      load();
+    } catch (cause) {
+      showToast(cause instanceof Error ? cause.message : t("common.error"), "error");
+    } finally {
+      setMediaBusy(false);
+    }
+  };
+
   if (loading) return <main className="ui-page"><Card><p role="status">{t("common.loading", "Cargando Post…")}</p></Card></main>;
   if (error || !post) return <main className="ui-page"><Card className="v3-state-card"><p className="ui-field-error" role="alert">{error || t("content.notFound", "No se encontró este Post")}</p><Button variant="secondary" onClick={() => navigate("/content")}>{t("content.back", "Volver a contenido")}</Button></Card></main>;
 
@@ -206,7 +243,7 @@ export function PostWorkspace() {
       eyebrow={post.campaignTitle || t("content.noCampaign", "Sin campaña")}
       title={post.title}
       description={t("content.post.description", "Edita, revisa y publica este Post desde un único espacio.")}
-      actions={<Inline gap="sm"><StatusBadge status={post.status} label={t(`content.status.${post.status}`, post.status.replace(/_/g, " "))} /><Button variant="ghost" onClick={() => setReviewOpen(true)}>{t("content.review.open", "Revisión")}</Button></Inline>}
+      actions={<Inline gap="sm"><StatusBadge status={post.status} label={t(`content.status.${post.status}`, post.status.replace(/_/g, " "))} /><Button variant="ghost" onClick={() => setReviewOpen(true)}>{t("content.review.open", "Revisión")}</Button>{canEdit && !["published", "scheduled"].includes(post.status) && <Button variant="danger" onClick={() => setDeleteOpen(true)}>{t("content.action.delete", "Eliminar borrador")}</Button>}</Inline>}
     />
     <div className="v3-post-layout">
       <section className="v3-post-main" aria-label={t("content.post.editor", "Editor del Post")}>
@@ -216,6 +253,7 @@ export function PostWorkspace() {
             <div className="v3-variant-heading"><div><span className="ui-eyebrow">{channelName(activeVariant.channel, t)}</span><h2>{t("content.variant.title", "Versión para este canal")}</h2></div><StatusBadge status={activeVariant.status} /></div>
             <Field label={t("content.post.title", "Título")}><TextField value={title} onChange={(event) => setTitle(event.target.value)} /></Field>
             <Field label={t("content.post.copy", "Contenido")} hint={t("content.post.copyHint", "La IA externa y el Brand Kit se muestran en el rail de revisión.")}><Textarea className="v3-copy-editor" value={draft} onChange={(event) => setDraft(event.target.value)} /></Field>
+            <div className="v3-variant-media"><div className="v3-card-heading"><div><span className="ui-eyebrow">{t("content.media.eyebrow", "Assets")}</span><h2>{t("content.media.title", "Elementos de esta variante")}</h2></div><Badge tone="neutral">{activeVariant.media.length}</Badge></div>{activeVariant.media.length ? <div className="v3-media-list">{activeVariant.media.map((media) => <Card className="v3-media-item" key={media.id || media.path || media.url}><div>{mediaUrl(media) ? <img src={mediaUrl(media)} alt={media.alt || media.filename || ""} loading="lazy" decoding="async" /> : <span className="v3-media-placeholder" aria-hidden="true">✦</span>}<div><strong>{media.filename || media.alt || media.id || t("content.media.asset", "Asset")}</strong><span className="ui-muted">{media.kind || media.contentType || "Media"}</span></div></div>{canEdit && !["published", "scheduled"].includes(activeVariant.status) && <Button size="sm" variant="danger" loading={mediaBusy} disabled={!media.id} onClick={() => void removeMedia(String(media.id))}>{t("content.media.remove", "Quitar")}</Button>}</Card>)}</div> : <p className="ui-muted">{t("content.media.empty", "Esta variante todavía no tiene imágenes ni vídeo asociados.")}</p>}</div>
             <Inline gap="sm"><Button loading={saving} onClick={() => void save()}>{t("common.save", "Guardar cambios")}</Button><Button variant="secondary" loading={saving} onClick={() => void save(true)}>{t("content.action.review", "Enviar a revisión")}</Button></Inline>
           </Stack> : <EmptyState title={t("content.variant.empty", "No hay variante para este canal")} />}
         </div>
@@ -226,6 +264,7 @@ export function PostWorkspace() {
       </aside>
     </div>
     <Drawer open={reviewOpen} title={t("content.review.title", "Revisión y publicación")} onClose={() => setReviewOpen(false)}><ReviewRail post={post} canApprove={canApprove} saving={saving} scheduleAt={scheduleAt} setScheduleAt={setScheduleAt} onApprove={approve} onSchedule={schedule} /></Drawer>
+    <Modal open={deleteOpen} title={t("content.delete.title", "Eliminar este borrador") } onClose={() => setDeleteOpen(false)}><Stack gap="md"><p className="ui-muted">{t("content.delete.description", "El Post se archivará y dejará de aparecer en Contenido y Publicación. Podrás restaurarlo desde el filtro de archivados.")}</p><Inline gap="sm"><Button variant="ghost" onClick={() => setDeleteOpen(false)}>{t("common.cancel", "Cancelar")}</Button><Button variant="danger" loading={saving} onClick={() => void archivePost()}>{t("content.action.deleteConfirm", "Eliminar borrador")}</Button></Inline></Stack></Modal>
   </main>;
 }
 
