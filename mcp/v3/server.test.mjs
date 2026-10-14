@@ -24,6 +24,12 @@ test('MCP v3 publica solo tools namespaced y excluye nombres legacy', async () =
   assert.ok(listed.tools.some((tool) => tool.name === 'asset.list'))
   assert.ok(listed.tools.some((tool) => tool.name === 'asset.delete'))
   for (const name of ['workspace.context.get', 'content.post.list', 'content.post.archive', 'content.audit.inventory', 'content.audit.repair.plan']) assert.ok(listed.tools.some((tool) => tool.name === name), name)
+  for (const name of ['content.post.list', 'content.post.archive', 'content.audit.inventory']) {
+    const tool = listed.tools.find((entry) => entry.name === name)
+    const manifest = BUILTIN_CAPABILITIES.find((entry) => entry.id === name)
+    assert.deepEqual(tool.inputSchema, manifest.inputSchema, `${name} inputSchema`)
+    assert.deepEqual(tool.outputSchema, manifest.outputSchema, `${name} outputSchema`)
+  }
   assert.ok(listed.tools.some((tool) => tool.name === 'recipe.run'))
   for (const name of ['production.motion.status.get', 'production.motion.retry', 'production.motion.cancel']) assert.ok(listed.tools.some((tool) => tool.name === name), name)
   for (const tool of listed.tools) {

@@ -1158,6 +1158,7 @@ export function publicToolManifest(entry) {
     name: manifest.id,
     description: manifest.description,
     inputSchema: manifest.inputSchema || objectSchema,
+    ...(manifest.outputSchema ? { outputSchema: manifest.outputSchema } : {}),
     annotations: {
       readOnlyHint: manifest.sideEffects === 'none',
       destructiveHint: manifest.sideEffects === 'external',

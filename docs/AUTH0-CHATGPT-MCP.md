@@ -17,7 +17,7 @@ Integración opcional de un resource server Auth0 para MCP v3. No se activa por 
 | Grant | Authorization Code + PKCE (OAuth 2.1) |
 | App type | Regular Web / Native según Apps SDK |
 | DCR / CIMD | Según requisitos del conector ChatGPT Developer Mode |
-| Scopes | `brand:read`, `asset:read`, `asset:write`, `copy:validate`, `generation:prepare`, `generation:provenance`, `generation:run`, `production:motion`, `publication:read`, `publication:write`, `publication:publish` |
+| Scopes | `brand:read`, `asset:read`, `asset:write`, `content:read`, `content:write`, `content:publish`, `copy:validate`, `generation:prepare`, `generation:provenance`, `generation:run`, `production:motion`, `publication:read`, `publication:write`, `publication:publish` |
 
 Claims requeridos y opcionales en el access token:
 

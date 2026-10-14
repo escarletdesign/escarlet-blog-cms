@@ -140,6 +140,47 @@ test('las capacidades de auditoría resuelven el scope, listan Posts y no escrib
   assert.equal(writes, 0)
 })
 
+test('la auditoría recorre todas las páginas de Posts y assets sin repetir elementos', async () => {
+  const posts = Array.from({ length: 501 }, (_, index) => ({
+    id: `post-${index}`,
+    site_id: 'site-1',
+    batch_id: null,
+    topic: `Tema ${index}`,
+    status: 'draft',
+    metadata: { contentTitle: `Post ${index}` },
+    variants: []
+  }))
+  const assets = Array.from({ length: 101 }, (_, index) => ({ id: `asset-${index}`, metadata: {}, deleteBlockers: [] }))
+  const page = (rows, { limit, offset }) => rows.slice(offset, offset + limit)
+  const server = await createMcpServerV3({ role: 'agent', userId: 'user-1' }, {
+    runtime: {
+      resolveWorkspaceContext: async () => ({ workspaceId: 'workspace-1', sites: [{ id: 'site-1', handle: 'escarlet', role: 'editor' }] }),
+      listContentItems: async ({ limit, offset }) => page(posts, { limit, offset }),
+      listCanonicalMedia: async ({ limit, offset }) => ({ assets: page(assets, { limit, offset }) })
+    }
+  })
+  const postIds = []
+  for (let cursor = '0'; ; ) {
+    const result = await call(server, 'content.audit.inventory', { site: 'escarlet', limit: 100, cursor, assetCursor: '0' })
+    assert.equal(result.isError, false)
+    postIds.push(...result.structuredContent.posts.map((post) => post.id))
+    const next = result.structuredContent.pageInfo.nextCursor
+    if (!next) break
+    cursor = next
+  }
+  const assetIds = []
+  for (let assetCursor = '0'; ; ) {
+    const result = await call(server, 'content.audit.inventory', { site: 'escarlet', limit: 100, cursor: '0', assetCursor })
+    assert.equal(result.isError, false)
+    assetIds.push(...result.structuredContent.assets.map((asset) => asset.id))
+    const next = result.structuredContent.assetPageInfo.nextCursor
+    if (!next) break
+    assetCursor = next
+  }
+  assert.equal(new Set(postIds).size, posts.length)
+  assert.equal(new Set(assetIds).size, assets.length)
+})
+
 test('content.post.archive exige confirmación explícita y devuelve la operación autorizada', async () => {
   const calls = []
   const server = await createMcpServerV3({ role: 'agent', userId: 'user-1' }, {

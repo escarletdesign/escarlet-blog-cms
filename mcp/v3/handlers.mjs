@@ -448,6 +448,38 @@ function assetLinksForPosts(posts, assetId) {
   return links
 }
 
+async function readAllPages(read, { pageSize, extract, key, baseArgs }) {
+  const all = []
+  const seen = new Set()
+  for (let offset = 0; ; offset += pageSize) {
+    const result = await read({ ...baseArgs, limit: pageSize, offset })
+    const page = extract(result)
+    const unique = page.filter((entry) => {
+      const id = key(entry)
+      if (!id || seen.has(id)) return false
+      seen.add(id)
+      return true
+    })
+    all.push(...unique)
+    if (page.length < pageSize || unique.length === 0) break
+  }
+  return all
+}
+
+function duplicateGroups(assets, identity) {
+  const groups = new Map()
+  for (const asset of assets) {
+    const value = identity(asset)
+    if (!value) continue
+    const group = groups.get(value) || []
+    group.push(asset.id)
+    groups.set(value, group)
+  }
+  return [...groups.entries()]
+    .filter(([, assetIds]) => assetIds.length > 1)
+    .map(([value, assetIds]) => ({ value, assetIds }))
+}
+
 async function contentAuditInventory(args, auth, runtime) {
   const scope = await resolveReadScope(args, auth, runtime)
   const readItems = typeof runtime?.listContentItems === 'function' ? runtime.listContentItems : listContentItems
@@ -455,10 +487,19 @@ async function contentAuditInventory(args, auth, runtime) {
   const limit = Math.min(Math.max(Number(args.limit) || 100, 1), 100)
   const offset = pageOffset(args.cursor)
   const assetOffset = pageOffset(args.assetCursor)
-  const rows = await readItems({ workspaceId: scope.workspaceId, siteId: scope.siteId, archive: 'all', limit: 500, offset: 0 })
+  const rows = await readAllPages(readItems, {
+    pageSize: 500,
+    extract: (result) => Array.isArray(result) ? result : [],
+    key: (row) => row?.id,
+    baseArgs: { workspaceId: scope.workspaceId, siteId: scope.siteId, archive: 'all' }
+  })
   const posts = rows.map(canonicalContentItem)
-  const mediaResult = await readMedia({ workspaceId: scope.workspaceId, siteId: scope.siteId, limit: 500, hydrate: false })
-  const allAssets = Array.isArray(mediaResult?.assets) ? mediaResult.assets : []
+  const allAssets = await readAllPages(readMedia, {
+    pageSize: 100,
+    extract: (result) => Array.isArray(result) ? result : (Array.isArray(result?.assets) ? result.assets : []),
+    key: (asset) => asset?.id,
+    baseArgs: { workspaceId: scope.workspaceId, siteId: scope.siteId, hydrate: false }
+  })
   const assetIds = allAssets.map((asset) => asset.id).filter(Boolean)
   const assetLinks = new Map(assetIds.map((assetId) => [assetId, { videoJobs: [], publications: [], brandKit: [] }]))
   const pool = assetIds.length ? await getPgPool() : null
@@ -483,6 +524,17 @@ async function contentAuditInventory(args, auth, runtime) {
   const hashGroups = new Map()
   for (const asset of assets) if (asset.sha256) hashGroups.set(asset.sha256, [...(hashGroups.get(asset.sha256) || []), asset.id])
   const hashDuplicates = [...hashGroups.entries()].filter(([, ids]) => ids.length > 1).map(([sha256, assetIds]) => ({ sha256, assetIds }))
+  const nameDuplicates = duplicateGroups(assets, (asset) => String(asset.metadata?.filename || asset.metadata?.originalFilename || asset.storageKey || '').split('/').pop().trim().toLowerCase())
+  const metadataDuplicates = duplicateGroups(assets, (asset) => {
+    const metadata = asset.metadata || {}
+    const identity = {
+      generationRunId: metadata.generationRunId || metadata.generation?.runId || null,
+      preparationId: metadata.preparationId || metadata.brandGrounding?.preparationId || null,
+      channel: metadata.channel || metadata.brandGrounding?.channel || null,
+      assetIndex: Number.isInteger(metadata.assetIndex) ? metadata.assetIndex : null
+    }
+    return identity.generationRunId || identity.preparationId ? JSON.stringify(identity) : ''
+  })
   const assetsWithoutPost = assets.filter((asset) => asset.links.posts.length === 0).map((asset) => ({ assetId: asset.id, protected: asset.protected, reasons: asset.protectionReasons, provenance: asset.metadata || {} }))
   const postsWithAssetsMissingVariants = assetsWithoutPost.map((asset) => {
     const metadata = asset.provenance || {}
@@ -509,6 +561,8 @@ async function contentAuditInventory(args, auth, runtime) {
       trulyUnusedAssets: assetsWithoutPost.filter((asset) => !asset.protected).map((asset) => asset.assetId),
       reusedAssets,
       hashDuplicates,
+      nameDuplicates,
+      metadataDuplicates,
       draftPostsWithoutAssets,
       draftVideoVariantsWithoutMedia,
       postsWithAssetsMissingVariants
@@ -518,6 +572,11 @@ async function contentAuditInventory(args, auth, runtime) {
 
 async function contentAuditRepairPlan(args, auth, runtime) {
   const inventory = await contentAuditInventory({ ...args, limit: 100, cursor: '0' }, auth, runtime)
+  for (let cursor = inventory.pageInfo.nextCursor; cursor; ) {
+    const page = await contentAuditInventory({ ...args, limit: 100, cursor, assetCursor: '0' }, auth, runtime)
+    inventory.posts.push(...page.posts)
+    cursor = page.pageInfo.nextCursor
+  }
   const proposals = []
   const postsById = new Map(inventory.posts.map((post) => [post.id, post]))
   const orphanGroups = new Map()

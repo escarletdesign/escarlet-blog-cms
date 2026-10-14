@@ -35,7 +35,7 @@ test('el handler MCP v3 publica capabilities namespaced y resources', async () =
   assert.equal(response.status, 200)
   const body = await response.json()
   assert.ok(body.result.tools.some((tool) => tool.name === 'brand.context.get'))
-  for (const name of ['production.motion.status.get', 'production.motion.retry', 'production.motion.cancel']) assert.ok(body.result.tools.some((tool) => tool.name === name), name)
+  for (const name of ['production.motion.status.get', 'production.motion.retry', 'production.motion.cancel', 'content.post.list', 'content.post.archive', 'content.audit.inventory']) assert.ok(body.result.tools.some((tool) => tool.name === name), name)
   assert.equal(body.result.tools.some((tool) => /^(?:blog|social|content|video|brand)_/.test(tool.name)), false)
   assert.ok(body.result._meta['io.modelcontextprotocol/serverInfo'])
   assert.equal(body.result._meta['io.modelcontextprotocol/serverInfo'].name, 'escarlet-os')
