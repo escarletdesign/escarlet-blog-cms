@@ -2954,7 +2954,7 @@ async function handleRequest(req, res) {
       if (req.method === 'PATCH' && itemMatch) {
         const scope = await requireV2Context(req, url, res, body)
         if (!scope) return
-        const result = await updateContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId: decodeURIComponent(itemMatch[1]), userId: scope.auth.userId, role: scope.context.role, topic: body.topic, contentTitle: body.contentTitle, body: body.body, channel: body.channel, visualBrief: body.visualBrief, mediaAssetIds: body.mediaAssetIds, readyForReview: body.readyForReview, keepPublished: body.keepPublished, quotaExempt: Boolean(scope.auth.systemAdmin) })
+        const result = await updateContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId: decodeURIComponent(itemMatch[1]), userId: scope.auth.userId, role: scope.context.role, topic: body.topic, contentTitle: body.contentTitle, body: body.body, channel: body.channel, visualBrief: body.visualBrief, mediaAssetIds: body.mediaAssetIds, readyForReview: body.readyForReview, reviewChannels: body.reviewChannels, keepPublished: body.keepPublished, quotaExempt: Boolean(scope.auth.systemAdmin) })
         json(res, 200, result)
         return
       }

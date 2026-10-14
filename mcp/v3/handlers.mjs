@@ -718,14 +718,15 @@ async function contentPostAction(name, args, auth, runtime) {
       body: args.body,
       visualBrief: args.visualBrief,
       mediaAssetIds: Array.isArray(args.mediaAssetIds) ? args.mediaAssetIds : undefined,
-      readyForReview: args.readyForReview === true
+      readyForReview: args.readyForReview === true,
+      reviewChannels: Array.isArray(args.reviewChannels) ? args.reviewChannels : undefined
     })
     const item = await readItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId })
     const canonical = canonicalPost(item)
     return { contractVersion: MCP_V3_CONTRACT, capability: name, post: canonical, ...canonicalMutationReferences({ postId: itemId, variantId: item.variants?.find((variant) => variant.channel === selectedChannel)?.id || null, brandKitVersionId: canonical.brandKitVersionId, generationRunId: canonical.generationRunId, nextAction: args.readyForReview ? 'human_approval' : 'edit' }), updated }
   }
   if (name === 'content.post.review') {
-    await updateItem({ ...shared, itemId, readyForReview: true })
+    await updateItem({ ...shared, itemId, readyForReview: true, reviewChannels: Array.isArray(args.reviewChannels) ? args.reviewChannels : undefined })
     const item = await readItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId })
     const canonical = canonicalPost(item)
     return { contractVersion: MCP_V3_CONTRACT, capability: name, post: canonical, ...canonicalMutationReferences({ postId: itemId, brandKitVersionId: canonical.brandKitVersionId, generationRunId: canonical.generationRunId, nextAction: 'human_approval' }) }

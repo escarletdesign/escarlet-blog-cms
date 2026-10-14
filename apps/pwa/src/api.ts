@@ -312,7 +312,7 @@ const baseApi = {
       "/api/v2/content/batches",
       { method: "POST", headers: { "X-Escarlet-Client": "pwa", "Idempotency-Key": input.idempotencyKey || crypto.randomUUID() }, body: JSON.stringify({ ...input, metadata: { contentBrief: input.brief } }) },
     ),
-  updateContentItem: (itemId: string, input: { site?: string; topic?: string; contentTitle?: string; channel?: string; body?: Record<string, any>; visualBrief?: Record<string, any>; mediaAssetIds?: string[]; readyForReview?: boolean; keepPublished?: boolean }) =>
+  updateContentItem: (itemId: string, input: { site?: string; topic?: string; contentTitle?: string; channel?: string; body?: Record<string, any>; visualBrief?: Record<string, any>; mediaAssetIds?: string[]; readyForReview?: boolean; reviewChannels?: string[]; keepPublished?: boolean }) =>
     request<ContentItem>(
       `/api/v2/content/items/${encodeURIComponent(itemId)}`,
       { method: "PATCH", body: JSON.stringify(input) },

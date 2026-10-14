@@ -45,6 +45,8 @@ Las capabilities técnicas de producción (`brand.generation.prepare`, `asset.up
 
 Las operaciones de lectura requieren `brand:read`, `content:read` o `publication:read`. Las operaciones de edición requieren `content:write`. Aprobar, programar y publicar requieren `content:publish` o `publication:publish` según la operación.
 
+La revisión es selectiva: `content.post.review` y `content.post.update` aceptan `reviewChannels` para enviar solo las variantes indicadas. Si se omite, se conserva el comportamiento de revisar todas las variantes del Post. Las variantes no seleccionadas permanecen en borrador y no se aprueban ni publican por accidente.
+
 ## Auditoría editorial
 
 `workspace.context.get` resuelve el workspace y las marcas autorizadas. Las lecturas de `asset.list`, `content.post.list` y `content.audit.inventory` pueden reutilizar la marca activa o devolver las opciones autorizadas sin adivinar IDs.

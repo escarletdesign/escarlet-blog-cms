@@ -16,7 +16,7 @@ Administración contiene Marca, Brand Kit, Equipo y permisos, Canales y conexion
 
 `/app/content/:postId` es la pantalla principal. Presenta título, marca, campaña opcional, estado, variantes por canal, editor, preview, validación de Brand Kit, assets, historial y destino de publicación.
 
-La pantalla tiene una única acción primaria según el estado. En móvil, el rail de revisión se abre como `Drawer` y la acción primaria permanece visible en una barra inferior.
+La pantalla tiene una única acción primaria según el estado. El envío a revisión se aplica a la variante activa, por lo que un Post puede avanzar con Blog, Instagram o Story sin obligar a completar todos los formatos. En móvil, el rail de revisión se abre como `Drawer` y la acción primaria permanece visible en una barra inferior.
 
 ## Lenguaje visual
 

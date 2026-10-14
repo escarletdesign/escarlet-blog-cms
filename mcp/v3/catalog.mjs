@@ -722,7 +722,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
   manifest({
     id: 'content.post.update',
     description: 'Actualiza el título, tema, copy o metadata editorial de un Post.',
-    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, postId: { type: 'string' }, itemId: { type: 'string' }, title: { type: 'string' }, topic: { type: 'string' }, channel: { type: 'string' }, body: { type: 'object' }, visualBrief: { type: 'object' }, mediaAssetIds: { type: 'array', items: { type: 'string' } }, readyForReview: { type: 'boolean' } }, anyOf: [{ required: ['postId'] }, { required: ['itemId'] }], additionalProperties: false },
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, postId: { type: 'string' }, itemId: { type: 'string' }, title: { type: 'string' }, topic: { type: 'string' }, channel: { type: 'string' }, body: { type: 'object' }, visualBrief: { type: 'object' }, mediaAssetIds: { type: 'array', items: { type: 'string' } }, readyForReview: { type: 'boolean' }, reviewChannels: { type: 'array', items: { type: 'string' }, minItems: 1 } }, anyOf: [{ required: ['postId'] }, { required: ['itemId'] }], additionalProperties: false },
     outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string' }, post: { type: 'object' }, postId: { type: 'string' }, nextAction: { type: 'string' } }, required: ['contractVersion', 'post', 'postId', 'nextAction'], additionalProperties: true },
     permissions: ['content:write'],
     sideEffects: 'write',
@@ -742,7 +742,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
   manifest({
     id: 'content.post.review',
     description: 'Marca un Post como listo para revisión humana.',
-    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, postId: { type: 'string' }, itemId: { type: 'string' } }, anyOf: [{ required: ['postId'] }, { required: ['itemId'] }], additionalProperties: false },
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, postId: { type: 'string' }, itemId: { type: 'string' }, reviewChannels: { type: 'array', items: { type: 'string' }, minItems: 1 } }, anyOf: [{ required: ['postId'] }, { required: ['itemId'] }], additionalProperties: false },
     outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string' }, post: { type: 'object' }, postId: { type: 'string' }, nextAction: { type: 'string' } }, required: ['contractVersion', 'post', 'postId', 'nextAction'], additionalProperties: true },
     permissions: ['content:write'],
     sideEffects: 'write',
