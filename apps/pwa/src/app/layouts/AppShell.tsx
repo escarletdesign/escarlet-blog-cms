@@ -22,9 +22,10 @@ type AppShellProps = {
 };
 
 const primaryRouteGroups: Record<string, string[]> = {
-  "/apps": ["/apps", "/production", "/quick-create"],
-  "/plans": ["/plans", "/posts", "/manual", "/schedule", "/publish", "/preview", "/social-pack"],
-  "/admin": ["/admin", "/brands", "/connections", "/team", "/billing"],
+  "/apps": ["/apps"],
+  "/content": ["/content", "/campaigns"],
+  "/publication": ["/publication"],
+  "/admin": ["/admin", "/brand", "/admin/connections", "/admin/team", "/admin/billing"],
 };
 
 function isPrimaryRouteActive(pathname: string, route: string) {

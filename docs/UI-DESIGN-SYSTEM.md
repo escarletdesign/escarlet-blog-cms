@@ -42,7 +42,7 @@ Los nuevos estilos usan exclusivamente variables `--ui-*`.
 - Elevación y tipografía: `--ui-shadow`, `--ui-font-sans`.
 - Controles: `--ui-select-chevron-offset` y `--ui-select-chevron-space` mantienen el chevron de todos los desplegables alineado y con espacio táctil suficiente.
 
-Los alias antiguos (`--bg`, `--text`, `--accent` y similares) existen solo para mantener rutas legacy durante la migración. No deben usarse en código nuevo.
+Los alias antiguos (`--bg`, `--text`, `--accent` y similares) no forman parte del sistema V3. Los componentes nuevos solo pueden usar tokens `--ui-*`.
 
 ## Reglas de interacción
 
@@ -72,9 +72,9 @@ Los alias antiguos (`--bg`, `--text`, `--accent` y similares) existen solo para 
 6. Mantén los textos dentro de `i18n` cuando la pantalla tenga soporte multidioma.
 7. Ejecuta `npm run ui:check` y `npm run build`.
 
-## Migración legacy
+## V3 y migración
 
-Las clases genéricas legacy ya no tienen consumidores en la PWA: las pantallas usan `ui-*` y los controles compartidos. Los alias de tokens se conservan únicamente para estilos de compatibilidad que todavía viven en `styles.css`; no deben aparecer en código nuevo. La migración de una pantalla que aún tenga markup propio se hace así:
+La PWA V3 organiza el trabajo alrededor de Post y variantes. Las rutas de preview, Social Pack, editor manual y campañas antiguas responden `410` o muestran una pantalla explícita de flujo retirado. La PWA usa `/api/v2`, incluido el control de publicación; cualquier `/api/v3/*` REST responde `410`. La migración de una pantalla que aún tenga markup propio se hace así:
 
 1. Sustituir acciones y formularios por primitivas de `src/ui`.
 2. Sustituir colores y medidas por tokens `--ui-*`.

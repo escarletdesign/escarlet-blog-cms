@@ -75,7 +75,7 @@ npm run ui:check
 npm run build
 ```
 
-La PWA consume el catálogo con `GET /api/v3/catalog?site=<handle>`. El endpoint usa la misma identidad, permisos y registro que `/mcp/v3`, por lo que una tarjeta nueva no puede mostrar una app que el usuario no puede usar.
+Las microapps de generación no forman parte del runtime V3. La PWA crea Posts desde `/app/apps` y el agente externo descubre capabilities directamente en `/mcp/v3`. No se deben añadir nuevos catálogos UI ni endpoints REST paralelos mientras el flujo Post no esté completo.
 
 ## Despliegue
 

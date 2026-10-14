@@ -10,13 +10,18 @@ import { uploadMedia } from '../../lib/cms-ops.mjs'
 import {
   attachContentMedia,
   approveContentBatch,
+  approveContentItem,
   createContentBatch,
+  getContentItem,
   getContentBatch,
+  addContentItemToBatch,
   listContentPlans,
   registerContentMedia,
   scheduleContentBatch,
-  scheduleContentItem
+  scheduleContentItem,
+  updateContentItem
 } from '../../lib/workspace-domain.mjs'
+import { canonicalMutationReferences, canonicalPost } from '../../lib/content-contract.mjs'
 import { mediaDir } from '../../lib/db.mjs'
 import { renderProductTransform } from '../../lib/product-renderer.mjs'
 import { resolve as resolvePath, join } from 'node:path'
@@ -46,11 +51,12 @@ const ROLE_PERMISSIONS = Object.freeze({
   admin: ['*'],
   owner: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'publication:write', 'publication:publish', 'content:read', 'content:write', 'content:publish'],
   agency_admin: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'publication:write', 'publication:publish', 'content:read', 'content:write', 'content:publish'],
-  editor: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'publication:write', 'content:read', 'content:write', 'content:publish'],
+  editor: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'publication:write', 'content:read', 'content:write'],
+  approver: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'publication:write', 'publication:publish', 'content:read', 'content:write', 'content:publish'],
   author: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'content:read', 'content:write'],
   client: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'content:read'],
   viewer: ['brand:read', 'asset:read', 'publication:read'],
-  agent: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'publication:write', 'content:read', 'content:write', 'content:publish']
+  agent: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'publication:write', 'content:read', 'content:write']
 })
 
 function authPermissions(auth = {}) {
@@ -276,6 +282,33 @@ async function uploadGeneratedAsset(args, auth, runtime) {
     idempotencyKey: args.idempotencyKey || '',
     idempotencyFingerprint: `${args.filename || ''}:${uploaded.finalSha256 || uploaded.media?.sha256 || ''}:${preparationId}:${args.assetIndex ?? 0}`
   })
+  if (kind !== 'reference' && !brandGrounding?.itemId) {
+    const channels = [...new Set((brandGrounding?.channels?.length
+      ? brandGrounding.channels
+      : [preparation?.channel || args.channel || (kind === 'post' ? 'blog' : 'instagram')])
+      .map((value) => String(value || '').trim().toLowerCase()).filter(Boolean))]
+    const createPost = typeof runtime?.createContentBatch === 'function' ? runtime.createContentBatch : createContentBatch
+    const title = String(args.title || preparation?.title || preparation?.topic || args.filename || 'Contenido generado').trim().slice(0, 500)
+    const post = await createPost({
+      workspaceId: scope.workspaceId,
+      siteId: scope.siteId,
+      userId: auth.userId,
+      role: auth.role === 'agent' ? 'editor' : auth.role,
+      title: 'Inbox editorial',
+      topics: [title],
+      channels,
+      inbox: true,
+      brandKitVersionId: brandGrounding?.brandKitVersionId || preparation?.brandKitVersionId || args.brandKitVersionId,
+      metadata: {
+        source: 'mcp.v3',
+        generationRunId: args.generationRunId || preparation?.preparationId || null,
+        generatedAssetId: asset.id
+      },
+      idempotencyKey: args.idempotencyKey ? `${args.idempotencyKey}:post` : `asset-post:${asset.id}`
+    })
+    const itemId = post.itemIds?.[0]
+    if (itemId) brandGrounding = { ...(brandGrounding || {}), itemId, channels }
+  }
   let attachment = null
   if (brandGrounding?.itemId && brandGrounding.channels?.length) {
     attachment = await attachContentMedia({
@@ -312,12 +345,13 @@ async function uploadGeneratedAsset(args, auth, runtime) {
     capability: 'asset.upload',
     status: attachment?.contentComplete || !brandGrounding?.itemId ? 'ready_for_review' : 'uploaded',
     assetId: asset.id,
+    postId: brandGrounding?.itemId || null,
     asset,
     media: uploaded.media,
     attachment,
     receipt,
     provenance: brandGrounding ? { ...brandGrounding, receiptId: receipt?.receiptId || null } : null,
-    nextAction: attachment?.contentComplete || !brandGrounding?.itemId ? 'human_review' : 'attach_to_content_item'
+    nextAction: attachment?.contentComplete || brandGrounding?.itemId ? 'human_review' : 'attach_to_content_item'
   }
 }
 
@@ -342,17 +376,127 @@ async function persistPublicationIfScoped(contract, args, auth, runtime) {
   })
 }
 
+function contentPostRole(scope, auth) {
+  const role = String(scope.role || auth.role || 'viewer').toLowerCase()
+  return role === 'agent' || role === 'approver' ? 'editor' : role
+}
+
+async function contentPostAction(name, args, auth, runtime) {
+  const scope = await motionScope(args, auth, runtime)
+  const role = contentPostRole(scope, auth)
+  const shared = {
+    workspaceId: scope.workspaceId,
+    siteId: scope.siteId,
+    userId: auth.userId,
+    role,
+    quotaExempt: Boolean(auth.systemAdmin)
+  }
+  const readItem = typeof runtime?.getContentItem === 'function' ? runtime.getContentItem : getContentItem
+  const createBatch = typeof runtime?.createContentBatch === 'function' ? runtime.createContentBatch : createContentBatch
+  const updateItem = typeof runtime?.updateContentItem === 'function' ? runtime.updateContentItem : updateContentItem
+  const approveItem = typeof runtime?.approveContentItem === 'function' ? runtime.approveContentItem : approveContentItem
+  const itemId = String(args.postId || args.itemId || '').trim()
+  if (name === 'content.post.get') {
+    if (!itemId) throw Object.assign(new Error('postId es obligatorio.'), { code: 'post_id_required', status: 422 })
+    const item = await readItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId })
+    return { contractVersion: MCP_V3_CONTRACT, capability: name, post: canonicalPost(item) }
+  }
+  if (name === 'content.post.create') {
+    const title = String(args.title || args.topic || 'Nueva publicación').trim().slice(0, 500)
+    const topic = String(args.topic || args.brief || title).trim().slice(0, 500)
+    const variants = args.variants && typeof args.variants === 'object' ? args.variants : {}
+    const channels = [...new Set((Array.isArray(args.channels) && args.channels.length ? args.channels : Object.keys(variants).length ? Object.keys(variants) : ['blog']).map((value) => String(value || '').trim().toLowerCase()).filter(Boolean))]
+    const campaignId = String(args.campaignId || args.batchId || '').trim() || null
+    const created = await createBatch({
+      ...shared,
+      title: campaignId ? String(args.campaignTitle || title) : 'Inbox editorial',
+      topics: [topic],
+      items: [{ title, topic, variants }],
+      channels,
+      batchId: campaignId || undefined,
+      inbox: !campaignId,
+      brandKitVersionId: args.brandKitVersionId,
+      metadata: {
+        ...(args.metadata && typeof args.metadata === 'object' ? args.metadata : {}),
+        contentTitle: title,
+        source: 'mcp.v3',
+        generationRunId: args.generationRunId || null
+      },
+      idempotencyKey: args.idempotencyKey
+    })
+    const postId = created.itemIds?.[0]
+    const item = postId ? await readItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId: postId }) : null
+    return {
+      contractVersion: MCP_V3_CONTRACT,
+      capability: name,
+      post: item ? canonicalPost(item) : null,
+      ...canonicalMutationReferences({ postId, variantId: item?.variants?.[0]?.id || null, brandKitVersionId: created.brandKitVersionId, generationRunId: args.generationRunId || null, nextAction: 'human_review' })
+    }
+  }
+  if (!itemId) throw Object.assign(new Error('postId es obligatorio.'), { code: 'post_id_required', status: 422 })
+  if (name === 'content.post.update' || name === 'content.post.variant.upsert') {
+    const channel = String(args.channel || '').trim().toLowerCase()
+    if (name === 'content.post.variant.upsert' && !channel) throw Object.assign(new Error('channel es obligatorio para actualizar una variante.'), { code: 'channel_required', status: 422 })
+    const current = await readItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId })
+    const selectedChannel = channel || current.variants?.[0]?.channel || 'blog'
+    const updated = await updateItem({
+      ...shared,
+      itemId,
+      topic: args.topic,
+      contentTitle: args.title,
+      channel: selectedChannel,
+      body: args.body,
+      visualBrief: args.visualBrief,
+      mediaAssetIds: Array.isArray(args.mediaAssetIds) ? args.mediaAssetIds : undefined,
+      readyForReview: args.readyForReview === true
+    })
+    const item = await readItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId })
+    const canonical = canonicalPost(item)
+    return { contractVersion: MCP_V3_CONTRACT, capability: name, post: canonical, ...canonicalMutationReferences({ postId: itemId, variantId: item.variants?.find((variant) => variant.channel === selectedChannel)?.id || null, brandKitVersionId: canonical.brandKitVersionId, generationRunId: canonical.generationRunId, nextAction: args.readyForReview ? 'human_approval' : 'edit' }), updated }
+  }
+  if (name === 'content.post.review') {
+    await updateItem({ ...shared, itemId, readyForReview: true })
+    const item = await readItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId })
+    const canonical = canonicalPost(item)
+    return { contractVersion: MCP_V3_CONTRACT, capability: name, post: canonical, ...canonicalMutationReferences({ postId: itemId, brandKitVersionId: canonical.brandKitVersionId, generationRunId: canonical.generationRunId, nextAction: 'human_approval' }) }
+  }
+  if (name === 'content.post.approve') {
+    const result = await approveItem({ ...shared, itemId })
+    const item = await readItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId })
+    const canonical = canonicalPost(item)
+    return { contractVersion: MCP_V3_CONTRACT, capability: name, post: canonical, ...canonicalMutationReferences({ postId: itemId, brandKitVersionId: canonical.brandKitVersionId, generationRunId: canonical.generationRunId, nextAction: 'schedule' }), result }
+  }
+  return undefined
+}
+
 async function contentCampaignAction(name, args, auth, runtime) {
   const scope = await motionScope(args, auth, runtime)
   const role = (scope.role || auth.role) === 'agent' ? 'editor' : (scope.role || auth.role)
   const shared = { workspaceId: scope.workspaceId, siteId: scope.siteId, userId: auth.userId, role, quotaExempt: Boolean(auth.systemAdmin) }
-  const campaignId = args.campaignId || args.batchId
+  const campaignId = args.campaignId || args.batchId || args.releaseId
   const listCampaigns = typeof runtime?.listContentPlans === 'function' ? runtime.listContentPlans : listContentPlans
   const getCampaign = typeof runtime?.getContentBatch === 'function' ? runtime.getContentBatch : getContentBatch
   const createCampaign = typeof runtime?.createContentBatch === 'function' ? runtime.createContentBatch : createContentBatch
   const approveCampaign = typeof runtime?.approveContentBatch === 'function' ? runtime.approveContentBatch : approveContentBatch
   const scheduleCampaign = typeof runtime?.scheduleContentBatch === 'function' ? runtime.scheduleContentBatch : scheduleContentBatch
   const attachMedia = typeof runtime?.attachContentMedia === 'function' ? runtime.attachContentMedia : attachContentMedia
+  if (name === 'release.create') {
+    const metadata = { ...(args.metadata && typeof args.metadata === 'object' ? args.metadata : {}), release: true }
+    const campaign = await createCampaign({ ...shared, title: args.title, topics: args.topics, items: args.items, channels: args.channels, brandKitVersionId: args.brandKitVersionId, metadata, idempotencyKey: args.idempotencyKey })
+    return { contractVersion: MCP_V3_CONTRACT, capability: name, release: campaign, ...canonicalMutationReferences({ postId: null, nextAction: 'release.add_post' }) }
+  }
+  if (name === 'release.add_post') {
+    const result = await addContentItemToBatch({ ...shared, batchId: campaignId, itemId: args.postId || args.itemId })
+    return { contractVersion: MCP_V3_CONTRACT, capability: name, releaseId: result.batchId, postId: result.postId, nextAction: 'release.schedule' }
+  }
+  if (name === 'release.schedule') {
+    const scheduled = await scheduleCampaign({ ...shared, batchId: campaignId, channels: args.channels, publicationDate: args.publicationDate, timezone: args.timezone || 'UTC' })
+    return { contractVersion: MCP_V3_CONTRACT, capability: name, releaseId: campaignId, ...scheduled, nextAction: 'release.publish' }
+  }
+  if (name === 'release.publish') {
+    const published = await contentCampaignAction('content.campaign.publish', args, auth, runtime)
+    return { ...published, capability: name, releaseId: published.batchId, nextAction: 'publication.status.get' }
+  }
   if (name === 'content.campaign.list') {
     return {
       contractVersion: MCP_V3_CONTRACT,
@@ -1159,7 +1303,7 @@ export async function invokeBuiltinCapability(name, args = {}, { auth = {}, runt
     return publishCoolifyContentItem(args, auth, runtime, publishPublication(publication))
   }
   if (name === 'publication.destination.list') return listPublicationDestinations(publication)
-  if (name === 'publication.validate') {
+  if (name === 'publication.validate' || name === 'publication.destination.validate') {
     const compatibility = validatePublicationCompatibility(publication)
     return { ...compatibility, valid: compatibility.compatible, findings: compatibility.errors }
   }
@@ -1191,7 +1335,8 @@ export async function invokeBuiltinCapability(name, args = {}, { auth = {}, runt
   if (name === 'production.motion.status.get') return motionJobAction(args, auth, runtime, 'status')
   if (name === 'production.motion.retry') return motionJobAction(args, auth, runtime, 'retry')
   if (name === 'production.motion.cancel') return motionJobAction(args, auth, runtime, 'cancel')
-  if (name.startsWith('content.campaign.') || name === 'content.media.attach') return contentCampaignAction(name, args, auth, runtime)
+  if (name.startsWith('content.post.')) return contentPostAction(name, args, auth, runtime)
+  if (name.startsWith('content.campaign.') || name.startsWith('release.') || name === 'content.media.attach') return contentCampaignAction(name, args, auth, runtime)
 
   return undefined
 }

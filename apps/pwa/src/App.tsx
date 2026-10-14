@@ -34,13 +34,12 @@ import { SidebarConversations } from "./features/chat/SidebarConversations";
 import { I18nContext, SessionContext, ToastContext, useApp, useI18n, useToast } from "./app/context";
 import type { AppState, Toast, ToastKind, WorkflowFlags } from "./app/context";
 
-const ContentPlans = lazy(() => import("./ContentBatches").then(({ ContentBatches }) => ({ default: ContentBatches })));
 const DesignSystem = lazy(() => import("./DesignSystem").then(({ DesignSystem }) => ({ default: DesignSystem })));
-const FoodToReel = lazy(() => import("./FoodToReel").then(({ FoodToReel }) => ({ default: FoodToReel })));
 const Publisher = lazy(() => import("./Publisher").then(({ Publisher }) => ({ default: Publisher })));
 const AppsDashboard = lazy(() => import("./AppsDashboard").then(({ AppsDashboard }) => ({ default: AppsDashboard })));
-const ProductToSocial = lazy(() => import("./ProductToSocial").then(({ ProductToSocial }) => ({ default: ProductToSocial })));
 const EditorialCalendarRoute = lazy(() => import("./features/calendar/EditorialCalendar").then(({ EditorialCalendar }) => ({ default: EditorialCalendar })));
+const ContentInbox = lazy(() => import("./features/content/ContentWorkspace").then(({ ContentInbox }) => ({ default: ContentInbox })));
+const PostWorkspace = lazy(() => import("./features/content/ContentWorkspace").then(({ PostWorkspace }) => ({ default: PostWorkspace })));
 
 type Draft = Partial<Post> & { title: string; slug?: string };
 type SocialPackChannels = {
@@ -84,7 +83,7 @@ function AiOnly({ children }: { children: ReactNode }) {
   const { session, workflowFlags } = useApp();
   return !workflowFlags.cmsAiEnabled ? null : <>{children}</>;
 }
-const ROLE_RANK: Record<string, number> = { owner: 4, admin: 3, editor: 2, author: 1, viewer: 0 };
+const ROLE_RANK: Record<string, number> = { owner: 4, admin: 3, approver: 2, editor: 2, author: 1, viewer: 0 };
 const rankedRole = (roles: Array<string | undefined>, fallback = "viewer") =>
   roles.reduce<string>((best, role) => {
     const value = String(role || "").toLowerCase();
@@ -319,25 +318,10 @@ function ToastProvider({ children }: { children: ReactNode }) {
   );
 }
 
-function ContentPlansRoute({ site, creationEnabled, activeChannels }: { site: string; creationEnabled: boolean; activeChannels: AppState["channels"] }) {
-  const { showToast } = useToast();
-  const { productContext } = useApp();
-  const { t } = useI18n();
-  const { itemId } = useParams();
-  const location = useLocation();
-  if (!itemId && new URLSearchParams(location.search).get("view") === "calendar") {
-    const search = new URLSearchParams(location.search);
-    search.delete("view");
-    const query = search.toString();
-    return <Navigate to={`/calendar${query ? `?${query}` : ""}`} replace />;
-  }
-  return <ContentPlans site={site} brandId={productContext?.activeBrand?.id} previewItemId={itemId} creationEnabled={creationEnabled} activeChannels={activeChannels} onNotify={showToast} t={t} />;
-}
-
 function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [workflowFlags, setWorkflowFlags] = useState<WorkflowFlags>({ cmsAiEnabled: true, assistantEnabled: false, blogWizardEnabled: false, legacyPreviewEnabled: true, legacySocialPackEnabled: true, authorInviteEnabled: true, creationUiEnabled: false, manualCreationEnabled: false });
+  const [workflowFlags, setWorkflowFlags] = useState<WorkflowFlags>({ cmsAiEnabled: true, assistantEnabled: false, blogWizardEnabled: false, legacyPreviewEnabled: false, legacySocialPackEnabled: false, authorInviteEnabled: true, creationUiEnabled: true, manualCreationEnabled: false });
   const [channels, setChannels] = useState<Array<{ channel: string; enabled: boolean; connectionStatus?: string }>>([]);
   const [brandCapabilities, setBrandCapabilities] = useState<Record<string, boolean>>({});
   const [productContext, setProductContext] = useState<AppState["productContext"]>();
@@ -364,10 +348,10 @@ function App() {
           cmsAiEnabled,
           assistantEnabled: cmsAiEnabled && nextFlags.flags?.assistantEnabled !== false,
           blogWizardEnabled: cmsAiEnabled && nextFlags.flags?.blogWizardEnabled !== false,
-          legacyPreviewEnabled: nextFlags.flags?.legacyPreviewEnabled !== false,
-          legacySocialPackEnabled: nextFlags.flags?.legacySocialPackEnabled !== false,
+          legacyPreviewEnabled: false,
+          legacySocialPackEnabled: false,
           authorInviteEnabled: nextFlags.flags?.authorInviteEnabled !== false,
-          creationUiEnabled: false,
+          creationUiEnabled: true,
           manualCreationEnabled: false,
         });
         try {
@@ -380,10 +364,10 @@ function App() {
           setProductContext(context);
           setChannels(context.channels || []);
           setBrandCapabilities(context.brandCapabilities || {});
-          setWorkflowFlags((current) => ({ ...current, creationUiEnabled: Boolean(context.featureFlags?.creation_ui_enabled), manualCreationEnabled: Boolean(context.featureFlags?.manual_creation_enabled), blogWizardEnabled: current.blogWizardEnabled && Boolean(context.featureFlags?.manual_creation_enabled) }));
+          setWorkflowFlags((current) => ({ ...current, creationUiEnabled: true, manualCreationEnabled: false, blogWizardEnabled: false }));
         } catch { setChannels([]); setBrandCapabilities({}); setProductContext(undefined); }
       } catch {
-        setWorkflowFlags({ cmsAiEnabled: true, assistantEnabled: false, blogWizardEnabled: false, legacyPreviewEnabled: true, legacySocialPackEnabled: true, authorInviteEnabled: true, creationUiEnabled: false, manualCreationEnabled: false });
+        setWorkflowFlags({ cmsAiEnabled: true, assistantEnabled: false, blogWizardEnabled: false, legacyPreviewEnabled: false, legacySocialPackEnabled: false, authorInviteEnabled: true, creationUiEnabled: true, manualCreationEnabled: false });
       }
     } catch {
       setSession(null);
@@ -430,12 +414,8 @@ function App() {
       setContentModeReady(true);
       return () => { active = false; };
     }
-    // Compatibility fallback for installations that have not migrated the
-    // selected brand to Postgres yet.
     setContentMode("blog");
-    api.siteConfig(activeSite)
-      .then(({ config }) => { if (active) { setContentMode(config?.contentMode === "socialmedia" ? "socialmedia" : "blog"); setContentModeReady(true); } })
-      .catch(() => { if (active) setContentModeReady(true); });
+    setContentModeReady(true);
     return () => { active = false; };
   }, [site, session?.site, session?.sites?.join("|"), productContext]);
   const setSite = (next: string) => {
@@ -454,10 +434,10 @@ function App() {
       setBrandCapabilities(context.brandCapabilities || {});
       setWorkflowFlags((current) => ({
         ...current,
-        creationUiEnabled: Boolean(context.featureFlags?.creation_ui_enabled),
-        manualCreationEnabled: Boolean(context.featureFlags?.manual_creation_enabled),
+        creationUiEnabled: true,
+        manualCreationEnabled: false,
         assistantEnabled: current.cmsAiEnabled && current.assistantEnabled,
-        blogWizardEnabled: current.cmsAiEnabled && current.blogWizardEnabled && Boolean(context.featureFlags?.manual_creation_enabled)
+        blogWizardEnabled: false
       }));
     }).catch((error) => { if (!controller.signal.aborted && sequence === siteContextSequence.current) { setProductContext(undefined); setChannels([]); setBrandCapabilities({}); console.warn("[pwa] no se pudo cargar el contexto de la marca", error); } });
   };
@@ -516,39 +496,36 @@ function App() {
               ) : <Route element={<Shell />}>
                 <Route path="/" element={<Home />} />
                 <Route path="/apps" element={<Suspense fallback={<RouteLoading />}><AppsDashboard site={site} t={t} /></Suspense>} />
-                <Route path="/production/food-to-reel" element={<Suspense fallback={<RouteLoading />}><FoodToReel site={site} t={t} /></Suspense>} />
-                <Route path="/production/reel-from-image" element={<Suspense fallback={<RouteLoading />}><FoodToReel site={site} t={t} recipeId="recipe.reel-from-image" /></Suspense>} />
-                <Route path="/production/menu-to-reel" element={<Suspense fallback={<RouteLoading />}><FoodToReel site={site} t={t} recipeId="recipe.menu-to-reel" /></Suspense>} />
-                <Route path="/production/product-to-social" element={<Suspense fallback={<RouteLoading />}><ProductToSocial site={site} t={t} /></Suspense>} />
                 <Route path="/publication/publisher" element={<Suspense fallback={<RouteLoading />}><Publisher site={site} t={t} /></Suspense>} />
+                <Route path="/publication" element={<Suspense fallback={<RouteLoading />}><Publisher site={site} t={t} /></Suspense>} />
                 {workflowFlags.assistantEnabled && brandCapabilities.content_publishing !== false && <Route path="/chat" element={<Chat />} />}
-                {workflowFlags.manualCreationEnabled && workflowFlags.blogWizardEnabled && brandCapabilities.content_publishing !== false && <Route path="/quick-create" element={<QuickCreate />} />}
-                {workflowFlags.manualCreationEnabled && brandCapabilities.content_publishing !== false && <>
-                  <Route path="/manual/:slug?" element={<ManualPost />} />
-                  <Route path="/schedule/:slug" element={<Schedule />} />
-                  <Route path="/publish/:slug" element={<PublishSocial />} />
-                  <Route path="/posts" element={<Posts />} />
-                </>}
-                {workflowFlags.legacyPreviewEnabled && brandCapabilities.content_publishing !== false && <Route path="/preview/:slug" element={<Preview />} />}
+                <Route path="/content" element={<Suspense fallback={<RouteLoading />}><ContentInbox /></Suspense>} />
+                <Route path="/content/:postId" element={<Suspense fallback={<RouteLoading />}><PostWorkspace /></Suspense>} />
+                <Route path="/campaigns/:campaignId" element={<Suspense fallback={<RouteLoading />}><ContentInbox /></Suspense>} />
                 <Route path="/calendar" element={<Suspense fallback={<RouteLoading />}><EditorialCalendarRoute /></Suspense>} />
-                {workflowFlags.legacySocialPackEnabled && <Route path="/social-pack/:slug" element={<SocialPackRoute />} />}
-                <Route path="/plans" element={<Suspense fallback={<RouteLoading />}><ContentPlansRoute site={site} creationEnabled={workflowFlags.creationUiEnabled && brandCapabilities.content_publishing !== false} activeChannels={channels} /></Suspense>} />
-                <Route path="/plans/:itemId/preview" element={<Suspense fallback={<RouteLoading />}><ContentPlansRoute site={site} creationEnabled={workflowFlags.creationUiEnabled && brandCapabilities.content_publishing !== false} activeChannels={channels} /></Suspense>} />
-                <Route path="/brands" element={<BrandsView />} />
-                <Route path="/brands/new" element={<NewBrandView />} />
-                <Route path="/brands/:brandId" element={<BrandDetailView />} />
-                <Route path="/brands/:brandId/setup" element={<BrandSetupWizard />} />
-                <Route path="/brands/:brandId/identity" element={<BrandIdentityView />} />
-                <Route path="/brands/:brandId/channels" element={<BrandChannelsView />} />
-                <Route path="/brands/:brandId/connections" element={<BrandConnectionsView />} />
-                <Route path="/connections" element={<ConnectionsView />} />
-                <Route path="/team" element={<TeamView />} />
-                <Route path="/team/invite" element={<TeamView autoInvite />} />
+                <Route path="/brand" element={<BrandsView />} />
+                <Route path="/brand/new" element={<NewBrandView />} />
+                <Route path="/brand/:brandId" element={<BrandDetailView />} />
+                <Route path="/brand/:brandId/setup" element={<BrandSetupWizard />} />
+                <Route path="/brand/:brandId/identity" element={<BrandIdentityView />} />
+                <Route path="/brand/:brandId/channels" element={<BrandChannelsView />} />
+                <Route path="/brand/:brandId/connections" element={<BrandConnectionsView />} />
+                <Route path="/admin/connections" element={<ConnectionsView />} />
+                <Route path="/admin/team" element={<TeamView />} />
+                <Route path="/admin/team/invite" element={<TeamView autoInvite />} />
                 <Route path="/settings" element={<Settings />} />
                 {workflowFlags.authorInviteEnabled && <Route path="/author-invite" element={<AuthorInvite />} />}
-                {workflowFlags.cmsAiEnabled && <Route path="/billing" element={<Billing />} />}
-                <Route path="/admin" element={<AdminGate />} />
-                  <Route path="*" element={<Navigate to="/plans" replace />} />
+                {workflowFlags.cmsAiEnabled && <Route path="/admin/billing" element={<PlanUsageView />} />}
+                <Route path="/admin" element={<LegacyRemoved />} />
+                <Route path="/plans/*" element={<LegacyRemoved />} />
+                <Route path="/posts/*" element={<LegacyRemoved />} />
+                <Route path="/preview/*" element={<LegacyRemoved />} />
+                <Route path="/social-pack/*" element={<LegacyRemoved />} />
+                <Route path="/manual/*" element={<LegacyRemoved />} />
+                <Route path="/schedule/*" element={<LegacyRemoved />} />
+                <Route path="/publish/*" element={<LegacyRemoved />} />
+                <Route path="/quick-create/*" element={<LegacyRemoved />} />
+                  <Route path="*" element={<Navigate to="/content" replace />} />
               </Route>}
             </Routes>
           </SessionContext.Provider>
@@ -562,6 +539,11 @@ function App() {
       </BrowserRouter>
     </I18nContext.Provider>
   );
+}
+
+function LegacyRemoved() {
+  const { t } = useI18n();
+  return <main className="ui-page ui-page-narrow"><PageHeader eyebrow="Escarlet V3" title={t("legacy.removedTitle", "Este flujo ya no está disponible")} description={t("legacy.removedDescription", "El contenido ahora se organiza como Posts con variantes por canal.")} /><Card><p className="ui-muted">{t("legacy.removedHelp", "Abre Contenido para continuar con el modelo editorial actual.")}</p><NavLink className="ui-button ui-button-primary" to="/content">{t("legacy.openContent", "Abrir contenido")}</NavLink></Card></main>;
 }
 
 function Login({ onLogin }: { onLogin: () => Promise<void> }) {
@@ -825,7 +807,7 @@ function Shell() {
   const nav = useNavigate();
   const location = useLocation();
 
-  const scopedMatch = location.pathname.match(/^\/brands\/([^/]+)(\/.*)?$/);
+  const scopedMatch = location.pathname.match(/^\/brand\/([^/]+)(\/.*)?$/);
   const scopedBrandId = scopedMatch?.[1] ? decodeURIComponent(scopedMatch[1]) : "";
   const scopedBrand = scopedBrandId
     ? (productContext?.brands || []).find((brand) => brand.id === scopedBrandId || brand.handle === scopedBrandId)
@@ -844,7 +826,7 @@ function Shell() {
   const selectBrand = (next: string) => {
     const selected = brandOptions.find((brand) => brand.value === next || brand.id === next);
     if (scopedBrand && selected) {
-      nav(`/brands/${encodeURIComponent(selected.id)}${scopedSuffix}`);
+      nav(`/brand/${encodeURIComponent(selected.id)}${scopedSuffix}`);
       return;
     }
     setSite(selected?.value || next);
@@ -853,19 +835,18 @@ function Shell() {
   const publishingEnabled = brandCapabilities.content_publishing !== false;
   const primaryLinks = [
     { to: "/", label: t("nav.home", "Inicio"), icon: "home" },
-    { to: "/plans", label: t("nav.plans", "Contenido"), icon: "plans" },
     { to: "/apps", label: t("nav.apps", "Crear"), icon: "apps" },
+    { to: "/content", label: t("nav.content", "Contenido"), icon: "plans" },
     ...(publishingEnabled ? [{ to: "/calendar", label: t("nav.calendar", "Calendario"), icon: "calendar" }] : []),
+    ...(publishingEnabled ? [{ to: "/publication", label: t("nav.publication", "Publicación"), icon: "send" }] : []),
     ...(workflowFlags.assistantEnabled && publishingEnabled ? [{ to: "/chat", label: t("nav.assistant"), icon: "assistant" }] : []),
   ];
   const adminUser = isWorkspaceAdmin(session);
-  const managementLinks = adminUser ? [
-    { to: "/admin", label: t("nav.admin", "Administración"), icon: "admin" },
-  ] : [
-    { to: "/brands", label: t("nav.brands", "Marca"), icon: "brands" },
-    { to: "/connections", label: t("nav.connections", "Conexiones"), icon: "connections" },
-    { to: "/team", label: t("nav.team", "Equipo"), icon: "team" },
-    ...(workflowFlags.cmsAiEnabled ? [{ to: "/billing", label: t("nav.planUsage", "Plan y uso"), icon: "billing" }] : []),
+  const managementLinks = [
+    { to: "/brand", label: t("nav.brands", "Marca"), icon: "brands" },
+    ...(adminUser ? [{ to: "/admin/connections", label: t("nav.connections", "Canales y conexiones"), icon: "connections" }] : []),
+    ...(adminUser ? [{ to: "/admin/team", label: t("nav.team", "Equipo y permisos"), icon: "team" }] : []),
+    ...(adminUser && workflowFlags.cmsAiEnabled ? [{ to: "/admin/billing", label: t("nav.planUsage", "Plan y uso"), icon: "billing" }] : []),
   ];
   const brandSelector = brandOptions.length > 1
     ? <ChoicePills
@@ -938,7 +919,7 @@ function CreditIndicator({ site }: { site: string }) {
   const displayCredits = hasCredits ? available.toLocaleString(language === "en" ? "en-GB" : "es-ES") : loading ? "…" : "-";
   if (!workflowFlags.cmsAiEnabled) return null;
   return (
-    <NavLink className="credit-indicator" to="/billing" title={t("billing.available")}>
+    <NavLink className="credit-indicator" to="/admin/billing" title={t("billing.available")}>
       <span>✦</span>
       <span>
         <b>{displayCredits}</b>
@@ -950,44 +931,20 @@ function CreditIndicator({ site }: { site: string }) {
 
 function Home() {
   const nav = useNavigate();
-  const { session, site, contentMode, workflowFlags, brandCapabilities } = useApp();
+  const { session, site, brandCapabilities } = useApp();
   const { t } = useI18n();
-  const socialOnly = contentMode === "socialmedia";
   const publishingEnabled = brandCapabilities.content_publishing !== false;
-  const presentationEnabled = Boolean(brandCapabilities.presentation_generation);
-  const creationEnabled = workflowFlags.creationUiEnabled && publishingEnabled;
-  const hasHomeChoices = creationEnabled
-    ? workflowFlags.assistantEnabled || workflowFlags.blogWizardEnabled
-    : presentationEnabled;
   return (
     <main className="ui-page home">
       <div className="home-intro">
         <p className="ui-eyebrow">Marca · {site}</p>
-        <h1>{!creationEnabled ? "Tu contenido listo para revisar" : t(socialOnly ? "home.socialOnlyTitle" : "home.title")}</h1>
-        <p className="ui-muted">{!creationEnabled ? "Las campañas creadas desde ChatGPT aparecen aquí para aprobar sus publicaciones y programarlas." : t(socialOnly ? "home.socialOnlyDescription" : "home.description")}</p>
+        <h1>{t("home.title", "Tu espacio editorial")}</h1>
+        <p className="ui-muted">{t("home.description", "Crea, revisa y publica Posts con todas sus variantes desde un único lugar.")}</p>
       </div>
-      {hasHomeChoices && <div className="choice-grid">
-        {!creationEnabled ? <>
-          {presentationEnabled && <button className="choice-card" onClick={() => nav("/brands")}><span>▤</span><strong>Brand kit para presentaciones</strong><small>ChatGPT puede usar la identidad de esta marca en Slides y otras herramientas.</small><b>Ver marcas →</b></button>}
-        </> : <>
-        {workflowFlags.assistantEnabled && (
-          <button className="choice-card ai" onClick={() => nav("/chat")}>
-            <span className="assistant-stars home-assistant-stars" aria-hidden="true"><i>✦</i><i>✦</i><i>✦</i></span>
-            <strong>{t("home.ai.title")}</strong>
-            <small>{t("home.ai.description")}</small>
-            <b>{t("home.ai.action")}</b>
-          </button>
-        )}
-        {workflowFlags.blogWizardEnabled && (
-          <button className="choice-card wizard" onClick={() => nav("/quick-create")}>
-            <span>◉</span>
-            <strong>{t("home.wizard.title")}</strong>
-            <small>{t("home.wizard.description")}</small>
-            <b>{t("home.wizard.action")}</b>
-          </button>
-        )}
-        </>}
-      </div>}
+      <div className="choice-grid">
+        <button className="choice-card" onClick={() => nav("/content")}><span>✦</span><strong>{t("home.openContent", "Abrir contenido")}</strong><small>{t("home.openContentDescription", "Revisa Posts, variantes y estados de publicación.")}</small><b>{t("home.openContentAction", "Ver contenido")}</b></button>
+        <button className="choice-card" onClick={() => nav("/apps")}><span>◉</span><strong>{t("home.openCreate", "Crear contenido")}</strong><small>{t("home.openCreateDescription", "Crea un Post, elige sus canales y continúa con una IA externa.")}</small><b>{t("home.openCreateAction", "Crear Post")}</b></button>
+      </div>
       {publishingEnabled && <section className="home-section">
         <RecentContentWork />
         <div className="section-title">
@@ -998,7 +955,7 @@ function Home() {
           <button onClick={() => nav("/apps")}>{t("home.apps", "Explorar apps")}</button>
           <button onClick={() => nav("/calendar")}>{t("home.calendar")}</button>
           {isWorkspaceAdmin(session) && (
-            <button onClick={() => nav("/admin")}>{t("home.openAdmin")}</button>
+            <button onClick={() => nav("/brand")}>{t("home.openAdmin")}</button>
           )}
         </div>
       </section>}
@@ -1024,13 +981,9 @@ function RecentContentWork() {
       .finally(() => active && setLoading(false));
     return () => { active = false; };
   }, [site, refresh]);
-  return <section className="home-content-work"><div className="section-title"><h2>{t("home.inProgress")}</h2><Button size="sm" variant="ghost" onClick={() => nav("/plans")}>{t("home.openContent")}</Button></div>{loading ? <p className="ui-muted" role="status">{t("common.loading")}</p> : error ? <Inline gap="md"><p className="ui-field-error" role="alert">{error}</p><Button size="sm" variant="secondary" onClick={() => setRefresh((value) => value + 1)}>{t("common.retry")}</Button></Inline> : !items.length ? <p className="ui-muted">{t("home.noInProgress")}</p> : <div className="post-list compact">{items.map((item) => {
+  return <section className="home-content-work"><div className="section-title"><h2>{t("home.inProgress")}</h2><Button size="sm" variant="ghost" onClick={() => nav("/content")}>{t("home.openContent")}</Button></div>{loading ? <p className="ui-muted" role="status">{t("common.loading")}</p> : error ? <Inline gap="md"><p className="ui-field-error" role="alert">{error}</p><Button size="sm" variant="secondary" onClick={() => setRefresh((value) => value + 1)}>{t("common.retry")}</Button></Inline> : !items.length ? <p className="ui-muted">{t("home.noInProgress")}</p> : <div className="post-list compact">{items.map((item) => {
     const imageSrc = (item.variants || []).flatMap((variant) => [variant.body?.imageThumbUrl, variant.body?.imagePreviewUrl, variant.body?.imageUrl, variant.body?.coverUrl, ...(variant.media || [])]).map((value) => socialImageUrl(value, "thumb")).find(Boolean);
-    const batchId = String(item.batch_id || item.batchId || "");
-    const previewFilters = new URLSearchParams();
-    if (batchId) previewFilters.set("plan", batchId);
-    const destination = item.id ? contentPreviewPath(item, previewFilters.toString()) : batchId ? `/plans?plan=${encodeURIComponent(batchId)}` : "/plans";
-    return <button key={item.id} type="button" className="post-row" onClick={() => nav(destination)}>
+    return <button key={item.id} type="button" className="post-row" onClick={() => nav(`/content/${encodeURIComponent(item.id)}`)}>
       {imageSrc ? <img className="post-thumb" src={imageSrc} alt="" loading="lazy" decoding="async" /> : <span className="post-thumb placeholder-thumb" aria-hidden="true">✦</span>}
       <span className="post-row-copy"><StatusBadge status={item.status} /><h3>{itemTitle(item)}</h3><p>{(item.variants || []).map((variant) => variant.channel).join(" · ") || t("home.noChannel")}</p></span>
       <span className="chevron">›</span>
@@ -1041,7 +994,8 @@ function RecentContentWork() {
 function RecentPosts() {
   const { site } = useApp();
   const { t } = useI18n();
-  const [posts, setPosts] = useState<Post[]>([]);
+  const nav = useNavigate();
+  const [posts, setPosts] = useState<ContentItem[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [refresh, setRefresh] = useState(0);
@@ -1049,14 +1003,9 @@ function RecentPosts() {
     let active = true;
     setLoading(true);
     setError("");
-    api
-      .posts(site)
+    api.contentItems(site, undefined, { archive: "active" })
       .then((r) => {
-        const newest = [...r.posts].sort(
-          (a, b) =>
-            new Date(b.dateModified || b.publishAt || b.datePublished || 0).getTime() -
-            new Date(a.dateModified || a.publishAt || a.datePublished || 0).getTime(),
-        );
+        const newest = [...r.items].sort((a, b) => new Date(b.updated_at || b.updatedAt || 0).getTime() - new Date(a.updated_at || a.updatedAt || 0).getTime());
         if (active) setPosts(newest);
       })
       .catch((e) => active && setError(e instanceof Error ? e.message : t("common.error")))
@@ -1068,14 +1017,14 @@ function RecentPosts() {
   if (!posts.length)
     return (
       <p className="ui-empty-compact">
-        {t("posts.empty")}. {t("posts.emptyAction")}.
+        {t("content.empty.title", "No hay Posts todavía")}. {t("content.empty.description", "Crea contenido desde MCP o una receta.")}
       </p>
     );
   const metrics = [
     { key: "total", label: t("home.kpi.total"), value: posts.length },
-    { key: "draft", label: t("home.kpi.draft"), value: posts.filter((post) => uiStatus(post.status) === "draft").length },
-    { key: "scheduled", label: t("home.kpi.scheduled"), value: posts.filter((post) => uiStatus(post.status) === "scheduled").length },
-    { key: "published", label: t("home.kpi.published"), value: posts.filter((post) => uiStatus(post.status) === "published").length },
+    { key: "draft", label: t("home.kpi.draft"), value: posts.filter((post) => ["draft", "needs_review"].includes(post.status)).length },
+    { key: "scheduled", label: t("home.kpi.scheduled"), value: posts.filter((post) => ["scheduled", "syncing"].includes(post.status)).length },
+    { key: "published", label: t("home.kpi.published"), value: posts.filter((post) => post.status === "published").length },
   ];
   return (
     <>
@@ -1084,7 +1033,11 @@ function RecentPosts() {
       </div>
       <div className="post-list compact">
         {posts.slice(0, 4).map((post) => (
-          <PostRow key={post.slug} post={post} />
+          <button key={post.id} type="button" className="post-row" onClick={() => nav(`/content/${encodeURIComponent(post.id)}`)}>
+            <span className="post-thumb placeholder-thumb" aria-hidden="true">✦</span>
+            <span className="post-row-copy"><StatusBadge status={post.status} /><h3>{itemTitle(post)}</h3><p>{(post.variants || []).map((variant) => variant.channel).join(" · ") || t("home.noChannel")}</p></span>
+            <span className="chevron">›</span>
+          </button>
         ))}
       </div>
     </>
@@ -5182,7 +5135,7 @@ function Settings() {
         <p className="ui-muted">
           {t("settings.role")}: {sessionRoleLabel(session, t)}
         </p>
-        {workflowFlags.cmsAiEnabled && <NavLink className="text-link" to="/billing">{t("settings.credits")}</NavLink>}
+        {workflowFlags.cmsAiEnabled && <NavLink className="text-link" to="/admin/billing">{t("settings.credits")}</NavLink>}
       </section>
       <button
         type="button"
@@ -5205,6 +5158,26 @@ function Settings() {
       )}
     </main>
   );
+}
+
+function PlanUsageView() {
+  const { site, productContext } = useApp();
+  const { t } = useI18n();
+  const [usage, setUsage] = useState<Record<string, any> | null>(productContext?.usage || null);
+  const [loading, setLoading] = useState(!usage);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    api.context(site).then((context) => {
+      if (active) setUsage(context.usage || null);
+    }).catch((cause) => {
+      if (active) setError(cause instanceof Error ? cause.message : t("common.error"));
+    }).finally(() => active && setLoading(false));
+    return () => { active = false; };
+  }, [site, t]);
+  const entries = usage ? Object.entries(usage).filter(([, value]) => typeof value !== "object" || value === null) : [];
+  return <main className="ui-page ui-page-narrow"><PageHeader eyebrow={t("billing.eyebrow", "Espacio")} title={t("billing.title", "Plan y uso")} description={t("billing.description", "Consulta el uso del espacio sin salir del modelo editorial V3")} /><Card>{loading ? <p role="status">{t("common.loading", "Cargando…")}</p> : error ? <p className="ui-field-error" role="alert">{error}</p> : !entries.length ? <p className="ui-muted">{t("billing.empty", "Todavía no hay métricas de uso disponibles.")}</p> : <Stack gap="sm">{entries.map(([key, value]) => <Inline key={key} gap="md"><strong>{key.replace(/_/g, " ")}</strong><span>{String(value)}</span></Inline>)}</Stack>}</Card></main>;
 }
 
 function Billing() {
@@ -5249,11 +5222,11 @@ function Billing() {
   };
   const ai = snapshot?.ai?.tokenCredits;
   if (!workflowFlags.cmsAiEnabled) return <main className="ui-page ui-page-narrow">
-    <PageTitle eyebrow={t("billing.eyebrow")} title={t("billing.title")} description={t("billing.cmsAiDisabled")} back backTo="/admin" />
+    <PageTitle eyebrow={t("billing.eyebrow")} title={t("billing.title")} description={t("billing.cmsAiDisabled")} back backTo="/brand" />
     <section className="ui-card ui-settings-card">
       <h2>{t("billing.cmsAiDisabledTitle")}</h2>
       <p className="ui-muted">{t("billing.cmsAiDisabledHelp")}</p>
-      <NavLink className="text-link" to="/plans">{t("nav.plans", "Ver campañas")}</NavLink>
+      <NavLink className="text-link" to="/content">{t("nav.content", "Ver contenido")}</NavLink>
     </section>
   </main>;
   const testCreditsEnabled = Boolean(snapshot?.stripe?.testCreditsEnabled);
@@ -5270,7 +5243,7 @@ function Billing() {
         title={t("billing.title")}
         description={t("billing.description")}
         back
-        backTo="/admin"
+        backTo="/brand"
       />
       <section className="ui-card quota-card">
         <h2>{t("billing.ai")}</h2>
@@ -5356,10 +5329,10 @@ function AdminIndex() {
   const { workflowFlags } = useApp();
   const { t } = useI18n();
   const sections = [
-    { path: "/brands", icon: "brands", title: t("nav.brands", "Marcas"), description: t("admin.brandsHelp", "Gestiona las marcas y su configuración editorial.") },
-    { path: "/connections", icon: "connections", title: t("nav.connections", "Conexiones"), description: t("admin.connectionsHelp", "Conecta canales, proveedores y ChatGPT.") },
-    { path: "/team", icon: "team", title: t("nav.team", "Equipo"), description: t("admin.teamHelp", "Invita personas y define sus accesos.") },
-    ...(workflowFlags.cmsAiEnabled ? [{ path: "/billing", icon: "billing", title: t("nav.planUsage", "Plan y uso"), description: t("admin.billingHelp", "Consulta consumo, límites y facturación.") }] : []),
+    { path: "/brand", icon: "brands", title: t("nav.brands", "Marcas"), description: t("admin.brandsHelp", "Gestiona las marcas y su configuración editorial.") },
+    { path: "/admin/connections", icon: "connections", title: t("nav.connections", "Conexiones"), description: t("admin.connectionsHelp", "Conecta canales, proveedores y ChatGPT.") },
+    { path: "/admin/team", icon: "team", title: t("nav.team", "Equipo"), description: t("admin.teamHelp", "Invita personas y define sus accesos.") },
+    ...(workflowFlags.cmsAiEnabled ? [{ path: "/admin/billing", icon: "billing", title: t("nav.planUsage", "Plan y uso"), description: t("admin.billingHelp", "Consulta consumo, límites y facturación.") }] : []),
   ];
   return <main className="ui-page admin-index-page">
     <PageHeader eyebrow={t("admin.eyebrow", "Configuración del espacio")} title={t("admin.title", "Administración")} description={t("admin.description", "Gestiona marcas, accesos, conexiones y uso sin salir de esta pantalla.")} />
@@ -6901,7 +6874,7 @@ function BrandsView({ embedded = false }: { embedded?: boolean } = {}) {
   const brands = productContext?.brands || [];
   const activeBrandId = productContext?.activeBrand?.id || "";
   const canCreate = isWorkspaceAdmin(session);
-  return <Root className={embedded ? "ui-admin-section" : "ui-page"}><PageHeader eyebrow={productContext?.workspace.name || "Espacio"} title="Marcas" description="Cada marca reúne identidad, capacidades, canales y conexiones." actions={canCreate ? <NavLink className="ui-button ui-button-primary" to="/brands/new">Añadir marca</NavLink> : undefined} /><div className="ui-brand-grid">{brands.map((brand) => { const active = brand.id === activeBrandId || (!activeBrandId && brand.handle === site); return <NavLink key={brand.id} to={`/brands/${encodeURIComponent(brand.id)}`} className={`ui-card ui-brand-card ${active ? "ui-brand-active" : ""}`}><div className="ui-card-head"><div><span className="ui-eyebrow">Marca</span><h2>{brand.name || brand.handle}</h2><p className="ui-brand-handle">{brand.handle}</p></div>{active && <Badge tone="success">Activa</Badge>}</div><div className="ui-channel-list">{(brand.channels || []).filter((channel) => channel.enabled).map((channel) => <ChannelBadge key={channel.channel} channel={channel.channel} />)}</div><div className="ui-capability-list">{brand.capabilities?.presentation_generation && <Badge tone="info">Presentaciones</Badge>}{brand.capabilities?.content_publishing && <Badge tone="success">Publicaciones</Badge>}{!brand.capabilities?.content_publishing && !brand.capabilities?.presentation_generation && <Badge tone="neutral">Sin capacidades activas</Badge>}</div><p className="ui-muted">Ver configuración, brand kit y conexiones →</p></NavLink>; })}</div>{!brands.length && <UiEmptyState title="Configura tu primera marca" description="Un administrador debe crear una marca para comenzar." action={canCreate ? <NavLink className="ui-button ui-button-primary" to="/brands/new">Añadir marca</NavLink> : undefined} />}</Root>;
+  return <Root className={embedded ? "ui-admin-section" : "ui-page"}><PageHeader eyebrow={productContext?.workspace.name || "Espacio"} title="Marcas" description="Cada marca reúne identidad, capacidades, canales y conexiones." actions={canCreate ? <NavLink className="ui-button ui-button-primary" to="/brand/new">Añadir marca</NavLink> : undefined} /><div className="ui-brand-grid">{brands.map((brand) => { const active = brand.id === activeBrandId || (!activeBrandId && brand.handle === site); return <NavLink key={brand.id} to={`/brand/${encodeURIComponent(brand.id)}`} className={`ui-card ui-brand-card ${active ? "ui-brand-active" : ""}`}><div className="ui-card-head"><div><span className="ui-eyebrow">Marca</span><h2>{brand.name || brand.handle}</h2><p className="ui-brand-handle">{brand.handle}</p></div>{active && <Badge tone="success">Activa</Badge>}</div><div className="ui-channel-list">{(brand.channels || []).filter((channel) => channel.enabled).map((channel) => <ChannelBadge key={channel.channel} channel={channel.channel} />)}</div><div className="ui-capability-list">{brand.capabilities?.presentation_generation && <Badge tone="info">Presentaciones</Badge>}{brand.capabilities?.content_publishing && <Badge tone="success">Publicaciones</Badge>}{!brand.capabilities?.content_publishing && !brand.capabilities?.presentation_generation && <Badge tone="neutral">Sin capacidades activas</Badge>}</div><p className="ui-muted">Ver configuración, brand kit y conexiones →</p></NavLink>; })}</div>{!brands.length && <UiEmptyState title="Configura tu primera marca" description="Un administrador debe crear una marca para comenzar." action={canCreate ? <NavLink className="ui-button ui-button-primary" to="/brand/new">Añadir marca</NavLink> : undefined} />}</Root>;
 }
 
 function NewBrandView() {
@@ -6910,14 +6883,14 @@ function NewBrandView() {
   const [form, setForm] = useState({ handle: "", name: "", domain: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  if (!isWorkspaceAdmin(session)) return <main className="ui-page ui-page-narrow"><UiEmptyState title="No tienes permisos para crear marcas" description="Solicita acceso a un administrador del espacio." action={<Button onClick={() => nav("/brands")}>Volver a marcas</Button>} /></main>;
+  if (!isWorkspaceAdmin(session)) return <main className="ui-page ui-page-narrow"><UiEmptyState title="No tienes permisos para crear marcas" description="Solicita acceso a un administrador del espacio." action={<Button onClick={() => nav("/brand")}>Volver a marcas</Button>} /></main>;
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true); setError("");
-    try { const result = await api.createBrand(form); await refresh(); nav(`/brands/${encodeURIComponent(result.brand.id)}/setup`); }
+    try { const result = await api.createBrand(form); await refresh(); nav(`/brand/${encodeURIComponent(result.brand.id)}/setup`); }
     catch (err: any) { setError(err?.message || "No se pudo crear la marca."); }
     finally { setBusy(false); }
   };
-  return <main className="ui-page ui-page-narrow"><PageHeader eyebrow="Espacio" title="Nueva marca" description="Las marcas nuevas empiezan sin canales activos. Activa y conecta solo lo que necesites." back={<NavLink to="/brands">← Volver a marcas</NavLink>} /><Card><form className="ui-stack ui-stack-md" onSubmit={(event) => void submit(event)}>{error && <p className="ui-field-error" role="alert">{error}</p>}<Field label="Nombre de la marca" required><TextField value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required autoFocus placeholder="Ej. Escarlet" /></Field><Field label="Identificador" hint="Se usa en URLs y debe ser único." required><TextField value={form.handle} onChange={(event) => setForm({ ...form, handle: event.target.value })} required placeholder="escarlet" /></Field><Field label="Dominio web (opcional)"><TextField type="url" value={form.domain} onChange={(event) => setForm({ ...form, domain: event.target.value })} placeholder="https://marca.com" /></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => nav("/brands")}>Cancelar</Button><Button type="submit" loading={busy}>Crear marca</Button></Inline></form></Card></main>;
+  return <main className="ui-page ui-page-narrow"><PageHeader eyebrow="Espacio" title="Nueva marca" description="Las marcas nuevas empiezan sin canales activos. Activa y conecta solo lo que necesites." back={<NavLink to="/brand">← Volver a marcas</NavLink>} /><Card><form className="ui-stack ui-stack-md" onSubmit={(event) => void submit(event)}>{error && <p className="ui-field-error" role="alert">{error}</p>}<Field label="Nombre de la marca" required><TextField value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required autoFocus placeholder="Ej. Escarlet" /></Field><Field label="Identificador" hint="Se usa en URLs y debe ser único." required><TextField value={form.handle} onChange={(event) => setForm({ ...form, handle: event.target.value })} required placeholder="escarlet" /></Field><Field label="Dominio web (opcional)"><TextField type="url" value={form.domain} onChange={(event) => setForm({ ...form, domain: event.target.value })} placeholder="https://marca.com" /></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => nav("/brand")}>Cancelar</Button><Button type="submit" loading={busy}>Crear marca</Button></Inline></form></Card></main>;
 }
 
 function TeamView({ autoInvite = false }: { autoInvite?: boolean } = {}) {
@@ -6938,8 +6911,8 @@ function TeamView({ autoInvite = false }: { autoInvite?: boolean } = {}) {
   const inviteBrands = productContext?.brands || (session.sites || []).map((handle) => ({ id: handle, handle, name: handle }));
   const canSeeSuperAdmin = session.role === "owner" || session.workspaceRole === "owner";
   const visibleMembers = (rows: Array<Record<string, any>>) => canSeeSuperAdmin ? rows : rows.filter((member) => String(member.role || "").toLowerCase() !== "owner");
-  const load = () => api.teamV2(site).then((result) => { setMembers(visibleMembers(result.members || [])); setCanManage(Boolean(result.canManage)); setCanonicalTeam(true); }).catch(async () => {
-    try { const legacy = await api.users("", session.role === "admin"); setMembers(visibleMembers(legacy.users || [])); setCanManage(isWorkspaceAdmin(session)); setCanonicalTeam(false); } catch (err: any) { setError(err?.message || "No se pudo cargar el equipo."); }
+  const load = () => api.teamV2(site).then((result) => { setMembers(visibleMembers(result.members || [])); setCanManage(Boolean(result.canManage)); setCanonicalTeam(true); }).catch((err: any) => {
+    setError(err?.message || "No se pudo cargar el equipo.");
   });
   useEffect(() => { void load(); }, [session.role, session.workspaceRole, site]);
   useEffect(() => { if (autoInvite && canManage) setInviteOpen(true); }, [autoInvite, canManage]);
@@ -7045,7 +7018,7 @@ function TeamView({ autoInvite = false }: { autoInvite?: boolean } = {}) {
       setUserBusy(false);
     }
   };
-  return <main className="ui-page"><PageHeader eyebrow="Espacio" title="Equipo y acceso" description="Roles y permisos de las personas que pueden revisar este contenido." actions={<Inline gap="sm">{canAdminUsers && <Button variant="ghost" onClick={() => nav("/admin?tab=team")}>{t("admin.users")}</Button>}{canManage && <Button onClick={() => setInviteOpen(true)}>Invitar miembro</Button>}</Inline>} />{error && <Card><p className="ui-field-error">{error}</p></Card>}{members.length ? <div className="ui-member-list">{members.map((member) => { const memberName = member.displayName || member.name || member.email || (member.userId === "system" ? "Escarlet" : member.userId) || "Miembro"; const id = userId(member); const canAct = canAdminUsers && Boolean(id) && id !== "system" && Boolean(member.email); return <Card key={member.id || member.userId || member.email}><div className="ui-card-head"><div className="ui-team-member"><UserAvatar src={member.avatarUrl} name={memberName} size="sm" /><div><h3>{memberName}</h3><p className="ui-muted">{member.email || (member.brands || []).map((brand: any) => brand.name || brand.handle).join(", ")}</p></div></div><Badge tone="info">{roleLabel(memberDisplayRole(member, site, productContext?.activeBrand), t)}</Badge></div>{canAct && <div className="ui-card-actions ui-team-actions"><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => openUserEditor(member)} aria-label={t("admin.editUser")} title={t("admin.editUser")}><AdminActionIcon kind="edit" /></button><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => void issueOrRevokeUserToken(member)} aria-label={member.hasLoginToken ? t("admin.revokeToken") : t("admin.issueToken")} title={member.hasLoginToken ? t("admin.revokeToken") : t("admin.issueToken")}><AdminActionIcon kind="key" /></button><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => void sendUserMagicLink(member)} aria-label={t("admin.magicLink")} title={t("admin.magicLink")}><AdminActionIcon kind="mail" /></button></div>}</Card>; })}</div> : !error && <UiEmptyState title="Todavía no hay miembros" description={canManage ? "Invita a la primera persona para empezar a trabajar en equipo." : "Un administrador debe invitar a los miembros de este espacio."} action={canManage ? <Button onClick={() => setInviteOpen(true)}>Invitar miembro</Button> : undefined} />}<Modal open={inviteOpen} title="Invitar miembro" onClose={() => setInviteOpen(false)}><form className="ui-stack ui-stack-md" onSubmit={(event) => void invite(event)}><Field label="Correo electrónico" required><TextField type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required autoFocus /></Field><Field label="Marcas asignadas"><MultiSelectPills options={inviteBrands.map((brand) => ({ id: brand.id, label: brand.name || brand.handle || brand.id }))} value={form.brandIds} onChange={(brandIds) => setForm((current) => ({ ...current, brandIds, brandRoles: Object.fromEntries(brandIds.map((id) => [id, current.brandRoles[id] || current.role])) }))} ariaLabel="Marcas asignadas" /></Field>{form.brandIds.map((brandId) => { const brand = inviteBrands.find((item) => item.id === brandId); return <Field key={brandId} label={`Rol en ${brand?.name || brand?.handle || brandId}`}><Select value={form.brandRoles[brandId] || "viewer"} onChange={(event) => setForm({ ...form, brandRoles: { ...form.brandRoles, [brandId]: event.target.value } })}><option value="owner">{roleLabel("owner", t)}</option><option value="admin">{roleLabel("admin", t)}</option><option value="editor">{roleLabel("editor", t)}</option><option value="author">{roleLabel("author", t)}</option><option value="viewer">{roleLabel("viewer", t)}</option></Select></Field>; })}<Inline gap="md"><Button type="button" variant="ghost" onClick={() => setInviteOpen(false)}>Cancelar</Button><Button type="submit" loading={busy}>Enviar invitación</Button></Inline></form></Modal><Modal open={Boolean(userForm)} title={t("admin.editUser")} onClose={() => setUserForm(null)}>{userForm && <form className="ui-stack ui-stack-md" onSubmit={(event) => void saveUser(event)}><Field label={t("admin.userEmail")} required><TextField type="email" required value={userForm.email} onChange={(event) => setUserForm({ ...userForm, email: event.target.value })} /></Field><Field label={t("admin.userRole")} required><Select value={userForm.role} onChange={(event) => setUserForm({ ...userForm, role: event.target.value })}>{["owner", "admin", "editor", "author", "viewer"].map((role) => <option key={role} value={role}>{roleLabel(role, t)}</option>)}</Select></Field><fieldset className="ui-site-checks"><legend>{t("admin.userSites")}</legend><MultiSelectPills options={availableSiteHandles.map((handle) => ({ id: handle, label: handle }))} value={userForm.sites} onChange={(sites) => setUserForm({ ...userForm, sites })} ariaLabel={t("admin.userSites")} />{userForm.sites.map((handle) => { const brandRole = userForm.brandRoles[handle] || userForm.role; return <div key={handle} className="ui-team-brand-row"><span>{handle}</span><Select aria-label={`Rol en ${handle}`} value={brandRole} onChange={(event) => setUserForm({ ...userForm, brandRoles: { ...userForm.brandRoles, [handle]: event.target.value } })}><option value="owner">{roleLabel("owner", t)}</option><option value="admin">{roleLabel("admin", t)}</option><option value="editor">{roleLabel("editor", t)}</option><option value="author">{roleLabel("author", t)}</option><option value="viewer">{roleLabel("viewer", t)}</option></Select></div> })}</fieldset><label className="ui-toggle-row"><span><b>{t("settings.authorPermission")}</b><small>{t("settings.authorPermissionHelp")}</small></span><input type="checkbox" checked={userForm.allowPublishingAs} onChange={(event) => setUserForm({ ...userForm, allowPublishingAs: event.target.checked })} /></label><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setUserForm(null)}>{t("editor.close")}</Button><Button type="submit" disabled={!userForm.sites.length} loading={userBusy}>{t("admin.save")}</Button></Inline></form>}</Modal></main>;
+  return <main className="ui-page"><PageHeader eyebrow="Espacio" title="Equipo y acceso" description="Roles y permisos de las personas que pueden revisar este contenido." actions={<Inline gap="sm">{canAdminUsers && <Button variant="ghost" onClick={() => nav("/admin/team")}>{t("admin.users")}</Button>}{canManage && <Button onClick={() => setInviteOpen(true)}>Invitar miembro</Button>}</Inline>} />{error && <Card><p className="ui-field-error">{error}</p></Card>}{members.length ? <div className="ui-member-list">{members.map((member) => { const memberName = member.displayName || member.name || member.email || (member.userId === "system" ? "Escarlet" : member.userId) || "Miembro"; const id = userId(member); const canAct = canAdminUsers && Boolean(id) && id !== "system" && Boolean(member.email); return <Card key={member.id || member.userId || member.email}><div className="ui-card-head"><div className="ui-team-member"><UserAvatar src={member.avatarUrl} name={memberName} size="sm" /><div><h3>{memberName}</h3><p className="ui-muted">{member.email || (member.brands || []).map((brand: any) => brand.name || brand.handle).join(", ")}</p></div></div><Badge tone="info">{roleLabel(memberDisplayRole(member, site, productContext?.activeBrand), t)}</Badge></div>{canAct && <div className="ui-card-actions ui-team-actions"><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => openUserEditor(member)} aria-label={t("admin.editUser")} title={t("admin.editUser")}><AdminActionIcon kind="edit" /></button><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => void issueOrRevokeUserToken(member)} aria-label={member.hasLoginToken ? t("admin.revokeToken") : t("admin.issueToken")} title={member.hasLoginToken ? t("admin.revokeToken") : t("admin.issueToken")}><AdminActionIcon kind="key" /></button><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => void sendUserMagicLink(member)} aria-label={t("admin.magicLink")} title={t("admin.magicLink")}><AdminActionIcon kind="mail" /></button></div>}</Card>; })}</div> : !error && <UiEmptyState title="Todavía no hay miembros" description={canManage ? "Invita a la primera persona para empezar a trabajar en equipo." : "Un administrador debe invitar a los miembros de este espacio."} action={canManage ? <Button onClick={() => setInviteOpen(true)}>Invitar miembro</Button> : undefined} />}<Modal open={inviteOpen} title="Invitar miembro" onClose={() => setInviteOpen(false)}><form className="ui-stack ui-stack-md" onSubmit={(event) => void invite(event)}><Field label="Correo electrónico" required><TextField type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required autoFocus /></Field><Field label="Marcas asignadas"><MultiSelectPills options={inviteBrands.map((brand) => ({ id: brand.id, label: brand.name || brand.handle || brand.id }))} value={form.brandIds} onChange={(brandIds) => setForm((current) => ({ ...current, brandIds, brandRoles: Object.fromEntries(brandIds.map((id) => [id, current.brandRoles[id] || current.role])) }))} ariaLabel="Marcas asignadas" /></Field>{form.brandIds.map((brandId) => { const brand = inviteBrands.find((item) => item.id === brandId); return <Field key={brandId} label={`Rol en ${brand?.name || brand?.handle || brandId}`}><Select value={form.brandRoles[brandId] || "viewer"} onChange={(event) => setForm({ ...form, brandRoles: { ...form.brandRoles, [brandId]: event.target.value } })}><option value="owner">{roleLabel("owner", t)}</option><option value="admin">{roleLabel("admin", t)}</option><option value="approver">{roleLabel("approver", t)}</option><option value="editor">{roleLabel("editor", t)}</option><option value="author">{roleLabel("author", t)}</option><option value="viewer">{roleLabel("viewer", t)}</option></Select></Field>; })}<Inline gap="md"><Button type="button" variant="ghost" onClick={() => setInviteOpen(false)}>Cancelar</Button><Button type="submit" loading={busy}>Enviar invitación</Button></Inline></form></Modal><Modal open={Boolean(userForm)} title={t("admin.editUser")} onClose={() => setUserForm(null)}>{userForm && <form className="ui-stack ui-stack-md" onSubmit={(event) => void saveUser(event)}><Field label={t("admin.userEmail")} required><TextField type="email" required value={userForm.email} onChange={(event) => setUserForm({ ...userForm, email: event.target.value })} /></Field><Field label={t("admin.userRole")} required><Select value={userForm.role} onChange={(event) => setUserForm({ ...userForm, role: event.target.value })}>{["owner", "admin", "approver", "editor", "author", "viewer"].map((role) => <option key={role} value={role}>{roleLabel(role, t)}</option>)}</Select></Field><fieldset className="ui-site-checks"><legend>{t("admin.userSites")}</legend><MultiSelectPills options={availableSiteHandles.map((handle) => ({ id: handle, label: handle }))} value={userForm.sites} onChange={(sites) => setUserForm({ ...userForm, sites })} ariaLabel={t("admin.userSites")} />{userForm.sites.map((handle) => { const brandRole = userForm.brandRoles[handle] || userForm.role; return <div key={handle} className="ui-team-brand-row"><span>{handle}</span><Select aria-label={`Rol en ${handle}`} value={brandRole} onChange={(event) => setUserForm({ ...userForm, brandRoles: { ...userForm.brandRoles, [handle]: event.target.value } })}><option value="owner">{roleLabel("owner", t)}</option><option value="admin">{roleLabel("admin", t)}</option><option value="approver">{roleLabel("approver", t)}</option><option value="editor">{roleLabel("editor", t)}</option><option value="author">{roleLabel("author", t)}</option><option value="viewer">{roleLabel("viewer", t)}</option></Select></div> })}</fieldset><label className="ui-toggle-row"><span><b>{t("settings.authorPermission")}</b><small>{t("settings.authorPermissionHelp")}</small></span><input type="checkbox" checked={userForm.allowPublishingAs} onChange={(event) => setUserForm({ ...userForm, allowPublishingAs: event.target.checked })} /></label><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setUserForm(null)}>{t("editor.close")}</Button><Button type="submit" disabled={!userForm.sites.length} loading={userBusy}>{t("admin.save")}</Button></Inline></form>}</Modal></main>;
 }
 
 function parseBrandDocument(value: unknown): Record<string, any> {
@@ -7082,7 +7055,7 @@ function BrandDetailView() {
   useEffect(() => { api.brandV2(brandId).then((result) => setBrand(result.brand)).catch((err) => setError(err?.message || "No se pudo cargar la marca.")); }, [brandId]);
   if (error) return <main className="ui-page"><Card><p className="ui-field-error">{error}</p></Card></main>;
   if (!brand) return <main className="ui-page"><Card><p className="ui-muted">Cargando marca…</p></Card></main>;
-  return <main className="ui-page"><PageHeader eyebrow="Marca" title={brand.name || brand.handle || "Marca"} description={brand.domain || "Configura identidad, capacidades y canales."} back={<NavLink to="/brands">← Volver a marcas</NavLink>} actions={<Button variant="ghost" onClick={() => nav("/brands")}>Todas las marcas</Button>} /><div className="ui-brand-detail-grid"><Card><span className="ui-eyebrow">Primer paso</span><h2>Define cómo comunica</h2><p className="ui-muted">Completa el asistente y la marca quedará lista para generar campañas consistentes.</p><div className="ui-card-actions"><Button onClick={() => nav(`/brands/${brand.id}/setup`)}>Configurar marca</Button><Button variant="secondary" onClick={() => nav(`/brands/${brand.id}/identity`)}>Abrir identidad avanzada</Button></div></Card><Card><span className="ui-eyebrow">Capacidades</span><h2>Usos de la marca</h2><div className="ui-capability-list">{brand.capabilities && Object.entries(brand.capabilities).filter(([, enabled]) => enabled).map(([key]) => <Badge key={key} tone="info">{key.replace(/_/g, " ")}</Badge>)}</div></Card><Card><span className="ui-eyebrow">Canales</span><h2>Canales activos</h2><div className="ui-channel-list">{(brand.channels || []).filter((channel) => channel.enabled).map((channel) => <ChannelBadge key={channel.channel} channel={channel.channel} />)}</div><div className="ui-card-actions"><Button variant="secondary" onClick={() => nav(`/brands/${brand.id}/channels`)}>Gestionar canales</Button></div></Card></div></main>;
+  return <main className="ui-page"><PageHeader eyebrow="Marca" title={brand.name || brand.handle || "Marca"} description={brand.domain || "Configura identidad, capacidades y canales."} back={<NavLink to="/brand">← Volver a marcas</NavLink>} actions={<Button variant="ghost" onClick={() => nav("/brand")}>Todas las marcas</Button>} /><div className="ui-brand-detail-grid"><Card><span className="ui-eyebrow">Primer paso</span><h2>Define cómo comunica</h2><p className="ui-muted">Completa el asistente y la marca quedará lista para generar campañas consistentes.</p><div className="ui-card-actions"><Button onClick={() => nav(`/brand/${brand.id}/setup`)}>Configurar marca</Button><Button variant="secondary" onClick={() => nav(`/brand/${brand.id}/identity`)}>Abrir identidad avanzada</Button></div></Card><Card><span className="ui-eyebrow">Capacidades</span><h2>Usos de la marca</h2><div className="ui-capability-list">{brand.capabilities && Object.entries(brand.capabilities).filter(([, enabled]) => enabled).map(([key]) => <Badge key={key} tone="info">{key.replace(/_/g, " ")}</Badge>)}</div></Card><Card><span className="ui-eyebrow">Canales</span><h2>Canales activos</h2><div className="ui-channel-list">{(brand.channels || []).filter((channel) => channel.enabled).map((channel) => <ChannelBadge key={channel.channel} channel={channel.channel} />)}</div><div className="ui-card-actions"><Button variant="secondary" onClick={() => nav(`/brand/${brand.id}/channels`)}>Gestionar canales</Button></div></Card></div></main>;
 }
 
 function BrandSetupWizard() {
@@ -7134,14 +7107,14 @@ function BrandSetupWizard() {
       };
       await api.saveBrandFile(brand.handle, "brand-core.json", JSON.stringify(nextCore, null, 2));
       showToast("Marca configurada. Ya puedes crear una campaña.");
-      nav(`/brands/${encodeURIComponent(brandId)}`);
+      nav(`/brand/${encodeURIComponent(brandId)}`);
     } catch (err: any) { setError(err?.message || "No se pudo guardar la marca."); } finally { setBusy(false); }
   };
   const stepLabels = ["Identidad", "Audiencia", "Voz", "Revisión"];
   if (error && !brand) return <main className="ui-page"><Card><p className="ui-field-error" role="alert">{error}</p></Card></main>;
   if (!brand) return <main className="ui-page"><Card><p className="ui-muted">Cargando asistente…</p></Card></main>;
-  if (!canEdit) return <main className="ui-page"><PageHeader eyebrow="Configuración de marca" title="No tienes permisos para editar esta marca" back={<Button variant="ghost" onClick={() => nav(`/brands/${brandId}`)}>Volver</Button>} /><Card><p className="ui-muted">Pide a un administrador que complete el sistema de comunicación de la marca.</p></Card></main>;
-  return <main className="ui-page ui-page-narrow"><PageHeader eyebrow="Asistente de marca" title="Haz que la marca se explique sola" description="Responde estas preguntas una vez. Después, el sistema usará las respuestas para mantener el mismo criterio en cada campaña." back={<Button variant="ghost" onClick={() => nav(`/brands/${brandId}`)}>Volver</Button>} /><Card><div className="ui-step-list" aria-label="Pasos del asistente">{stepLabels.map((label, index) => <Badge key={label} tone={index === step ? "info" : index < step ? "success" : "neutral"}>{index + 1}. {label}</Badge>)}</div>{step === 0 && <Stack gap="md"><Field label="Nombre de la marca" hint="Cómo quieres que aparezca en el contenido." required><TextField value={form.name} onChange={(event) => setField("name", event.target.value)} autoFocus required /></Field><Field label="Dominio web" hint="Opcional. Ayuda a enlazar y citar la marca."><TextField type="url" value={form.domain} onChange={(event) => setField("domain", event.target.value)} placeholder="https://tumarca.com" /></Field></Stack>}{step === 1 && <Stack gap="md"><Field label="¿A quién habla la marca?" hint="Una audiencia por línea. Puedes escribir perfiles, sectores o situaciones." required><Textarea value={form.audience} onChange={(event) => setField("audience", event.target.value)} rows={6} autoFocus required placeholder="Personas que están empezando\nEquipos de marketing pequeños" /></Field><Field label="Idioma principal"><Select value={form.language} onChange={(event) => setField("language", event.target.value)}><option value="es">Español</option><option value="en">English</option></Select></Field></Stack>}{step === 2 && <Stack gap="md"><Field label="¿Cómo debe sonar?" hint="Describe el tono con palabras concretas y ejemplos de actitud." required><Textarea value={form.voice} onChange={(event) => setField("voice", event.target.value)} rows={5} autoFocus required placeholder="Claro, cercano y exigente con los datos. Nunca grandilocuente." /></Field><Field label="Pilares de contenido" hint="Un tema prioritario por línea."><Textarea value={form.pillars} onChange={(event) => setField("pillars", event.target.value)} rows={4} placeholder="Educación práctica\nCasos reales\nDecisiones de producto" /></Field><Field label="Palabras o enfoques que debemos evitar" hint="Opcional. Una entrada por línea."><Textarea value={form.prohibited} onChange={(event) => setField("prohibited", event.target.value)} rows={3} /></Field><Field label="Claims que requieren revisión" hint="Uno por línea. Se guardan como pendientes hasta que un responsable los apruebe."><Textarea value={form.claims} onChange={(event) => setField("claims", event.target.value)} rows={4} /></Field></Stack>}{step === 3 && <Stack gap="md"><h2>Comprueba el resumen</h2><p className="ui-muted">{form.name} hablará a {form.audience || "una audiencia todavía no definida"}, con un tono {form.voice || "todavía no definido"}.</p><p><strong>{form.pillars ? `${form.pillars.split(/\r?\n/).filter(Boolean).length} pilares` : "Sin pilares todavía"}</strong> · <strong>{form.claims ? `${form.claims.split(/\r?\n/).filter(Boolean).length} claims pendientes` : "Sin claims"}</strong></p>{error && <p className="ui-field-error" role="alert">{error}</p>}</Stack>}<Inline gap="md"><Button type="button" variant="ghost" disabled={busy || step === 0} onClick={() => setStep((current) => current - 1)}>Atrás</Button>{step < 3 ? <Button type="button" disabled={busy || (step === 0 && !form.name.trim()) || (step === 1 && !form.audience.trim()) || (step === 2 && !form.voice.trim())} onClick={() => setStep((current) => current + 1)}>Continuar</Button> : <Button type="button" loading={busy} onClick={() => void save()}>Guardar sistema de marca</Button>}</Inline></Card></main>;
+  if (!canEdit) return <main className="ui-page"><PageHeader eyebrow="Configuración de marca" title="No tienes permisos para editar esta marca" back={<Button variant="ghost" onClick={() => nav(`/brand/${brandId}`)}>Volver</Button>} /><Card><p className="ui-muted">Pide a un administrador que complete el sistema de comunicación de la marca.</p></Card></main>;
+  return <main className="ui-page ui-page-narrow"><PageHeader eyebrow="Asistente de marca" title="Haz que la marca se explique sola" description="Responde estas preguntas una vez. Después, el sistema usará las respuestas para mantener el mismo criterio en cada campaña." back={<Button variant="ghost" onClick={() => nav(`/brand/${brandId}`)}>Volver</Button>} /><Card><div className="ui-step-list" aria-label="Pasos del asistente">{stepLabels.map((label, index) => <Badge key={label} tone={index === step ? "info" : index < step ? "success" : "neutral"}>{index + 1}. {label}</Badge>)}</div>{step === 0 && <Stack gap="md"><Field label="Nombre de la marca" hint="Cómo quieres que aparezca en el contenido." required><TextField value={form.name} onChange={(event) => setField("name", event.target.value)} autoFocus required /></Field><Field label="Dominio web" hint="Opcional. Ayuda a enlazar y citar la marca."><TextField type="url" value={form.domain} onChange={(event) => setField("domain", event.target.value)} placeholder="https://tumarca.com" /></Field></Stack>}{step === 1 && <Stack gap="md"><Field label="¿A quién habla la marca?" hint="Una audiencia por línea. Puedes escribir perfiles, sectores o situaciones." required><Textarea value={form.audience} onChange={(event) => setField("audience", event.target.value)} rows={6} autoFocus required placeholder="Personas que están empezando\nEquipos de marketing pequeños" /></Field><Field label="Idioma principal"><Select value={form.language} onChange={(event) => setField("language", event.target.value)}><option value="es">Español</option><option value="en">English</option></Select></Field></Stack>}{step === 2 && <Stack gap="md"><Field label="¿Cómo debe sonar?" hint="Describe el tono con palabras concretas y ejemplos de actitud." required><Textarea value={form.voice} onChange={(event) => setField("voice", event.target.value)} rows={5} autoFocus required placeholder="Claro, cercano y exigente con los datos. Nunca grandilocuente." /></Field><Field label="Pilares de contenido" hint="Un tema prioritario por línea."><Textarea value={form.pillars} onChange={(event) => setField("pillars", event.target.value)} rows={4} placeholder="Educación práctica\nCasos reales\nDecisiones de producto" /></Field><Field label="Palabras o enfoques que debemos evitar" hint="Opcional. Una entrada por línea."><Textarea value={form.prohibited} onChange={(event) => setField("prohibited", event.target.value)} rows={3} /></Field><Field label="Claims que requieren revisión" hint="Uno por línea. Se guardan como pendientes hasta que un responsable los apruebe."><Textarea value={form.claims} onChange={(event) => setField("claims", event.target.value)} rows={4} /></Field></Stack>}{step === 3 && <Stack gap="md"><h2>Comprueba el resumen</h2><p className="ui-muted">{form.name} hablará a {form.audience || "una audiencia todavía no definida"}, con un tono {form.voice || "todavía no definido"}.</p><p><strong>{form.pillars ? `${form.pillars.split(/\r?\n/).filter(Boolean).length} pilares` : "Sin pilares todavía"}</strong> · <strong>{form.claims ? `${form.claims.split(/\r?\n/).filter(Boolean).length} claims pendientes` : "Sin claims"}</strong></p>{error && <p className="ui-field-error" role="alert">{error}</p>}</Stack>}<Inline gap="md"><Button type="button" variant="ghost" disabled={busy || step === 0} onClick={() => setStep((current) => current - 1)}>Atrás</Button>{step < 3 ? <Button type="button" disabled={busy || (step === 0 && !form.name.trim()) || (step === 1 && !form.audience.trim()) || (step === 2 && !form.voice.trim())} onClick={() => setStep((current) => current + 1)}>Continuar</Button> : <Button type="button" loading={busy} onClick={() => void save()}>Guardar sistema de marca</Button>}</Inline></Card></main>;
 }
 
 function BrandIdentityView() {
@@ -7243,7 +7216,7 @@ function BrandIdentityView() {
     if (!file || !brand?.handle) return;
     setBrandZipBusy(true);
     try {
-      const result = await api.importBrandZip(brand.handle, await fileAsBase64(file));
+      const result = await api.importBrandZip(brand.id || brand.handle, await fileAsBase64(file));
       const legacy = await api.brand(brand.handle).catch(() => null);
       const references = await api.media(brand.handle, "reference").catch(() => ({ media: [] }));
       const core = await api.brandFile(brand.handle, "brand-core.json").catch(() => ({ content: "" }));
@@ -7324,7 +7297,7 @@ function BrandIdentityView() {
   const editTabId = "tabpanel-brand-identity-edit";
   return (
     <main className="ui-page">
-      <PageHeader eyebrow="Marca · Identidad" title={brand?.name || "Identidad y brand kit"} description="Consulta la identidad de un vistazo o abre el editor completo cuando necesites cambiarla." back={<NavLink to={`/brands/${encodeURIComponent(brandId)}`}>← Volver a la marca</NavLink>} />
+      <PageHeader eyebrow="Marca · Identidad" title={brand?.name || "Identidad y brand kit"} description="Consulta la identidad de un vistazo o abre el editor completo cuando necesites cambiarla." back={<NavLink to={`/brand/${encodeURIComponent(brandId)}`}>← Volver a la marca</NavLink>} />
       <Tabs
         items={[{ id: "summary", label: t("brandIdentity.summaryTab", "Resumen") }, { id: "edit", label: t("brandIdentity.editTab", "Editar identidad") }]}
         value={identityView}
@@ -7421,12 +7394,12 @@ function BrandChannelsView() {
   const blogEnabled = channels.some((channel) => channel.channel === "blog" && channel.enabled);
   if (loading) return <main className="ui-page"><p className="ui-muted">Cargando configuración de canales...</p></main>;
   if (error) return <main className="ui-page"><UiEmptyState title="No se pudo cargar la configuración" description={error} action={<Button onClick={() => window.location.reload()}>Reintentar</Button>} /></main>;
-  return <main className="ui-page"><PageHeader eyebrow="Marca · Canales" title={brand?.name || "Canales activos"} description="Activa solo los canales que esta marca utiliza. Cada uno puede tener su propia conexión primaria." back={<NavLink to={`/brands/${encodeURIComponent(brandId)}`}>← Volver a la marca</NavLink>} actions={canManage ? <Button onClick={() => void save()} loading={busy}>Guardar cambios</Button> : undefined} /><div className="ui-channel-settings-grid"><Card><span className="ui-eyebrow">Canales</span><h2>Publicación multicanal</h2><Stack gap="sm">{channels.map((channel) => <label className="ui-toggle-row" key={channel.channel}><span><b>{channel.channel === "x" ? "X" : channel.channel.charAt(0).toUpperCase() + channel.channel.slice(1)}</b><small>{channel.enabled ? "Activo" : "Inactivo"}</small></span><input type="checkbox" disabled={!canManage} checked={Boolean(channel.enabled)} onChange={(event) => setChannels((current) => current.map((item) => item.channel === channel.channel ? { ...item, enabled: event.target.checked } : item))} /></label>)}</Stack></Card><Card><span className="ui-eyebrow">Usos de marca</span><h2>Capacidades</h2><Stack gap="sm"><label className="ui-toggle-row"><span><b>Presentaciones</b><small>Permite usar el brand kit desde ChatGPT/MCP.</small></span><input type="checkbox" disabled={!canManage} checked={Boolean(caps.presentation_generation)} onChange={(event) => setCaps((current) => ({ ...current, presentation_generation: event.target.checked }))} /></label><label className="ui-toggle-row"><span><b>Publicaciones</b><small>Se activa automáticamente al encender un canal.</small></span><input type="checkbox" checked={Boolean(caps.content_publishing)} readOnly /></label></Stack></Card>{blogEnabled && <Card className="ui-blog-connection-card"><div className="ui-card-head"><div><span className="ui-eyebrow">{t("admin.blogPublishRouteEyebrow", "Publicación del Blog")}</span><h2>{t("admin.blogPublishRouteTitle", "Webhook de Coolify")}</h2></div><Badge tone={web.rebuildWebhookUrl ? "success" : "warning"}>{web.rebuildWebhookUrl ? t("admin.blogPublishRouteConfigured", "Coolify conectado") : t("admin.blogPublishRouteMissing", "Webhook pendiente")}</Badge></div><p className="ui-muted">{t("admin.blogPublishRouteHelp", "El Blog se publica mediante este webhook. Buffer se reserva para Instagram y los demás canales sociales.")}</p><Stack gap="md"><Field label="Dominio público"><TextField type="url" value={web.domain} onChange={(event) => setWeb({ ...web, domain: event.target.value })} placeholder="https://marca.com" /></Field><Field label="Webhook de rebuild"><TextField value={web.rebuildWebhookUrl} onChange={(event) => setWeb({ ...web, rebuildWebhookUrl: event.target.value })} placeholder="https://…" /></Field><Field label="Token de la conexión" hint="Se cifra y no vuelve a mostrarse."><TextField type="password" value={web.token} onChange={(event) => setWeb({ ...web, token: event.target.value })} placeholder="Pega un token nuevo para reemplazarlo" /></Field></Stack></Card>}</div></main>;
+  return <main className="ui-page"><PageHeader eyebrow="Marca · Canales" title={brand?.name || "Canales activos"} description="Activa solo los canales que esta marca utiliza. Cada uno puede tener su propia conexión primaria." back={<NavLink to={`/brand/${encodeURIComponent(brandId)}`}>← Volver a la marca</NavLink>} actions={canManage ? <Button onClick={() => void save()} loading={busy}>Guardar cambios</Button> : undefined} /><div className="ui-channel-settings-grid"><Card><span className="ui-eyebrow">Canales</span><h2>Publicación multicanal</h2><Stack gap="sm">{channels.map((channel) => <label className="ui-toggle-row" key={channel.channel}><span><b>{channel.channel === "x" ? "X" : channel.channel.charAt(0).toUpperCase() + channel.channel.slice(1)}</b><small>{channel.enabled ? "Activo" : "Inactivo"}</small></span><input type="checkbox" disabled={!canManage} checked={Boolean(channel.enabled)} onChange={(event) => setChannels((current) => current.map((item) => item.channel === channel.channel ? { ...item, enabled: event.target.checked } : item))} /></label>)}</Stack></Card><Card><span className="ui-eyebrow">Usos de marca</span><h2>Capacidades</h2><Stack gap="sm"><label className="ui-toggle-row"><span><b>Presentaciones</b><small>Permite usar el brand kit desde ChatGPT/MCP.</small></span><input type="checkbox" disabled={!canManage} checked={Boolean(caps.presentation_generation)} onChange={(event) => setCaps((current) => ({ ...current, presentation_generation: event.target.checked }))} /></label><label className="ui-toggle-row"><span><b>Publicaciones</b><small>Se activa automáticamente al encender un canal.</small></span><input type="checkbox" checked={Boolean(caps.content_publishing)} readOnly /></label></Stack></Card>{blogEnabled && <Card className="ui-blog-connection-card"><div className="ui-card-head"><div><span className="ui-eyebrow">{t("admin.blogPublishRouteEyebrow", "Publicación del Blog")}</span><h2>{t("admin.blogPublishRouteTitle", "Webhook de Coolify")}</h2></div><Badge tone={web.rebuildWebhookUrl ? "success" : "warning"}>{web.rebuildWebhookUrl ? t("admin.blogPublishRouteConfigured", "Coolify conectado") : t("admin.blogPublishRouteMissing", "Webhook pendiente")}</Badge></div><p className="ui-muted">{t("admin.blogPublishRouteHelp", "El Blog se publica mediante este webhook. Buffer se reserva para Instagram y los demás canales sociales.")}</p><Stack gap="md"><Field label="Dominio público"><TextField type="url" value={web.domain} onChange={(event) => setWeb({ ...web, domain: event.target.value })} placeholder="https://marca.com" /></Field><Field label="Webhook de rebuild"><TextField value={web.rebuildWebhookUrl} onChange={(event) => setWeb({ ...web, rebuildWebhookUrl: event.target.value })} placeholder="https://…" /></Field><Field label="Token de la conexión" hint="Se cifra y no vuelve a mostrarse."><TextField type="password" value={web.token} onChange={(event) => setWeb({ ...web, token: event.target.value })} placeholder="Pega un token nuevo para reemplazarlo" /></Field></Stack></Card>}</div></main>;
 }
 
 function BrandConnectionsView() {
   const { brandId = "" } = useParams();
-  return <ConnectionsView brandId={brandId} backTo={`/brands/${encodeURIComponent(brandId)}`} />;
+  return <ConnectionsView brandId={brandId} backTo={`/brand/${encodeURIComponent(brandId)}`} />;
 }
 
 function LegacyConnectionsView({ brandId }: { brandId?: string }) {

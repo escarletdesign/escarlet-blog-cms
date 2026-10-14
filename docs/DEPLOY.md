@@ -351,3 +351,13 @@ Si el CMS corre en Docker y el import es local, el `db.json` importado está en 
 ## Backup
 
 El volumen `/app/data` contiene todo lo crítico. Backup periódico de Coolify o copia de `db.json` + `media/`.
+
+## Escarlet V3
+
+Antes del corte de producción ejecuta la migración única con Postgres disponible:
+
+```bash
+npm run db:migrate:v3
+```
+
+La herramienta crea backup de `data/db.json`, archivos de marca y media, intenta crear un `pg_dump` y guarda un informe versionado. Después del corte, la PWA usa `/api/v2` incluido `/api/v2/publication` y los agentes usan exclusivamente `/mcp/v3`. Las rutas `/api/admin/*`, `/api/v3/*` de contenido y `/mcp` responden `410`.

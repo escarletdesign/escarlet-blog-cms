@@ -1,57 +1,30 @@
-# Sitemap de Escarlet CMS
+# Sitemap de Escarlet V3
 
-Documento de referencia para distinguir navegación principal, pestañas y flujos secundarios.
-
-## Entrada y navegación principal
+La PWA trabaja alrededor de un único objeto editorial: el Post y sus variantes por canal.
 
 ```text
 /app
-├── /                         Resumen y KPIs de la marca activa
-├── /plans                    Contenido, filtros, lista y calendario
-├── /chat                     Asistente, si está habilitado
-├── /quick-create             Creación guiada, si está habilitada
-├── /manual/:slug?            Editor manual
-├── /preview/:slug            Vista del artículo y acceso al pack social
-├── /schedule/:slug           Programación del artículo
-├── /publish/:slug            Publicación social
-├── /posts                    Listado histórico de posts
-├── /admin?tab=brands         Administración unificada
-│   ├── ?tab=brands           Marcas y creación de marca
-│   ├── ?tab=team             Equipo y acceso
-│   ├── ?tab=connections      Conexiones de la marca activa
-│   └── ?tab=billing          Plan y uso, si la IA del CMS está habilitada
-├── /brands/:brandId          Detalle de marca
-│   ├── /identity             Brand kit e identidad
-│   ├── /channels             Canales
-│   └── /connections          Conexiones de esa marca
-├── /settings                 Perfil, PAT y preferencias
-├── /author-invite            Invitación de autor para flujos históricos
-└── /design-system            Catálogo y contrato visual
+├── /                         Inicio
+├── /apps                     Crear un Post borrador
+├── /content                  Inbox editorial y búsqueda
+├── /content/:postId          Espacio de Post, variantes, revisión y agenda
+├── /campaigns/:campaignId    Release editorial opcional
+├── /calendar                 Estado real de variantes programadas
+├── /publication              Destinos y control de publicación
+├── /brand                    Marcas y Brand Kit
+├── /admin/team               Equipo y permisos
+├── /admin/connections        Canales, destinos y proveedores técnicos
+├── /admin/billing            Plan y uso
+├── /settings                 Perfil y preferencias
+└── /design-system            Catálogo interno de componentes
 ```
 
-## Alias y compatibilidad
+## Corte de rutas
 
-- `/calendar`, `/review` y `/batches` redirigen a `/plans`.
-- `/social-pack` sin slug redirige a `/plans`.
-- `/team`, `/team/invite`, `/connections`, `/billing` y `/brands` redirigen al panel de Administración cuando el usuario es administrador. Se conserva la pantalla directa para roles que no tienen ese panel.
-- `/social-pack/:slug` sigue siendo una ruta histórica del pack social. La vista de contenido de `/plans` es el punto recomendado para revisar, grabar, guardar, programar y publicar el contenido.
+`/plans`, `/posts`, `/preview`, `/social-pack`, `/manual`, `/schedule`, `/publish`, `/quick-create` y `/admin` ya no son pantallas funcionales. El servidor responde `410` a las rutas públicas y la PWA muestra una pantalla de flujo retirado cuando la navegación ocurre dentro de `/app`.
 
-## Flujos normalizados
-
-1. El selector de marca del shell define la marca activa en escritorio y móvil.
-2. Administración mantiene una sola pantalla con pestañas persistidas en `?tab=`.
-3. Invitar y editar miembros usan modal. La invitación selecciona marcas con pills y define el rol dentro de cada marca, sin rol predeterminado global.
-4. Contenido es la bandeja principal. Cada item abre su vista completa, donde vive el Social Pack y el grabador de vídeo.
-5. Las acciones de conexión y las pruebas informan con toast. El error de carga queda además visible dentro de la pantalla.
-6. La navegación POP restaura el scroll guardado para la entrada anterior del historial.
-
-## Candidatos huérfanos o históricos
-
-- `TeamInviteView` era la pantalla duplicada de invitación. El flujo activo es el modal de `TeamView`; la URL antigua se conserva como redirección.
-- `SocialPack` y `Preview` todavía son implementaciones separadas. La siguiente consolidación recomendada es extraer un único workspace de contenido con pestañas `Artículo` y `Social Pack`, manteniendo `/social-pack/:slug` como alias temporal.
-- `/author-invite` no forma parte de la navegación principal. Mantenerlo solo si existe un flujo de autor externo; si no, moverlo a Administración o retirarlo.
-- `/design-system` es una herramienta interna y no debe aparecer en la navegación de producto.
+`/api/v2` es la API REST interna de la PWA. `/mcp/v3` es el único contrato externo para agentes. `/mcp`, `/api/admin/*`, `/api/ai/*` y `/api/v3/*` no son aliases: responden `410`.
 
 ## Regla de decisión
 
-Usar pestañas cuando las secciones comparten contexto, selección de marca y acciones, como Administración. Usar páginas cuando cambia el objeto de trabajo o se necesita una URL profunda, como el detalle de marca, el editor y el contenido individual. Un alias puede conservar compatibilidad, pero no debe crear una segunda pantalla funcional.
+Usar el espacio de Post cuando cambia una variante, un asset, una revisión o un destino. Usar un release solo para coordinar varios Posts. No crear pantallas separadas para Blog, Social Pack, Preview o proveedores.

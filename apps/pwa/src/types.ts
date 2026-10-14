@@ -19,11 +19,51 @@ export interface Session {
   hasLoginToken?: boolean;
   loginTokenHint?: string;
   workspaceId?: string;
-  workspaceRole?: "owner" | "admin" | "editor" | "author" | "viewer" | string;
+  workspaceRole?: "owner" | "admin" | "approver" | "editor" | "author" | "viewer" | string;
   brandRoles?: Record<string, string>;
 }
 
 export type ContentChannel = "blog" | "instagram" | "instagram_story" | "linkedin" | "x" | "video" | "substack";
+export type PostStatus = "draft" | "generating" | "ready_for_review" | "changes_requested" | "approved" | "scheduled" | "publishing" | "published" | "failed" | "archived";
+export type VariantStatus = PostStatus;
+export interface Provenance {
+  brandKitVersionId?: string | null;
+  brandKitSnapshotHash?: string | null;
+  generationRunId?: string | null;
+  source?: string | null;
+  findings?: BrandOsFinding[];
+}
+export interface MediaReference extends MediaItem {
+  assetIndex?: number;
+}
+export interface PostVariant {
+  id: string;
+  postId: string;
+  channel: ContentChannel;
+  body: Record<string, any>;
+  media: MediaReference[];
+  status: VariantStatus;
+  destinationId?: string | null;
+  publicationRunId?: string | null;
+  publicationDate?: string | null;
+  scheduleTimezone?: string | null;
+  lastError?: string | null;
+}
+export interface CanonicalPost {
+  id: string;
+  brandId: string;
+  campaignId: string | null;
+  campaignTitle?: string | null;
+  title: string;
+  status: PostStatus;
+  brandKitVersionId: string | null;
+  provenance: Provenance;
+  variants: PostVariant[];
+  generationRunId: string | null;
+  topic?: string;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
 export interface BrandChannel {
   channel: ContentChannel;
   enabled: boolean;
@@ -66,6 +106,7 @@ export interface ContentVariant {
   channel: ContentChannel;
   status: ContentStatus;
   body: Record<string, any>;
+  metadata?: Record<string, any>;
   media?: MediaItem[];
   publicationDate?: string;
   scheduleTimezone?: string;
@@ -74,15 +115,22 @@ export interface ContentVariant {
 }
 export interface ContentItem {
   id: string;
+  site_id?: string;
+  siteId?: string;
   batch_id?: string;
   batchId?: string;
   topic: string;
   planTitle?: string;
   planStatus?: ContentStatus;
+  campaignMetadata?: Record<string, any>;
   metadata?: Record<string, any>;
   status: ContentStatus;
   variants: ContentVariant[];
   error?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 export interface BrandOsFinding {
   code: string;

@@ -10,6 +10,7 @@
     "test": "node --test lib/**/*.test.mjs lib/db.test.mjs lib/story-publication-media.test.mjs mcp/**/*.test.mjs",
     "import:escarlet": "node scripts/import-escarlet.mjs",
     "db:migrate": "node scripts/migrate-json-to-postgres.mjs",
+    "db:migrate:v3": "node scripts/migrations/import-legacy-to-v3.mjs",
     "worker": "node worker.mjs",
     "site:init": "node scripts/init-site.mjs",
     "integration:install": "node scripts/install-frontend-integration.mjs",

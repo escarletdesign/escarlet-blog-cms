@@ -65,6 +65,7 @@ export function createMigrationBackup({ destination = join(dataDir, 'migration-b
 function mapRole(role) {
   if (role === 'admin') return 'admin'
   if (role === 'agency_admin') return 'owner'
+  if (role === 'approver') return 'approver'
   if (role === 'viewer') return 'viewer'
   if (role === 'author') return 'author'
   return 'editor'

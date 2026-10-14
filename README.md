@@ -33,11 +33,9 @@ La imagen Docker ejecuta `npm run build` durante el build, por lo que `server.mj
 `apps/pwa/dist` en producción. El mismo contenedor arranca `server.mjs` y el worker
 persistente (`worker.mjs`); ambos comparten `/app/data` y `DATABASE_URL`. Postgres se
 ejecuta como recurso gestionado aparte (en local lo levanta `docker-compose`). Activa
-`PRODUCT_RESTRUCTURE_V1=1` para magic links,
-roles cliente y endpoints de IA/Stripe. Las claves `OPENAI_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY` y `STRIPE_SECRET_KEY`
-se quedan siempre en el servidor. `ADMIN_TOKEN` es obligatorio (no hay token por defecto). Para guardar claves desde **Administración → IA y Billing**, configura también `AI_CONNECTOR_ENCRYPTION_KEY` con un secreto aleatorio de al menos 32 bytes; las claves se cifran con AES-256-GCM en `data/db.json`, que se escribe con modo `0600`. Para producción v2 configura `DATABASE_URL` y `CMS_SECRET_KEY`; ejecuta `npm run db:migrate` una única vez con el CMS en modo escritura congelada. Consulta `.env.example` para el catálogo de precios y la migración explícita de instalaciones antiguas.
+`PRODUCT_RESTRUCTURE_V1=1` para magic links y roles de workspace. `ADMIN_TOKEN` es obligatorio, no hay token por defecto. Para producción V3 configura `DATABASE_URL` y `CMS_SECRET_KEY`; ejecuta `npm run db:migrate:v3` una única vez con el CMS en modo escritura congelada. Consulta `.env.example` para el resto de variables.
 
-El CMS mantiene desactivada de forma permanente la generación de IA server-side. Las rutas REST de IA, conectores, transcripción, imágenes y créditos devuelven `403 CMS_AI_DISABLED`; `/mcp/v3`, la membresía MCP y el editor manual siguen disponibles. ChatGPT genera el texto y los píxeles finales mediante el MCP canónico.
+El CMS no genera contenido, imágenes ni vídeo en el servidor. Las rutas `/api/ai/*` devuelven `410 server_side_ai_removed`; `/mcp/v3` es el único contrato externo para preparar contexto, guardar resultados de una IA externa y publicar con revisión humana.
 
 ### Sistema de diseño de la PWA
 
@@ -47,6 +45,18 @@ Consulta el [contrato de UI](docs/UI-DESIGN-SYSTEM.md) y las reglas para agentes
 `npm run ui:check` y el build de la PWA con `npm run build`.
 
 Showcase público para revisar visualmente los componentes: `/app/design-system`.
+
+### Escarlet V3
+
+El producto canónico se organiza como Marca → Campaña opcional → Post → variantes por canal → publicación. La PWA usa la API Postgres `/api/v2` y los agentes externos usan únicamente `/mcp/v3`.
+
+- [Modelo operativo V3](docs/ESCARLET-V3-OPERATING-MODEL.md)
+- [Contrato de contenido](docs/CONTENT-MODEL.md)
+- [Contrato MCP V3](docs/MCP-V3-CONTRACT.md)
+- [Migración legacy](docs/MIGRATION-LEGACY-TO-V3.md)
+- [UX de la PWA](docs/PWA-UX-V3.md)
+- [Destinos de publicación](docs/PUBLICATION-DESTINATIONS.md)
+- [Handoff para agentes](docs/AGENT-HANDOFF.md)
 
 ## Nuevo sitio / onboarding
 
@@ -89,11 +99,11 @@ Extender el sistema. [docs/MICROAPP-DEVELOPMENT.md](docs/MICROAPP-DEVELOPMENT.md
 | `publication.schedule` / `publication.publish` | Programar o publicar solo después de aprobación humana |
 | `publication.status.get` | Consultar estado interno y externo |
 
-La PWA incluye el dashboard `/app/apps`, las micro apps `/app/production/food-to-reel`, `/app/production/menu-to-reel`, `/app/production/product-to-social` y `/app/publication/publisher`. El dashboard también ofrece `Publicar blog`, que abre Publisher con WordPress preseleccionado. Menú del día permite elegir Reel o Story. Con `MOTION_RENDERER_LOCAL=true` el worker produce un MP4 local revisable; `PRODUCT_RENDERER_LOCAL=true` habilita la transformación determinista de producto. Ambos valores pueden desactivarse para exigir un proveedor externo.
+La PWA concentra la creación en `/app/apps`, que crea un Post borrador con sus canales. El trabajo editorial continúa en `/app/content/:postId` y la publicación en `/app/publication`. No se exponen microapps de generación ni proveedores como flujo principal.
 
 Resources. `escarlet://capabilities/index`, `escarlet://recipes/index` y `escarlet://brand/kernel` exponen el índice y el contrato. Los archivos fuente privados solo se gestionan desde la app por owner/admin.
 
-Contratos HTTP v2: `/api/v2/content/batches`, `/api/v2/content/items` (incluye revisión, cancelación y agenda), `/api/v2/usage`, `/api/v2/brand-kits` y `/api/v2/brands/:id/connections` (Buffer, Postiz, Metricool, Planable y web). App y MCP llaman al mismo servicio de dominio; `/api/sites/:handle/posts` permanece como read adapter público.
+Contratos HTTP v2: `/api/v2/content/batches`, `/api/v2/content/items` (incluye revisión, cancelación y agenda), `/api/v2/usage`, `/api/v2/brand-kits` y `/api/v2/brands/:id/connections`. La PWA y MCP v3 llaman al mismo servicio de dominio; `/api/sites/:handle/posts` permanece como read adapter público. La generación server-side y los endpoints `/api/ai/*` están retirados: la IA externa opera exclusivamente mediante `/mcp/v3`.
 
 Hermes (otro servidor) no clona el CMS. En su `mcp.json`:
 

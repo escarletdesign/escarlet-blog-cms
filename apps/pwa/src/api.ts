@@ -202,9 +202,7 @@ const baseApi = {
       `/api/admin/social-pack/${encodeURIComponent(slug)}${site ? `?site=${encodeURIComponent(site)}` : ""}`,
     ),
   quota: (site?: string) =>
-    request<Record<string, unknown>>(
-      `/api/admin/quota${site ? `?site=${encodeURIComponent(site)}` : ""}`,
-    ),
+    request<Record<string, unknown>>(`/api/v2/usage${site ? `?site=${encodeURIComponent(site)}` : ""}`),
   billing: (site?: string) =>
     request<Record<string, unknown>>(
       `/api/admin/billing${site ? `?site=${encodeURIComponent(site)}` : ""}`,
@@ -219,6 +217,18 @@ const baseApi = {
     request<{ items: ContentItem[] }>(
       `/api/v2/content/items${site ? `?site=${encodeURIComponent(site)}` : ""}`,
     ),
+  contentItems: (site?: string, signal?: AbortSignal, options: { status?: string; query?: string; channel?: string; batchId?: string; archive?: "active" | "archived" | "all" } = {}) => {
+    const params = new URLSearchParams();
+    if (site) params.set("site", site);
+    if (options.status) params.set("status", options.status);
+    if (options.query) params.set("query", options.query);
+    if (options.channel) params.set("channel", options.channel);
+    if (options.batchId) params.set("batchId", options.batchId);
+    if (options.archive && options.archive !== "active") params.set("archive", options.archive);
+    return request<{ items: ContentItem[] }>(`/api/v2/content/items${params.toString() ? `?${params.toString()}` : ""}`, { signal });
+  },
+  contentItem: (itemId: string, site?: string, signal?: AbortSignal) =>
+    request<{ item: ContentItem }>(`/api/v2/content/items/${encodeURIComponent(itemId)}${site ? `?site=${encodeURIComponent(site)}` : ""}`, { signal }),
   contentPlans: (site?: string, signal?: AbortSignal) =>
     request<{ plans: Array<Record<string, any>> }>(
       `/api/v2/content/plans${site ? `?site=${encodeURIComponent(site)}` : ""}`,
@@ -297,7 +307,7 @@ const baseApi = {
     request<ContentBatch>(
       `/api/v2/content/batches/${encodeURIComponent(batchId)}${site ? `?site=${encodeURIComponent(site)}` : ""}`,
     ),
-  createContentBatch: (input: { site?: string; title: string; topics: string[]; channels: string[]; brandKitVersionId?: string; idempotencyKey?: string; brief?: Record<string, any> }) =>
+  createContentBatch: (input: { site?: string; title: string; topics: Array<string | Record<string, any>>; channels: string[]; brandKitVersionId?: string; idempotencyKey?: string; brief?: Record<string, any> }) =>
     request<{ batchId: string; itemIds: string[]; status: "draft"; totalItems: number }>(
       "/api/v2/content/batches",
       { method: "POST", headers: { "X-Escarlet-Client": "pwa", "Idempotency-Key": input.idempotencyKey || crypto.randomUUID() }, body: JSON.stringify({ ...input, metadata: { contentBrief: input.brief } }) },
@@ -374,7 +384,7 @@ const baseApi = {
       recipes: Array<Record<string, any>>;
     }>(`/api/v3/catalog?${new URLSearchParams({ ...(site ? { site } : {}), ...(goal ? { goal } : {}) }).toString()}`),
   publicationOperation: (input: { site?: string; operation: "destination.list" | "route" | "prepare" | "schedule" | "publish" | "status.get"; channel?: string; provider?: string; contentItemId?: string; assetIds?: string[]; text?: string; runId?: string; publicationId?: string; publicationDate?: string; timezone?: string; approval?: Record<string, any> }) =>
-    request<Record<string, any>>("/api/v3/publication", {
+    request<Record<string, any>>("/api/v2/publication", {
       method: "POST",
       body: JSON.stringify(input),
     }),
@@ -484,24 +494,30 @@ const baseApi = {
       body: JSON.stringify(input),
     }),
   brand: (site: string) =>
-    request<{
-      summary?: string;
-      files?: string[];
-      labels?: Record<string, string>;
-      authors?: Author[] | string[];
-    }>(`/api/admin/brand-kit/${encodeURIComponent(site)}`),
+    request<Record<string, any>>(`/api/v2/brand-kits?site=${encodeURIComponent(site)}`).then((kit) => ({
+      summary: kit?.manifest?.["brand-core.json"] ? "Brand Kit canónico" : "Brand Kit pendiente",
+      files: Object.keys(kit?.manifest || {}),
+      labels: {},
+      authors: [],
+    })),
   brandFile: (site: string, file: string) =>
-    request<{ content?: string }>(
-      `/api/admin/brand-kit/${encodeURIComponent(site)}/${encodeURIComponent(file)}`,
-    ),
-  saveBrandFile: (site: string, file: string, content: string) =>
-    request<{ ok: boolean }>(
-      `/api/admin/brand-kit/${encodeURIComponent(site)}/${encodeURIComponent(file)}`,
-      { method: "POST", body: JSON.stringify({ content }) },
-    ),
+    request<Record<string, any>>(`/api/v2/brand-kits?site=${encodeURIComponent(site)}`).then((kit) => ({
+      content: typeof kit?.manifest?.[file] === "string" ? kit.manifest[file] : JSON.stringify(kit?.manifest?.[file] || {}, null, 2),
+    })),
+  saveBrandFile: async (site: string, file: string, content: string) => {
+    const current = await request<Record<string, any>>(`/api/v2/brand-kits?site=${encodeURIComponent(site)}`);
+    let parsed: unknown = content;
+    try { parsed = JSON.parse(content); } catch { /* keep plain-text brand references intact */ }
+    const manifest = { ...(current?.manifest || {}), [file]: parsed };
+    await request<Record<string, any>>("/api/v2/brand-kits/versions", {
+      method: "POST",
+      body: JSON.stringify({ site, manifest, status: "published" }),
+    });
+    return { ok: true };
+  },
   importBrandZip: (site: string, contentBase64: string) =>
     request<{ ok: boolean; importedMd?: string[]; importedData?: string[]; importedImages?: string[]; skipped?: string[] }>(
-      `/api/admin/brand-kit/${encodeURIComponent(site)}/import-zip`,
+      `/api/v2/brands/${encodeURIComponent(site)}/brand-kit/import`,
       { method: "POST", body: JSON.stringify({ contentBase64 }) },
     ),
   onboarding: (site: string) =>
@@ -522,11 +538,10 @@ const baseApi = {
       `/api/admin/site-config/${encodeURIComponent(site)}/test-rebuild`,
       { method: "POST" },
     ),
-  mcpConnection: (site: string, signal?: AbortSignal) =>
-    request<{ mcpUrl: string; mcpChatGptUrl?: string; mcpClaudeUrl?: string; mcpAuthHint?: string; mcpClaudeHint?: string; agentIcon?: Record<string, any> }>(
-      `/api/admin/site-config/${encodeURIComponent(site)}/agent-icon`,
-      { signal },
-    ),
+  mcpConnection: (_site: string, _signal?: AbortSignal) => Promise.resolve({
+    mcpUrl: "/mcp/v3",
+    mcpAuthHint: "Usa el token MCP del perfil del usuario.",
+  }),
   users: (site: string, all = false) =>
     request<{ users: Array<Record<string, any>>; site: string }>(
       `/api/auth/users?site=${encodeURIComponent(site)}${all ? "&all=1" : ""}`,
@@ -567,9 +582,9 @@ const baseApi = {
       `/api/admin/authors${site ? `?site=${encodeURIComponent(site)}` : ""}`,
     ),
   media: (site?: string, kind?: string) =>
-    request<{ media: MediaItem[] }>(
-      `/api/admin/media${site || kind ? `?${new URLSearchParams({ ...(site ? { site } : {}), ...(kind ? { kind } : {}) })}` : ""}`,
-    ),
+    request<{ assets: MediaItem[] }>(`/api/v2/assets${site ? `?site=${encodeURIComponent(site)}` : ""}`).then(({ assets }) => ({
+      media: (assets || []).filter((asset) => !kind || asset.kind === kind || asset.metadata?.kind === kind),
+    })),
   uploadMedia: (input: {
     site?: string;
     filename: string;
@@ -577,34 +592,19 @@ const baseApi = {
     alt?: string;
     kind?: string;
   }) =>
-    request<{ media: MediaItem }>("/api/admin/media/upload", {
+    request<{ media: MediaItem }>("/api/v2/assets/upload", {
       method: "POST",
       body: JSON.stringify(input),
     }),
-  deleteMedia: async (input: { site?: string; id?: string; path?: string }) => {
-    try {
-      return await request<{ deleted: boolean }>("/api/v2/assets/delete", {
-        method: "POST",
-        body: JSON.stringify({ site: input.site, assetIds: input.id ? [input.id] : [], mode: "selected", confirm: true }),
-      });
-    } catch (error) {
-      if (!(error instanceof ApiError) || ![404, 503].includes(error.status)) throw error;
-      return request<{ deleted: boolean }>("/api/admin/media/delete", {
-        method: "POST",
-        body: JSON.stringify(input),
-      });
-    }
-  },
+  deleteMedia: (input: { site?: string; id?: string; path?: string }) =>
+    request<{ deleted: boolean }>("/api/v2/assets/delete", {
+      method: "POST",
+      body: JSON.stringify({ site: input.site, assetIds: input.id ? [input.id] : [], mode: "selected", confirm: true }),
+    }),
   updateMediaAlt: (input: { site?: string; id: string; alt: string }) =>
-    request<{ media: MediaItem }>("/api/admin/media/update-alt", {
-      method: "POST",
-      body: JSON.stringify(input),
-    }),
+    request<{ updated: boolean }>("/api/v2/assets/update", { method: "POST", body: JSON.stringify({ ...input, assetIds: [input.id] }) }).then(() => ({ media: input as MediaItem })),
   updateMedia: (input: { site?: string; id: string; filename?: string; alt?: string; usage?: string }) =>
-    request<{ media: MediaItem }>("/api/admin/media/update", {
-      method: "POST",
-      body: JSON.stringify(input),
-    }),
+    request<{ updated: boolean }>("/api/v2/assets/update", { method: "POST", body: JSON.stringify({ ...input, assetIds: [input.id] }) }).then(() => ({ media: input as MediaItem })),
   generateImage: (input: {
     site?: string;
     prompt: string;
@@ -947,7 +947,7 @@ async function aiToolCall(name: string, args: Record<string, unknown> = {}) {
 
 async function billingSnapshot(site?: string) {
   return request<Record<string, any>>(
-    `/api/billing/snapshot${site ? `?site=${encodeURIComponent(site)}` : ""}`,
+    `/api/v2/usage${site ? `?site=${encodeURIComponent(site)}` : ""}`,
   );
 }
 async function billingCheckout(input: {

@@ -12,9 +12,13 @@ Durante la beta no se bloquea la producción por cuota.
 - Un Brand Kit publicado es inmutable. Los cambios parten de un draft y se publican como una nueva versión.
 - Los drafts usan `baseVersionId`, `expectedActiveVersionId` e `idempotencyKey` para evitar duplicados y conflictos.
 - Los personajes son assets con `metadata.usage = "character"` y `characterId` opcional.
-- Las APIs legacy conservan sus rutas y campos mientras se completa la migración.
+- `/api/v2` es la API REST canónica de la PWA. Las rutas administrativas legacy responden `410` y no se usan para contenido.
 
-El flujo MCP de edición es `brand_create_draft`, `brand_upload_asset`, `brand_update_file`, `brand_validate_draft` y `brand_publish_draft`. La publicación exige revisión humana y una versión activa esperada.
+El flujo MCP externo único es `/mcp/v3`, con herramientas namespaced para contexto de marca, Posts, releases y publicación. La publicación exige revisión humana y una versión activa esperada.
+
+## Corte V3
+
+`content_items` es la persistencia interna de `Post` y `content_variants` la de `PostVariant`. No se crean tablas paralelas. Los assets publicables sin Post se normalizan en `Inbox editorial` mediante `scripts/migrations/import-legacy-to-v3.mjs`.
 
 ## Media
 

@@ -35,14 +35,14 @@ La primera vertical ya está integrada en el monolito modular:
 - `mcp/v3/handlers.mjs` conecta lectura de marca, preparación visual, receipts, jobs de vídeo y Publisher sin ejecutar IA ni proveedores externos.
 - `lib/publication/` separa canales de proveedores y aplica compatibilidad, permisos, aprobación e idempotencia.
 - La PWA incluye la micro app `production/food-to-reel`: consulta assets canónicos, acepta una imagen y texto, y envía la receta por la misma frontera MCP v3.
-- `/api/v2/assets` y `/api/v2/assets/upload` mantienen los inputs de producción en `media_assets`; `/api/v3/recipes/run` no crea una ruta creativa paralela.
+- `/api/v2/assets` y `/api/v2/assets/upload` mantienen los inputs de producción en `media_assets`. La generación creativa no tiene una ruta REST propia: se prepara y registra mediante `/mcp/v3`.
 - `/mcp` responde `410 mcp_v3_required`; el health check, OAuth, favicon y onboarding apuntan a `/mcp/v3`.
 - `production.motion.compose` ya crea un `video_job` idempotente en estado `queued`; el proveedor `local` usa FFmpeg para producir un MP4 vertical con copy, fundidos y asset fuente, mientras los proveedores externos siguen en handoff explícito.
 - `production.image.product.transform` conserva el original y puede crear una composición local determinista con procedencia y receipt; si se necesita una edición generativa, deja el envelope en `awaiting_provider` hasta conectar un ejecutor autorizado.
 - `recipe.run` ejecuta `food-to-reel` y `menu-to-reel` con texto y audio opcional hasta la cola, validación de copy, destinos y revisión humana. No publica automáticamente.
 - `recipe.run` también ejecuta `product-to-social`: transforma el asset original, conserva procedencia y devuelve destinos compatibles sin publicar.
 - La PWA incluye `/publication/publisher`: muestra solo combinaciones de canal y proveedor conectadas, prepara un bundle revisable y no envía credenciales ni contenido a un proveedor antes de la aprobación.
-- La PWA incluye `/apps`, un dashboard alimentado por `GET /api/v3/catalog`; cada tarjeta usa el mismo manifest que MCP y solo ofrece una acción directa cuando existe una UI autorizada. El Publisher se puede abrir como distribución general o como `Publicar blog` con WordPress preseleccionado.
+- La PWA incluye `/apps` como compositor mínimo de un Post borrador. El Publisher se abre desde `/publication` y muestra destinos, no proveedores como concepto editorial.
 - `capability.guide` explica el protocolo a un agente nuevo y está cubierto por una simulación que descubre, inspecciona y valida errores antes de ejecutar. El menú del día reutiliza la recipe con perfiles `instagram_reel` e `instagram_story`.
 
 ## Qué existe hoy

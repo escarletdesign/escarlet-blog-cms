@@ -686,6 +686,103 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     tags: ['production', 'motion', 'video', 'cancel']
   }),
   manifest({
+    id: 'content.post.create',
+    description: 'Crea un Post canónico con variantes por canal. Si no se indica campaña, se guarda en Inbox editorial.',
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, title: { type: 'string', minLength: 1 }, topic: { type: 'string' }, brief: { type: 'string' }, campaignId: { type: 'string' }, batchId: { type: 'string' }, campaignTitle: { type: 'string' }, channels: { type: 'array', items: { type: 'string' }, minItems: 1 }, variants: { type: 'object' }, brandKitVersionId: { type: 'string' }, generationRunId: { type: 'string' }, metadata: { type: 'object' }, idempotencyKey: { type: 'string' } }, required: ['title'], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string' }, post: { type: ['object', 'null'] }, postId: { type: ['string', 'null'] }, brandKitVersionId: { type: ['string', 'null'] }, nextAction: { type: ['string', 'null'] } }, required: ['contractVersion', 'post', 'postId', 'nextAction'], additionalProperties: true },
+    permissions: ['content:write'],
+    sideEffects: 'write',
+    humanReviewRequired: true,
+    tags: ['content', 'post', 'create']
+  }),
+  manifest({
+    id: 'content.post.get',
+    description: 'Devuelve un Post con todas sus variantes, media, procedencia y estados de publicación.',
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, postId: { type: 'string' }, itemId: { type: 'string' } }, anyOf: [{ required: ['postId'] }, { required: ['itemId'] }], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string' }, post: { type: 'object' } }, required: ['contractVersion', 'capability', 'post'], additionalProperties: true },
+    permissions: ['content:read'],
+    tags: ['content', 'post', 'read']
+  }),
+  manifest({
+    id: 'content.post.update',
+    description: 'Actualiza el título, tema, copy o metadata editorial de un Post.',
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, postId: { type: 'string' }, itemId: { type: 'string' }, title: { type: 'string' }, topic: { type: 'string' }, channel: { type: 'string' }, body: { type: 'object' }, visualBrief: { type: 'object' }, mediaAssetIds: { type: 'array', items: { type: 'string' } }, readyForReview: { type: 'boolean' } }, anyOf: [{ required: ['postId'] }, { required: ['itemId'] }], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string' }, post: { type: 'object' }, postId: { type: 'string' }, nextAction: { type: 'string' } }, required: ['contractVersion', 'post', 'postId', 'nextAction'], additionalProperties: true },
+    permissions: ['content:write'],
+    sideEffects: 'write',
+    humanReviewRequired: true,
+    tags: ['content', 'post', 'update']
+  }),
+  manifest({
+    id: 'content.post.variant.upsert',
+    description: 'Crea o actualiza una variante de canal dentro de un Post.',
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, postId: { type: 'string' }, itemId: { type: 'string' }, channel: { type: 'string' }, body: { type: 'object' }, mediaAssetIds: { type: 'array', items: { type: 'string' } }, visualBrief: { type: 'object' } }, required: ['channel'], anyOf: [{ required: ['postId'] }, { required: ['itemId'] }], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string' }, post: { type: 'object' }, postId: { type: 'string' }, variantId: { type: ['string', 'null'] }, nextAction: { type: 'string' } }, required: ['contractVersion', 'post', 'postId', 'nextAction'], additionalProperties: true },
+    permissions: ['content:write'],
+    sideEffects: 'write',
+    humanReviewRequired: true,
+    tags: ['content', 'post', 'variant', 'update']
+  }),
+  manifest({
+    id: 'content.post.review',
+    description: 'Marca un Post como listo para revisión humana.',
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, postId: { type: 'string' }, itemId: { type: 'string' } }, anyOf: [{ required: ['postId'] }, { required: ['itemId'] }], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string' }, post: { type: 'object' }, postId: { type: 'string' }, nextAction: { type: 'string' } }, required: ['contractVersion', 'post', 'postId', 'nextAction'], additionalProperties: true },
+    permissions: ['content:write'],
+    sideEffects: 'write',
+    tags: ['content', 'post', 'review']
+  }),
+  manifest({
+    id: 'content.post.approve',
+    description: 'Aprueba todas las variantes revisables de un Post.',
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, postId: { type: 'string' }, itemId: { type: 'string' } }, anyOf: [{ required: ['postId'] }, { required: ['itemId'] }], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string' }, post: { type: 'object' }, postId: { type: 'string' }, nextAction: { type: 'string' } }, required: ['contractVersion', 'post', 'postId', 'nextAction'], additionalProperties: true },
+    permissions: ['content:publish'],
+    sideEffects: 'write',
+    humanReviewRequired: true,
+    tags: ['content', 'post', 'approval']
+  }),
+  manifest({
+    id: 'release.create',
+    description: 'Crea un release editorial opcional para agrupar Posts y revisar su publicación coordinada.',
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, title: { type: 'string', minLength: 1 }, topics: { type: 'array', items: { type: 'string' } }, items: { type: 'array', items: { type: 'object' } }, channels: { type: 'array', items: { type: 'string' }, minItems: 1 }, brandKitVersionId: { type: 'string' }, metadata: { type: 'object' }, idempotencyKey: { type: 'string' } }, required: ['title', 'channels'], anyOf: [{ required: ['topics'] }, { required: ['items'] }], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string' }, release: { type: 'object' }, nextAction: { type: 'string' } }, required: ['contractVersion', 'capability', 'release', 'nextAction'], additionalProperties: true },
+    permissions: ['content:write'],
+    sideEffects: 'write',
+    humanReviewRequired: true,
+    tags: ['release', 'content', 'create']
+  }),
+  manifest({
+    id: 'release.add_post',
+    description: 'Añade un Post existente a un release editorial.',
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, releaseId: { type: 'string' }, postId: { type: 'string' }, itemId: { type: 'string' } }, required: ['releaseId'], anyOf: [{ required: ['postId'] }, { required: ['itemId'] }], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string' }, releaseId: { type: 'string' }, postId: { type: 'string' }, nextAction: { type: 'string' } }, required: ['contractVersion', 'capability', 'releaseId', 'postId', 'nextAction'], additionalProperties: true },
+    permissions: ['content:write'],
+    sideEffects: 'write',
+    humanReviewRequired: true,
+    tags: ['release', 'content', 'update']
+  }),
+  manifest({
+    id: 'release.schedule',
+    description: 'Programa la publicación coordinada de un release aprobado.',
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, releaseId: { type: 'string' }, channels: { type: 'array', items: { type: 'string' }, minItems: 1 }, publicationDate: { type: 'string' }, timezone: { type: 'string' } }, required: ['releaseId', 'channels', 'publicationDate'], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string' }, releaseId: { type: 'string' }, nextAction: { type: 'string' } }, required: ['contractVersion', 'capability', 'releaseId', 'nextAction'], additionalProperties: true },
+    permissions: ['content:publish'],
+    sideEffects: 'external',
+    humanReviewRequired: true,
+    tags: ['release', 'content', 'schedule']
+  }),
+  manifest({
+    id: 'release.publish',
+    description: 'Publica un release ya aprobado a través del control plane de publicación.',
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, releaseId: { type: 'string' }, channels: { type: 'array', items: { type: 'string' }, minItems: 1 }, publicationDate: { type: 'string' }, timezone: { type: 'string' } }, required: ['releaseId', 'channels'], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string' }, releaseId: { type: 'string' }, status: { type: 'string' }, nextAction: { type: 'string' } }, required: ['contractVersion', 'capability', 'releaseId', 'status', 'nextAction'], additionalProperties: true },
+    permissions: ['content:publish'],
+    sideEffects: 'external',
+    humanReviewRequired: true,
+    tags: ['release', 'content', 'publish']
+  }),
+  manifest({
     id: 'content.campaign.list',
     description: 'Lista las campañas de contenido de una marca, con su estado y canales preparados.',
     inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, status: { type: 'string' }, channel: { type: 'string' }, query: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 200 } }, additionalProperties: false },
@@ -764,6 +861,14 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
       ]
     },
     tags: ['publication', 'publisher', 'discovery']
+  }),
+  manifest({
+    id: 'publication.destination.validate',
+    description: 'Valida que un destino, proveedor, canal y asset sean compatibles antes de publicar.',
+    inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, siteId: { type: 'string' }, assetIds: { type: 'array', items: { type: 'string' } }, assets: { type: 'array', items: { type: 'object' } }, channel: { type: 'string' }, provider: { type: 'string' }, runId: { type: 'string' }, text: { type: 'string' }, connections: { type: 'array', items: { type: 'object' } } }, required: ['assetIds', 'channel'], additionalProperties: false },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string' }, compatible: { type: 'boolean' }, errors: { type: 'array' }, valid: { type: 'boolean' }, findings: { type: 'array' } }, required: ['contractVersion', 'compatible', 'errors'], additionalProperties: true },
+    permissions: ['publication:read'],
+    tags: ['publication', 'publisher', 'validation']
   }),
   manifest({
     id: 'publication.validate',

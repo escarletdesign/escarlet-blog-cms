@@ -251,6 +251,7 @@ import {
   BRAND_CAPABILITIES,
   createContentBatch,
   getContentBatch,
+  getContentItem,
   listContentItems,
   listContentPlans,
   updateContentItem,
@@ -744,38 +745,16 @@ function servePwa(req, res, path) {
 }
 
 function redirectLegacySurface(req, res, path) {
-  if (req.method !== 'GET') return false
-  const params = new URL(req.url || '/', 'http://127.0.0.1').searchParams
-  let target = ''
-  if (path === '/admin' || path === '/admin/') target = '/app/'
-  else if (path === '/admin/blog-packs' || path === '/admin/blog-packs/') target = '/app/posts'
-  else {
-    const pack = path.match(/^\/admin\/blog-packs\/([^/]+)\/?$/)
-    if (pack) {
-      try {
-        target = `/app/social-pack/${encodeURIComponent(decodeURIComponent(pack[1]))}`
-      } catch {
-        return false
-      }
-    }
-  }
-  if (!target) {
-    const preview = path.match(/^\/preview\/([^/]+)\/([^/]+)$/)
-    if (preview) {
-      try {
-        target = `/app/preview/${encodeURIComponent(decodeURIComponent(preview[2]))}`
-        const site = decodeURIComponent(preview[1])
-        if (site) params.set('site', site)
-      } catch {
-        return false
-      }
-    }
-  }
-  if (!target) return false
-  const query = params.toString()
-  if (query) target += `?${query}`
-  res.writeHead(308, { Location: target, 'Cache-Control': 'no-store' })
-  res.end()
+  const legacy = path === '/admin' || path === '/admin/' || path === '/plans' || path === '/plans/' ||
+    path === '/posts' || path.startsWith('/posts/') || path === '/preview' || path.startsWith('/preview/') ||
+    path === '/social-pack' || path.startsWith('/social-pack/') || path === '/manual' || path.startsWith('/manual/') ||
+    path === '/schedule' || path.startsWith('/schedule/') || path === '/publish' || path.startsWith('/publish/') ||
+    path === '/quick-create' || path.startsWith('/quick-create/') || path === '/admin/blog-packs' || path.startsWith('/admin/blog-packs/')
+  if (!legacy) return false
+  json(res, 410, {
+    code: 'legacy_route_removed',
+    message: 'Esta ruta pertenece al runtime legacy y fue retirada. Usa /app/content o /mcp/v3.'
+  })
   return true
 }
 
@@ -989,6 +968,14 @@ function v2Topics(body) {
   if (Array.isArray(body?.topics)) return body.topics
   if (Array.isArray(body?.items)) return body.items.map((item) => typeof item === 'string' ? item : item?.topic)
   return []
+}
+
+function assertV2Approver(scope) {
+  const roles = [scope?.auth?.role, scope?.context?.workspaceRole, scope?.context?.role]
+    .map((value) => String(value || '').toLowerCase())
+  if (!roles.some((role) => ['owner', 'admin', 'approver'].includes(role))) {
+    throw Object.assign(new Error('Solo un aprobador o administrador puede aprobar y publicar.'), { status: 403, code: 'approver_required' })
+  }
 }
 
 async function metricoolCredentialsFor(scope) {
@@ -2047,6 +2034,14 @@ async function handleRequest(req, res) {
     return
   }
 
+  if (path.startsWith('/api/v3/')) {
+    json(res, 410, {
+      code: 'legacy_rest_removed',
+      message: 'Los endpoints REST v3 fueron retirados. Usa /api/v2 para la PWA y /mcp/v3 para agentes.'
+    })
+    return
+  }
+
   if (req.method === 'GET' && path === '/api/v3/catalog') {
     try {
       const scope = await requireV2Context(req, url, res, { site: url.searchParams.get('site') || '' })
@@ -2112,7 +2107,7 @@ async function handleRequest(req, res) {
     return
   }
 
-  if (req.method === 'POST' && path === '/api/v3/publication') {
+  if (req.method === 'POST' && path === '/api/v2/publication') {
     let body = {}
     try {
       body = await parseBody(req, MAX_BODY_BYTES)
@@ -2166,9 +2161,7 @@ async function handleRequest(req, res) {
     return
   }
 
-  // Canonical multi-tenant content API. The legacy /api/admin routes remain
-  // available as compatibility adapters while new app/MCP clients converge on
-  // this Postgres-backed service.
+  // Canonical multi-tenant content API for the PWA and internal control plane.
   if (path.startsWith('/api/v2/')) {
     let body = {}
     const videoUploadRequest = req.method === 'POST' && /^\/api\/v2\/content\/items\/[^/]+\/video$/.test(path)
@@ -2804,6 +2797,13 @@ async function handleRequest(req, res) {
         json(res, 200, { items: await listContentItems({ workspaceId: scope.workspaceId, batchId: url.searchParams.get('batchId'), siteId: scope.siteId || undefined, status: url.searchParams.get('status') || undefined, channel: url.searchParams.get('channel') || undefined, query: url.searchParams.get('query') || undefined, limit: url.searchParams.get('limit') }) })
         return
       }
+      if (req.method === 'GET' && itemMatch) {
+        const scope = await requireV2Context(req, url, res)
+        if (!scope) return
+        const item = await getContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId: decodeURIComponent(itemMatch[1]) })
+        json(res, 200, { item })
+        return
+      }
       if (req.method === 'POST' && videoUploadMatch) {
         const scope = await requireV2Context(req, url, res, body)
         if (!scope) return
@@ -2956,11 +2956,14 @@ async function handleRequest(req, res) {
         if (!scope) return
         const itemId = decodeURIComponent(itemActionMatch[1])
         const action = itemActionMatch[2]
+        if (['schedule', 'reschedule', 'publish-buffer'].includes(action)) assertV2Approver(scope)
         if (action === 'approve') {
+          assertV2Approver(scope)
           json(res, 200, await approveContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role, quotaExempt: Boolean(scope.auth.systemAdmin) }))
           return
         }
         if (action === 'reject') {
+          assertV2Approver(scope)
           json(res, 200, await rejectContentItem({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, itemId, userId: scope.auth.userId, role: scope.context.role, comment: body.comment || body.reason }))
           return
         }
@@ -3006,6 +3009,7 @@ async function handleRequest(req, res) {
       if (req.method === 'POST' && batchActionMatch) {
         const scope = await requireV2Context(req, url, res, body)
         if (!scope) return
+        assertV2Approver(scope)
         const batchId = decodeURIComponent(batchActionMatch[1])
         json(res, 200, batchActionMatch[2] === 'cancel'
           ? await cancelContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, batchId, userId: scope.auth.userId, role: scope.context.role })
@@ -3015,12 +3019,14 @@ async function handleRequest(req, res) {
       if (req.method === 'POST' && batchReviewMatch && batchReviewMatch[2] === 'approve') {
         const scope = await requireV2Context(req, url, res, body)
         if (!scope) return
+        assertV2Approver(scope)
         json(res, 200, await approveContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, batchId: decodeURIComponent(batchReviewMatch[1]), userId: scope.auth.userId, role: scope.context.role, quotaExempt: Boolean(scope.auth.systemAdmin) }))
         return
       }
       if (req.method === 'POST' && batchReviewMatch && batchReviewMatch[2] === 'reject') {
         const scope = await requireV2Context(req, url, res, body)
         if (!scope) return
+        assertV2Approver(scope)
         json(res, 200, await rejectContentBatch({ workspaceId: scope.workspaceId, siteId: scope.siteId || undefined, batchId: decodeURIComponent(batchReviewMatch[1]), userId: scope.auth.userId, role: scope.context.role, comment: body.comment || body.reason }))
         return
       }
@@ -3104,7 +3110,6 @@ async function handleRequest(req, res) {
       mcpServerName: 'escarlet-os',
       mcp: '/mcp/v3',
       mcpContract: 'os.production.v1',
-      mcpLegacy: '/mcp',
       deploymentTrack: 'v3',
       canonicalMcpUrl: `${CANONICAL_CMS_URL}/mcp/v3`,
       deprecatedMcpHosts: [...DEPRECATED_CMS_HOSTS],
@@ -3311,6 +3316,14 @@ async function handleRequest(req, res) {
     return
   }
 
+  if (path.startsWith('/api/ai/')) {
+    json(res, 410, {
+      code: 'server_side_ai_removed',
+      message: 'La generación server-side fue retirada. Usa el contexto de marca y las tools de /mcp/v3 con una IA externa.'
+    })
+    return
+  }
+
   if (path === '/api/ai/chat' || path === '/api/ai/generate') {
     const auth = requireAuth(req, url, res)
     if (!auth) return
@@ -3401,7 +3414,7 @@ async function handleRequest(req, res) {
       const db = readDb()
       const cmsAiEnabled = isCmsAiEnabled({ db })
       const workflow = getWorkflowFlags(db)
-      let productFlags = { creation_ui_enabled: false, manual_creation_enabled: false }
+      let productFlags = { creation_ui_enabled: true, manual_creation_enabled: false }
       if (isPostgresConfigured()) {
         try {
           const context = await resolveWorkspaceContext({ userId: auth.userId || undefined, ...(site ? { siteHandle: site } : {}) })
@@ -3518,6 +3531,13 @@ async function handleRequest(req, res) {
   if (path.startsWith('/api/admin')) {
     const auth = await requireAuthAsync(req, url, res)
     if (!auth) return
+    if (path !== '/api/admin/session') {
+      json(res, 410, {
+        code: 'legacy_api_removed',
+        message: 'La API administrativa legacy fue retirada. Usa /api/v2 para la PWA y /mcp/v3 para agentes.'
+      })
+      return
+    }
     const db = readDb()
     const legacyContentWrite = isPostgresConfigured() && req.method !== 'GET' && (
       path.startsWith('/api/admin/posts') ||

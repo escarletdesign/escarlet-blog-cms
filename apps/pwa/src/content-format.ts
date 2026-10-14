@@ -23,7 +23,7 @@ export function contentPreviewPath(item: Pick<ContentItem, "id" | "batchId" | "b
   const batchId = String(item.batchId || item.batch_id || "");
   if (batchId) params.set("batchId", batchId);
   const query = params.toString();
-  return `/plans/${encodeURIComponent(item.id)}/preview${query ? `?${query}` : ""}`;
+  return `/content/${encodeURIComponent(item.id)}${query ? `?${query}` : ""}`;
 }
 
 export const statusLabels: Record<string, string> = {
