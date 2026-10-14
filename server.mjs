@@ -3439,7 +3439,9 @@ async function handleRequest(req, res) {
       json(res, 200, {
         flags: {
           cmsAiEnabled,
-          assistantEnabled: cmsAiEnabled && workflow.assistantEnabled,
+          // The in-app assistant was removed with the server-side AI runtime.
+          // ChatGPT connects through the external /mcp/v3 contract instead.
+          assistantEnabled: false,
           blogWizardEnabled: cmsAiEnabled && workflow.blogWizardEnabled,
           legacyPreviewEnabled: workflow.legacyPreviewEnabled,
           legacySocialPackEnabled: workflow.legacySocialPackEnabled,

@@ -541,7 +541,7 @@ const baseApi = {
       { method: "POST" },
     ),
   mcpConnection: (_site: string, _signal?: AbortSignal) => Promise.resolve({
-    mcpUrl: "/mcp/v3",
+    mcpUrl: `${typeof window !== "undefined" ? window.location.origin : ""}/mcp/v3`,
     mcpAuthHint: "Usa el token MCP del perfil del usuario.",
   }),
   users: (site: string, all = false) =>

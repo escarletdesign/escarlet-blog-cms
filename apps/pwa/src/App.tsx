@@ -4671,7 +4671,6 @@ function AuthorInvite() {
 
 function Settings() {
   const { session, site, refresh, workflowFlags } = useApp();
-  const isSuperAdmin = session.role === "admin";
   const { language, setLanguage, t } = useI18n();
   const { showToast } = useToast();
   const [model, setModel] = useState(
@@ -4698,9 +4697,6 @@ function Settings() {
   const [chatGptBusy, setChatGptBusy] = useState(false);
   const [delegates, setDelegates] = useState<Array<Record<string, any>>>([]);
   const [delegateBusy, setDelegateBusy] = useState("");
-  const assistantEnabled = workflowFlags.assistantEnabled;
-  const [assistantToggleTarget, setAssistantToggleTarget] = useState<boolean | null>(null);
-  const [assistantFlagBusy, setAssistantFlagBusy] = useState(false);
   useEffect(() => {
     if (!workflowFlags.cmsAiEnabled) {
       setModelOptions([{ value: "auto", label: t("settings.modelAuto") }]);
@@ -4868,20 +4864,6 @@ function Settings() {
       setPersonalTokenBusy(false);
     }
   };
-  const confirmAssistantToggle = async () => {
-    if (assistantToggleTarget === null) return;
-    setAssistantFlagBusy(true);
-    try {
-      await api.saveFeatureFlags({ assistantEnabled: assistantToggleTarget });
-      await refresh();
-      showToast(t("settings.assistantSaved"));
-      setAssistantToggleTarget(null);
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : t("common.error"), "error");
-    } finally {
-      setAssistantFlagBusy(false);
-    }
-  };
   const toggleDelegate = async (delegate: Record<string, any>) => {
     if (!delegate.id) return;
     const enabled = !Boolean(delegate.enabled);
@@ -4963,7 +4945,7 @@ function Settings() {
           <p className="ui-eyebrow">{t("settings.mcpConnectEyebrow")}</p>
           <h2>{t("settings.mcpConnectTitle")}</h2>
           <p className="ui-muted">{t("settings.mcpConnectHelp")}</p>
-          {mcpInfoLoading ? <p className="ui-field-hint">{t("settings.mcpConnectLoading")}</p> : mcpInfo?.mcpUrl ? <div className="ui-mcp-value"><div><span className="ui-field-label">{t("settings.mcpUrlLabel")}</span><code>{mcpInfo.mcpUrl}</code></div><Button type="button" variant="ghost" size="sm" onClick={() => void copyMcpConnectionUrl()}>{t("settings.mcpUrlCopy")}</Button></div> : <p className="ui-field-error">{t("settings.mcpConnectUnavailable")}</p>}
+          {mcpInfoLoading ? <p className="ui-field-hint">{t("settings.mcpConnectLoading")}</p> : mcpInfo?.mcpUrl ? <div className="ui-mcp-value"><div><span className="ui-field-label">{t("settings.mcpUrlLabel")}</span><code>{mcpInfo.mcpUrl}</code></div><IconButton label={t("settings.mcpUrlCopy")} onClick={() => void copyMcpConnectionUrl()}>⧉</IconButton></div> : <p className="ui-field-error">{t("settings.mcpConnectUnavailable")}</p>}
           <Stack gap="sm">
             <p className="ui-field-hint">{t("settings.mcpConnectStep1")}</p>
             <p className="ui-field-hint">{t("settings.mcpConnectStep2")}</p>
@@ -5025,32 +5007,6 @@ function Settings() {
             </div>
           ) : (
             <p className="ui-empty-compact">{t("settings.delegatesEmpty")}</p>
-          )}
-        </section>
-      )}
-      {isSuperAdmin && (
-        <section className="ui-card ui-settings-card">
-          <p className="ui-eyebrow">{t("settings.superAdminEyebrow")}</p>
-          <h2>{t("settings.assistantInternalTitle")}</h2>
-          <p className="ui-muted">{t("settings.assistantInternalHelp")}</p>
-          <Switch
-            label={t("settings.assistantInternalToggle")}
-            description={assistantEnabled ? t("settings.assistantInternalOn") : t("settings.assistantInternalOff")}
-            checked={assistantEnabled}
-            onChange={(event) => {
-              const next = event.target.checked;
-              if (next !== assistantEnabled) setAssistantToggleTarget(next);
-            }}
-          />
-          {assistantToggleTarget !== null && (
-            <ConfirmModal
-              title={assistantToggleTarget ? t("settings.assistantConfirmOnTitle") : t("settings.assistantConfirmOffTitle")}
-              description={assistantToggleTarget ? t("settings.assistantConfirmOnDescription") : t("settings.assistantConfirmOffDescription")}
-              confirmLabel={t("common.confirm")}
-              busy={assistantFlagBusy}
-              onClose={() => !assistantFlagBusy && setAssistantToggleTarget(null)}
-              onConfirm={() => void confirmAssistantToggle()}
-            />
           )}
         </section>
       )}
@@ -7507,8 +7463,8 @@ function ConnectionsView({ brandId, backTo }: { brandId?: string; backTo?: strin
   return <main className="ui-page">
     <PageHeader eyebrow={`Marca · ${brandOptions.find((brand) => brand.id === selectedBrandId)?.name || brandOptions.find((brand) => brand.id === selectedBrandId)?.handle || selectedBrandId}`} title="Conexiones" description={t("admin.connectionsDescription", "El Blog publica mediante el webhook de Coolify. Las conexiones sociales se gestionan aquí.")} back={backTo ? <NavLink to={backTo}>← Volver a la marca</NavLink> : undefined} actions={canManage ? <Button onClick={() => setFormOpen(true)}>{t("admin.addConnection")}</Button> : undefined} />
     {error && <Card><p className="ui-field-error">{error}</p></Card>}
-    <Card className="ui-mcp-card"><div className="ui-card-head"><div><span className="ui-eyebrow">{t("settings.mcpConnectEyebrow")}</span><h2>{t("settings.mcpConnectTitle")}</h2><p className="ui-muted">{t("settings.mcpConnectHelp")}</p></div></div>{mcpInfo?.mcpUrl && <div className="ui-mcp-value"><div><span className="ui-field-label">{t("settings.mcpUrlLabel")}</span><code>{mcpInfo.mcpUrl}</code></div><Button type="button" variant="ghost" size="sm" onClick={() => void copyMcpUrl()}>{t("settings.mcpUrlCopy")}</Button></div>}<Stack gap="sm"><p className="ui-field-hint">{t("settings.mcpConnectStep1")}</p><p className="ui-field-hint">{t("settings.mcpConnectStep2")}</p><p className="ui-field-hint">{t("settings.mcpConnectStep3")}</p></Stack><Inline gap="sm"><Button type="button" variant="secondary" onClick={openChatGpt}>{t("settings.chatgptOpen")}</Button><NavLink className="ui-button ui-button-ghost" to="/settings#chatgpt-account">{t("settings.chatgptConnectHere")}</NavLink></Inline></Card>
-    {connections.length ? <div className="ui-connection-grid">{connections.map((connection) => <ConnectionCard key={connection.id} provider={connection.provider === "buffer" && connection.channel === "buffer" ? "Buffer · todos los canales" : `${connection.provider || "Proveedor"} · ${connection.channel || "canal"}`} status={connection.status || (connection.enabled ? "connected" : "disabled")} account={connection.externalAccountId || connection.userId ? `Cuenta ${connection.externalAccountId || connection.userId}` : undefined} actions={<Inline gap="sm"><Button variant="ghost" size="sm" onClick={async () => { try { await api.testConnection(connection.id, selectedBrandId); notify("Prueba correcta."); } catch (err: any) { notify(err?.message || "La prueba falló.", "error"); } }}>Probar</Button>{canManage && <Button variant="ghost" size="sm" onClick={async () => { try { await api.disconnectConnection(connection.id, selectedBrandId); setConnections((current) => current.filter((item) => item.id !== connection.id)); notify("Conexión desconectada."); } catch (err: any) { notify(err?.message || "No se pudo desconectar.", "error"); } }}>Desconectar</Button>}</Inline>} />)}</div> : !error && <UiEmptyState title="Aún no hay conexiones" description="Activa un canal y conecta el proveedor que lo ejecutará." />}
+    <Card className="ui-mcp-card"><div className="ui-card-head"><div><span className="ui-eyebrow">{t("settings.mcpConnectEyebrow")}</span><h2>{t("settings.mcpConnectTitle")}</h2><p className="ui-muted">{t("settings.mcpConnectHelp")}</p></div></div>{mcpInfo?.mcpUrl && <div className="ui-mcp-value"><div><span className="ui-field-label">{t("settings.mcpUrlLabel")}</span><code>{mcpInfo.mcpUrl}</code></div><IconButton label={t("settings.mcpUrlCopy")} onClick={() => void copyMcpUrl()}>⧉</IconButton></div>}<Stack gap="sm"><p className="ui-field-hint">{t("settings.mcpConnectStep1")}</p><p className="ui-field-hint">{t("settings.mcpConnectStep2")}</p><p className="ui-field-hint">{t("settings.mcpConnectStep3")}</p></Stack><Inline gap="sm"><Button type="button" variant="secondary" onClick={openChatGpt}>{t("settings.chatgptOpen")}</Button><NavLink className="ui-button ui-button-ghost" to="/settings#chatgpt-account">{t("settings.chatgptConnectHere")}</NavLink></Inline></Card>
+    {connections.length ? <div className="ui-connection-grid">{connections.map((connection) => <ConnectionCard key={connection.id} provider={connection.provider === "buffer" && connection.channel === "buffer" ? "Buffer · todos los canales" : `${connection.provider || "Proveedor"} · ${connection.channel || "canal"}`} status={connection.status || (connection.enabled ? "connected" : "disabled")} account={connection.externalAccountId || connection.userId ? `Cuenta ${connection.externalAccountId || connection.userId}` : undefined} actions={<Inline gap="sm"><IconButton label="Probar conexión" onClick={async () => { try { await api.testConnection(connection.id, selectedBrandId); notify("Prueba correcta."); } catch (err: any) { notify(err?.message || "La prueba falló.", "error"); } }}>↻</IconButton>{canManage && <Button variant="ghost" size="sm" onClick={async () => { try { await api.disconnectConnection(connection.id, selectedBrandId); setConnections((current) => current.filter((item) => item.id !== connection.id)); notify("Conexión desconectada."); } catch (err: any) { notify(err?.message || "No se pudo desconectar.", "error"); } }}>Desconectar</Button>}</Inline>} />)}</div> : !error && <UiEmptyState title="Aún no hay conexiones" description="Activa un canal y conecta el proveedor que lo ejecutará." />}
     <Modal open={canManage && formOpen} title={t("admin.addConnection")} onClose={() => setFormOpen(false)}>
       <form className="ui-stack ui-stack-md ui-connection-form" onSubmit={(event) => void connect(event)}>
       <Field label="Proveedor"><Select autoFocus value={form.provider} onChange={(event) => { const provider = event.target.value; setForm((current) => ({ ...current, provider, channel: provider === "buffer" ? "buffer" : provider === "web" ? "blog" : current.channel === "blog" || current.channel === "buffer" ? "instagram" : current.channel })); setPostizIntegrations([]); setBufferOrganizations([]); setBufferChannels([]); }}><option value="buffer">Buffer (una conexión)</option><option value="postiz">Postiz (self-hosted)</option><option value="metricool">Metricool</option><option value="planable">Planable.io</option><option value="web">Coolify webhook / Web</option></Select></Field>

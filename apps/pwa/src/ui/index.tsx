@@ -7,8 +7,8 @@ export function Button({ variant = "primary", size = "md", loading = false, chil
   return <button type={type} className={`ui-button ui-button-${variant} ui-button-${size} ${className}`.trim()} disabled={disabled || loading} {...props}>{loading && <span className="ui-spinner" aria-hidden="true" />}{children}</button>;
 }
 
-export function IconButton({ label, children, className = "", type = "button", ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
-  return <button type={type} className={`ui-icon-button ${className}`.trim()} aria-label={label} {...props}>{children}</button>;
+export function IconButton({ label, title, children, className = "", type = "button", ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
+  return <button type={type} className={`ui-icon-button ${className}`.trim()} aria-label={label} title={title || label} {...props}>{children}</button>;
 }
 
 const TELEPROMPTER_CONTROLS_POSITION = "escarlet_teleprompter_controls_position";
