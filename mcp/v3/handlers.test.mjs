@@ -212,6 +212,7 @@ test('content.post.create no expande variantes a canales no seleccionados', asyn
     }
   })
   assert.equal(result.post.id, 'post-1')
+  assert.equal(result.postUrl, 'https://cms.escarlet.design/app/content/post-1?site=escarlet')
   assert.deepEqual(created.channels, ['blog'])
 })
 

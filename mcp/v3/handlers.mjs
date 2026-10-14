@@ -24,6 +24,7 @@ import {
   updateContentItem
 } from '../../lib/workspace-domain.mjs'
 import { canonicalMutationReferences, canonicalPost } from '../../lib/content-contract.mjs'
+import { contentPostUrl } from '../../lib/preview-url.mjs'
 import { mediaDir } from '../../lib/db.mjs'
 import { renderProductTransform } from '../../lib/product-renderer.mjs'
 import { resolve as resolvePath, join } from 'node:path'
@@ -359,6 +360,7 @@ async function uploadGeneratedAsset(args, auth, runtime) {
     status: attachment?.contentComplete || !brandGrounding?.itemId ? 'ready_for_review' : 'uploaded',
     assetId: asset.id,
     postId: brandGrounding?.itemId || null,
+    postUrl: contentPostUrl(brandGrounding?.itemId, site),
     asset,
     media: uploaded.media,
     attachment,
@@ -670,13 +672,13 @@ async function contentPostAction(name, args, auth, runtime) {
   if (name === 'content.post.get') {
     if (!itemId) throw Object.assign(new Error('postId es obligatorio.'), { code: 'post_id_required', status: 422 })
     const item = await readItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId })
-    return { contractVersion: MCP_V3_CONTRACT, capability: name, post: canonicalPost(item) }
+    return { contractVersion: MCP_V3_CONTRACT, capability: name, post: canonicalPost(item), postId: itemId, postUrl: contentPostUrl(itemId, scope.site) }
   }
   if (name === 'content.post.archive') {
     if (args.confirm !== true) throw Object.assign(new Error('Archivar un Post requiere confirm=true.'), { code: 'post_archive_confirmation_required', status: 428 })
     const archive = typeof runtime?.archiveContentItem === 'function' ? runtime.archiveContentItem : archiveContentItem
     const result = await archive({ ...shared, itemId, archived: args.archived !== false, idempotencyKey: args.idempotencyKey })
-    return { contractVersion: MCP_V3_CONTRACT, capability: name, postId: itemId, ...result, nextAction: result.archived ? 'restore_or_review' : 'edit' }
+    return { contractVersion: MCP_V3_CONTRACT, capability: name, postId: itemId, postUrl: contentPostUrl(itemId, scope.site), ...result, nextAction: result.archived ? 'restore_or_review' : 'edit' }
   }
   if (name === 'content.post.create') {
     const title = String(args.title || args.topic || 'Nueva publicación').trim().slice(0, 500)
@@ -708,7 +710,7 @@ async function contentPostAction(name, args, auth, runtime) {
       contractVersion: MCP_V3_CONTRACT,
       capability: name,
       post: item ? canonicalPost(item) : null,
-      ...canonicalMutationReferences({ postId, variantId: item?.variants?.[0]?.id || null, brandKitVersionId: created.brandKitVersionId, generationRunId: args.generationRunId || null, nextAction: 'human_review' })
+      ...canonicalMutationReferences({ postId, site: scope.site, variantId: item?.variants?.[0]?.id || null, brandKitVersionId: created.brandKitVersionId, generationRunId: args.generationRunId || null, nextAction: 'human_review' })
     }
   }
   if (!itemId) throw Object.assign(new Error('postId es obligatorio.'), { code: 'post_id_required', status: 422 })
@@ -731,19 +733,19 @@ async function contentPostAction(name, args, auth, runtime) {
     })
     const item = await readItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId })
     const canonical = canonicalPost(item)
-    return { contractVersion: MCP_V3_CONTRACT, capability: name, post: canonical, ...canonicalMutationReferences({ postId: itemId, variantId: item.variants?.find((variant) => variant.channel === selectedChannel)?.id || null, brandKitVersionId: canonical.brandKitVersionId, generationRunId: canonical.generationRunId, nextAction: args.readyForReview ? (shared.reviewRequired ? 'human_approval' : 'schedule') : 'edit' }), updated }
+    return { contractVersion: MCP_V3_CONTRACT, capability: name, post: canonical, ...canonicalMutationReferences({ postId: itemId, site: scope.site, variantId: item.variants?.find((variant) => variant.channel === selectedChannel)?.id || null, brandKitVersionId: canonical.brandKitVersionId, generationRunId: canonical.generationRunId, nextAction: args.readyForReview ? (shared.reviewRequired ? 'human_approval' : 'schedule') : 'edit' }), updated }
   }
   if (name === 'content.post.review') {
     await updateItem({ ...shared, itemId, readyForReview: true, reviewChannels: Array.isArray(args.reviewChannels) ? args.reviewChannels : undefined })
     const item = await readItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId })
     const canonical = canonicalPost(item)
-    return { contractVersion: MCP_V3_CONTRACT, capability: name, post: canonical, ...canonicalMutationReferences({ postId: itemId, brandKitVersionId: canonical.brandKitVersionId, generationRunId: canonical.generationRunId, nextAction: shared.reviewRequired ? 'human_approval' : 'schedule' }) }
+    return { contractVersion: MCP_V3_CONTRACT, capability: name, post: canonical, ...canonicalMutationReferences({ postId: itemId, site: scope.site, brandKitVersionId: canonical.brandKitVersionId, generationRunId: canonical.generationRunId, nextAction: shared.reviewRequired ? 'human_approval' : 'schedule' }) }
   }
   if (name === 'content.post.approve') {
     const result = await approveItem({ ...shared, itemId })
     const item = await readItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId })
     const canonical = canonicalPost(item)
-    return { contractVersion: MCP_V3_CONTRACT, capability: name, post: canonical, ...canonicalMutationReferences({ postId: itemId, brandKitVersionId: canonical.brandKitVersionId, generationRunId: canonical.generationRunId, nextAction: 'schedule' }), result }
+    return { contractVersion: MCP_V3_CONTRACT, capability: name, post: canonical, ...canonicalMutationReferences({ postId: itemId, site: scope.site, brandKitVersionId: canonical.brandKitVersionId, generationRunId: canonical.generationRunId, nextAction: 'schedule' }), result }
   }
   return undefined
 }
@@ -836,6 +838,8 @@ async function contentCampaignAction(name, args, auth, runtime) {
     return {
       contractVersion: MCP_V3_CONTRACT,
       capability: name,
+      postId: args.itemId,
+      postUrl: contentPostUrl(args.itemId, scope.site),
       attachment: await attachMedia({ ...shared, itemId: args.itemId, mediaAssetId: args.mediaAssetId, channels: args.channels, assetIndex: args.assetIndex, createMissingVariants: args.createMissingVariants, removeReplacedAssets: args.removeReplacedAssets !== false })
     }
   }
