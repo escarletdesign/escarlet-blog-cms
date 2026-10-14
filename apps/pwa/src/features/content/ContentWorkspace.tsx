@@ -201,6 +201,7 @@ export function PostWorkspace() {
   const [scheduleAt, setScheduleAt] = useState("");
   const [reviewOpen, setReviewOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [cancelVariantOpen, setCancelVariantOpen] = useState(false);
   const [mediaBusy, setMediaBusy] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false);
 
@@ -213,7 +214,8 @@ export function PostWorkspace() {
       .then(({ item }) => {
         const next = asCanonicalPost(item);
         setPost(next);
-        const first = next.variants.find((variant) => variant.channel === activeChannel) || next.variants[0];
+        const usable = next.variants.find((variant) => variant.status !== "archived");
+        const first = next.variants.find((variant) => variant.channel === activeChannel && variant.status !== "archived") || usable || next.variants[0];
         if (first) {
           setActiveChannel(first.channel);
           setDraft(bodyText(first));
@@ -275,7 +277,12 @@ export function PostWorkspace() {
     if (!post || !scheduleAt) return;
     setSaving(true);
     try {
-      await api.scheduleContent(post.id, new Date(scheduleAt).toISOString(), Intl.DateTimeFormat().resolvedOptions().timeZone, site, post.variants.map((variant) => variant.channel));
+      const channels = post.variants.filter((variant) => variant.status !== "archived" && variant.channel !== "substack").map((variant) => variant.channel);
+      if (!channels.length) {
+        showToast(t("content.toast.noPublishableChannels", "No hay canales con un conector de publicación disponible."), "error");
+        return;
+      }
+      await api.scheduleContent(post.id, new Date(scheduleAt).toISOString(), Intl.DateTimeFormat().resolvedOptions().timeZone, site, channels);
       showToast(t("content.toast.scheduled", "Post programado"));
       load();
     } catch (cause) { showToast(cause instanceof Error ? cause.message : t("common.error"), "error"); }
@@ -311,6 +318,21 @@ export function PostWorkspace() {
     }
   };
 
+  const cancelVariant = async () => {
+    if (!post || !activeVariant || activeVariant.status === "published" || activeVariant.status === "archived") return;
+    setSaving(true);
+    try {
+      await api.cancelContentChannel(post.id, activeVariant.channel, site);
+      showToast(t("content.toast.variantCanceled", "Canal omitido. No se publicará con este Post."));
+      setCancelVariantOpen(false);
+      load();
+    } catch (cause) {
+      showToast(cause instanceof Error ? cause.message : t("common.error"), "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const syncRemoteStatus = async () => {
     setSyncBusy(true);
     try {
@@ -342,7 +364,7 @@ export function PostWorkspace() {
         <Tabs items={tabs} value={activeChannel} onChange={selectChannel} idPrefix="post-variants" panelIdPrefix="post-panel" ariaLabel={t("content.post.variants", "Variantes del Post")} />
         <div id={`post-panel-${encodeURIComponent(activeChannel)}`} role="tabpanel" aria-labelledby={`post-variants-${encodeURIComponent(activeChannel)}`} className="v3-variant-panel">
           {activeVariant ? <Stack gap="md">
-            <div className="v3-variant-heading"><div><span className="ui-eyebrow">{channelName(activeVariant.channel, t)}</span><h2>{t("content.variant.title", "Versión para este canal")}</h2></div><StatusBadge status={activeVariant.status} /></div>
+            <div className="v3-variant-heading"><div><span className="ui-eyebrow">{channelName(activeVariant.channel, t)}</span><h2>{t("content.variant.title", "Versión para este canal")}</h2></div><Inline gap="sm"><StatusBadge status={activeVariant.status} />{canEdit && !["published", "archived"].includes(activeVariant.status) && <IconButton label={t("content.variant.omit", "Omitir canal")} onClick={() => setCancelVariantOpen(true)}>×</IconButton>}</Inline></div>
             <Field label={t("content.post.title", "Título")}><TextField value={title} onChange={(event) => setTitle(event.target.value)} /></Field>
             <Field label={t("content.post.copy", "Contenido")} hint={t("content.post.copyHint", "La IA externa y el Brand Kit se muestran en el rail de revisión.")}><Textarea className="v3-copy-editor" value={draft} onChange={(event) => setDraft(event.target.value)} /></Field>
             <PostVariantPreview variant={activeVariant} />
@@ -358,6 +380,7 @@ export function PostWorkspace() {
     </div>
     <Drawer open={reviewOpen} title={t("content.review.title", "Revisión y publicación")} onClose={() => setReviewOpen(false)}><ReviewRail post={post} canApprove={canApprove} saving={saving} scheduleAt={scheduleAt} setScheduleAt={setScheduleAt} onApprove={approve} onSchedule={schedule} /></Drawer>
     <Modal open={deleteOpen} title={t("content.delete.title", "Eliminar este borrador") } onClose={() => setDeleteOpen(false)}><Stack gap="md"><p className="ui-muted">{t("content.delete.description", "El Post se archivará y dejará de aparecer en Contenido y Publicación. Podrás restaurarlo desde el filtro de archivados.")}</p><Inline gap="sm"><Button variant="ghost" onClick={() => setDeleteOpen(false)}>{t("common.cancel", "Cancelar")}</Button><Button variant="danger" loading={saving} onClick={() => void archivePost()}>{t("content.action.deleteConfirm", "Eliminar borrador")}</Button></Inline></Stack></Modal>
+    <Modal open={cancelVariantOpen} title={t("content.variant.omitTitle", "Omitir este canal") } onClose={() => setCancelVariantOpen(false)}><Stack gap="md"><p className="ui-muted">{t("content.variant.omitDescription", "La variante quedará fuera de futuras publicaciones de este Post. Las demás variantes no cambiarán.")}</p><Inline gap="sm"><Button variant="ghost" onClick={() => setCancelVariantOpen(false)}>{t("common.cancel", "Cancelar")}</Button><Button variant="danger" loading={saving} onClick={() => void cancelVariant()}>{t("content.variant.omitConfirm", "Omitir canal")}</Button></Inline></Stack></Modal>
   </main>;
 }
 
