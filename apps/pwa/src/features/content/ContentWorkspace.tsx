@@ -335,7 +335,7 @@ export function PostWorkspace() {
       eyebrow={post.campaignTitle || t("content.noCampaign", "Sin campaña")}
       title={post.title}
       description={t("content.post.description", "Edita, revisa y publica este Post desde un único espacio.")}
-      actions={<Inline gap="sm"><StatusBadge status={post.status} label={t(`content.status.${post.status}`, post.status.replace(/_/g, " "))} /><Button variant="secondary" loading={syncBusy} onClick={() => void syncRemoteStatus()}>{t("content.refreshStatus", "Actualizar estado")}</Button><Button variant="ghost" onClick={() => setReviewOpen(true)}>{t("content.review.open", "Revisión")}</Button>{canEdit && !["published", "scheduled"].includes(post.status) && <Button variant="danger" onClick={() => setDeleteOpen(true)}>{t("content.action.delete", "Eliminar borrador")}</Button>}</Inline>}
+      actions={<Inline gap="sm"><StatusBadge status={post.status} label={t(`content.status.${post.status}`, post.status.replace(/_/g, " "))} /><IconButton label={t("content.refreshStatus", "Actualizar estado")} disabled={syncBusy} aria-busy={syncBusy} onClick={() => void syncRemoteStatus()}>↻</IconButton><Button variant="ghost" onClick={() => setReviewOpen(true)}>{t("content.review.open", "Revisión")}</Button>{canEdit && !["published", "scheduled"].includes(post.status) && <Button variant="danger" onClick={() => setDeleteOpen(true)}>{t("content.action.delete", "Eliminar borrador")}</Button>}</Inline>}
     />
     <div className="v3-post-layout">
       <section className="v3-post-main" aria-label={t("content.post.editor", "Editor del Post")}>

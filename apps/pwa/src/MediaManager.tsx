@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboa
 import { Link } from "react-router-dom";
 import { ApiError, api } from "./api";
 import type { MediaItem } from "./types";
-import { Badge, Button, Card, EmptyState, Field, Inline, Modal, PageHeader, Select, Skeleton, Stack, TextField } from "./ui";
+import { Badge, Button, Card, EmptyState, Field, IconButton, Inline, Modal, PageHeader, Select, Skeleton, Stack, TextField } from "./ui";
 
 type MediaManagerProps = { site: string; t: (key: string, fallback?: string) => string };
 
@@ -183,7 +183,7 @@ export function MediaManager({ site, t }: MediaManagerProps) {
         <Field label={t("media.linkFilter", "Vínculo")}><Select value={linkFilter} onChange={(event) => setLinkFilter(event.target.value as typeof linkFilter)}><option value="all">{t("media.filterAll", "Todos")}</option><option value="linked">{t("media.filterLinked", "Vinculados")}</option><option value="unlinked">{t("media.filterUnlinked", "Sin vínculos")}</option></Select></Field>
         <Field label={t("media.publishedFilter", "Publicación")}><Select value={publishedFilter} onChange={(event) => setPublishedFilter(event.target.value as typeof publishedFilter)}><option value="all">{t("media.filterAll", "Todos")}</option><option value="published">{t("media.filterPublished", "Publicados")}</option><option value="unpublished">{t("media.filterUnpublished", "No publicados")}</option></Select></Field>
         <Badge tone="info">{visibleAssets.length} {t("media.count", "medios")}</Badge>
-        <Inline gap="sm" className="ui-media-manager-selection-actions"><Button size="sm" variant="secondary" disabled={!visibleIds.length || busy} onClick={selectVisible}>{allVisibleSelected ? t("media.clearVisible", "Limpiar visibles") : t("media.selectVisible", "Seleccionar visibles")}</Button>{selectedIds.length > 0 && <Button size="sm" variant="ghost" disabled={busy} onClick={() => setSelectedIds([])}>{t("media.clearSelection", "Limpiar selección")}</Button>}</Inline>
+        <Inline gap="sm" className="ui-media-manager-selection-actions"><IconButton label={allVisibleSelected ? t("media.clearVisible", "Limpiar visibles") : t("media.selectVisible", "Seleccionar visibles")} disabled={!visibleIds.length || busy} onClick={selectVisible}>{allVisibleSelected ? "☑" : "☐"}</IconButton>{selectedIds.length > 0 && <IconButton label={t("media.clearSelection", "Limpiar selección")} disabled={busy} onClick={() => setSelectedIds([])}>×</IconButton>}</Inline>
         <Button variant="danger" disabled={!selectedIds.length || busy} loading={busy} onClick={() => setDeleteOpen(true)}>{t("media.deleteSelected", "Eliminar seleccionados")} {selectedIds.length ? `(${selectedIds.length})` : ""}</Button>
         <p className="ui-media-manager-hint">{t("media.selectionHelp", "Clic selecciona. Shift amplía el rango. Ctrl o ⌘ permite sumar. También puedes arrastrar por la galería. Escape limpia la selección.")}</p>
       </Inline>
