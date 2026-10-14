@@ -22,6 +22,17 @@ function channelName(channel: string, t: (key: string, fallback?: string) => str
 
 function bodyText(variant?: ContentVariant | null) {
   const body = variant?.body || {};
+  const socialPack = body.socialPack && typeof body.socialPack === "object" ? body.socialPack : {};
+  if (variant?.channel === "instagram") {
+    return String(socialPack.instagramCaption || socialPack.caption || body.caption || body.text || body.body || body.topic || "");
+  }
+  if (variant?.channel === "instagram_story") {
+    const story = socialPack.instagramStory && typeof socialPack.instagramStory === "object" ? socialPack.instagramStory : {};
+    return String(story.text || story.caption || body.text || body.caption || body.topic || "");
+  }
+  if (variant?.channel === "video") {
+    return String(body.publishCopy || body.caption || body.text || socialPack.videoCaption || socialPack.videoCopy || body.videoScript || body.script || "");
+  }
   return String(body.text || body.caption || body.body || body.bodyHtml || "");
 }
 
@@ -58,12 +69,28 @@ function socialPackFor(variant: PostVariant) {
 }
 
 function variantCopy(variant: PostVariant) {
-  const body = variant.body || {};
-  const socialPack = socialPackFor(variant);
-  if (variant.channel === "instagram") return String(socialPack.instagramCaption || socialPack.caption || body.caption || body.text || body.body || body.topic || "").trim();
-  if (variant.channel === "instagram_story") return String(socialPack.instagramStory?.text || socialPack.instagramStory?.caption || body.text || body.caption || body.topic || "").trim();
-  if (variant.channel === "video") return String(body.publishCopy || body.caption || body.text || socialPack.videoCaption || socialPack.videoCopy || body.videoScript || body.script || "").trim();
-  return bodyText(variant);
+  return bodyText(variant).trim();
+}
+
+function bodyWithCopy(variant: PostVariant, body: Record<string, any>, copy: string) {
+  const next = { ...body };
+  if (variant.channel === "instagram") {
+    const socialPack = socialPackFor(variant);
+    const key = Object.prototype.hasOwnProperty.call(socialPack, "instagramCaption") || !Object.prototype.hasOwnProperty.call(socialPack, "caption") ? "instagramCaption" : "caption";
+    next.socialPack = { ...socialPack, [key]: copy };
+  } else if (variant.channel === "instagram_story") {
+    const socialPack = socialPackFor(variant);
+    const story = socialPack.instagramStory && typeof socialPack.instagramStory === "object" ? socialPack.instagramStory : {};
+    const key = Object.prototype.hasOwnProperty.call(story, "text") || !Object.prototype.hasOwnProperty.call(story, "caption") ? "text" : "caption";
+    next.socialPack = { ...socialPack, instagramStory: { ...story, [key]: copy } };
+  } else if (variant.channel === "video") {
+    if (Object.prototype.hasOwnProperty.call(next, "publishCopy")) next.publishCopy = copy;
+    else if (Object.prototype.hasOwnProperty.call(next, "caption")) next.caption = copy;
+    else next.text = copy;
+  } else if (variant.channel !== "blog") {
+    next.text = copy;
+  }
+  return next;
 }
 
 function previewItemsFor(variant: PostVariant) {
@@ -222,10 +249,9 @@ export function PostWorkspace() {
       if (activeChannel === "blog") {
         body.title = title;
         body.bodyHtml = draft;
-      } else {
-        body.text = draft;
       }
-      await api.updateContentItem(post.id, { site, channel: activeVariant.channel, body, contentTitle: title, readyForReview, reviewChannels: readyForReview ? [activeVariant.channel] : undefined });
+      const nextBody = activeChannel === "blog" ? body : bodyWithCopy(activeVariant, body, draft);
+      await api.updateContentItem(post.id, { site, channel: activeVariant.channel, body: nextBody, contentTitle: title, readyForReview, reviewChannels: readyForReview ? [activeVariant.channel] : undefined });
       showToast(readyForReview ? t("content.toast.review", "Post enviado a revisión") : t("content.toast.saved", "Cambios guardados"));
       load();
     } catch (cause) {
