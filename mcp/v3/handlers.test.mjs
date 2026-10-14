@@ -167,3 +167,21 @@ test('asset.list reutiliza la marca activa sin exigir IDs internos', async () =>
   assert.equal(result.isError, false)
   assert.equal(result.structuredContent.assets[0].siteId, 'site-1')
 })
+
+test('repair.plan agrupa assets huérfanos por procedencia y solo propone crear Inbox', async () => {
+  const server = await createMcpServerV3({ role: 'agent', userId: 'user-1' }, {
+    runtime: {
+      resolveWorkspaceContext: async () => ({ workspaceId: 'workspace-1', sites: [{ id: 'site-1', handle: 'escarlet', role: 'editor' }] }),
+      listContentItems: async () => [],
+      listCanonicalMedia: async () => ({ assets: [
+        { id: 'asset-2', metadata: { generationRunId: 'run-1', channel: 'instagram', assetIndex: 1 }, deleteBlockers: [] },
+        { id: 'asset-1', metadata: { generationRunId: 'run-1', channel: 'instagram', assetIndex: 0 }, deleteBlockers: [] }
+      ]})
+    }
+  })
+  const result = await call(server, 'content.audit.repair.plan')
+  assert.equal(result.isError, false)
+  assert.equal(result.structuredContent.writePerformed, false)
+  assert.deepEqual(result.structuredContent.proposals[0].assetIds, ['asset-1', 'asset-2'])
+  assert.equal(result.structuredContent.proposals[0].action, 'create_post_inbox')
+})

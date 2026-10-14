@@ -520,6 +520,7 @@ async function contentAuditRepairPlan(args, auth, runtime) {
   const inventory = await contentAuditInventory({ ...args, limit: 100, cursor: '0' }, auth, runtime)
   const proposals = []
   const postsById = new Map(inventory.posts.map((post) => [post.id, post]))
+  const orphanGroups = new Map()
   for (const asset of inventory.diagnostics.assetsWithoutPost) {
     const metadata = asset.provenance || {}
     const postId = metadata.postId || metadata.contentItemId || metadata.generationRun?.postId || metadata.brandGrounding?.itemId
@@ -528,6 +529,37 @@ async function contentAuditRepairPlan(args, auth, runtime) {
     const variant = post?.variants?.find((candidate) => !channel || candidate.channel === channel)
     if (post && variant && !asset.protected) proposals.push({ action: 'attach_asset', assetId: asset.assetId, postId: post.id, variantId: variant.id, assetIndex: Number.isInteger(metadata.assetIndex) ? metadata.assetIndex : 0, justification: 'La procedencia declara un Post y una variante existentes.', risk: 'Verificar que el orden del carrusel siga siendo correcto.', requiresConfirmation: true })
     else if (post && channel && !asset.protected) proposals.push({ action: 'attach_asset_create_variant', assetId: asset.assetId, postId: post.id, channel, assetIndex: Number.isInteger(metadata.assetIndex) ? metadata.assetIndex : 0, justification: 'La procedencia declara un Post y un canal, pero falta la variante.', risk: 'Se creará una variante vacía para ese canal antes de adjuntar el asset.', requiresConfirmation: true })
+    if (!post && !asset.protected) {
+      const grounding = metadata.brandGrounding && typeof metadata.brandGrounding === 'object' ? metadata.brandGrounding : {}
+      const groupKey = String(metadata.generationRunId || metadata.preparationId || grounding.generationRunId || grounding.preparationId || '').trim()
+      if (groupKey) {
+        const group = orphanGroups.get(groupKey) || { assetIds: [], channels: new Set(), indexes: [], titles: [] }
+        group.assetIds.push(asset.assetId)
+        if (channel) group.channels.add(channel)
+        if (Number.isInteger(metadata.assetIndex)) group.indexes.push({ assetId: asset.assetId, assetIndex: metadata.assetIndex })
+        const title = metadata.contentTitle || metadata.title || metadata.topic || grounding.title || grounding.topic
+        if (title) group.titles.push(String(title).trim())
+        orphanGroups.set(groupKey, group)
+      }
+    }
+  }
+  for (const [groupKey, group] of orphanGroups) {
+    const assetIds = [...new Set(group.assetIds)].sort((left, right) => {
+      const leftIndex = group.indexes.find((entry) => entry.assetId === left)?.assetIndex ?? Number.MAX_SAFE_INTEGER
+      const rightIndex = group.indexes.find((entry) => entry.assetId === right)?.assetIndex ?? Number.MAX_SAFE_INTEGER
+      return leftIndex - rightIndex || left.localeCompare(right)
+    })
+    proposals.push({
+      action: 'create_post_inbox',
+      groupKey,
+      assetIds,
+      channels: [...group.channels],
+      title: group.titles[0] || 'Contenido recuperado',
+      assetIndexes: group.indexes.sort((left, right) => left.assetIndex - right.assetIndex),
+      justification: 'Los assets no tienen Post, pero comparten una preparación o generación verificable.',
+      risk: 'Se creará un único Post borrador en Inbox editorial y se conservará el orden declarado por assetIndex.',
+      requiresConfirmation: true
+    })
   }
   for (const empty of inventory.diagnostics.draftVideoVariantsWithoutMedia) {
     const post = postsById.get(empty.postId)
