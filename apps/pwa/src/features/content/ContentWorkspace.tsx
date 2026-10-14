@@ -105,7 +105,7 @@ function previewItemsFor(variant: PostVariant) {
     if (frames.length) return frames.map((frame: Record<string, any>, index: number) => ({ ...(media[index] || {}), ...frame }));
     if (story.imageUrl || story.url || story.image) return [{ ...(media[0] || {}), ...story }];
   }
-  if (variant.channel === "video" && !media.length) {
+  if (variant.channel === "video") {
     const body = variant.body || {};
     const source = body.videoUrl || body.videoPreviewUrl || body.url;
     return source ? [{ url: source, contentType: "video/mp4" }] : [];
@@ -335,7 +335,7 @@ export function PostWorkspace() {
       eyebrow={post.campaignTitle || t("content.noCampaign", "Sin campaña")}
       title={post.title}
       description={t("content.post.description", "Edita, revisa y publica este Post desde un único espacio.")}
-      actions={<Inline gap="sm"><StatusBadge status={post.status} label={t(`content.status.${post.status}`, post.status.replace(/_/g, " "))} /><IconButton label={t("content.refreshStatus", "Actualizar estado")} disabled={syncBusy} aria-busy={syncBusy} onClick={() => void syncRemoteStatus()}>↻</IconButton><Button variant="ghost" onClick={() => setReviewOpen(true)}>{t("content.review.open", "Revisión")}</Button>{canEdit && !["published", "scheduled"].includes(post.status) && <Button variant="danger" onClick={() => setDeleteOpen(true)}>{t("content.action.delete", "Eliminar borrador")}</Button>}</Inline>}
+      actions={<Inline gap="sm"><StatusBadge status={post.status} label={t(`content.status.${post.status}`, post.status.replace(/_/g, " "))} /><IconButton label={t("content.refreshStatus", "Actualizar estado")} disabled={syncBusy} aria-busy={syncBusy} onClick={() => void syncRemoteStatus()}>↻</IconButton><IconButton label={t("content.review.open", "Revisión")} onClick={() => setReviewOpen(true)}>◉</IconButton>{canEdit && !["published", "scheduled"].includes(post.status) && <IconButton label={t("content.action.delete", "Eliminar borrador")} onClick={() => setDeleteOpen(true)}>⌫</IconButton>}</Inline>}
     />
     <div className="v3-post-layout">
       <section className="v3-post-main" aria-label={t("content.post.editor", "Editor del Post")}>
@@ -383,7 +383,7 @@ function PostVariantPreview({ variant }: { variant: PostVariant }) {
     <div className="v3-preview-stage" role="region" aria-label={t("content.preview.region", "Vista previa del contenido")}>
       <IconButton label={t("content.preview.previous", "Anterior")} onClick={() => setActiveIndex((safeIndex - 1 + items.length) % items.length)} disabled={items.length < 2}>‹</IconButton>
       <figure className="v3-preview-frame">
-        {source ? previewMediaIsVideo(current) ? <video className="v3-preview-media" src={source} controls playsInline preload="metadata" aria-label={title} /> : <img className="v3-preview-media" src={source} alt={title} loading="lazy" decoding="async" /> : <div className="v3-preview-media v3-preview-placeholder">{t("content.preview.missingMedia", "Sin media")}</div>}
+        {source ? previewMediaIsVideo(current) ? <video className="v3-preview-media" src={source} controls playsInline preload="metadata" aria-label={title} /> : <img className="v3-preview-media" src={source} alt={title} loading="lazy" decoding="async" /> : <div className="v3-preview-media v3-preview-placeholder">{isVideoChannel ? t("content.preview.missingVideo", "Vídeo pendiente de cargar") : t("content.preview.missingMedia", "Sin media")}</div>}
         <figcaption>{title}</figcaption>
       </figure>
       <IconButton label={t("content.preview.next", "Siguiente")} onClick={() => setActiveIndex((safeIndex + 1) % items.length)} disabled={items.length < 2}>›</IconButton>

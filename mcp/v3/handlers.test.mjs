@@ -197,6 +197,24 @@ test('content.post.archive exige confirmación explícita y devuelve la operaci�
   assert.equal(calls[0].idempotencyKey, 'archive-1')
 })
 
+test('content.post.create no expande variantes a canales no seleccionados', async () => {
+  let created = null
+  const result = await invokeBuiltinCapability('content.post.create', {
+    site: 'escarlet',
+    title: 'Post acotado',
+    variants: { blog: { body: 'Blog' }, instagram: { body: 'Social' }, x: { body: 'No solicitado' } }
+  }, {
+    auth: { role: 'editor', site: 'escarlet', userId: 'user-1' },
+    runtime: {
+      resolveWorkspaceContext: async () => ({ workspaceId: 'workspace-1', sites: [{ id: 'site-1', handle: 'escarlet', role: 'editor' }] }),
+      createContentBatch: async (input) => { created = input; return { itemIds: ['post-1'], brandKitVersionId: null } },
+      getContentItem: async () => ({ id: 'post-1', site_id: 'site-1', topic: 'Post acotado', metadata: { contentTitle: 'Post acotado' }, variants: [{ id: 'variant-blog', channel: 'blog', status: 'draft', body: {} }] })
+    }
+  })
+  assert.equal(result.post.id, 'post-1')
+  assert.deepEqual(created.channels, ['blog'])
+})
+
 test('asset.list reutiliza la marca activa sin exigir IDs internos', async () => {
   const server = await createMcpServerV3({ role: 'viewer', site: 'escarlet' }, {
     runtime: {

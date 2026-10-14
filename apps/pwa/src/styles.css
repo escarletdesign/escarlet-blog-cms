@@ -1318,12 +1318,13 @@ button.ui-calendar-item:focus-visible { outline: 2px solid var(--ui-accent); out
 .v3-content-page, .v3-post-workspace { max-width: 1440px; }
 .v3-content-filters { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: var(--ui-space-3); margin-bottom: var(--ui-space-6); }
 .v3-content-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--ui-space-4); }
-.v3-post-card { display: grid; gap: var(--ui-space-3); min-height: 210px; padding: var(--ui-space-5); color: var(--ui-text); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); background: var(--ui-surface); text-decoration: none; transition: border-color .18s ease, transform .18s ease, background .18s ease; }
+.v3-post-card { display: grid; gap: var(--ui-space-3); min-width: 0; min-height: 210px; overflow: hidden; padding: var(--ui-space-5); color: var(--ui-text); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); background: var(--ui-surface); text-decoration: none; transition: border-color .18s ease, transform .18s ease, background .18s ease; }
 .v3-post-card:hover, .v3-post-card:focus-visible { border-color: var(--ui-border-strong); background: var(--ui-surface-raised); transform: translateY(-2px); }
 .v3-post-card:focus-visible { outline: none; box-shadow: var(--ui-focus-ring); }
-.v3-post-card-head, .v3-post-card-foot, .v3-card-heading, .v3-variant-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--ui-space-3); }
-.v3-post-card h2, .v3-variant-heading h2, .v3-card-heading h2 { margin: 0; color: var(--ui-text); font-size: 1.1rem; }
-.v3-post-card p { min-height: 48px; margin: 0; color: var(--ui-muted); line-height: 1.5; }
+.v3-post-card-head, .v3-post-card-foot, .v3-card-heading, .v3-variant-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--ui-space-3); min-width: 0; }
+.v3-post-card-head > *, .v3-post-card-foot > *, .v3-card-heading > *, .v3-variant-heading > * { min-width: 0; }
+.v3-post-card h2, .v3-variant-heading h2, .v3-card-heading h2 { margin: 0; color: var(--ui-text); font-size: 1.1rem; overflow-wrap: anywhere; }
+.v3-post-card p { min-height: 48px; margin: 0; color: var(--ui-muted); line-height: 1.5; overflow-wrap: anywhere; }
 .v3-post-card-foot { align-items: flex-end; margin-top: auto; color: var(--ui-muted); font-size: .82rem; }
 .v3-post-card-foot span:last-child { max-width: 60%; overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .v3-state-card { display: grid; gap: var(--ui-space-3); justify-items: start; }

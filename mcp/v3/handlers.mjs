@@ -682,7 +682,8 @@ async function contentPostAction(name, args, auth, runtime) {
     const title = String(args.title || args.topic || 'Nueva publicación').trim().slice(0, 500)
     const topic = String(args.topic || args.brief || title).trim().slice(0, 500)
     const variants = args.variants && typeof args.variants === 'object' ? args.variants : {}
-    const channels = [...new Set((Array.isArray(args.channels) && args.channels.length ? args.channels : Object.keys(variants).length ? Object.keys(variants) : ['blog']).map((value) => String(value || '').trim().toLowerCase()).filter(Boolean))]
+    // Channels are an explicit user choice. Variant payloads can contain drafts for other channels and must not expand the Post silently.
+    const channels = [...new Set((Array.isArray(args.channels) && args.channels.length ? args.channels : ['blog']).map((value) => String(value || '').trim().toLowerCase()).filter(Boolean))]
     const campaignId = String(args.campaignId || args.batchId || '').trim() || null
     const created = await createBatch({
       ...shared,

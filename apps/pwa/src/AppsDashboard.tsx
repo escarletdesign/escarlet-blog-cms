@@ -1,12 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError, api } from "./api";
 import { Button, Card, Field, Inline, PageHeader, Stack, Switch, TextField, Textarea } from "./ui";
 
 type AppsDashboardProps = { site: string; t: (key: string, fallback?: string) => string };
 
-const channels = ["blog", "instagram", "linkedin", "x"] as const;
-const channelLabels: Record<string, string> = { blog: "Blog", instagram: "Instagram", linkedin: "LinkedIn", x: "X" };
+const fallbackChannels = ["blog"] as const;
+const channelLabels: Record<string, string> = { blog: "Blog", instagram: "Instagram", instagram_story: "Instagram Story", linkedin: "LinkedIn", substack: "Substack", video: "Vídeo", x: "X" };
 
 function errorText(error: unknown, fallback: string) {
   return error instanceof ApiError || error instanceof Error ? error.message : fallback;
@@ -16,9 +16,25 @@ export function AppsDashboard({ site, t }: AppsDashboardProps) {
   const navigate = useNavigate();
   const [title, setTitle] = useState("");
   const [brief, setBrief] = useState("");
-  const [selectedChannels, setSelectedChannels] = useState<string[]>(["blog"]);
+  const [availableChannels, setAvailableChannels] = useState<string[]>([...fallbackChannels]);
+  const [selectedChannels, setSelectedChannels] = useState<string[]>([...fallbackChannels]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    api.brandChannels(site, controller.signal).then(({ channels }) => {
+      if (controller.signal.aborted) return;
+      const enabled = channels.filter((channel) => channel.enabled).map((channel) => channel.channel);
+      const next = enabled.length ? enabled : [...fallbackChannels];
+      setAvailableChannels(next);
+      setSelectedChannels((current) => {
+        const kept = current.filter((channel) => next.includes(channel));
+        return kept.length ? kept : [next[0]];
+      });
+    }).catch(() => undefined);
+    return () => controller.abort();
+  }, [site]);
 
   const toggleChannel = (channel: string) => {
     setSelectedChannels((current) => current.includes(channel) ? current.filter((item) => item !== channel) : [...current, channel]);
@@ -62,7 +78,7 @@ export function AppsDashboard({ site, t }: AppsDashboardProps) {
         </Field>
         <Field label={t("apps.channels", "Canales")} hint={t("apps.channelsHint", "Puedes añadir o editar variantes después desde el Post.")}>
           <Inline gap="sm">
-            {channels.map((value) => <Switch key={value} label={t(`channel.${value}`, channelLabels[value])} checked={selectedChannels.includes(value)} onChange={() => toggleChannel(value)} />)}
+            {availableChannels.map((value) => <Switch key={value} label={t(`channel.${value}`, channelLabels[value] || value)} checked={selectedChannels.includes(value)} onChange={() => toggleChannel(value)} />)}
           </Inline>
         </Field>
         <div className="ui-actions">
