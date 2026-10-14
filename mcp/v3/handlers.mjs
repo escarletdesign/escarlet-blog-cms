@@ -471,8 +471,10 @@ async function contentAuditInventory(args, auth, runtime) {
   const assets = allAssets.map((asset) => {
     const links = assetLinksForPosts(posts, asset.id)
     const related = assetLinks.get(asset.id) || { videoJobs: [], publications: [], brandKit: [] }
-    if ((asset.deleteBlockers || []).includes('brand_asset_linked')) related.brandKit = [{ protected: true }]
-    return { ...asset, links: { posts: links, ...related }, protected: links.length > 0 || (asset.deleteBlockers || []).length > 0, protectionReasons: asset.deleteBlockers || [] }
+    const source = String(asset.metadata?.source || '').toLowerCase()
+    if ((asset.deleteBlockers || []).includes('brand_asset_linked') || ['brand-kit', 'brand_kit', 'canonical-reference', 'canonical_reference'].includes(source)) related.brandKit = [{ protected: true }]
+    const protectedAsset = asset.protected === true || links.length > 0 || related.videoJobs.length > 0 || related.publications.length > 0 || related.brandKit.length > 0 || (asset.deleteBlockers || []).length > 0
+    return { ...asset, links: { posts: links, ...related }, protected: protectedAsset, protectionReasons: asset.deleteBlockers || [] }
   })
   const visiblePosts = posts.slice(offset, offset + limit)
   const draftVideoVariantsWithoutMedia = posts.flatMap((post) => (post.variants || []).filter((variant) => /video|reel|story|youtube/i.test(String(variant.channel || '')) && ['draft', 'ready_for_review', 'changes_requested'].includes(variant.status) && !(variant.media || []).length).map((variant) => ({ postId: post.id, variantId: variant.id, channel: variant.channel })))
