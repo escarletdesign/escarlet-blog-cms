@@ -202,9 +202,10 @@ ChatGPT. Connectors → Create → URL `https://cms.escarlet.design/mcp/v3` → 
 
 Claude. Customize → Connectors → Add custom connector → URL `https://cms.escarlet.design/mcp/v3` → OAuth. Usa los mismos tokens y el mismo alcance por rol. Puede usar el mismo icono PNG.
 
-2. Copia `templates/frontend/blog-via-mcp.mdc` al proyecto web y cambia `{{handle}}`
-3. Skill del repo. `.cursor/skills/escarlet-blog-cms/SKILL.md`
-4. Tool de ayuda. `capability.search` descubre primitives y recipes autorizadas
+2. Skill del repo para setup y frontend. `.cursor/skills/escarlet-blog-cms/SKILL.md`
+3. Skill portable de contenido. `payload/escarlet-mcp-content/SKILL.md` se copia al cliente MCP, por ejemplo Hermes, Cursor o Claude
+4. Si el proyecto usa reglas de Cursor para el frontend, copia `templates/frontend/blog-via-mcp.mdc` y cambia `{{handle}}`
+5. Tool de ayuda. `capability.search` descubre primitives y recipes autorizadas
 
 ### Flujo de contenido
 

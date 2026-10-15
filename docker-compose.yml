@@ -30,7 +30,7 @@ services:
       POSTGRES_PASSWORD: payload
       POSTGRES_DB: escarlet_blog
     ports:
-      - '5432:5432'
+      - '127.0.0.1:5432:5432'
     volumes:
       - payload_pg:/var/lib/postgresql/data
     healthcheck:

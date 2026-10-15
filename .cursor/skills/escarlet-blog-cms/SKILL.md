@@ -90,7 +90,7 @@ Runtime en `{CMS}/runtime/v1/`. Cada landing guarda `scripts/escarlet-blog.mjs`.
 
 ## Cómo se edita
 
-- **Texto e imágenes del post.** MCP o `/app`. Skill global `escarlet-blog-integrate` (sección Contenido y publicación).
+- **Texto e imágenes del post.** MCP o `/app`. Para el flujo canónico de generación, administración y publicación vía MCP v3, usa la skill portable [`payload/escarlet-mcp-content/SKILL.md`](../../../payload/escarlet-mcp-content/SKILL.md).
 - **Humanizar contenido.** Usa la skill global `$storyscope-human-writing` para revisar el cuerpo sin inventar hechos ni intentar esquivar detectores. En `/app`, la acción «Hacer más humano» aplica la misma guía a un borrador existente.
 - **Look de listado y ficha.** En la landing. `generate-blog-pages.mjs` + CSS, o vistas Vue.
 - **On/off.** Interruptor del CMS. No uses env de Coolify salvo override local.
@@ -99,21 +99,27 @@ Runtime en `{CMS}/runtime/v1/`. Cada landing guarda `scripts/escarlet-blog.mjs`.
 
 1. Coolify → app del **frontend** (producción) → Deploy Webhook
 2. CMS `/app/admin` → Sitio → pega URL + token API → Probar → Guardar
-3. `blog_publish` dispara el POST. Coolify rebuild. Sync baja posts
+3. `publication.publish` encola el despliegue cuando el destino es Coolify. Coolify rebuild. Sync baja posts
 
 Git push = código (con caché). Webhook del CMS = contenido. Usa force=true para no reciclar el dist.
 
-## Flujo de posts (MCP)
+## Flujo de posts (MCP v3)
 
-| Crear | Editar |
-|-------|--------|
-| `brand.context.get` | igual |
-| `content.post.create` | `content.post.get` |
-| `content.post.update` | `content.post.update` |
-| `asset.upload` → `content.media.attach` | idem |
-| `content.post.review` → `content.post.approve` → `publication.*` | idem |
+La guía operativa completa y portable está en
+[`payload/escarlet-mcp-content/SKILL.md`](../../../payload/escarlet-mcp-content/SKILL.md).
+En resumen, el flujo canónico es:
 
-**Programar.** `publishAt` YYYY-MM-DD futuro. Con el interruptor del sitio activo queda `pending_schedule` hasta `blog_confirm_schedule` (solo super-admin). Luego `scheduled` y el ticker lo publica el día. Calendario en `/app/calendar`.
+`workspace.context.get` → `brand.context.get` → `copy.validate` →
+`content.post.create` → `brand.generation.prepare` → `asset.upload` →
+`content.media.attach` → `content.post.review` → confirmación humana →
+`content.post.approve` → `publication.destination.list` →
+`publication.route` → `publication.prepare` → `publication.schedule` o
+`publication.publish`.
+
+Para editar se conserva el mismo `postId` o `itemId` y se usa
+`content.post.update` o `content.post.variant.upsert`. Para coordinar varios
+Posts se usan `content.campaign.*` o `release.*` solo cuando el usuario lo
+solicita. No uses aliases legacy ni `create_draft`.
 
 **Brand Kit y PAT personal.** El MCP recibe el contexto normalizado completo de la marca, incluidos voz, estilo, paleta, tipografías, composición, arquetipos, templates y referencias aprobadas. Los archivos fuente privados quedan en la app para owner/admin. Para construirlos desde una landing usa `escarlet-cms-brandkit`, genera el ZIP portable con su `reference-library.json` y persiste el resultado con las capabilities namespaced de v3. El ZIP también sirve como staging o respaldo.
 

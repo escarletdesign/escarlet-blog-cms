@@ -1,6 +1,6 @@
 # Escarlet Blog CMS
 
-CMS headless central con MCP para agentes, app `/app` y API JSON multi-sitio. El runtime canónico v2 usa Postgres para workspaces, membresías, brand kits versionados, batches multicanal y jobs/outbox; `db.json` queda como fuente de migración y adaptador del feed público.
+CMS headless central con MCP para agentes, app `/app` y API JSON multi-sitio. El runtime de datos v2 usa Postgres para workspaces, membresías, brand kits versionados, batches multicanal y jobs/outbox; el contrato de agentes es MCP v3. `db.json` queda como fuente de migración y adaptador del feed público.
 
 ## Arranque local
 
@@ -57,13 +57,18 @@ El producto canónico se organiza como Marca → Campaña opcional → Post → 
 - [UX de la PWA](docs/PWA-UX-V3.md)
 - [Destinos de publicación](docs/PUBLICATION-DESTINATIONS.md)
 - [Handoff para agentes](docs/AGENT-HANDOFF.md)
+- [Skill portable para clientes MCP](payload/escarlet-mcp-content/SKILL.md)
 
 ## Nuevo sitio / onboarding
 
 Guía completa. [docs/ONBOARDING.md](docs/ONBOARDING.md)
 
-Skill **global** (cualquier workspace Cursor). `~/.cursor/skills/escarlet-blog-integrate/`  
+Skill global opcional para integrar el frontend desde cualquier workspace Cursor. `~/.cursor/skills/escarlet-blog-integrate/`
 Pídele. «integra el blog CMS en este proyecto» o «añade la sección blog».
+
+Para operar contenido desde Hermes, Cursor, Claude u otro cliente MCP, copia la
+[skill portable de contenido](payload/escarlet-mcp-content/SKILL.md) en el cliente.
+Esa es la guía pública de generación, revisión, administración y publicación.
 
 ```bash
 # Alta de un handle nuevo + brand stubs
@@ -140,6 +145,17 @@ personal con alcance de usuario, nunca `ADMIN_TOKEN`.
 ChatGPT (Developer Mode / Connectors). URL `https://cms.escarlet.design/mcp/v3`, autenticación **OAuth**. Es el mismo conector para todos los roles. Autoriza con tu usuario o usa un PAT personal (`user_...`). El rol y las marcas se resuelven desde las membresías actuales en cada solicitud; `ADMIN_TOKEN` queda reservado al servidor. `/app/admin` genera un PNG del favicon (<10 KB) para el icono del conector.
 
 Claude (Customize / Connectors). URL `https://cms.escarlet.design/mcp/v3`, autenticación **OAuth**. Usa el mismo PAT personal y alcance por membresía que ChatGPT. Puede usar el mismo icono PNG.
+
+## Publicación del repositorio
+
+Este repositorio contiene el código, contratos, plantillas y skills públicas del
+CMS. No contiene datos de producción ni credenciales. Antes de desplegar una
+instancia, configura los secretos en el entorno del servidor, usa HTTPS y deja
+`ADMIN_TOKEN` reservado para operaciones internas. Los clientes MCP deben usar
+OAuth o un PAT personal con alcance por membresía.
+
+Consulta la [política de seguridad](SECURITY.md) y la [guía de despliegue](docs/DEPLOY.md)
+antes de exponer una instancia a Internet.
 
 ## Integración frontend
 
