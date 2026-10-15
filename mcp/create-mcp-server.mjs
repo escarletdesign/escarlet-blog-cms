@@ -11,7 +11,7 @@ import {
   withMediaUploadContract
 } from '../lib/media-upload-contract.mjs'
 import { openaiFileDefs, connectorFileMeta } from '../lib/openai-file.mjs'
-import { assertSiteAccess, assertSuperAdmin, allowedSiteHandles, isSiteScopedRole, workspaceRoleForAuth } from '../lib/auth.mjs'
+import { assertSiteAccess, assertSuperAdmin, allowedSiteHandles, isSiteScopedRole, isSuperAdmin, workspaceRoleForAuth } from '../lib/auth.mjs'
 import { brandFilesForAuth, SECRET_BRAND_FILES, prepareImageGeneration, loadActiveBrandKitSnapshot, compositionForAssetType, archetypeForRoute, brandKitWriteAccess, assertBrandKitWritable } from '../lib/brand-kit.mjs'
 import { generatePreviewBuffer, generateThumbBuffer } from '../lib/media-optimize.mjs'
 import { getOrCreateStyleBoard, styleBoardFingerprint } from '../lib/style-board.mjs'
@@ -781,12 +781,13 @@ async function resolveContentScope(auth, args = {}) {
       : String(auth?.site || '').trim()
   )
   if (!isPostgresConfigured()) throw Object.assign(new Error('Las tools de contenido requieren Postgres.'), { status: 503, code: 'postgres_required' })
-  if (auth?.role === 'admin' && !requestedSite && !args.workspaceId && !auth?.workspaceId && !auth?.userId) {
+  const globalAdmin = isSuperAdmin(auth)
+  if (globalAdmin && !requestedSite && !args.workspaceId && !auth?.workspaceId) {
     throw Object.assign(new Error('Para consultar varias marcas con un token administrador pasa workspaceId o site.'), { status: 400, code: 'workspace_required' })
   }
   await runCoreMigrations()
-  if (auth?.role !== 'admin' && !auth?.userId && auth?.site && requestedSite && requestedSite !== auth.site) throw Object.assign(new Error('Este token solo gestiona el sitio autorizado.'), { status: 403 })
-  const common = { userId: auth?.userId || undefined, workspaceId: args.workspaceId || undefined }
+  if (!globalAdmin && !auth?.userId && auth?.site && requestedSite && requestedSite !== auth.site) throw Object.assign(new Error('Este token solo gestiona el sitio autorizado.'), { status: 403 })
+  const common = { userId: globalAdmin ? undefined : (auth?.userId || undefined), workspaceId: args.workspaceId || undefined, globalAdmin }
   let context
   try {
     context = await resolveWorkspaceContext({ ...common, ...(requestedSite ? { siteId: requestedSite } : {}) })
@@ -797,8 +798,8 @@ async function resolveContentScope(auth, args = {}) {
   if (!explicitSite && Array.isArray(context.sites) && context.sites.length > 1) {
     throw brandSelectionRequired(auth, context.sites.map((site) => site.handle))
   }
-  if (auth?.role !== 'admin' && !auth?.userId) throw Object.assign(new Error('Se requiere un token personal de usuario.'), { status: 401 })
-  const role = auth?.role === 'admin' ? 'admin' : context.role || workspaceRoleForAuth(auth)
+  if (!globalAdmin && !auth?.userId) throw Object.assign(new Error('Se requiere un token personal de usuario.'), { status: 401 })
+  const role = globalAdmin ? 'admin' : context.role || workspaceRoleForAuth(auth)
   const site = requestedSite ? context.sites.find((entry) => entry.id === requestedSite || entry.handle === requestedSite) : context.sites[0]
   if (!site) throw Object.assign(new Error('Sin acceso al sitio.'), { status: 403 })
   return { ...context, role, siteId: site.id, siteHandle: site.handle }
@@ -1760,7 +1761,7 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
       switch (name) {
         case 'brand_list': {
           if (!isPostgresConfigured()) throw Object.assign(new Error('Las marcas v2 requieren Postgres.'), { status: 503, code: 'postgres_required' })
-          const systemAdmin = auth?.role === 'admin' && !auth?.userId
+          const systemAdmin = isSuperAdmin(auth)
           if (!systemAdmin && !auth?.userId) throw Object.assign(new Error('Se requiere un token personal de usuario para consultar marcas v2.'), { status: 401, code: 'user_token_required' })
           await runCoreMigrations()
           const workspaces = await listBrandDirectory({

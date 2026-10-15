@@ -452,7 +452,8 @@ function siteFrom(auth, preferred) {
 
 async function appBrandContext(site, auth) {
   if (!isPostgresConfigured()) return getBrandContext(site, { auth })
-  const workspace = await resolveWorkspaceContext({ userId: auth?.userId || undefined, siteHandle: site, role: auth?.role === 'admin' ? 'admin' : undefined })
+  const globalAdmin = isSuperAdmin(auth)
+  const workspace = await resolveWorkspaceContext({ userId: globalAdmin ? undefined : (auth?.userId || undefined), siteHandle: site, role: globalAdmin ? 'admin' : undefined, globalAdmin })
   const selected = workspace.sites.find((entry) => entry.handle === site) || workspace.sites[0]
   if (!selected) throw Object.assign(new Error('Sitio no migrado a Postgres.'), { status: 404, code: 'SITE_NOT_MIGRATED' })
   const [activeBrandKit, brandCapabilities] = await Promise.all([
@@ -939,18 +940,20 @@ async function requireV2Context(req, url, res, body = {}) {
     return null
   }
   try {
+    const globalAdmin = isSuperAdmin(auth)
     const rateSite = String(body.siteId || body.site || url.searchParams.get('siteId') || url.searchParams.get('site') || auth.site || '').trim()
     assertAiRateLimit(aiRateLimitKey(auth, rateSite, requestIp(req)), { limit: 120 })
     const migrationsReady = await coreMigrationPromise
     if (!migrationsReady) throw (coreMigrationError || Object.assign(new Error('Las migraciones de Postgres no están listas.'), { status: 503, code: 'migrations_unavailable' }))
     const requestedWorkspace = String(body.workspaceId || url.searchParams.get('workspaceId') || '').trim()
     const requestedSite = String(body.siteId || body.site || url.searchParams.get('siteId') || url.searchParams.get('site') || auth.site || (Array.isArray(auth.sites) && auth.sites.length === 1 ? auth.sites[0] : '')).trim()
-    if (auth.role !== 'admin' && !auth.userId && auth.site && requestedSite && requestedSite !== auth.site) throw Object.assign(new Error('Este token solo gestiona el sitio autorizado.'), { status: 403 })
+    if (!globalAdmin && !auth.userId && auth.site && requestedSite && requestedSite !== auth.site) throw Object.assign(new Error('Este token solo gestiona el sitio autorizado.'), { status: 403 })
     const common = {
       // Global admins can operate across workspaces and do not need a
       // workspace_members row for their personal identity.
-      userId: auth.role === 'admin' ? undefined : (auth.userId || undefined),
-      workspaceId: requestedWorkspace || auth.workspaceId || undefined
+      userId: globalAdmin ? undefined : (auth.userId || undefined),
+      workspaceId: requestedWorkspace || auth.workspaceId || undefined,
+      globalAdmin
     }
     let context
     try {
@@ -959,8 +962,8 @@ async function requireV2Context(req, url, res, body = {}) {
       if (!requestedSite) throw error
       context = await resolveWorkspaceContext({ ...common, siteHandle: requestedSite })
     }
-    if (auth.role !== 'admin' && !auth.userId) throw Object.assign(new Error('Se requiere un token personal de usuario.'), { status: 401 })
-    const role = auth.role === 'admin' ? 'admin' : context.role || workspaceRoleForAuth(auth)
+    if (!globalAdmin && !auth.userId) throw Object.assign(new Error('Se requiere un token personal de usuario.'), { status: 401 })
+    const role = globalAdmin ? 'admin' : context.role || workspaceRoleForAuth(auth)
     const site = requestedSite ? context.sites.find((entry) => entry.id === requestedSite || entry.handle === requestedSite) : context.sites[0]
     if (requestedSite && !site) throw Object.assign(new Error('Sin acceso al sitio.'), { status: 403 })
     return { auth, context: { ...context, role, siteId: site?.id || null, siteHandle: site?.handle || null }, workspaceId: context.workspaceId, siteId: site?.id || null }
@@ -1090,23 +1093,25 @@ async function publicSessionForAuth(auth) {
   const session = publicAuthSession(auth)
   if (!session || !isPostgresConfigured()) return session
   try {
+    const globalAdmin = isSuperAdmin(auth)
     const context = await resolveWorkspaceContext({
-      userId: auth.role === 'admin' ? undefined : (auth.userId || undefined),
+      userId: globalAdmin ? undefined : (auth.userId || undefined),
       workspaceId: auth.workspaceId || undefined,
-      ...(auth.userId || auth.role === 'admin' ? {} : auth.site ? { siteHandle: auth.site } : {})
+      globalAdmin,
+      ...(auth.userId || globalAdmin ? {} : auth.site ? { siteHandle: auth.site } : {})
     })
-    const workspaceRole = auth.role === 'admin' ? 'admin' : context.role || workspaceRoleForAuth(auth)
+    const workspaceRole = globalAdmin ? 'admin' : context.role || workspaceRoleForAuth(auth)
     const contextSites = [...new Set((context.sites || []).map((site) => String(site.handle || '').trim()).filter(Boolean))]
     const sessionSites = [...new Set((session.sites || []).map((site) => String(site || '').trim()).filter(Boolean))]
     // Super-admins can see legacy and canonical brands during the migration;
     // merge both sources while collapsing duplicate handles.
-    const sites = auth.role === 'admin' ? [...new Set([...sessionSites, ...contextSites])] : contextSites
+    const sites = globalAdmin ? [...new Set([...sessionSites, ...contextSites])] : contextSites
     return {
       ...session,
       workspaceId: context.workspaceId,
       workspaceRole,
       sites,
-      brandRoles: auth.role === 'admin' ? {} : (context.brandRoles || auth.brandRoles || {}),
+      brandRoles: globalAdmin ? {} : (context.brandRoles || auth.brandRoles || {}),
       site: session.site || sites[0] || null
     }
   } catch {
@@ -1776,11 +1781,11 @@ async function handleRequest(req, res) {
     if (!auth) return
     try {
       const body = await parseBody(req)
-      if (!auth.userId && auth.role !== 'admin') {
+      if (!auth.userId && !isSuperAdmin(auth)) {
         json(res, 403, { message: 'Esta sesión no puede cambiar la contraseña' })
         return
       }
-      const targetId = auth.role === 'admin' && body.id ? body.id : auth.userId
+      const targetId = isSuperAdmin(auth) && body.id ? body.id : auth.userId
       const user = setUserPassword({ id: targetId, password: body.password })
       await syncLegacyUsersToPostgres()
       json(res, 200, { ok: true, user })
@@ -1940,7 +1945,7 @@ async function handleRequest(req, res) {
       assertAgencyOps(auth)
       const site = siteFrom(auth, url.searchParams.get('site') || DEFAULT_SITE)
       assertSiteAccess(auth, site)
-      const users = auth.role === 'admin' && url.searchParams.get('all') === '1'
+      const users = isSuperAdmin(auth) && url.searchParams.get('all') === '1'
         ? listPasswordUsers()
         : listPasswordUsers({ site })
       const visibleUsers = ['admin', 'owner'].includes(auth.role)
@@ -2318,7 +2323,7 @@ async function handleRequest(req, res) {
         const scope = await requireV2Context(req, url, res)
         if (!scope) return
         let allBrands = await listBrands({ workspaceId: scope.workspaceId })
-        const brands = scope.auth.role === 'admin'
+        const brands = isSuperAdmin(scope.auth)
           ? allBrands
           : allBrands.filter((brand) => (scope.context.siteIds || []).includes(brand.id))
         json(res, 200, { brands })
@@ -2327,7 +2332,7 @@ async function handleRequest(req, res) {
       if (req.method === 'POST' && path === '/api/v2/brands') {
         const scope = await requireV2Context(req, url, res, body)
         if (!scope) return
-        json(res, 201, { brand: await createBrand({ workspaceId: scope.workspaceId, userId: scope.auth.userId, role: scope.auth.role === 'admin' ? 'admin' : (scope.context.workspaceRole || scope.context.role), handle: body.handle, name: body.name, domain: body.domain, systemAdmin: scope.auth.role === 'admin' }) })
+        json(res, 201, { brand: await createBrand({ workspaceId: scope.workspaceId, userId: scope.auth.userId, role: isSuperAdmin(scope.auth) ? 'admin' : (scope.context.workspaceRole || scope.context.role), handle: body.handle, name: body.name, domain: body.domain, systemAdmin: isSuperAdmin(scope.auth) }) })
         return
       }
       if (req.method === 'GET' && brandMatch) {
@@ -2626,11 +2631,11 @@ async function handleRequest(req, res) {
         const scope = await requireV2Context(req, url, res)
         if (!scope) return
         let allBrands = await listBrands({ workspaceId: scope.workspaceId })
-        const membershipContext = scope.auth.role === 'admin'
+        const membershipContext = isSuperAdmin(scope.auth)
           ? scope.context
           : await resolveWorkspaceContext({ userId: scope.auth.userId, workspaceId: scope.workspaceId })
         const allowedBrandIds = new Set(membershipContext.siteIds || [])
-        let brands = scope.auth.role === 'admin' ? allBrands : allBrands.filter((brand) => allowedBrandIds.has(brand.id))
+        let brands = isSuperAdmin(scope.auth) ? allBrands : allBrands.filter((brand) => allowedBrandIds.has(brand.id))
         const selectedSiteId = scope.siteId || brands[0]?.id || null
         if (selectedSiteId) {
           const selectedBrand = brands.find((brand) => brand.id === selectedSiteId)
@@ -2652,7 +2657,7 @@ async function handleRequest(req, res) {
         // the refreshed summaries so activeBrand and the brand cards are
         // immediately consistent in the same response.
         allBrands = await listBrands({ workspaceId: scope.workspaceId })
-        brands = scope.auth.role === 'admin' ? allBrands : allBrands.filter((brand) => allowedBrandIds.has(brand.id))
+        brands = isSuperAdmin(scope.auth) ? allBrands : allBrands.filter((brand) => allowedBrandIds.has(brand.id))
         const [flags, channels, integrations, usage] = await Promise.all([
           getWorkspaceFeatureFlags({ workspaceId: scope.workspaceId, siteId: selectedSiteId }),
           selectedSiteId ? listSiteChannels({ workspaceId: scope.workspaceId, siteId: selectedSiteId }) : [],
@@ -2665,7 +2670,7 @@ async function handleRequest(req, res) {
           flags.manual_creation_enabled = false
         }
         const brandRoles = Object.fromEntries((membershipContext.sites || []).map((brand) => [brand.id, brand.role || membershipContext.workspaceRole || membershipContext.role]))
-        const brandsWithRoles = brands.map((brand) => ({ ...brand, role: brandRoles[brand.id] || (scope.auth.role === 'admin' ? 'admin' : scope.context.role) }))
+        const brandsWithRoles = brands.map((brand) => ({ ...brand, role: brandRoles[brand.id] || (isSuperAdmin(scope.auth) ? 'admin' : scope.context.role) }))
         json(res, 200, {
           workspace: { id: scope.workspaceId, name: scope.context.workspaceName || 'Espacio' },
           activeBrand: brandsWithRoles.find((brand) => brand.id === selectedSiteId) || brandsWithRoles[0] || null,
@@ -2755,7 +2760,7 @@ async function handleRequest(req, res) {
           }
         })
         const viewerWorkspaceRole = String(scope.context.workspaceRole || scope.context.role || '').toLowerCase()
-        const canViewSuperAdmin = viewerWorkspaceRole === 'owner' || scope.auth?.role === 'admin'
+        const canViewSuperAdmin = viewerWorkspaceRole === 'owner' || isSuperAdmin(scope.auth)
         const visibleMembers = canViewSuperAdmin
           ? hydratedMembers
           : hydratedMembers.filter((member) => String(member.role || '').toLowerCase() !== 'owner')
@@ -2768,7 +2773,7 @@ async function handleRequest(req, res) {
         if (!scope) return
         if (!['owner', 'admin'].includes(scope.context.workspaceRole || scope.context.role)) throw Object.assign(new Error('No tienes permisos para editar miembros.'), { status: 403 })
         const userId = decodeURIComponent(teamMemberMatch[1])
-        const catalog = scope.auth.role === 'admin' ? await listBrands({ workspaceId: scope.workspaceId }) : scope.context.sites
+        const catalog = isSuperAdmin(scope.auth) ? await listBrands({ workspaceId: scope.workspaceId }) : scope.context.sites
         const requestedSites = Array.isArray(body.brandIds) ? body.brandIds : undefined
         const siteIds = requestedSites
           ? [...new Set(requestedSites.map((value) => catalog.find((brand) => brand.id === value || brand.handle === value)?.id).filter(Boolean))]
@@ -2790,7 +2795,7 @@ async function handleRequest(req, res) {
         const role = String(body.role || 'viewer').trim().toLowerCase()
         const requestedBrandIds = Array.isArray(body.brandIds) ? body.brandIds : scope.siteId ? [scope.siteId] : scope.context.siteIds
         const allowedBrandIds = new Set(scope.context.siteIds || [])
-        const brandIds = requestedBrandIds.map((value) => scope.context.sites.find((brand) => (brand.id === value || brand.handle === value) && (scope.auth.role === 'admin' || allowedBrandIds.has(brand.id)))?.id).filter(Boolean)
+        const brandIds = requestedBrandIds.map((value) => scope.context.sites.find((brand) => (brand.id === value || brand.handle === value) && (isSuperAdmin(scope.auth) || allowedBrandIds.has(brand.id)))?.id).filter(Boolean)
         if (!brandIds.length) throw Object.assign(new Error('Selecciona al menos una marca.'), { status: 400 })
         const brandRolesById = body.brandRoles && typeof body.brandRoles === 'object'
           ? Object.fromEntries((scope.context.sites || []).flatMap((brand) => body.brandRoles[brand.id] || body.brandRoles[brand.handle] ? [[brand.id, body.brandRoles[brand.id] || body.brandRoles[brand.handle]]] : []))

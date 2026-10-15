@@ -6766,6 +6766,14 @@ function TeamView({ autoInvite = false }: { autoInvite?: boolean } = {}) {
   const [userBusy, setUserBusy] = useState(false);
   const canAdminUsers = isWorkspaceAdmin(session);
   const inviteBrands = productContext?.brands || (session.sites || []).map((handle) => ({ id: handle, handle, name: handle }));
+  const defaultInviteSelection = (role = form.role) => {
+    const active = inviteBrands.filter((brand) => brand.id === site || brand.handle === site);
+    const brands = active.length ? active : inviteBrands;
+    return {
+      brandIds: brands.map((brand) => brand.id),
+      brandRoles: Object.fromEntries(brands.map((brand) => [brand.id, role])),
+    };
+  };
   const canSeeSuperAdmin = session.role === "owner" || session.workspaceRole === "owner";
   const visibleMembers = (rows: Array<Record<string, any>>) => canSeeSuperAdmin ? rows : rows.filter((member) => String(member.role || "").toLowerCase() !== "owner");
   const load = () => api.teamV2(site).then((result) => { setMembers(visibleMembers(result.members || [])); setCanManage(Boolean(result.canManage)); setCanonicalTeam(true); }).catch((err: any) => {
@@ -6773,7 +6781,7 @@ function TeamView({ autoInvite = false }: { autoInvite?: boolean } = {}) {
   });
   useEffect(() => { void load(); }, [session.role, session.workspaceRole, site]);
   useEffect(() => { if (autoInvite && canManage) setInviteOpen(true); }, [autoInvite, canManage]);
-  useEffect(() => { if (!form.brandIds.length && inviteBrands.length) setForm((current) => ({ ...current, brandIds: inviteBrands.map((brand) => brand.id), brandRoles: Object.fromEntries(inviteBrands.map((brand) => [brand.id, current.role])) })); }, [inviteBrands, form.brandIds.length]);
+  useEffect(() => { if (!form.brandIds.length && inviteBrands.length) setForm((current) => ({ ...current, ...defaultInviteSelection(current.role) })); }, [inviteBrands, form.brandIds.length, site]);
   const invite = async (event: FormEvent) => {
     event.preventDefault();
     if (!form.brandIds.length) { showToast("Selecciona al menos una marca.", "error"); return; }
@@ -6787,7 +6795,7 @@ function TeamView({ autoInvite = false }: { autoInvite?: boolean } = {}) {
       } else {
         showToast("Invitación enviada.");
       }
-      setForm({ email: "", role: "viewer", brandIds: inviteBrands.map((brand) => brand.id), brandRoles: Object.fromEntries(inviteBrands.map((brand) => [brand.id, "viewer"])) });
+      setForm({ email: "", role: "viewer", ...defaultInviteSelection("viewer") });
       setInviteOpen(false);
       await load();
     } catch (err: any) {
