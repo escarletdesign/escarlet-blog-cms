@@ -1356,10 +1356,17 @@ button.ui-calendar-item:focus-visible { outline: 2px solid var(--ui-accent); out
 .v3-preview-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--ui-space-3); }
 .v3-preview-heading h3 { margin: var(--ui-space-1) 0 0; font-size: 1.05rem; }
 .v3-preview-stage { display: grid; grid-template-columns: 36px minmax(0, 1fr) 36px; align-items: center; gap: var(--ui-space-2); }
+.v3-preview-stage.is-single { grid-template-columns: minmax(0, 1fr); }
 .v3-preview-frame { display: grid; gap: var(--ui-space-2); width: min(100%, 360px); margin: 0 auto; }
 .v3-preview-media { display: block; width: 100%; aspect-ratio: 4 / 5; object-fit: cover; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); background: var(--ui-surface-control); }
+.v3-preview-zoom-trigger { display: block; width: 100%; padding: 0; border: 0; background: transparent; }
+.v3-preview-zoom-trigger:hover .v3-preview-media, .v3-preview-zoom-trigger:focus-visible .v3-preview-media { border-color: var(--ui-accent); box-shadow: var(--ui-focus-ring); }
 .v3-channel-preview-instagram_story .v3-preview-media { aspect-ratio: 9 / 16; max-height: min(70vh, 620px); object-fit: contain; }
 .v3-channel-preview-video .v3-preview-media { aspect-ratio: 16 / 9; max-height: min(70vh, 620px); object-fit: contain; }
+.v3-channel-preview-x .v3-preview-frame { width: min(100%, 760px); }
+.v3-channel-preview-x .v3-preview-media { aspect-ratio: auto; height: auto; max-height: min(70vh, 620px); object-fit: contain; }
+.v3-preview-lightbox { width: min(100%, 1200px); }
+.v3-preview-lightbox-image { display: block; width: auto; max-width: 100%; height: auto; max-height: min(78vh, 900px); margin: 0 auto; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); background: var(--ui-surface-control); object-fit: contain; }
 .v3-preview-placeholder { display: grid; place-items: center; padding: var(--ui-space-4); color: var(--ui-muted); }
 .v3-preview-frame figcaption { overflow: hidden; color: var(--ui-muted); font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
 .v3-preview-dots { display: flex; justify-content: center; gap: var(--ui-space-1); flex-wrap: wrap; }

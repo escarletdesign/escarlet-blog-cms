@@ -463,6 +463,7 @@ export function PostWorkspace() {
 function PostVariantPreview({ variant }: { variant: PostVariant }) {
   const { t } = useI18n();
   const [activeIndex, setActiveIndex] = useState(0);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const items = previewItemsFor(variant);
   const copy = variantCopy(variant);
   const isVideoChannel = variant.channel === "video";
@@ -471,6 +472,7 @@ function PostVariantPreview({ variant }: { variant: PostVariant }) {
   const safeIndex = items.length ? Math.min(activeIndex, items.length - 1) : 0;
   const current = items[safeIndex] || {};
   const source = previewMediaUrl(current);
+  const currentIsVideo = previewMediaIsVideo(current);
   const title = String(current.headline || current.title || current.alt || current.filename || `${previewLabel} ${safeIndex + 1}`);
 
   useEffect(() => setActiveIndex(0), [variant.id, variant.channel]);
@@ -479,16 +481,17 @@ function PostVariantPreview({ variant }: { variant: PostVariant }) {
 
   return <Card className={`v3-channel-preview v3-channel-preview-${variant.channel}`}>
     <div className="v3-preview-heading"><div><span className="ui-eyebrow">{t("content.preview.eyebrow", "Vista previa")}</span><h3>{previewLabel}</h3></div><ChannelBadge channel={variant.channel} /></div>
-    <div className="v3-preview-stage" role="region" aria-label={t("content.preview.region", "Vista previa del contenido")}>
-      <IconButton label={t("content.preview.previous", "Anterior")} onClick={() => setActiveIndex((safeIndex - 1 + items.length) % items.length)} disabled={items.length < 2}>‹</IconButton>
+    <div className={`v3-preview-stage${items.length < 2 ? " is-single" : ""}`} role="region" aria-label={t("content.preview.region", "Vista previa del contenido")}>
+      {items.length > 1 && <IconButton label={t("content.preview.previous", "Anterior")} onClick={() => setActiveIndex((safeIndex - 1 + items.length) % items.length)}>‹</IconButton>}
       <figure className="v3-preview-frame">
-        {source ? previewMediaIsVideo(current) ? <video className="v3-preview-media" src={source} controls playsInline preload="metadata" aria-label={title} /> : <img className="v3-preview-media" src={source} alt={title} loading="lazy" decoding="async" /> : <div className="v3-preview-media v3-preview-placeholder">{isVideoChannel ? t("content.preview.missingVideo", "Vídeo pendiente de cargar") : t("content.preview.missingMedia", "Sin media")}</div>}
+        {source ? currentIsVideo ? <video className="v3-preview-media" src={source} controls playsInline preload="metadata" aria-label={title} /> : <Button type="button" variant="ghost" className="v3-preview-zoom-trigger" onClick={() => setLightboxOpen(true)} aria-label={t("content.preview.zoom", "Ampliar imagen")}><img className="v3-preview-media" src={source} alt={title} loading="lazy" decoding="async" /></Button> : <div className="v3-preview-media v3-preview-placeholder">{isVideoChannel ? t("content.preview.missingVideo", "Vídeo pendiente de cargar") : t("content.preview.missingMedia", "Sin media")}</div>}
         <figcaption>{title}</figcaption>
       </figure>
-      <IconButton label={t("content.preview.next", "Siguiente")} onClick={() => setActiveIndex((safeIndex + 1) % items.length)} disabled={items.length < 2}>›</IconButton>
+      {items.length > 1 && <IconButton label={t("content.preview.next", "Siguiente")} onClick={() => setActiveIndex((safeIndex + 1) % items.length)}>›</IconButton>}
     </div>
     {items.length > 1 && <div className="v3-preview-dots" role="tablist" aria-label={previewLabel}>{items.map((item, index) => <Button key={item.id || `${variant.id}-${index}`} className={`v3-preview-dot${index === safeIndex ? " active" : ""}`} variant="ghost" size="sm" role="tab" aria-selected={index === safeIndex} aria-label={`${previewLabel} ${index + 1}`} onClick={() => setActiveIndex(index)}>{index + 1}</Button>)}</div>}
     <div className="v3-preview-copy"><span className="ui-eyebrow">{t("content.preview.copy", "Copy")}</span><p>{copy || t("content.preview.emptyCopy", "Este canal todavía no tiene copy.")}</p></div>
+    <Modal open={lightboxOpen && Boolean(source) && !currentIsVideo} title={title} onClose={() => setLightboxOpen(false)} className="v3-preview-lightbox"><img className="v3-preview-lightbox-image" src={source} alt={title} /></Modal>
   </Card>;
 }
 
