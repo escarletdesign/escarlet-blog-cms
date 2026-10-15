@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createMcpServerV3 } from './index.mjs'
+import { createMcpServerV3, createMcpServerV3Sync } from './index.mjs'
 import { invokeBuiltinCapability } from './handlers.mjs'
 
 async function call(server, name, arguments_ = {}) {
@@ -165,6 +165,61 @@ test('content.campaign.publish encola cada pieza aprobada del blog', async () =>
   assert.equal(scheduled.length, 1)
   assert.equal(scheduled[0].publishNow, true)
   assert.equal(scheduled[0].channels[0], 'blog')
+})
+
+test('content.topic.check bloquea temas repetidos', async () => {
+  const result = await invokeBuiltinCapability('content.topic.check', { site: 'demo', topic: 'Cómo estructurar una marca para salir al mercado' }, {
+    auth: { role: 'agent', site: 'demo', userId: 'agent-1' },
+    runtime: {
+      resolveWorkspaceContext: async () => ({ workspaceId: 'workspace-1', sites: [{ id: 'site-1', handle: 'demo', role: 'editor' }] }),
+      listContentItems: async () => [{ id: 'post-1', site_id: 'site-1', topic: 'Estructurar una marca para salir al mercado', status: 'published', metadata: { contentTitle: 'Marca lista para salir al mercado' }, variants: [] }]
+    }
+  })
+  assert.equal(result.isOriginal, false)
+  assert.equal(result.matches[0].postId, 'post-1')
+  assert.equal(result.nextAction, 'choose_new_topic')
+})
+
+test('recipe.autonomous-content crea una pieza y publica solo con opt-in explícito', async () => {
+  const calls = []
+  const runtime = {
+    resolveWorkspaceContext: async () => ({ workspaceId: 'workspace-1', sites: [{ id: 'site-1', handle: 'demo', role: 'owner' }] }),
+    listContentItems: async () => [],
+    createContentBatch: async (input) => { calls.push(['create', input]); return { itemIds: ['post-1'], brandKitVersionId: 'brand-v1' } },
+    getContentItem: async () => ({ id: 'post-1', site_id: 'site-1', topic: 'Una idea original', status: 'generated', metadata: { contentTitle: 'Una idea original' }, variants: [{ id: 'variant-1', channel: 'x', status: 'generated', body: { text: 'Copy' }, media: [{ id: 'asset-1' }] }] }),
+    attachContentMedia: async (input) => { calls.push(['attach', input]); return { itemId: input.itemId, contentComplete: true } },
+    approveContentItem: async (input) => { calls.push(['approve', input]); return { itemId: input.itemId, status: 'approved' } },
+    scheduleContentItem: async (input) => { calls.push(['schedule', input]); return { itemId: input.itemId, status: 'scheduled', channels: input.channels } }
+  }
+  const server = createMcpServerV3Sync({
+    role: 'agent',
+    userId: 'agent-1',
+    site: 'demo',
+    permissions: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'production:motion', 'publication:read', 'content:read', 'content:write', 'content:publish']
+  }, { runtime })
+  const result = await server._requestHandlers.get('tools/call')({
+    method: 'tools/call',
+    params: {
+      name: 'recipe.run',
+      arguments: {
+        recipeId: 'recipe.autonomous-content',
+        site: 'demo',
+        topic: 'Una idea original',
+        title: 'Una idea original',
+        text: 'Copy editorial',
+        channels: ['x'],
+        prepareMedia: false,
+        mediaAssetIds: { x: ['asset-1'] },
+        publish: true,
+        automation: { enabled: true, confirmed: true, publish: true },
+        idempotencyKey: 'autonomous:demo:1'
+      }
+    }
+  }, { mcpReq: { requestState: () => undefined } })
+  assert.equal(result.isError, false, JSON.stringify(result.structuredContent))
+  assert.equal(result.structuredContent.status, 'scheduled')
+  assert.equal(result.structuredContent.postId, 'post-1')
+  assert.deepEqual(calls.map(([name]) => name), ['create', 'attach', 'approve', 'schedule'])
 })
 
 test('publication.publish enlaza Coolify con la variante blog real', async () => {

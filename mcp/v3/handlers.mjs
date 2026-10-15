@@ -562,6 +562,267 @@ function canonicalContentItem(item) {
     : canonicalPost(item)
 }
 
+const TOPIC_STOP_WORDS = new Set(['a', 'al', 'con', 'de', 'del', 'el', 'en', 'la', 'las', 'los', 'para', 'por', 'que', 'un', 'una', 'y'])
+
+function topicTokens(value) {
+  return new Set(String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length > 2 && !TOPIC_STOP_WORDS.has(token)))
+}
+
+function topicSimilarity(left, right) {
+  const a = topicTokens(left)
+  const b = topicTokens(right)
+  if (!a.size || !b.size) return 0
+  const intersection = [...a].filter((token) => b.has(token)).length
+  const union = new Set([...a, ...b]).size
+  const containment = intersection / Math.min(a.size, b.size)
+  return Math.max(intersection / union, containment * 0.9)
+}
+
+async function contentTopicCheck(args, auth, runtime) {
+  const scope = await resolveReadScope(args, auth, runtime)
+  const topic = String(args.topic || args.title || '').trim()
+  if (!topic) throw Object.assign(new Error('topic es obligatorio para comprobar originalidad.'), { code: 'topic_required', status: 422 })
+  const threshold = Number.isFinite(Number(args.threshold)) ? Math.min(Math.max(Number(args.threshold), 0.5), 1) : 0.65
+  const readItems = typeof runtime?.listContentItems === 'function' ? runtime.listContentItems : listContentItems
+  const rows = await readAllPages(readItems, {
+    pageSize: Math.min(Math.max(Number(args.limit) || 100, 1), 200),
+    extract: (result) => Array.isArray(result) ? result : [],
+    key: (row) => row?.id,
+    baseArgs: { workspaceId: scope.workspaceId, siteId: scope.siteId, channel: args.channel, archive: 'active' }
+  })
+  const excluded = String(args.excludePostId || args.postId || '').trim()
+  const idempotencyKey = String(args.idempotencyKey || '').trim()
+  const replay = idempotencyKey
+    ? rows.find((row) => String(row?.metadata?.automationIdempotencyKey || '').trim() === idempotencyKey)
+    : null
+  const matches = rows
+    .map((row) => {
+      const post = canonicalContentItem(row)
+      const title = String(post.title || '').trim()
+      const candidateTopic = String(post.topic || title).trim()
+      return {
+        post,
+        similarity: Math.max(topicSimilarity(topic, candidateTopic), topicSimilarity(topic, title))
+      }
+    })
+    .filter(({ post, similarity }) => post.id && post.id !== excluded && similarity >= threshold)
+    .sort((left, right) => right.similarity - left.similarity)
+    .slice(0, 10)
+    .map(({ post, similarity }) => ({
+      postId: post.id,
+      title: post.title,
+      topic: post.topic,
+      status: post.status,
+      similarity: Number(similarity.toFixed(3)),
+      channels: post.variants.map((variant) => variant.channel)
+    }))
+  return {
+    contractVersion: MCP_V3_CONTRACT,
+    capability: 'content.topic.check',
+    scope: { workspaceId: scope.workspaceId, siteId: scope.siteId, site: scope.site },
+    topic,
+    threshold,
+    checkedPosts: rows.length,
+    isOriginal: matches.length === 0,
+    idempotentPostId: replay?.id || null,
+    matches,
+    nextAction: replay?.id ? 'resume_existing_post' : matches.length ? 'choose_new_topic' : 'create_content'
+  }
+}
+
+function autonomousChannels(args, variants = {}) {
+  const requested = Array.isArray(args.channels) && args.channels.length ? args.channels : Object.keys(variants)
+  const channels = [...new Set(requested.map((value) => String(value || '').trim().toLowerCase()).filter(Boolean))]
+  if (!channels.length) throw Object.assign(new Error('channels o variants debe contener al menos un canal.'), { code: 'content_channels_required', status: 422 })
+  return channels
+}
+
+function autonomousAssetType(channel) {
+  if (channel === 'instagram_story') return 'instagram_story'
+  if (channel === 'instagram') return 'social_image'
+  if (channel === 'x') return 'x_image'
+  if (channel === 'blog') return 'blog_cover'
+  return 'social_image'
+}
+
+function autonomousFormat(channel) {
+  if (channel === 'instagram_story') return 'instagram_story'
+  if (channel === 'instagram') return 'instagram_post'
+  if (channel === 'x') return 'x_landscape'
+  if (channel === 'blog') return 'blog_cover'
+  return `${channel}_post`
+}
+
+function autonomousAssetIds(value, channel) {
+  if (Array.isArray(value)) return channel ? value : []
+  if (!value || typeof value !== 'object') return []
+  return Array.isArray(value[channel]) ? value[channel].map((entry) => String(entry || '').trim()).filter(Boolean) : []
+}
+
+function assertAutonomousPublish(args, auth) {
+  const automation = args.automation && typeof args.automation === 'object' ? args.automation : {}
+  if (automation.enabled !== true || automation.confirmed !== true || automation.publish !== true) {
+    throw Object.assign(new Error('La publicación autónoma requiere automation.enabled=true, automation.confirmed=true y automation.publish=true.'), { code: 'autonomous_publish_opt_in_required', status: 428 })
+  }
+  const permissions = authPermissions(auth)
+  if (!permissions.includes('*') && !permissions.includes('content:publish')) {
+    throw Object.assign(new Error('El token del agente no tiene content:publish para publicar de forma autónoma.'), { code: 'autonomous_publish_permission_missing', status: 403 })
+  }
+}
+
+async function runAutonomousContent(args, auth, runtime) {
+  const site = siteFor(args, auth)
+  const variants = args.variants && typeof args.variants === 'object' && !Array.isArray(args.variants) ? args.variants : {}
+  const scope = await resolveReadScope(args, auth, runtime)
+  const readItem = typeof runtime?.getContentItem === 'function' ? runtime.getContentItem : getContentItem
+  const postId = String(args.postId || args.itemId || '').trim()
+  const existingItem = postId ? await readItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId: postId }) : null
+  const topic = String(args.topic || args.title || args.text || existingItem?.topic || existingItem?.metadata?.contentTitle || '').trim()
+  if (!topic) throw Object.assign(new Error('La recipe autonomous-content necesita topic, title o text.'), { code: 'topic_required', status: 422 })
+  const channels = autonomousChannels(args, variants)
+  const contentVariants = Object.fromEntries(channels.map((channel) => [channel, variants[channel] || (['x', 'linkedin'].includes(channel) ? { text: String(args.text || args.copy || topic).trim() } : {})]))
+  const originality = await contentTopicCheck({ ...args, site, topic, threshold: args.originalityThreshold, channel: args.channel, idempotencyKey: args.idempotencyKey }, auth, runtime)
+  if (!originality.isOriginal && !originality.idempotentPostId) {
+    return {
+      contractVersion: 'os.production.v1',
+      recipe: 'recipe.autonomous-content',
+      runId: null,
+      status: 'blocked',
+      postId: null,
+      originality,
+      review: { required: true, status: 'topic_exists', next: 'choose_new_topic' }
+    }
+  }
+
+  const text = String(args.text || args.copy || topic).trim()
+  const context = await invokeBuiltinCapability('brand.context.get', { site, brandKitVersionId: args.brandKitVersionId }, { auth, runtime })
+  if (context.generationBlocked === true) {
+    return {
+      contractVersion: 'os.production.v1',
+      recipe: 'recipe.autonomous-content',
+      runId: null,
+      status: 'blocked',
+      postId: null,
+      originality,
+      brand: { brandKitVersionId: context.brandKitVersionId, brandKitSnapshotHash: context.brandKitSnapshotHash, missingBrand: context.missingBrand || [], generationBlocked: true },
+      review: { required: true, status: 'brand_blocked', next: 'repair_brand_kit' }
+    }
+  }
+  const copy = validateCopy({ ...args, site, text, purpose: 'autonomous-content' }, context)
+  if (!copy.valid) {
+    return { contractVersion: 'os.production.v1', recipe: 'recipe.autonomous-content', runId: null, status: 'blocked', postId: null, originality, copy, review: { required: true, status: 'copy_blocked', next: 'fix_copy' } }
+  }
+
+  const create = typeof runtime?.createContentBatch === 'function' ? runtime.createContentBatch : createContentBatch
+  let created = null
+  let itemId = postId || originality.idempotentPostId || ''
+  if (!itemId) {
+    created = await create({
+      workspaceId: scope.workspaceId,
+      siteId: scope.siteId,
+      userId: auth.userId,
+      role: contentPostRole(scope, auth),
+      title: 'Inbox editorial',
+      topics: [{ title: String(args.title || topic).slice(0, 500), topic, variants: contentVariants }],
+      channels,
+      brandKitVersionId: args.brandKitVersionId || context.brandKitVersionId,
+      metadata: { source: 'mcp.v3', automationRecipe: 'recipe.autonomous-content', automationIdempotencyKey: args.idempotencyKey || null, generationRunId: args.generationRunId || null },
+      idempotencyKey: args.idempotencyKey
+    })
+    itemId = String(created.itemIds?.[0] || '').trim()
+    if (!itemId) throw Object.assign(new Error('La creación autónoma no devolvió postId.'), { code: 'content_post_create_failed', status: 502 })
+  }
+
+  const preparations = []
+  if (args.prepareMedia !== false) {
+    for (const channel of channels) {
+      const assetCount = Math.min(Math.max(Number(args.assetCounts?.[channel] || args.assetCount || 1), 1), 20)
+      const prepared = await invokeBuiltinCapability('brand.generation.prepare', {
+        site,
+        workspaceId: scope.workspaceId,
+        siteId: scope.siteId,
+        itemId,
+        channel,
+        purpose: `autonomous-content:${channel}`,
+        formatProfile: args.formatProfiles?.[channel] || autonomousFormat(channel),
+        assetType: autonomousAssetType(channel),
+        expectedAssetCount: assetCount,
+        topic,
+        title: args.title || topic,
+        textContent: { body: text.slice(0, 240) }
+      }, { auth, runtime })
+      preparations.push({ channel, formatProfile: args.formatProfiles?.[channel] || autonomousFormat(channel), assetType: autonomousAssetType(channel), ...prepared })
+    }
+  }
+
+  const attach = typeof runtime?.attachContentMedia === 'function' ? runtime.attachContentMedia : attachContentMedia
+  const attached = []
+  for (const channel of channels) {
+    const ids = autonomousAssetIds(args.mediaAssetIds, channel)
+    for (let index = 0; index < ids.length; index++) {
+      attached.push(await attach({
+        workspaceId: scope.workspaceId,
+        siteId: scope.siteId,
+        itemId,
+        userId: auth.userId,
+        role: contentPostRole(scope, auth),
+        mediaAssetId: ids[index],
+        channels: [channel],
+        assetIndex: index,
+        removeReplacedAssets: false
+      }))
+    }
+  }
+
+  const item = await readItem({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId })
+  const mediaCounts = Object.fromEntries(channels.map((channel) => [channel, item.variants.find((variant) => variant.channel === channel)?.media?.length || 0]))
+  const expectedCounts = Object.fromEntries(channels.map((channel) => [channel, Math.min(Math.max(Number(args.assetCounts?.[channel] || args.assetCount || 1), 1), 20)]))
+  const mediaReady = channels.every((channel) => mediaCounts[channel] >= expectedCounts[channel])
+  const contentReady = ['generated', 'needs_review', 'approved'].includes(String(item.status || '').toLowerCase())
+  let publication = null
+  if (mediaReady && contentReady && args.publish === true) {
+    assertAutonomousPublish(args, auth)
+    const approve = typeof runtime?.approveContentItem === 'function' ? runtime.approveContentItem : approveContentItem
+    await approve({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId, userId: auth.userId, role: contentPostRole(scope, auth), quotaExempt: Boolean(auth.systemAdmin) })
+    const schedule = typeof runtime?.scheduleContentItem === 'function' ? runtime.scheduleContentItem : scheduleContentItem
+    const publicationDate = args.publicationDate || new Date().toISOString()
+    const publishNow = args.publishNow === true || new Date(publicationDate).getTime() <= Date.now()
+    publication = await schedule({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId, userId: auth.userId, role: contentPostRole(scope, auth), channels, publicationDate, timezone: args.timezone || 'UTC', publishNow, quotaExempt: Boolean(auth.systemAdmin) })
+  }
+  return {
+    contractVersion: 'os.production.v1',
+    recipe: 'recipe.autonomous-content',
+    runId: args.generationRunId || null,
+    status: publication?.status || (mediaReady && contentReady ? 'ready_for_review' : mediaReady ? 'awaiting_content' : 'awaiting_media'),
+    postId: itemId,
+    postUrl: contentPostUrl(itemId, site, channels[0]),
+    created,
+    originality,
+    copy,
+    preparations,
+    generationTasks: preparations.flatMap((preparation) => Array.from({ length: Number(preparation.generationCardinality?.defaultImageCount || preparation.preparation?.expectedAssetCount || 1) }, (_, assetIndex) => ({
+      channel: preparation.channel,
+      assetIndex,
+      preparationId: preparation.preparationId || preparation.preparation?.preparationId || preparation.brandPreparation?.preparationId,
+      assetType: preparation.assetType,
+      formatProfile: preparation.formatProfile,
+      generationPrompt: preparation.generationPrompt,
+      resolvedReferences: preparation.resolvedReferences
+    }))),
+    attached,
+    mediaCounts,
+    expectedCounts,
+    contentReady,
+    publication,
+    review: { required: !publication, status: publication ? 'publish_requested' : mediaReady && contentReady ? 'pending' : mediaReady ? 'awaiting_content' : 'awaiting_media', next: publication ? 'publication.status.get' : mediaReady && contentReady ? 'human_approval_or_publish_opt_in' : mediaReady ? 'complete_variant_copy' : 'generate_and_upload_media' }
+  }
+}
+
 async function contentPostList(args, auth, runtime) {
   const scope = await resolveReadScope(args, auth, runtime)
   const limit = Math.min(Math.max(Number(args.limit) || 25, 1), 100)
@@ -1629,6 +1890,7 @@ function recipeId(value) {
 
 async function runRecipe(args, auth, runtime) {
   const id = recipeId(args.recipeId || args.recipe || 'food-to-reel')
+  if (id === 'autonomous-content') return runAutonomousContent(args, auth, runtime)
   if (!['food-to-reel', 'menu-to-reel', 'reel-from-image', 'product-to-social'].includes(id)) {
     throw Object.assign(new Error(`La recipe ${id || '(vacía)'} todavía no tiene ejecutor.`), { code: 'recipe_executor_missing', status: 501 })
   }
@@ -1778,6 +2040,7 @@ export async function invokeBuiltinCapability(name, args = {}, { auth = {}, runt
   if (name === 'production.motion.retry') return motionJobAction(args, auth, runtime, 'retry')
   if (name === 'production.motion.cancel') return motionJobAction(args, auth, runtime, 'cancel')
   if (name === 'workspace.context.get') return workspaceContextAction(args, auth, runtime)
+  if (name === 'content.topic.check') return contentTopicCheck(args, auth, runtime)
   if (name === 'content.audit.inventory') return contentAuditInventory(args, auth, runtime)
   if (name === 'content.audit.repair.plan') return contentAuditRepairPlan(args, auth, runtime)
   if (name.startsWith('content.post.')) return contentPostAction(name, args, auth, runtime)

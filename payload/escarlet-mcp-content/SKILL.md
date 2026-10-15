@@ -31,6 +31,11 @@ externa genera el copy, los píxeles y el vídeo.
 - Una acción externa de publicación necesita confirmación humana explícita en
   el turno actual. La autorización MCP o el rol del usuario no sustituyen esa
   confirmación.
+- La única excepción es `recipe.autonomous-content`, pensada para un scheduler
+  como Hermes u OpenClaw. Solo publica si el token tiene `content:publish` y la
+  llamada incluye `automation.enabled: true`, `automation.confirmed: true` y
+  `automation.publish: true`. Ese opt-in debe quedar configurado fuera del
+  prompt, en la política del job.
 
 ## Crear contenido
 
@@ -120,6 +125,69 @@ afirmes que una imagen se guardó solo porque `brand.generation.prepare` tuvo
 Nunca uses `content.post.create` para corregir un Post existente. Eso duplica
 contenido y rompe la trazabilidad.
 
+## Recipe para agentes programados
+
+Usa `recipe.autonomous-content` cuando un agente tenga que ejecutar una
+cadencia editorial sin pedir confirmación en cada ejecución. La recipe conserva
+la misma frontera de seguridad, pero coordina el flujo completo y deja trazas
+idempotentes:
+
+1. Llama `content.topic.check` con el tema antes de crear nada. La capability
+   compara títulos y temas activos de la marca. Si devuelve `isOriginal: false`,
+   no fuerces el duplicado: elige otro ángulo y vuelve a comprobarlo.
+2. Ejecuta `recipe.run` con `topic`, `title`, `text`, `channels`, `variants` y
+   una `idempotencyKey` estable por ejecución. La respuesta crea un único Post
+   y devuelve `generationTasks` con `preparationId`, formato, referencias y
+   prompt para cada imagen necesaria.
+   Para X o LinkedIn alcanza con el body `{ "text": "..." }`; Instagram y
+   Stories necesitan sus estructuras `socialPack` con captions, slides o
+   frames y el copy que debe coincidir con cada imagen.
+3. Genera los píxeles fuera del CMS con el modelo de imágenes disponible para
+   el agente. Sube cada archivo con `asset.upload`, el `preparationId`, el
+   `itemId` o `postId`, el canal y `assetIndex`. El CMS no genera imágenes por
+   sí mismo.
+4. Reanuda la misma recipe con `postId` y `mediaAssetIds` agrupados por canal.
+   La recipe comprueba que todas las variantes tengan los medios esperados y
+   que los canales sigan activos.
+5. Para publicación autónoma envía `publish: true` y los tres flags de
+   `automation` indicados arriba. Sin esos flags el resultado queda en
+   `ready_for_review` o `awaiting_media`. Con ellos, el MCP aprueba y encola la
+   publicación usando el control plane, sin recibir credenciales del proveedor.
+6. Consulta `publication.status.get` o `content.post.get` después de cada run.
+   Usa la misma `idempotencyKey` en reintentos y no crees otro Post si el job
+   ya devolvió `postId`.
+
+Ejemplo de primera ejecución:
+
+```json
+{
+  "recipeId": "recipe.autonomous-content",
+  "site": "<site>",
+  "topic": "<tema original>",
+  "title": "<título>",
+  "text": "<copy validado>",
+  "channels": ["instagram", "x"],
+  "assetCounts": { "instagram": 1, "x": 1 },
+  "idempotencyKey": "<job-id-estable>"
+}
+```
+
+Ejemplo de reanudación y publicación autorizada por la política del job:
+
+```json
+{
+  "recipeId": "recipe.autonomous-content",
+  "site": "<site>",
+  "postId": "<postId-devuelto>",
+  "channels": ["instagram", "x"],
+  "mediaAssetIds": { "instagram": ["<assetId>"], "x": ["<assetId>"] },
+  "prepareMedia": false,
+  "publish": true,
+  "automation": { "enabled": true, "confirmed": true, "publish": true },
+  "idempotencyKey": "<job-id-estable>"
+}
+```
+
 ## Aprobar, preparar y publicar
 
 ### Publicación de un Post
@@ -188,8 +256,11 @@ frontend.
 
 - Marca y scope explícitos en las llamadas.
 - Copy validado y variantes completas para los canales solicitados.
+- Tema comprobado con `content.topic.check` y sin coincidencias bloqueantes.
 - Preparación vigente y procedencia conservada para cada media generada.
 - Cada asset publicable unido a un Post y con `assetIndex` correcto.
 - `postId`, `assetId`, `postUrl` y `publicationId` persistidos en la respuesta.
-- Revisión humana completada antes de aprobar, programar o publicar.
+- Revisión humana completada antes de aprobar, programar o publicar, salvo que
+  `recipe.autonomous-content` tenga el opt-in de automatización y el permiso
+  `content:publish` exigidos.
 - Estado final verificado con `content.post.get` o `publication.status.get`.

@@ -116,6 +116,14 @@ En resumen, el flujo canónico es:
 `publication.route` → `publication.prepare` → `publication.schedule` o
 `publication.publish`.
 
+Para agentes programados usa `content.topic.check` antes de crear el Post y la
+recipe `recipe.autonomous-content` para coordinar copy, tareas de generación,
+subida de assets y publicación idempotente. La publicación sin intervención
+entre ejecuciones solo se habilita con un token que tenga `content:publish` y
+los tres flags explícitos de `automation` (`enabled`, `confirmed`, `publish`).
+Sin ese opt-in el resultado queda para revisión humana. Las imágenes siguen
+generándose fuera del CMS y se suben con el `preparationId` vigente.
+
 Para editar se conserva el mismo `postId` o `itemId` y se usa
 `content.post.update` o `content.post.variant.upsert`. Para coordinar varios
 Posts se usan `content.campaign.*` o `release.*` solo cuando el usuario lo
