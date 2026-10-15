@@ -863,7 +863,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
   manifest({
     id: 'content.post.get',
     description: 'Devuelve un Post con todas sus variantes, media, procedencia y estados de publicación.',
-    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, postId: { type: 'string' }, itemId: { type: 'string' } }, anyOf: [{ required: ['postId'] }, { required: ['itemId'] }], additionalProperties: false },
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, postId: { type: 'string' }, itemId: { type: 'string' }, channel: { type: 'string' } }, anyOf: [{ required: ['postId'] }, { required: ['itemId'] }], additionalProperties: false },
     outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string' }, post: { type: 'object' }, postId: { type: 'string' }, postUrl: { type: 'string' } }, required: ['contractVersion', 'capability', 'post', 'postId', 'postUrl'], additionalProperties: true },
     permissions: ['content:read'],
     tags: ['content', 'post', 'read']
@@ -908,7 +908,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
   manifest({
     id: 'content.post.approve',
     description: 'Aprueba todas las variantes revisables de un Post.',
-    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, postId: { type: 'string' }, itemId: { type: 'string' } }, anyOf: [{ required: ['postId'] }, { required: ['itemId'] }], additionalProperties: false },
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, postId: { type: 'string' }, itemId: { type: 'string' }, channel: { type: 'string' } }, anyOf: [{ required: ['postId'] }, { required: ['itemId'] }], additionalProperties: false },
     outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string' }, post: { type: 'object' }, postId: { type: 'string' }, postUrl: { type: 'string' }, nextAction: { type: 'string' } }, required: ['contractVersion', 'post', 'postId', 'postUrl', 'nextAction'], additionalProperties: true },
     permissions: ['content:publish'],
     sideEffects: 'write',
@@ -918,7 +918,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
   manifest({
     id: 'content.post.archive',
     description: 'Archiva o restaura un Post de forma reversible, conserva sus variantes y assets y deja auditoría.',
-    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, postId: { type: 'string' }, itemId: { type: 'string' }, archived: { type: 'boolean' }, confirm: { type: 'boolean', const: true }, idempotencyKey: { type: 'string' } }, anyOf: [{ required: ['postId'] }, { required: ['itemId'] }], required: ['confirm'], additionalProperties: false },
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, postId: { type: 'string' }, itemId: { type: 'string' }, channel: { type: 'string' }, archived: { type: 'boolean' }, confirm: { type: 'boolean', const: true }, idempotencyKey: { type: 'string' } }, anyOf: [{ required: ['postId'] }, { required: ['itemId'] }], required: ['confirm'], additionalProperties: false },
     outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string' }, postId: { type: 'string' }, postUrl: { type: 'string' }, archived: { type: 'boolean' }, nextAction: { type: 'string' } }, required: ['contractVersion', 'capability', 'postId', 'postUrl', 'archived', 'nextAction'], additionalProperties: true },
     permissions: ['content:write'],
     sideEffects: 'write',

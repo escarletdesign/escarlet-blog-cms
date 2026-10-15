@@ -16,7 +16,7 @@ import { brandFilesForAuth, SECRET_BRAND_FILES, prepareImageGeneration, loadActi
 import { generatePreviewBuffer, generateThumbBuffer } from '../lib/media-optimize.mjs'
 import { getOrCreateStyleBoard, styleBoardFingerprint } from '../lib/style-board.mjs'
 import { CANONICAL_CMS_URL, canonicalCmsPublicUrl } from '../lib/cms-url.mjs'
-import { absoluteMediaUrl, contentItemPreviewUrl, dashboardUrl } from '../lib/preview-url.mjs'
+import { absoluteMediaUrl, contentItemPreviewUrl, contentPostUrl, dashboardUrl } from '../lib/preview-url.mjs'
 import { assertChatToolAllowed, assertSafeToolArguments } from '../lib/ai-security.mjs'
 import { loadSiteConfig, isSocialMediaOnlySite } from '../lib/site-config.mjs'
 import { mediaDir, readDb } from '../lib/db.mjs'
@@ -2010,6 +2010,9 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
           const previewUrl = attachment?.contentComplete && itemId
             ? contentItemPreviewUrl(itemId, attachment.batchId)
             : null
+          const postUrl = attachment?.contentComplete && itemId
+            ? contentPostUrl(itemId, site, channels?.[0])
+            : null
           const mediaPreviewUrl = absoluteMediaUrl(uploaded.media?.previewPath || uploaded.media?.previewUrl || uploaded.media?.path || uploaded.media?.url || '')
           const originalSha256 = uploaded.media?.metadata?.originalSha256 || uploaded.originalSha256 || null
           const finalSha256 = uploaded.media?.sha256 || uploaded.finalSha256 || null
@@ -2026,10 +2029,11 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             operationStatus: kind === 'reference' ? 'complete' : attachment?.contentComplete ? 'ready_for_review' : moreSlidesPending ? 'in_progress' : attachment ? 'needs_completion' : 'upload_complete_attachment_pending',
             readyForReview: Boolean(attachment?.contentComplete),
             ...(previewUrl ? { previewUrl, dashboardUrl: dashboardUrl() } : {}),
+            ...(postUrl ? { postUrl } : {}),
             nextStep: kind === 'reference'
               ? 'Referencia (moodboard) guardada. No la asocies a blog/Instagram.'
               : attachment?.contentComplete
-                ? `Pendiente de revisión humana. Comparte ${previewUrl}. La imagen guardada es el PNG final generado por ChatGPT.`
+                ? `Pendiente de revisión humana. Comparte ${postUrl || previewUrl}. La imagen guardada es el PNG final generado por ChatGPT.`
                 : moreSlidesPending
                   ? `Slide ${assetIndex + 1} de ${expectedAssetCount} asociada. Sube las slides restantes con el mismo preparationId.`
                 : attachment
@@ -2039,9 +2043,9 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             nextAction: attachment && !attachment.contentComplete && !moreSlidesPending
               ? { tool: 'content_get_batch', arguments: { batchId: attachment.batchId }, then: 'Recupera los bodies completos y usa content_update_item por canal para guardar cada body completo. No envíes solo los campos que faltan.' }
               : attachment?.contentComplete
-                ? { tool: null, then: `Revisión humana en ${previewUrl}. No apruebes sin confirmación.` }
+                ? { tool: null, then: `Revisión humana en ${postUrl || previewUrl}. No apruebes sin confirmación.` }
                 : null,
-            reviewHint: kind === 'reference' ? 'Moodboard guardado (no publicable).' : attachment?.contentComplete ? `Listo para revisión: ${previewUrl}` : attachment ? 'Medio asociado al item y a sus variantes.' : 'Medio guardado, pendiente de asociar a un item.'
+            reviewHint: kind === 'reference' ? 'Moodboard guardado (no publicable).' : attachment?.contentComplete ? `Listo para revisión: ${postUrl || previewUrl}` : attachment ? 'Medio asociado al item y a sus variantes.' : 'Medio guardado, pendiente de asociar a un item.'
           })
         }
         case 'content_attach_media': {

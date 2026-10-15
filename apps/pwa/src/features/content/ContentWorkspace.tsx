@@ -33,6 +33,11 @@ function bodyText(variant?: ContentVariant | null) {
   if (variant?.channel === "video") {
     return String(body.publishCopy || body.caption || body.text || socialPack.videoCaption || socialPack.videoCopy || body.videoScript || body.script || "");
   }
+  if (variant?.channel === "x") {
+    const x = socialPack.x && typeof socialPack.x === "object" ? socialPack.x : {};
+    const xCopy = typeof socialPack.x === "string" ? socialPack.x : x.text || x.copy || x.body || "";
+    return String(xCopy || body.text || body.caption || body.body || "");
+  }
   return String(body.text || body.caption || body.body || body.bodyHtml || "");
 }
 
@@ -109,6 +114,23 @@ function previewItemsFor(variant: PostVariant) {
     const body = variant.body || {};
     const source = body.videoUrl || body.videoPreviewUrl || body.url;
     return source ? [{ url: source, contentType: "video/mp4" }] : [];
+  }
+  if (variant.channel === "x") {
+    const body = variant.body || {};
+    const socialPackX = socialPack.x && typeof socialPack.x === "object" ? socialPack.x : {};
+    const source = [
+      socialPackX.previewUrl,
+      socialPackX.imagePreviewUrl,
+      socialPackX.imageUrl,
+      socialPackX.image_url,
+      socialPackX.url,
+      body.previewUrl,
+      body.imagePreviewUrl,
+      body.imageUrl,
+      body.image_url,
+      body.url
+    ].find(Boolean);
+    return source ? [{ ...(media[0] || {}), ...socialPackX, url: source }] : media;
   }
   return media;
 }
@@ -191,6 +213,8 @@ export function PostWorkspace() {
   const { t } = useI18n();
   const { showToast } = useToast();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedChannel = searchParams.get("channel") || "";
   const [post, setPost] = useState<CanonicalPost | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -215,7 +239,7 @@ export function PostWorkspace() {
         const next = asCanonicalPost(item);
         setPost(next);
         const usable = next.variants.find((variant) => variant.status !== "archived");
-        const first = next.variants.find((variant) => variant.channel === activeChannel && variant.status !== "archived") || usable || next.variants[0];
+        const first = next.variants.find((variant) => variant.channel === requestedChannel && variant.status !== "archived") || next.variants.find((variant) => variant.channel === activeChannel && variant.status !== "archived") || usable || next.variants[0];
         if (first) {
           setActiveChannel(first.channel);
           setDraft(bodyText(first));
@@ -230,7 +254,7 @@ export function PostWorkspace() {
   useEffect(() => {
     const cleanup = load();
     return cleanup;
-  }, [postId, site]);
+  }, [postId, site, requestedChannel]);
 
   const activeVariant = useMemo(() => post?.variants.find((variant) => variant.channel === activeChannel) || post?.variants[0] || null, [post, activeChannel]);
   const canApprove = [session.role, session.workspaceRole].some((role) => ["owner", "admin", "approver"].includes(String(role || "").toLowerCase()));
@@ -242,6 +266,9 @@ export function PostWorkspace() {
     setActiveChannel(channel);
     setDraft(bodyText(variant));
     setTitle(variantTitle(variant, post?.title || ""));
+    const next = new URLSearchParams(searchParams);
+    next.set("channel", channel);
+    setSearchParams(next, { replace: true });
   };
 
   const save = async (readyForReview = false) => {
@@ -391,7 +418,7 @@ function PostVariantPreview({ variant }: { variant: PostVariant }) {
   const copy = variantCopy(variant);
   const isVideoChannel = variant.channel === "video";
   const isStoryChannel = variant.channel === "instagram_story";
-  const previewLabel = isVideoChannel ? t("content.preview.video", "Vídeo") : isStoryChannel ? t("content.preview.story", "Story") : t("content.preview.carousel", "Carrusel");
+  const previewLabel = variant.channel === "x" ? channelName("x", t) : isVideoChannel ? t("content.preview.video", "Vídeo") : isStoryChannel ? t("content.preview.story", "Story") : t("content.preview.carousel", "Carrusel");
   const safeIndex = items.length ? Math.min(activeIndex, items.length - 1) : 0;
   const current = items[safeIndex] || {};
   const source = previewMediaUrl(current);
@@ -399,7 +426,7 @@ function PostVariantPreview({ variant }: { variant: PostVariant }) {
 
   useEffect(() => setActiveIndex(0), [variant.id, variant.channel]);
 
-  if (!["instagram", "instagram_story", "video"].includes(variant.channel)) return null;
+  if (!["instagram", "instagram_story", "video", "x"].includes(variant.channel)) return null;
 
   return <Card className={`v3-channel-preview v3-channel-preview-${variant.channel}`}>
     <div className="v3-preview-heading"><div><span className="ui-eyebrow">{t("content.preview.eyebrow", "Vista previa")}</span><h3>{previewLabel}</h3></div><ChannelBadge channel={variant.channel} /></div>
