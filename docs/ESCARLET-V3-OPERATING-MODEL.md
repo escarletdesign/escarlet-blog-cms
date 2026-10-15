@@ -50,7 +50,7 @@ La normalización vive en el dominio y no en cada pantalla.
 
 - `editor`: crea y edita Posts, variantes y assets.
 - `approver`: revisa, solicita cambios, aprueba, programa y publica.
-- `admin`: administra Brand Kit, conexiones, destinos, miembros y facturación.
+- `owner` y `admin`: administran Brand Kit, conexiones, destinos, miembros y facturación.
 
 Los roles técnicos existentes (`owner`, `admin`, `editor`, `author`, `viewer`) se proyectan a este lenguaje en la PWA y en las respuestas MCP.
 
@@ -69,6 +69,14 @@ brand.context.get
 ```
 
 Cada resultado conserva `brandKitVersionId`, `brandKitSnapshotHash`, `generationRunId` y su procedencia.
+
+## Flujo de Brand Kit
+
+Un owner o admin crea una versión con `brand.version.create`, sube las
+referencias con `asset.upload` usando `kind=reference`, las enlaza con
+`brand.asset.register`, valida con `brand.version.validate` y publica tras
+confirmación humana con `brand.version.publish`. Las versiones publicadas son
+inmutables.
 
 ## Flujo de publicación
 

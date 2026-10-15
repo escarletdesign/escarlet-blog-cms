@@ -468,6 +468,163 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     tags: ['brand', 'kernel', 'read']
   }),
   manifest({
+    id: 'brand.version.create',
+    description: 'Crea un draft versionado de Brand Kit a partir de un manifest. La versión activa no cambia.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site: { type: 'string' },
+        brandId: { type: 'string' },
+        workspaceId: { type: 'string' },
+        siteId: { type: 'string' },
+        manifest: { type: 'object' },
+        baseVersionId: { type: 'string' },
+        expectedActiveVersionId: { type: 'string' },
+        idempotencyKey: { type: 'string', maxLength: 300 }
+      },
+      oneOf: [{ required: ['site', 'manifest'] }, { required: ['brandId', 'manifest'] }],
+      additionalProperties: false
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        contractVersion: { type: 'string', const: MCP_V3_CONTRACT },
+        capability: { type: 'string', const: 'brand.version.create' },
+        scope: { type: 'object' },
+        brandKitVersionId: { type: 'string' },
+        brandKitSnapshotHash: { type: ['string', 'null'] },
+        status: { type: 'string', const: 'draft' },
+        version: { type: 'object' },
+        nextAction: { type: 'string' }
+      },
+      required: ['contractVersion', 'capability', 'scope', 'brandKitVersionId', 'status', 'version', 'nextAction'],
+      additionalProperties: true
+    },
+    permissions: ['brand:write'],
+    sideEffects: 'write',
+    humanReviewRequired: true,
+    tags: ['brand', 'kit', 'versioning', 'write']
+  }),
+  manifest({
+    id: 'brand.version.validate',
+    description: 'Valida un draft de Brand Kit sin publicarlo.',
+    inputSchema: {
+      type: 'object',
+      properties: { site: { type: 'string' }, brandId: { type: 'string' }, workspaceId: { type: 'string' }, siteId: { type: 'string' }, versionId: { type: 'string' } },
+      oneOf: [{ required: ['site', 'versionId'] }, { required: ['brandId', 'versionId'] }],
+      additionalProperties: false
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        contractVersion: { type: 'string', const: MCP_V3_CONTRACT },
+        capability: { type: 'string', const: 'brand.version.validate' },
+        scope: { type: 'object' },
+        versionId: { type: 'string' },
+        status: { type: 'string' },
+        valid: { type: 'boolean' },
+        errors: { type: 'array' },
+        assetCount: { type: 'integer' },
+        nextAction: { type: 'string' }
+      },
+      required: ['contractVersion', 'capability', 'scope', 'versionId', 'valid', 'errors', 'nextAction'],
+      additionalProperties: true
+    },
+    permissions: ['brand:read'],
+    tags: ['brand', 'kit', 'validation']
+  }),
+  manifest({
+    id: 'brand.asset.register',
+    description: 'Registra assets previamente subidos en un draft de Brand Kit.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site: { type: 'string' },
+        brandId: { type: 'string' },
+        workspaceId: { type: 'string' },
+        siteId: { type: 'string' },
+        versionId: { type: 'string' },
+        assets: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 100,
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string', minLength: 1, maxLength: 240 },
+              storageKey: { type: 'string', minLength: 1, maxLength: 1000 },
+              publicUrl: { type: 'string', maxLength: 2000 },
+              contentType: { type: 'string', maxLength: 120 },
+              sizeBytes: { type: 'integer', minimum: 0 },
+              sha256: { type: 'string', maxLength: 100 },
+              visibility: { type: 'string', enum: ['private', 'role_limited', 'public'] },
+              metadata: { type: 'object' }
+            },
+            required: ['name', 'storageKey'],
+            additionalProperties: false
+          }
+        }
+      },
+      oneOf: [{ required: ['site', 'versionId', 'assets'] }, { required: ['brandId', 'versionId', 'assets'] }],
+      additionalProperties: false
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        contractVersion: { type: 'string', const: MCP_V3_CONTRACT },
+        capability: { type: 'string', const: 'brand.asset.register' },
+        scope: { type: 'object' },
+        brandKitVersionId: { type: 'string' },
+        assets: { type: 'array' },
+        nextAction: { type: 'string' }
+      },
+      required: ['contractVersion', 'capability', 'scope', 'brandKitVersionId', 'assets', 'nextAction'],
+      additionalProperties: true
+    },
+    permissions: ['brand:write'],
+    sideEffects: 'write',
+    humanReviewRequired: true,
+    tags: ['brand', 'kit', 'asset', 'write']
+  }),
+  manifest({
+    id: 'brand.version.publish',
+    description: 'Valida y publica un draft de Brand Kit como nueva versión activa. Requiere aprobación del owner o admin.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site: { type: 'string' },
+        brandId: { type: 'string' },
+        workspaceId: { type: 'string' },
+        siteId: { type: 'string' },
+        versionId: { type: 'string' },
+        expectedActiveVersionId: { type: 'string' },
+        idempotencyKey: { type: 'string', maxLength: 300 }
+      },
+      oneOf: [{ required: ['site', 'versionId'] }, { required: ['brandId', 'versionId'] }],
+      additionalProperties: false
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        contractVersion: { type: 'string', const: MCP_V3_CONTRACT },
+        capability: { type: 'string', const: 'brand.version.publish' },
+        scope: { type: 'object' },
+        brandKitVersionId: { type: 'string' },
+        brandKitSnapshotHash: { type: ['string', 'null'] },
+        status: { type: 'string', const: 'published' },
+        version: { type: 'object' },
+        validation: { type: 'object' },
+        nextAction: { type: 'string' }
+      },
+      required: ['contractVersion', 'capability', 'scope', 'brandKitVersionId', 'status', 'version', 'validation', 'nextAction'],
+      additionalProperties: true
+    },
+    permissions: ['brand:publish'],
+    sideEffects: 'write',
+    humanReviewRequired: true,
+    tags: ['brand', 'kit', 'versioning', 'publish']
+  }),
+  manifest({
     id: 'brand.references.resolve',
     description: 'Resuelve referencias visuales permitidas para una operación de generación.',
     inputSchema: { type: 'object', properties: { site: { type: 'string' }, brandId: { type: 'string' }, brandKitVersionId: { type: 'string' }, purpose: { type: 'string' }, formatProfile: { type: 'string' } }, oneOf: [{ required: ['site', 'purpose'] }, { required: ['brandId', 'purpose'] }], additionalProperties: false },

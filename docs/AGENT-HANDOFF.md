@@ -45,7 +45,7 @@ Las rutas antiguas no redirigen: devuelven `410` o una pantalla explícita de fl
 
 ## Operación MCP V3
 
-El agente debe pedir `workspace.context.get` y `brand.context.get`, listar o crear un Post, subir o asociar media, validar copy, solicitar revisión y usar `publication.destination.*` más `publication.*` para publicar. Para revisar datos existentes puede usar `content.post.list` y `content.audit.inventory`; `content.audit.repair.plan` sólo propone cambios y nunca escribe. `asset.delete` requiere confirmación y, con `force: true`, sólo owner o admin puede retirar media vinculada. `content.post.archive` exige confirmación explícita y es reversible. No se permite generar copy, imágenes o vídeo en el servidor. Buffer, Coolify y WordPress son adaptadores detrás de `PublicationRun`.
+El agente debe pedir `workspace.context.get` y `brand.context.get`, listar o crear un Post, subir o asociar media, validar copy, solicitar revisión y usar `publication.destination.*` más `publication.*` para publicar. Para crear un Brand Kit, un owner o admin usa `brand.version.create`, registra los archivos subidos con `brand.asset.register`, ejecuta `brand.version.validate` y publica solo tras confirmación humana con `brand.version.publish`. Para revisar datos existentes puede usar `content.post.list` y `content.audit.inventory`; `content.audit.repair.plan` sólo propone cambios y nunca escribe. `asset.delete` requiere confirmación y, con `force: true`, sólo owner o admin puede retirar media vinculada. `content.post.archive` exige confirmación explícita y es reversible. No se permite generar copy, imágenes o vídeo en el servidor. Buffer, Coolify y WordPress son adaptadores detrás de `PublicationRun`.
 
 ## Migración y aceptación
 

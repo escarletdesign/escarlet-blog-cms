@@ -18,6 +18,68 @@ test('Brand Kernel devuelve un contexto autorizado y sin archivos privados', asy
   assert.equal(Object.hasOwn(result.structuredContent, 'files'), false)
 })
 
+test('un owner puede crear, validar, registrar assets y publicar un Brand Kit v3', async () => {
+  const calls = []
+  const runtime = {
+    resolveWorkspaceContext: async () => ({ workspaceId: 'workspace-1', sites: [{ id: 'site-1', handle: 'demo', role: 'owner' }] }),
+    getActiveBrandKit: async () => ({ id: 'active-1', version: 1, status: 'published' }),
+    createBrandKitVersion: async (input) => {
+      calls.push(['create', input])
+      return { id: 'draft-1', status: 'draft', snapshotHash: 'hash-draft', manifest: input.manifest }
+    },
+    getBrandKitVersion: async () => ({ id: 'draft-1', status: 'draft' }),
+    registerBrandAssets: async (input) => {
+      calls.push(['assets', input])
+      return [{ id: 'brand-asset-1', name: input.assets[0].name }]
+    },
+    validateBrandKitVersion: async () => ({ versionId: 'draft-1', status: 'draft', valid: true, errors: [], assetCount: 1 }),
+    publishBrandKitVersion: async (input) => {
+      calls.push(['publish', input])
+      return { id: 'draft-1', status: 'published', snapshotHash: 'hash-published' }
+    }
+  }
+  const server = await createMcpServerV3({ role: 'owner', userId: 'user-1', site: 'demo' }, { runtime })
+  const created = await call(server, 'brand.version.create', { site: 'demo', manifest: { 'voice.md': '# Voz' } })
+  assert.equal(created.isError, false)
+  assert.equal(created.structuredContent.brandKitVersionId, 'draft-1')
+  const registered = await call(server, 'brand.asset.register', {
+    site: 'demo',
+    versionId: 'draft-1',
+    assets: [{ name: 'references/example.png', storageKey: 'media/demo/reference/example.png' }]
+  })
+  assert.equal(registered.isError, false)
+  assert.equal(registered.structuredContent.assets[0].id, 'brand-asset-1')
+  const validated = await call(server, 'brand.version.validate', { site: 'demo', versionId: 'draft-1' })
+  assert.equal(validated.isError, false)
+  assert.equal(validated.structuredContent.nextAction, 'brand.version.publish')
+  const published = await call(server, 'brand.version.publish', { site: 'demo', versionId: 'draft-1', expectedActiveVersionId: 'active-1' })
+  assert.equal(published.isError, false)
+  assert.equal(published.structuredContent.status, 'published')
+  assert.deepEqual(calls.map(([name]) => name), ['create', 'assets', 'publish'])
+})
+
+test('un editor no puede escribir ni publicar un Brand Kit v3', async () => {
+  const server = await createMcpServerV3({ role: 'editor', site: 'demo' })
+  const result = await call(server, 'brand.version.create', { site: 'demo', manifest: {} })
+  assert.equal(result.isError, true)
+  assert.equal(result.structuredContent.error.code, 'capability_permission_missing')
+})
+
+test('brand.version.create permite iniciar un kit sin versión activa', async () => {
+  let input = null
+  const server = await createMcpServerV3({ role: 'owner', site: 'nuevo' }, {
+    runtime: {
+      resolveWorkspaceContext: async () => ({ workspaceId: 'workspace-1', sites: [{ id: 'site-1', handle: 'nuevo', role: 'owner' }] }),
+      getActiveBrandKit: async () => { throw Object.assign(new Error('Brand kit no encontrado.'), { status: 404, code: 'brand_kit_not_found' }) },
+      createBrandKitVersion: async (value) => { input = value; return { id: 'draft-1', status: 'draft', snapshotHash: 'hash' } }
+    }
+  })
+  const result = await call(server, 'brand.version.create', { site: 'nuevo', manifest: { 'voice.md': '# Voz' } })
+  assert.equal(result.isError, false)
+  assert.equal(input.baseVersionId, null)
+  assert.equal(input.expectedActiveVersionId, null)
+})
+
 test('brand.references.resolve conserva hash y procedencia de cada referencia', async () => {
   const server = await createMcpServerV3({ role: 'admin', site: 'escarlet' })
   const result = await call(server, 'brand.references.resolve', { site: 'escarlet', purpose: 'blog cover' })

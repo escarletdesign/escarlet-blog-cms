@@ -3,7 +3,16 @@ import { assertSiteAccess } from '../../lib/auth.mjs'
 import { getBrandContext, getMotionBrandAssets, loadActiveBrandKitSnapshot, prepareImageGeneration, validateImagePreparation } from '../../lib/brand-kit.mjs'
 import { buildBrandOsMetadata } from '../../lib/brand-os.mjs'
 import { assertAssetTypeForMediaKind, assertSocialTextMetadata, getImagePreparation, issueGenerationReceipt, persistImagePreparation } from '../../lib/generation-provenance.mjs'
-import { getActiveBrandKit, getWorkspaceFeatureFlags, resolveWorkspaceContext } from '../../lib/workspace-domain.mjs'
+import {
+  createBrandKitVersion,
+  getActiveBrandKit,
+  getBrandKitVersion,
+  getWorkspaceFeatureFlags,
+  publishBrandKitVersion,
+  registerBrandAssets,
+  resolveWorkspaceContext,
+  validateBrandKitVersion
+} from '../../lib/workspace-domain.mjs'
 import { getPgPool } from '../../lib/pg.mjs'
 import { cancelVideoJob, createVideoJob, getVideoJob, retryVideoJob, updateVideoJob } from '../../lib/video-jobs.mjs'
 import { uploadMedia } from '../../lib/cms-ops.mjs'
@@ -52,8 +61,8 @@ const FORMAT_ASSET_TYPES = Object.freeze({
 
 const ROLE_PERMISSIONS = Object.freeze({
   admin: ['*'],
-  owner: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'publication:write', 'publication:publish', 'content:read', 'content:write', 'content:publish'],
-  agency_admin: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'publication:write', 'publication:publish', 'content:read', 'content:write', 'content:publish'],
+  owner: ['brand:read', 'brand:write', 'brand:publish', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'publication:write', 'publication:publish', 'content:read', 'content:write', 'content:publish'],
+  agency_admin: ['brand:read', 'brand:write', 'brand:publish', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'publication:write', 'publication:publish', 'content:read', 'content:write', 'content:publish'],
   editor: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'publication:write', 'content:read', 'content:write'],
   approver: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'publication:write', 'publication:publish', 'content:read', 'content:write', 'content:publish'],
   author: ['brand:read', 'asset:read', 'asset:write', 'copy:validate', 'generation:prepare', 'generation:provenance', 'generation:run', 'production:motion', 'publication:read', 'content:read', 'content:write'],
@@ -106,12 +115,31 @@ function preparationInput(args = {}) {
   }
 }
 
-async function activeBrandOptions(site, args, auth) {
-  const workspaceId = String(args.workspaceId || auth.workspaceId || '').trim()
-  const siteId = String(args.siteId || auth.siteId || '').trim()
-  if (!workspaceId || !siteId || !(await getPgPool())) return {}
+async function activeBrandOptions(site, args, auth, runtime = null) {
+  let workspaceId = String(args.workspaceId || auth.workspaceId || '').trim()
+  let siteId = String(args.siteId || auth.siteId || '').trim()
+  const scoped = Boolean(auth.userId || workspaceId || siteId)
+  const pool = typeof runtime?.getPgPool === 'function' ? await runtime.getPgPool() : await getPgPool()
+  const readActive = typeof runtime?.getActiveBrandKit === 'function' ? runtime.getActiveBrandKit : getActiveBrandKit
+  if (scoped && (pool || typeof runtime?.getActiveBrandKit === 'function') && (!workspaceId || !siteId)) {
+    const resolveContext = typeof runtime?.resolveWorkspaceContext === 'function' ? runtime.resolveWorkspaceContext : resolveWorkspaceContext
+    const context = await resolveContext({
+      userId: auth.userId || undefined,
+      workspaceId: workspaceId || undefined,
+      siteId: siteId || undefined,
+      siteHandle: site,
+      role: auth.role === 'admin' ? 'admin' : auth.role === 'agent' ? 'editor' : undefined
+    })
+    const selected = context.sites.find((entry) => entry.id === siteId || entry.handle === site) || context.sites[0]
+    workspaceId ||= context.workspaceId
+    siteId ||= selected?.id || ''
+  }
+  if (!workspaceId || !siteId || (!pool && typeof runtime?.getActiveBrandKit !== 'function')) {
+    if (scoped && !runtime) throw Object.assign(new Error('MCP v3 no tiene DATABASE_URL y no puede leer el Brand Kit versionado.'), { code: 'brand_runtime_unconfigured', status: 503, action: 'configure_database' })
+    return {}
+  }
   try {
-    const active = await getActiveBrandKit({ workspaceId, siteId })
+    const active = await readActive({ workspaceId, siteId })
     return {
       canonicalManifest: active.manifest,
       canonicalAssets: active.assets,
@@ -124,7 +152,8 @@ async function activeBrandOptions(site, args, auth) {
         version: active.version
       })
     }
-  } catch {
+  } catch (error) {
+    if (scoped && !runtime) throw error
     return {}
   }
 }
@@ -196,6 +225,129 @@ async function resolveReadScope(args = {}, auth = {}, runtime = null) {
   }
   if (requestedWorkspaceId && context.workspaceId !== requestedWorkspaceId) throw Object.assign(new Error('El workspace no pertenece al contexto autenticado.'), { code: 'asset_scope_forbidden', status: 403 })
   return { workspaceId: context.workspaceId, siteId: selected.id, site: selected.handle || requestedSite, siteName: selected.name || null, role: selected.role || context.role || auth.role, context }
+}
+
+async function resolveBrandKitWriteScope(args, auth, runtime, { publish = false } = {}) {
+  const scope = await resolveReadScope(args, auth, runtime)
+  const requestedRole = String(auth.role === 'admin' ? 'admin' : scope.role || scope.context?.workspaceRole || auth.role || '').toLowerCase()
+  const role = requestedRole === 'agency_admin' ? 'owner' : requestedRole
+  const allowed = ['admin', 'owner']
+  if (!allowed.includes(role)) {
+    throw Object.assign(new Error('El rol ' + (requestedRole || 'actual') + ' no puede modificar el Brand Kit.'), {
+      code: publish ? 'brand_kit_publish_forbidden' : 'brand_kit_write_forbidden',
+      status: 403,
+      details: { requiredRoles: ['owner', 'admin'], currentRole: requestedRole || null }
+    })
+  }
+  return { ...scope, role }
+}
+
+function brandKitScopeResult(scope) {
+  return { workspaceId: scope.workspaceId, siteId: scope.siteId, site: scope.site }
+}
+
+async function createBrandKitDraft(args, auth, runtime) {
+  const scope = await resolveBrandKitWriteScope(args, auth, runtime)
+  const readActive = typeof runtime?.getActiveBrandKit === 'function' ? runtime.getActiveBrandKit : getActiveBrandKit
+  const createVersion = typeof runtime?.createBrandKitVersion === 'function' ? runtime.createBrandKitVersion : createBrandKitVersion
+  let active = null
+  try {
+    active = await readActive({ workspaceId: scope.workspaceId, siteId: scope.siteId })
+  } catch (error) {
+    if (error?.status !== 404 && error?.code !== 'brand_kit_not_found') throw error
+  }
+  const version = await createVersion({
+    workspaceId: scope.workspaceId,
+    siteId: scope.siteId,
+    userId: auth.userId,
+    role: scope.role,
+    manifest: args.manifest,
+    status: 'draft',
+    baseVersionId: args.baseVersionId || active?.id || null,
+    expectedActiveVersionId: args.expectedActiveVersionId === undefined ? active?.id || null : args.expectedActiveVersionId,
+    idempotencyKey: args.idempotencyKey
+  })
+  return {
+    contractVersion: MCP_V3_CONTRACT,
+    capability: 'brand.version.create',
+    scope: brandKitScopeResult(scope),
+    brandKitVersionId: version.id,
+    brandKitSnapshotHash: version.snapshotHash || null,
+    status: version.status,
+    version,
+    nextAction: 'brand.version.validate'
+  }
+}
+
+async function validateBrandKitDraft(args, auth, runtime) {
+  const scope = await resolveReadScope(args, auth, runtime)
+  const validate = typeof runtime?.validateBrandKitVersion === 'function' ? runtime.validateBrandKitVersion : validateBrandKitVersion
+  const result = await validate({ workspaceId: scope.workspaceId, siteId: scope.siteId, versionId: args.versionId })
+  return {
+    contractVersion: MCP_V3_CONTRACT,
+    capability: 'brand.version.validate',
+    scope: brandKitScopeResult(scope),
+    ...result,
+    nextAction: result.valid ? 'brand.version.publish' : 'fix_manifest_or_assets'
+  }
+}
+
+async function registerBrandKitAssets(args, auth, runtime) {
+  const scope = await resolveBrandKitWriteScope(args, auth, runtime)
+  const readVersion = typeof runtime?.getBrandKitVersion === 'function' ? runtime.getBrandKitVersion : getBrandKitVersion
+  const register = typeof runtime?.registerBrandAssets === 'function' ? runtime.registerBrandAssets : registerBrandAssets
+  const version = await readVersion({ workspaceId: scope.workspaceId, siteId: scope.siteId, versionId: args.versionId })
+  if (version.status === 'published') {
+    throw Object.assign(new Error('Las versiones publicadas son inmutables. Crea un draft para registrar assets.'), { code: 'BRAND_KIT_VERSION_IMMUTABLE', status: 409 })
+  }
+  const assets = await register({
+    workspaceId: scope.workspaceId,
+    siteId: scope.siteId,
+    brandKitVersionId: args.versionId,
+    userId: auth.userId,
+    role: scope.role,
+    assets: args.assets
+  })
+  return {
+    contractVersion: MCP_V3_CONTRACT,
+    capability: 'brand.asset.register',
+    scope: brandKitScopeResult(scope),
+    brandKitVersionId: args.versionId,
+    assets,
+    nextAction: 'brand.version.validate'
+  }
+}
+
+async function publishBrandKitDraft(args, auth, runtime) {
+  const scope = await resolveBrandKitWriteScope(args, auth, runtime, { publish: true })
+  const readActive = typeof runtime?.getActiveBrandKit === 'function' ? runtime.getActiveBrandKit : getActiveBrandKit
+  const validate = typeof runtime?.validateBrandKitVersion === 'function' ? runtime.validateBrandKitVersion : validateBrandKitVersion
+  const publish = typeof runtime?.publishBrandKitVersion === 'function' ? runtime.publishBrandKitVersion : publishBrandKitVersion
+  const active = await readActive({ workspaceId: scope.workspaceId, siteId: scope.siteId })
+  const validation = await validate({ workspaceId: scope.workspaceId, siteId: scope.siteId, versionId: args.versionId })
+  if (!validation.valid) {
+    throw Object.assign(new Error('El draft del Brand Kit no pasa la validación.'), { code: 'BRAND_KIT_VALIDATION_FAILED', status: 409, details: validation })
+  }
+  const version = await publish({
+    workspaceId: scope.workspaceId,
+    siteId: scope.siteId,
+    userId: auth.userId,
+    role: scope.role,
+    versionId: args.versionId,
+    expectedActiveVersionId: args.expectedActiveVersionId === undefined ? active?.id || null : args.expectedActiveVersionId,
+    idempotencyKey: args.idempotencyKey
+  })
+  return {
+    contractVersion: MCP_V3_CONTRACT,
+    capability: 'brand.version.publish',
+    scope: brandKitScopeResult(scope),
+    brandKitVersionId: version.id,
+    brandKitSnapshotHash: version.snapshotHash || null,
+    status: version.status,
+    version,
+    validation,
+    nextAction: 'brand.context.get'
+  }
 }
 
 async function canonicalAssetScope(args, auth, runtime = null) {
@@ -1173,7 +1325,7 @@ async function planMotionStoryboard(args, auth, runtime) {
     transition: args.transition,
     formatProfile: profile.profile
   })
-  const brandOptions = await activeBrandOptions(site, args, auth)
+  const brandOptions = await activeBrandOptions(site, args, auth, runtime)
   const brand = getBrandContext(site, { auth: { ...auth, role: auth.role === 'agent' ? 'editor' : auth.role }, ...brandOptions })
   return {
     contractVersion: 'os.production.v1',
@@ -1216,7 +1368,7 @@ async function composeMotionJob(args, auth, runtime) {
   const transitionType = MOTION_TRANSITIONS.has(requestedTransition) ? requestedTransition : 'crossfade'
   const transitionDurationMs = Number(args.transition?.durationMs)
   const transition = { type: transitionType, durationMs: transitionType === 'none' ? 0 : Number.isFinite(transitionDurationMs) && transitionDurationMs >= 0 ? Math.min(1000, Math.round(transitionDurationMs)) : 400 }
-  const brandOptions = await activeBrandOptions(scope.site, args, auth)
+  const brandOptions = await activeBrandOptions(scope.site, args, auth, runtime)
   const brand = getBrandContext(scope.site, { auth: { ...auth, role: auth.role === 'agent' ? 'editor' : auth.role }, ...brandOptions })
   const text = String(args.text || args.script || args.topic || copyBlocks.map((block) => [block.headline, block.body].filter(Boolean).join('\n')).filter(Boolean).join('\n') || '').replace(/[\u2014\u2013]/g, '-').trim()
   const copy = text
@@ -1484,7 +1636,7 @@ async function runRecipe(args, auth, runtime) {
   const text = String(args.text || args.menuText || args.script || copyBlockText).trim()
   if (!text) throw Object.assign(new Error('La recipe necesita text o menuText.'), { code: 'recipe_text_required', status: 422 })
   const site = siteFor(args, auth)
-  const context = await invokeBuiltinCapability('brand.context.get', { site, brandKitVersionId: args.brandKitVersionId }, { auth })
+  const context = await invokeBuiltinCapability('brand.context.get', { site, brandKitVersionId: args.brandKitVersionId }, { auth, runtime })
   const copy = validateCopy({ ...args, site, text, purpose: args.purpose || id }, context)
   if (!copy.valid) {
     return {
@@ -1548,9 +1700,13 @@ async function runRecipe(args, auth, runtime) {
 
 export async function invokeBuiltinCapability(name, args = {}, { auth = {}, runtime = null } = {}) {
   if (name === 'recipe.run') return runRecipe(args, auth, runtime)
+  if (name === 'brand.version.create') return createBrandKitDraft(args, auth, runtime)
+  if (name === 'brand.version.validate') return validateBrandKitDraft(args, auth, runtime)
+  if (name === 'brand.asset.register') return registerBrandKitAssets(args, auth, runtime)
+  if (name === 'brand.version.publish') return publishBrandKitDraft(args, auth, runtime)
   if (name.startsWith('brand.') || name === 'copy.validate') {
     const site = siteFor(args, auth)
-    const brandOptions = await activeBrandOptions(site, args, auth)
+    const brandOptions = await activeBrandOptions(site, args, auth, runtime)
     const context = getBrandContext(site, { auth: { ...auth, role: auth.role === 'agent' ? 'editor' : auth.role }, ...brandOptions })
     if (name === 'brand.context.get') return { contractVersion: 'os.production.v1', ...contextProjection(context) }
     if (name === 'brand.voice.get') return { contractVersion: 'os.production.v1', site, brandKitVersionId: context.brandKitVersionId, brandKitSnapshotHash: context.brandKitSnapshotHash, voice: context.voice, keywords: context.keywords }

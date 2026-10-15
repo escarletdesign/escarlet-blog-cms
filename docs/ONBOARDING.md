@@ -1,7 +1,7 @@
 # Onboarding - añadir blog a un proyecto
 
 Guía personal para crear un site nuevo o enchufar el blog a una landing ya existente.
-Un solo CMS v2 (`cms.escarlet.design`). Cada web es un **handle** con su brand kit y su webhook.
+Un solo CMS v3 (`cms.escarlet.design`). Cada web es un **handle** con su brand kit y su webhook.
 
 ## Idea en 30 segundos
 
@@ -68,7 +68,17 @@ capability.search { query: "brand reel publication" }
 brand.context.get { site: "mares24" }
 ```
 
-Luego completa el brand kit en `/app/admin` → Brand kit.
+Para crear un Brand Kit desde un agente, usa `brand.version.create`, sube las
+referencias con `asset.upload` y `kind: "reference"`, enlázalas con
+`brand.asset.register`, valida con `brand.version.validate` y publica solo tras
+confirmación humana mediante `brand.version.publish`. También puedes completar
+el kit en `/app/admin` → Brand kit.
+
+El onboarding crea `reference-library.json` en la versión activa. No publiques
+una versión sin ese archivo, aunque el sitio ya tenga `referenceImages`: son
+dos fuentes distintas y deben compartir el mismo `brandKitSnapshotHash`. MCP
+v3 debe ejecutarse con `DATABASE_URL`; si falta, el runtime devuelve un error y
+no usa un Brand Kit estático desactualizado.
 
 ---
 
@@ -222,8 +232,9 @@ Prohibido. Commitear posts al git del frontend. Usar `create_draft` para editar.
 
 `POST /api/auth/register` permite el alta propia cuando no hay sesión. El usuario crea su workspace y su primera marca, recibe membresía `owner` y puede generar un PAT personal. Las invitaciones posteriores aceptan varias marcas y un rol independiente por marca mediante `brandIds` y `brandRoles`. Revocar la fila de `workspace_member_sites` corta el acceso de inmediato en la app y en MCP.
 
-- [ ] `site:init` o alta de marca desde la app v2 con handle + domain
+- [ ] `site:init` o alta de marca desde la app con handle + domain
 - [ ] Brand kit relleno + 2–4 referencias
+- [ ] `reference-library.json` presente y validado en el Brand Kit activo
 - [ ] Frontend Vite. sync en prebuild + env Coolify **o** WordPress. plugin + webhook de sync
 - [ ] Webhook + secreto del proveedor en tab Sitio (probado)
 - [ ] Interruptor Blog en la web pública encendido

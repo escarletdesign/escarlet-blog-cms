@@ -17,7 +17,7 @@ Integración opcional de un resource server Auth0 para MCP v3. No se activa por 
 | Grant | Authorization Code + PKCE (OAuth 2.1) |
 | App type | Regular Web / Native según Apps SDK |
 | DCR / CIMD | Según requisitos del conector ChatGPT Developer Mode |
-| Scopes | `brand:read`, `asset:read`, `asset:write`, `content:read`, `content:write`, `content:publish`, `copy:validate`, `generation:prepare`, `generation:provenance`, `generation:run`, `production:motion`, `publication:read`, `publication:write`, `publication:publish` |
+| Scopes | `brand:read`, `brand:write`, `brand:publish`, `asset:read`, `asset:write`, `content:read`, `content:write`, `content:publish`, `copy:validate`, `generation:prepare`, `generation:provenance`, `generation:run`, `production:motion`, `publication:read`, `publication:write`, `publication:publish` |
 
 Claims requeridos y opcionales en el access token:
 
@@ -57,7 +57,7 @@ curl -s https://cms.escarlet.design/.well-known/oauth-protected-resource | jq
 curl -s https://cms.escarlet.design/api/health | jq '.mcp,.mcpContract'
 ```
 
-5. Conecta ChatGPT usando `/mcp/v3` y OAuth. Revisa primero `capability.search`, después `brand.context.get` y, por último, una capability de escritura en staging.
+5. Conecta ChatGPT usando `/mcp/v3` y OAuth. Revisa primero `capability.search`, después `brand.context.get` y, por último, `brand.version.create` en staging. Para crear y publicar Brand Kits, el access token debe incluir `brand:write` y `brand:publish`, y la membresía efectiva debe ser `owner` o `admin`.
 6. Usa `publication.route` y `publication.schedule` solo después de la revisión humana exigida por la marca.
 
 Hasta completar estos pasos, la ruta soportada para ChatGPT sigue siendo el OAuth propio del CMS o un PAT personal, según el entorno. Auth0 no se puede probar de forma real sin un issuer, audience, JWKS y claims emitidos por el tenant.

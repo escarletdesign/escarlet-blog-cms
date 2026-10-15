@@ -14,6 +14,10 @@ El único endpoint MCP soportado es:
 
 ```text
 brand.context.get
+brand.version.create
+brand.version.validate
+brand.asset.register
+brand.version.publish
 workspace.context.get
 content.post.list
 content.post.create
@@ -39,6 +43,8 @@ publication.schedule
 publication.publish
 publication.status.get
 ```
+
+Las capabilities de Brand Kit permiten crear un draft, registrar los assets que ya estén subidos con `asset.upload`, validarlo y publicarlo como una nueva versión activa. La escritura exige permisos de owner o admin y la publicación siempre requiere confirmación humana.
 
 Las capabilities técnicas de producción (`brand.generation.prepare`, `asset.upload`, `production.motion.*`) permanecen disponibles dentro del contrato v3, pero deben terminar asociadas a un Post cuando el resultado sea publicable.
 

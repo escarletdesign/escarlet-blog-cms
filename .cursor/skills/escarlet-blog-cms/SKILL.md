@@ -25,8 +25,8 @@ Los posts viven en el CMS. El frontend solo hace pull en build.
 
 1. Si el humano pide **setup / instalar / otro sitio** desde **cualquier** workspace → skill global `escarlet-blog-integrate` (`~/.cursor/skills/escarlet-blog-integrate/`)
 2. Si pide construir el brand kit → skill global `escarlet-cms-brandkit` (`~/.cursor/skills/escarlet-cms-brandkit/`)
-3. En este repo o con MCP. `blog_get_onboarding` (y si hace falta `blog_create_site`)
-4. Si pide **escribir o editar un post** → `blog_get_brand_context` con el `site` correcto
+3. En este repo o con MCP. `workspace.context.get` para resolver el Espacio y la Marca
+4. Si pide **escribir o editar un post** → `brand.context.get` con el `site` correcto
 5. Leer también `docs/ONBOARDING.md` si trabajas en el workspace del CMS
 6. UI de la app. patrones en `apps/pwa/src/styles.css` y componentes de `apps/pwa/src/App.tsx`
 
@@ -39,15 +39,20 @@ npm run site:init -- --handle CLIENT --name "Nombre" --domain https://dominio.co
 # opcional. --webhook URL --token COOLIFY_TOKEN --copy-frontend ../landing/scripts
 ```
 
-### MCP
+### MCP v3
 
-```
-blog_create_site { handle, name, domain, rebuildWebhookUrl?, coolifyApiToken? }
-blog_get_onboarding { site: handle }
-```
-
-Luego brand kit. Dashboard `/app/admin`, `blog_update_brand_file` o la skill
-`escarlet-cms-brandkit` + fotos `kind=reference`.
+La creación del site se hace desde la app o con `npm run site:init`; MCP v3 no
+expone una capability pública para dar de alta sites. Después resuelve el
+contexto con `workspace.context.get` y usa la skill `escarlet-cms-brandkit`.
+Con MCP v3 el flujo es `brand.version.create` → `asset.upload` con
+`kind=reference` → `brand.asset.register` → `brand.version.validate` →
+`brand.version.publish`.
+Antes de crear contenido, compara el `brandKitSnapshotHash` de
+`brand.context.get` con `brand.generation.prepare`. Si falta
+`reference-library.json` o la preparación queda bloqueada, corrige el
+onboarding y no generes ni subas assets publicables. El proceso MCP necesita
+`DATABASE_URL`; no debe caer a un Brand Kit estático cuando hay un usuario
+autenticado y un scope de workspace/marca.
 
 ## Frontend
 
@@ -83,15 +88,15 @@ Git push = código (con caché). Webhook del CMS = contenido. Usa force=true par
 
 | Crear | Editar |
 |-------|--------|
-| `blog_get_brand_context` | igual |
-| `blog_create_draft` | `blog_get_post` |
-| `blog_update_post` | `blog_update_post` (mismo slug) |
-| `blog_upload_media_file` (`kind` `post` o `social`. Adjunta el PNG en `file`. El CMS descarga y comprime a JPEG) | idem |
-| `blog_validate_seo` → `blog_publish` o `blog_schedule_post` con `publishAt` | idem |
+| `brand.context.get` | igual |
+| `content.post.create` | `content.post.get` |
+| `content.post.update` | `content.post.update` |
+| `asset.upload` → `content.media.attach` | idem |
+| `content.post.review` → `content.post.approve` → `publication.*` | idem |
 
 **Programar.** `publishAt` YYYY-MM-DD futuro. Con el interruptor del sitio activo queda `pending_schedule` hasta `blog_confirm_schedule` (solo super-admin). Luego `scheduled` y el ticker lo publica el día. Calendario en `/app/calendar`.
 
-**Brand kit y PAT personal.** El MCP recibe el contexto normalizado completo de la marca, incluidos voz, estilo, paleta, tipografías, composición, arquetipos, templates y referencias aprobadas. Los archivos fuente privados quedan en la app para owner/admin. Para construirlos desde una landing usa `escarlet-cms-brandkit` y luego importa el ZIP con `blog_import_brand_zip`.
+**Brand Kit y PAT personal.** El MCP recibe el contexto normalizado completo de la marca, incluidos voz, estilo, paleta, tipografías, composición, arquetipos, templates y referencias aprobadas. Los archivos fuente privados quedan en la app para owner/admin. Para construirlos desde una landing usa `escarlet-cms-brandkit` y persiste el resultado con las capabilities namespaced de v3. El ZIP solo sirve como staging o respaldo.
 
 Prohibido. Commitear posts al frontend. Usar `create_draft` para editar.
 

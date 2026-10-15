@@ -18,6 +18,8 @@ test('MCP v3 publica solo tools namespaced y excluye nombres legacy', async () =
   const listed = await list(server, 'tools/list')
   assert.ok(listed.tools.length >= 10)
   assert.ok(listed.tools.some((tool) => tool.name === 'brand.context.get'))
+  assert.ok(listed.tools.some((tool) => tool.name === 'brand.version.create'))
+  assert.ok(listed.tools.some((tool) => tool.name === 'brand.version.publish'))
   assert.ok(listed.tools.some((tool) => tool.name === 'brand.generation.prepare'))
   assert.ok(listed.tools.some((tool) => tool.name === 'publication.destination.list'))
   assert.ok(listed.tools.some((tool) => tool.name === 'publication.route'))
@@ -224,7 +226,7 @@ test('tools/call valida los argumentos declarados antes de ejecutar una capabili
 
 test('el catálogo inicial mantiene los contratos de Brand Kernel y Publisher', () => {
   const ids = new Set(BUILTIN_CAPABILITIES.map((entry) => entry.id))
-  for (const id of ['brand.context.get', 'brand.voice.get', 'brand.visual_style.get', 'brand.rules.get', 'brand.references.resolve', 'brand.generation.prepare', 'brand.generation.receipt.issue', 'asset.upload', 'production.image.product.transform', 'production.motion.status.get', 'production.motion.retry', 'production.motion.cancel', 'content.campaign.list', 'content.campaign.get', 'content.campaign.create', 'content.campaign.approve', 'content.campaign.schedule', 'content.campaign.publish', 'content.media.attach', 'publication.destination.list', 'publication.validate', 'publication.route', 'publication.prepare', 'publication.schedule', 'publication.publish', 'publication.status.get']) assert.ok(ids.has(id), id)
+  for (const id of ['brand.context.get', 'brand.version.create', 'brand.version.validate', 'brand.asset.register', 'brand.version.publish', 'brand.voice.get', 'brand.visual_style.get', 'brand.rules.get', 'brand.references.resolve', 'brand.generation.prepare', 'brand.generation.receipt.issue', 'asset.upload', 'production.image.product.transform', 'production.motion.status.get', 'production.motion.retry', 'production.motion.cancel', 'content.campaign.list', 'content.campaign.get', 'content.campaign.create', 'content.campaign.approve', 'content.campaign.schedule', 'content.campaign.publish', 'content.media.attach', 'publication.destination.list', 'publication.validate', 'publication.route', 'publication.prepare', 'publication.schedule', 'publication.publish', 'publication.status.get']) assert.ok(ids.has(id), id)
 })
 
 test('las respuestas reales de Brand Kernel y Publisher cumplen sus manifests', async () => {

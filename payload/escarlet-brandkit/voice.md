@@ -1,4 +1,4 @@
-# Escarlet — Identidad verbal unificada
+# Escarlet: identidad verbal unificada
 
 Fuente de verdad para copy de marca. Tagline visual: Ideas humanas que dejan huella.
 
