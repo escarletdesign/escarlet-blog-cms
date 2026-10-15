@@ -62,7 +62,7 @@ App. http://localhost:3040/app
 
 ## MCP Cursor
 
-El MCP v3 es el endpoint `POST https://cms.escarlet.design/mcp/v3` del mismo servicio. Hermes solo pone `url` + `Authorization` Bearer. Ver `docs/mcp.json.example`.
+El MCP v3 es el endpoint `POST https://cms.escarlet.design/mcp/v3` del mismo servicio. Hermes puede usar `auth: oauth` o `url` + `Authorization` Bearer. Ver `docs/mcp.json.example`.
 
 ## Deploy pendiente (Carlos)
 

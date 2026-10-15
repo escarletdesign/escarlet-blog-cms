@@ -10,6 +10,11 @@ El único endpoint MCP soportado es:
 
 `/mcp` responde `410 mcp_v3_required`. No existen aliases de herramientas antiguas.
 
+El endpoint acepta el transporte MCP 2026 y el handshake HTTP stateless de la
+familia 2025. Así se pueden conectar clientes web y agentes que todavía no
+envían el sobre 2026, sin reactivar herramientas ni escrituras legacy. El
+catálogo sigue siendo exclusivamente namespaced.
+
 ## Capabilities canónicas
 
 ```text

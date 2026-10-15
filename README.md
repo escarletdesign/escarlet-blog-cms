@@ -108,7 +108,7 @@ Resources. `escarlet://capabilities/index`, `escarlet://recipes/index` y `escarl
 
 Contratos HTTP v2: `/api/v2/content/batches`, `/api/v2/content/items` (incluye revisión, cancelación y agenda), `/api/v2/usage`, `/api/v2/brand-kits` y `/api/v2/brands/:id/connections`. La PWA y MCP v3 llaman al mismo servicio de dominio; `/api/sites/:handle/posts` permanece como read adapter público. La generación server-side y los endpoints `/api/ai/*` están retirados: la IA externa opera exclusivamente mediante `/mcp/v3`.
 
-Hermes (otro servidor) no clona el CMS. En su `mcp.json`:
+Hermes Agent no clona el CMS. En su configuración MCP:
 
 ```json
 {
@@ -122,6 +122,20 @@ Hermes (otro servidor) no clona el CMS. En su `mcp.json`:
   }
 }
 ```
+
+Hermes Agent también puede gestionar OAuth 2.1 directamente:
+
+```yaml
+mcp_servers:
+  escarlet_blog:
+    url: "https://cms.escarlet.design/mcp/v3"
+    auth: oauth
+```
+
+En Grok Web, crea un conector personalizado con la misma URL y completa el
+flujo OAuth. Grok usa Streamable HTTP y descubre las herramientas con
+`tools/list`; si el conector solicita una credencial manual, usa un PAT
+personal con alcance de usuario, nunca `ADMIN_TOKEN`.
 
 ChatGPT (Developer Mode / Connectors). URL `https://cms.escarlet.design/mcp/v3`, autenticación **OAuth**. Es el mismo conector para todos los roles. Autoriza con tu usuario o usa un PAT personal (`user_...`). El rol y las marcas se resuelven desde las membresías actuales en cada solicitud; `ADMIN_TOKEN` queda reservado al servidor. `/app/admin` genera un PNG del favicon (<10 KB) para el icono del conector.
 
@@ -142,7 +156,7 @@ Build incluye sync automático. Ver [docs/ONBOARDING.md](docs/ONBOARDING.md).
 
 ## Sistema visual de contenidos
 
-La arquitectura nueva de portadas y carruseles está en [`content-system/`](content-system/README.md). El MCP entrega referencias y reglas, ChatGPT genera los textos y píxeles finales, y el CMS conserva los archivos sin recomponerlos.
+La arquitectura nueva de portadas y carruseles está en [`content-system/`](content-system/README.md). El MCP entrega referencias y reglas, la IA externa genera los textos y píxeles finales, y el CMS conserva los archivos sin recomponerlos.
 
 Comandos útiles:
 

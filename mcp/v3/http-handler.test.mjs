@@ -41,15 +41,34 @@ test('el handler MCP v3 publica capabilities namespaced y resources', async () =
   assert.equal(body.result._meta['io.modelcontextprotocol/serverInfo'].name, 'escarlet-os')
 })
 
-test('el handler MCP v3 rechaza tráfico legacy', async () => {
-  const response = await createMcpV3Handler({ registry: {} }).fetch(new Request('https://cms.escarlet.design/mcp/v3', {
+test('el handler MCP v3 acepta el handshake 2025 y lista el mismo catálogo namespaced', async () => {
+  const handler = createMcpV3Handler({ registry: {} })
+  const response = await handler.fetch(new Request('https://cms.escarlet.design/mcp/v3', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json' },
-    body: JSON.stringify(request('initialize'))
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: {
+        protocolVersion: '2025-03-26',
+        capabilities: {},
+        clientInfo: { name: 'hermes', version: '1.0.0' }
+      }
+    })
   }), { authInfo: { role: 'agent' } })
-  assert.ok(response.status >= 400)
-  const body = await response.json()
-  assert.ok(body.error)
+  assert.equal(response.status, 200)
+  assert.match(response.headers.get('content-type') || '', /text\/event-stream|application\/json/)
+
+  const listed = await handler.fetch(new Request('https://cms.escarlet.design/mcp/v3', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })
+  }), { authInfo: { role: 'agent' } })
+  assert.equal(listed.status, 200)
+  const body = await listed.text()
+  assert.match(body, /capability\.guide/)
+  assert.doesNotMatch(body, /brand_get_context/)
 })
 
 test('el handler HTTP conserva el auth del servidor y no eleva authInfo a admin', async () => {

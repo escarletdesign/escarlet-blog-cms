@@ -17,7 +17,9 @@ export function createMcpV3Handler({ registry, auth: defaultAuth } = {}) {
   return createMcpHandler(
     async ({ authInfo }) => createMcpServerV3(defaultAuth || authInfo || { role: 'viewer' }, { registry: await registryPromise }),
     {
-      legacy: 'reject',
+      // Transport compatibility only. The v3 server still rejects legacy tool
+      // aliases and exposes the namespaced catalog exclusively.
+      legacy: 'stateless',
       responseMode: 'json',
       onerror: (error) => console.error('[mcp/v3] request failed', error)
     }
