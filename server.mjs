@@ -765,6 +765,30 @@ function pwaMagicBootstrapHtml({ next } = {}) {
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="robots" content="noindex,nofollow"><title>Entrando a Escarlet…</title></head><body><p>Entrando a Escarlet…</p><script>location.replace('/app' + ${safeNext})</script></body></html>`
 }
 
+function magicLinkConfirmationHtml({ action, token }) {
+  const safeAction = escapeHtml(action)
+  const safeToken = escapeHtml(token)
+  return `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="robots" content="noindex,nofollow" />
+  <meta name="referrer" content="no-referrer" />
+  <title>Confirmar acceso a Escarlet</title>
+</head>
+<body>
+  <main>
+    <h1>Confirmar acceso</h1>
+    <p>Este enlace es de un solo uso. Pulsa el botón para entrar a Escarlet.</p>
+    <form method="post" action="${safeAction}">
+      <input type="hidden" name="token" value="${safeToken}" />
+      <button type="submit">Entrar a Escarlet</button>
+    </form>
+  </main>
+</body>
+</html>`
+}
+
 function absoluteCmsOrigin(req) {
   const proto = String(req.headers['x-forwarded-proto'] || 'http').split(',')[0].trim() || 'http'
   const host = String(req.headers['x-forwarded-host'] || req.headers.host || `localhost:${PORT}`)
@@ -1475,11 +1499,19 @@ async function handleRequest(req, res) {
     return
   }
 
-  if (isProductRestructureV1() && req.method === 'GET' && (path === '/api/magic/consume' || path === '/app/magic/consume')) {
-    const token = url.searchParams.get('token') || ''
+  if (isProductRestructureV1() && (req.method === 'GET' || req.method === 'POST') && (path === '/api/magic/consume' || path === '/app/magic/consume')) {
+    const body = req.method === 'POST' ? await parseBody(req) : null
+    const token = String(body?.token || url.searchParams.get('token') || '').trim()
+    if (req.method === 'GET') {
+      html(res, 200, magicLinkConfirmationHtml({ action: path, token }), {
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+        'Referrer-Policy': 'no-referrer'
+      })
+      return
+    }
     const result = consumeMagicToken(token, {
       origin: req.headers.origin,
-      host: req.headers.host
+      host: req.headers['x-forwarded-host'] || req.headers.host
     })
     if (!result.ok) {
       html(
