@@ -56,7 +56,9 @@ const FORMAT_ASSET_TYPES = Object.freeze({
   social: 'social_image',
   instagram_post: 'social_image',
   instagram_story: 'instagram_story',
-  story: 'instagram_story'
+  story: 'instagram_story',
+  x: 'x_image',
+  x_landscape: 'x_image'
 })
 
 const ROLE_PERMISSIONS = Object.freeze({
@@ -398,7 +400,7 @@ async function uploadGeneratedAsset(args, auth, runtime) {
       canonicalSnapshot: activeBrand.canonicalSnapshot
     })
     if (!validation.ok) throw Object.assign(new Error('La preparación no coincide con el Brand Kit actual.'), { code: validation.code || 'brand_grounding_stale', status: 409, details: validation })
-    const kind = requestedKind || (assetType === 'blog_cover' ? 'post' : ['social_image', 'instagram_story'].includes(assetType) ? 'social' : '')
+    const kind = requestedKind || (assetType === 'blog_cover' ? 'post' : ['social_image', 'instagram_story', 'x_image'].includes(assetType) ? 'social' : '')
     if (!['post', 'social'].includes(kind)) throw Object.assign(new Error('kind debe ser post o social para una preparación visual.'), { code: 'media_kind_required', status: 422 })
     assertAssetTypeForMediaKind(kind, assetType)
     const assetIndex = Number(args.assetIndex ?? 0)
