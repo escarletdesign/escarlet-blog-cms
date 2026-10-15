@@ -101,6 +101,8 @@ export function ChannelBadge({ channel }: { channel: string }) { const labels: R
 export function ContentPlanCard({ title, total, generated, failed, status, channels, onClick }: { title: string; total: number; generated?: number; failed?: number; status?: string; channels?: string[]; onClick?: () => void }) { const content = <><div className="ui-card-head"><div><span className="ui-eyebrow">Campaña</span><h2>{title}</h2></div><StatusBadge status={status} /></div><Progress value={generated || 0} max={total || 1} /><div className="ui-card-meta"><span>{generated || 0}/{total} {total === 1 ? "publicación generada" : "publicaciones generadas"}</span>{failed ? <span className="ui-danger-text">{failed} con error</span> : null}</div>{channels?.length ? <div className="ui-channel-list">{channels.map((channel) => <ChannelBadge key={channel} channel={channel} />)}</div> : null}</>; return onClick ? <button type="button" className="ui-card ui-plan-card" onClick={onClick}>{content}</button> : <Card className="ui-plan-card">{content}</Card>; }
 export function PublicationCard({ topic, status, channels, error, actions }: { topic: string; status?: string; channels?: string[]; error?: string | null; actions?: ReactNode }) { return <Card className="ui-publication-card"><div className="ui-card-head"><div><h3>{topic}</h3>{channels?.length ? <div className="ui-channel-list">{channels.map((channel) => <ChannelBadge key={channel} channel={channel} />)}</div> : null}</div><StatusBadge status={status} /></div>{error && <p className="ui-field-error">{error}</p>}{actions && <div className="ui-card-actions">{actions}</div>}</Card>; }
 export function useDialogFocus(open: boolean, containerRef: RefObject<HTMLElement | null>, onClose: () => void) {
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     if (!open) return undefined;
     const previous = document.activeElement as HTMLElement | null;
@@ -108,7 +110,7 @@ export function useDialogFocus(open: boolean, containerRef: RefObject<HTMLElemen
     const focusable = () => Array.from(container?.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])') || []).filter((element) => !element.hasAttribute("disabled"));
     focusable()[0]?.focus();
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { onClose(); return; }
+      if (event.key === "Escape") { onCloseRef.current(); return; }
       if (event.key !== "Tab") return;
       const elements = focusable();
       if (!elements.length) return;
@@ -121,7 +123,7 @@ export function useDialogFocus(open: boolean, containerRef: RefObject<HTMLElemen
       document.removeEventListener("keydown", handleKeyDown);
       previous?.focus();
     };
-  }, [open, containerRef, onClose]);
+  }, [open, containerRef]);
 }
 export function Modal({ open, title, onClose, children, closeLabel = "Cerrar", className = "" }: { open: boolean; title: string; onClose: () => void; children: ReactNode; closeLabel?: string; className?: string }) {
   const titleId = `ui-modal-title-${useId().replace(/:/g, "")}`;
