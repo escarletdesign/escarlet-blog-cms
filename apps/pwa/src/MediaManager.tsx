@@ -213,16 +213,20 @@ export function MediaManager({ site, t }: MediaManagerProps) {
     />
     {error && <Card><p className="ui-field-error" role="alert">{error}</p></Card>}
     <Card><div className="ui-media-manager-gallery" tabIndex={-1} onKeyDown={handleGalleryKeyDown}><Stack gap="md">
-      <Inline gap="md" className="ui-media-manager-toolbar">
-        <Field label={t("media.searchLabel", "Buscar medios")}><TextField value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("media.searchPlaceholder", "Nombre, tipo o uso")} /></Field>
-        <Field label={t("media.linkFilter", "Vínculo")}><Select value={linkFilter} onChange={(event) => setLinkFilter(event.target.value as typeof linkFilter)}><option value="all">{t("media.filterAll", "Todos")}</option><option value="linked">{t("media.filterLinked", "Vinculados")}</option><option value="unlinked">{t("media.filterUnlinked", "Sin vínculos")}</option></Select></Field>
-        <Field label={t("media.publishedFilter", "Publicación")}><Select value={publishedFilter} onChange={(event) => setPublishedFilter(event.target.value as typeof publishedFilter)}><option value="all">{t("media.filterAll", "Todos")}</option><option value="published">{t("media.filterPublished", "Publicados")}</option><option value="unpublished">{t("media.filterUnpublished", "No publicados")}</option></Select></Field>
-        <FileDropzone disabled={busy || uploading} label={uploading ? t("media.uploading", "Subiendo…") : t("media.upload", "Subir imágenes")} hint={t("media.uploadHint", "Arrastra una o varias imágenes aquí.")} onFiles={uploadFiles} />
-        <Badge tone="info">{visibleAssets.length} {t("media.count", "medios")}</Badge>
-        <Inline gap="sm" className="ui-media-manager-selection-actions"><IconButton label={allVisibleSelected ? t("media.clearVisible", "Limpiar visibles") : t("media.selectVisible", "Seleccionar visibles")} disabled={!visibleIds.length || busy} onClick={selectVisible}>{allVisibleSelected ? "☑" : "☐"}</IconButton>{selectedIds.length > 0 && <IconButton label={t("media.clearSelection", "Limpiar selección")} disabled={busy} onClick={() => setSelectedIds([])}>×</IconButton>}</Inline>
-        <Button variant="danger" disabled={!selectedIds.length || busy} loading={busy} onClick={() => setDeleteOpen(true)}>{t("media.deleteSelected", "Eliminar seleccionados")} {selectedIds.length ? `(${selectedIds.length})` : ""}</Button>
+      <div className="ui-media-manager-toolbar">
+        <Inline gap="md" className="ui-media-manager-filters">
+          <Field label={t("media.searchLabel", "Buscar medios")}><TextField value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("media.searchPlaceholder", "Nombre, tipo o uso")} /></Field>
+          <Field label={t("media.linkFilter", "Vínculo")}><Select value={linkFilter} onChange={(event) => setLinkFilter(event.target.value as typeof linkFilter)}><option value="all">{t("media.filterAll", "Todos")}</option><option value="linked">{t("media.filterLinked", "Vinculados")}</option><option value="unlinked">{t("media.filterUnlinked", "Sin vínculos")}</option></Select></Field>
+          <Field label={t("media.publishedFilter", "Publicación")}><Select value={publishedFilter} onChange={(event) => setPublishedFilter(event.target.value as typeof publishedFilter)}><option value="all">{t("media.filterAll", "Todos")}</option><option value="published">{t("media.filterPublished", "Publicados")}</option><option value="unpublished">{t("media.filterUnpublished", "No publicados")}</option></Select></Field>
+          <Badge tone="info">{visibleAssets.length} {t("media.count", "medios")}</Badge>
+          <Inline gap="sm" className="ui-media-manager-selection-actions"><IconButton label={allVisibleSelected ? t("media.clearVisible", "Limpiar visibles") : t("media.selectVisible", "Seleccionar visibles")} disabled={!visibleIds.length || busy} onClick={selectVisible}>{allVisibleSelected ? "☑" : "☐"}</IconButton>{selectedIds.length > 0 && <IconButton label={t("media.clearSelection", "Limpiar selección")} disabled={busy} onClick={() => setSelectedIds([])}>×</IconButton>}</Inline>
+          <IconButton className="ui-media-manager-delete-action" label={t("media.deleteSelected", "Eliminar seleccionados")} disabled={!selectedIds.length || busy} aria-busy={busy} onClick={() => setDeleteOpen(true)}>⌫</IconButton>
+        </Inline>
+        <Inline gap="md" className="ui-media-manager-upload-row">
+          <FileDropzone disabled={busy || uploading} label={uploading ? t("media.uploading", "Subiendo…") : t("media.upload", "Subir imágenes")} hint={t("media.uploadHint", "Arrastra una o varias imágenes aquí.")} onFiles={uploadFiles} />
+        </Inline>
         <p className="ui-media-manager-hint">{t("media.selectionHelp", "Clic selecciona. Shift amplía el rango. Ctrl o ⌘ permite sumar. También puedes arrastrar por la galería. Escape limpia la selección.")}</p>
-      </Inline>
+      </div>
       {loading ? <div className="ui-media-manager-grid"><Skeleton height="220px" /><Skeleton height="220px" /><Skeleton height="220px" /></div> : !visibleAssets.length ? <EmptyState title={t("media.empty", "No hay medios en la biblioteca")} description={t("media.emptyHelp", "Los medios sin Post y los medios vinculados aparecen aquí para que puedas administrarlos.")} /> : <div className="ui-media-manager-grid" role="listbox" aria-multiselectable="true" aria-label={t("media.galleryLabel", "Galería de medios")}>
         {visibleAssets.map((asset) => {
           const id = String(asset.id || "");
