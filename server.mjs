@@ -946,7 +946,12 @@ async function requireV2Context(req, url, res, body = {}) {
     const requestedWorkspace = String(body.workspaceId || url.searchParams.get('workspaceId') || '').trim()
     const requestedSite = String(body.siteId || body.site || url.searchParams.get('siteId') || url.searchParams.get('site') || auth.site || (Array.isArray(auth.sites) && auth.sites.length === 1 ? auth.sites[0] : '')).trim()
     if (auth.role !== 'admin' && !auth.userId && auth.site && requestedSite && requestedSite !== auth.site) throw Object.assign(new Error('Este token solo gestiona el sitio autorizado.'), { status: 403 })
-    const common = { userId: auth.userId || undefined, workspaceId: requestedWorkspace || undefined }
+    const common = {
+      // Global admins can operate across workspaces and do not need a
+      // workspace_members row for their personal identity.
+      userId: auth.role === 'admin' ? undefined : (auth.userId || undefined),
+      workspaceId: requestedWorkspace || auth.workspaceId || undefined
+    }
     let context
     try {
       context = await resolveWorkspaceContext({ ...common, ...(requestedSite ? { siteId: requestedSite } : {}) })
@@ -1085,7 +1090,11 @@ async function publicSessionForAuth(auth) {
   const session = publicAuthSession(auth)
   if (!session || !isPostgresConfigured()) return session
   try {
-    const context = await resolveWorkspaceContext({ userId: auth.userId || undefined, ...(auth.userId ? {} : auth.site ? { siteHandle: auth.site } : {}) })
+    const context = await resolveWorkspaceContext({
+      userId: auth.role === 'admin' ? undefined : (auth.userId || undefined),
+      workspaceId: auth.workspaceId || undefined,
+      ...(auth.userId || auth.role === 'admin' ? {} : auth.site ? { siteHandle: auth.site } : {})
+    })
     const workspaceRole = auth.role === 'admin' ? 'admin' : context.role || workspaceRoleForAuth(auth)
     const contextSites = [...new Set((context.sites || []).map((site) => String(site.handle || '').trim()).filter(Boolean))]
     const sessionSites = [...new Set((session.sites || []).map((site) => String(site || '').trim()).filter(Boolean))]
@@ -2318,7 +2327,7 @@ async function handleRequest(req, res) {
       if (req.method === 'POST' && path === '/api/v2/brands') {
         const scope = await requireV2Context(req, url, res, body)
         if (!scope) return
-        json(res, 201, { brand: await createBrand({ workspaceId: scope.workspaceId, userId: scope.auth.userId, role: scope.context.workspaceRole || scope.context.role, handle: body.handle, name: body.name, domain: body.domain }) })
+        json(res, 201, { brand: await createBrand({ workspaceId: scope.workspaceId, userId: scope.auth.userId, role: scope.auth.role === 'admin' ? 'admin' : (scope.context.workspaceRole || scope.context.role), handle: body.handle, name: body.name, domain: body.domain, systemAdmin: scope.auth.role === 'admin' }) })
         return
       }
       if (req.method === 'GET' && brandMatch) {
