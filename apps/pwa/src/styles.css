@@ -964,6 +964,7 @@ select, .ui-plans-page .ui-select, .ui-page .ui-input.ui-select, .site-switcher 
 .ui-media-manager-gallery { min-width: 0; }
 .ui-media-manager-toolbar { position: sticky; top: var(--ui-space-3); z-index: 4; align-items: end; flex-wrap: wrap; padding: var(--ui-space-3); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); background: var(--ui-surface-soft); box-shadow: var(--ui-shadow-card); }
 .ui-media-manager-toolbar .ui-field { flex: 1 1 260px; }
+.ui-media-manager-toolbar .ui-file-dropzone { flex: 1 1 300px; }
 .ui-media-manager-selection-actions { margin-inline-start: auto; }
 .ui-media-manager-hint { flex: 1 1 100%; margin: 0; color: var(--ui-muted); font-size: .78rem; }
 .ui-media-manager-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--ui-space-3); }

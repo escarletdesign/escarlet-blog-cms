@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboa
 import { Link } from "react-router-dom";
 import { ApiError, api } from "./api";
 import type { MediaItem } from "./types";
-import { Badge, Button, Card, EmptyState, Field, IconButton, Inline, Modal, PageHeader, Select, Skeleton, Stack, TextField } from "./ui";
+import { Badge, Button, Card, EmptyState, Field, FileDropzone, IconButton, Inline, Modal, PageHeader, Select, Skeleton, Stack, TextField } from "./ui";
 
 type MediaManagerProps = { site: string; t: (key: string, fallback?: string) => string };
 
@@ -19,6 +19,15 @@ function isVideo(asset: MediaItem) {
 
 function errorText(error: unknown, fallback: string) {
   return error instanceof ApiError || error instanceof Error ? error.message : fallback;
+}
+
+function fileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("No se pudo leer el archivo."));
+    reader.onerror = () => reject(new Error("No se pudo leer el archivo."));
+    reader.readAsDataURL(file);
+  });
 }
 
 function blockerLabel(blocker: string, t: MediaManagerProps["t"]) {
@@ -51,6 +60,7 @@ export function MediaManager({ site, t }: MediaManagerProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [dragSelection, setDragSelection] = useState<DragSelection>(null);
@@ -169,6 +179,31 @@ export function MediaManager({ site, t }: MediaManagerProps) {
     }
   };
 
+  const uploadFiles = async (files: File[]) => {
+    if (!files.length || busy || uploading) return;
+    setUploading(true);
+    setError("");
+    try {
+      for (const file of files) {
+        if (!file.type.startsWith("image/")) throw new Error(t("media.imageOnly", "Solo puedes subir imágenes."));
+        if (file.size > 12 * 1024 * 1024) throw new Error(`${file.name} supera el límite de 12 MB.`);
+        await api.uploadProductionAsset({
+          site,
+          filename: file.name,
+          contentBase64: await fileAsDataUrl(file),
+          alt: file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " "),
+          kind: "post",
+          manualUpload: true
+        });
+      }
+      await load();
+    } catch (cause) {
+      setError(errorText(cause, t("media.uploadError", "No se pudieron subir los medios.")));
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return <main className="ui-page ui-media-manager">
     <PageHeader
       eyebrow={t("media.eyebrow", "MEDIOS")}
@@ -182,6 +217,7 @@ export function MediaManager({ site, t }: MediaManagerProps) {
         <Field label={t("media.searchLabel", "Buscar medios")}><TextField value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("media.searchPlaceholder", "Nombre, tipo o uso")} /></Field>
         <Field label={t("media.linkFilter", "Vínculo")}><Select value={linkFilter} onChange={(event) => setLinkFilter(event.target.value as typeof linkFilter)}><option value="all">{t("media.filterAll", "Todos")}</option><option value="linked">{t("media.filterLinked", "Vinculados")}</option><option value="unlinked">{t("media.filterUnlinked", "Sin vínculos")}</option></Select></Field>
         <Field label={t("media.publishedFilter", "Publicación")}><Select value={publishedFilter} onChange={(event) => setPublishedFilter(event.target.value as typeof publishedFilter)}><option value="all">{t("media.filterAll", "Todos")}</option><option value="published">{t("media.filterPublished", "Publicados")}</option><option value="unpublished">{t("media.filterUnpublished", "No publicados")}</option></Select></Field>
+        <FileDropzone disabled={busy || uploading} label={uploading ? t("media.uploading", "Subiendo…") : t("media.upload", "Subir imágenes")} hint={t("media.uploadHint", "Arrastra una o varias imágenes aquí.")} onFiles={uploadFiles} />
         <Badge tone="info">{visibleAssets.length} {t("media.count", "medios")}</Badge>
         <Inline gap="sm" className="ui-media-manager-selection-actions"><IconButton label={allVisibleSelected ? t("media.clearVisible", "Limpiar visibles") : t("media.selectVisible", "Seleccionar visibles")} disabled={!visibleIds.length || busy} onClick={selectVisible}>{allVisibleSelected ? "☑" : "☐"}</IconButton>{selectedIds.length > 0 && <IconButton label={t("media.clearSelection", "Limpiar selección")} disabled={busy} onClick={() => setSelectedIds([])}>×</IconButton>}</Inline>
         <Button variant="danger" disabled={!selectedIds.length || busy} loading={busy} onClick={() => setDeleteOpen(true)}>{t("media.deleteSelected", "Eliminar seleccionados")} {selectedIds.length ? `(${selectedIds.length})` : ""}</Button>
