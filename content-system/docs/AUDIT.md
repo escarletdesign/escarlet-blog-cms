@@ -1,18 +1,20 @@
-# Auditoría del flujo anterior
+# Auditoría del flujo visual
 
 ## Hallazgos
 
-- `lib/ai-workflows.mjs` pedía al generador de imágenes que dibujara el texto de las slides. Eso hace que la tipografía, los saltos y la ortografía sean probabilísticos.
-- `config/sites/escarlet/image-spec.json` definía color y tamaño, pero no separaba fondo, layout y render final.
-- `config/sites/escarlet/AGENT.md` describía la subida de slides, pero no exigía template, metadata de decisión ni consulta de repetición.
-- `generateImageOptions` aplicaba las referencias de forma global y no tenía una selección basada en arquetipos o historial.
+- Había dos rutas para social: una generaba fondos y el CMS añadía overlays, mientras otra generaba Stories finales con texto en ChatGPT.
+- `config/sites/escarlet/image-spec.json` mezclaba contrato de fondo con contrato de pieza final y dejaba ambiguo el origen del texto.
+- `config/sites/escarlet/AGENT.md` permitía subir fondos sociales sin exigir metadata de texto ni una estructura canónica para Stories.
+- El flujo histórico de generación del CMS no formaba parte del contrato MCP y queda retirado en la beta.
 - El inventario local tiene 23 posts y repite `cuanto-cuesta-pagina-web-almeria-2026.webp` en varias portadas.
 
 ## Cambios
 
-1. `content-system/` separa identidad fija, ejes variables, arquetipos, referencias, prompts, schemas y templates.
+1. `content-system/` separa identidad fija, ejes variables, arquetipos, referencias, prompts y schemas.
 2. `lib/visual-system.mjs` selecciona arquetipo y referencias usando los últimos posts.
-3. `lib/instagram-renderer.mjs` compone texto + fondo en PNG con una fuente declarada.
-4. El workflow de slides genera fondos sin texto y renderiza el resultado final después.
-5. Los posts guardan `visualBrief` y las slides guardan `templateId`, `backgroundMediaId` y `renderedBy`.
-6. Los scripts de análisis y regeneración permiten auditar todo el histórico o un slug concreto.
+3. ChatGPT genera la imagen social final con texto integrado en 1080×1350 o 1080×1920.
+4. `content_upload_media` usa `passthrough`. El CMS valida dimensiones, metadata, hash y referencias sin añadir overlays.
+5. Cada asset social guarda `textRendered`, `textContent`, `templateId` y `renderedBy: "chatgpt-image-generation"`.
+6. Las Stories nuevas usan `socialPack.instagramStory.frames[]`; los campos anteriores solo se auditan como histórico.
+7. `lib/instagram-renderer.mjs` y sus templates quedan para históricos, fixtures y migraciones.
+8. Los scripts de análisis permiten auditar todo el histórico o un slug concreto sin regenerarlo automáticamente.

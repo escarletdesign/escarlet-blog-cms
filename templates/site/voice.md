@@ -1,6 +1,6 @@
 # Voz de marca — {{name}}
 
-Completa este archivo. El agente lo lee con `blog_get_brand_context` (site `{{handle}}`).
+Completa este archivo. El agente lo lee con `brand_get_context` (site `{{handle}}`).
 
 ## Tono
 

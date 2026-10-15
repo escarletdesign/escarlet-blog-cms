@@ -1,0 +1,65 @@
+:root {
+  /* Product UI tokens. New UI should use this namespace instead of literals. */
+  --ui-font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --ui-bg: #101516;
+  --ui-surface: #151c1c;
+  --ui-surface-legacy: #171e1e;
+  --ui-surface-raised: #1b2423;
+  --ui-surface-soft: #202929;
+  --ui-border: rgba(189, 219, 205, .18);
+  --ui-border-strong: rgba(189, 219, 205, .34);
+  --ui-border-legacy: #30403d;
+  --ui-text: #f4f8f4;
+  --ui-text-legacy: #edf3ef;
+  --ui-muted: #a7b6af;
+  --ui-accent: #b9fb54;
+  --ui-accent-legacy: #b9f562;
+  --ui-accent-strong: #8dde31;
+  --ui-accent-ink: #152013;
+  --ui-danger: #ff8b87;
+  --ui-danger-legacy: #ff9691;
+  --ui-warning: #ffd27a;
+  --ui-info: #9fd8ff;
+  --ui-surface-action: #2a3634;
+  --ui-surface-progress: #2a3533;
+  --ui-surface-bulk: #26352d;
+  --ui-surface-tabs: #202a28;
+  --ui-surface-code: #111817;
+  --ui-surface-control: rgba(6, 10, 10, .55);
+  --ui-overlay: rgba(0, 0, 0, .7);
+  --ui-overlay-strong: rgba(0, 0, 0, .72);
+  --ui-control-hover: rgba(255, 255, 255, .08);
+  --ui-danger-surface: #8d3939;
+  --ui-shadow-card: 0 8px 22px rgba(0, 0, 0, .08);
+
+  --ui-radius-sm: 8px;
+  --ui-radius-md: 14px;
+  --ui-radius-lg: 20px;
+  --ui-radius-pill: 999px;
+  --ui-shadow: 0 18px 46px rgba(0, 0, 0, .24);
+  --ui-focus-ring: 0 0 0 3px rgba(185, 251, 84, .35);
+  --ui-select-chevron-offset: 18px;
+  --ui-select-chevron-space: 46px;
+
+  --ui-space-1: 4px;
+  --ui-space-2: 8px;
+  --ui-space-3: 12px;
+  --ui-space-4: 16px;
+  --ui-space-5: 20px;
+  --ui-space-6: 24px;
+  --ui-space-8: 32px;
+  --ui-space-10: 40px;
+  --ui-page-bottom-clearance: 105px;
+
+  /* Legacy aliases. They keep old routes stable while they migrate. */
+  --bg: var(--ui-bg);
+  --panel: var(--ui-surface-legacy);
+  --panel-2: var(--ui-surface-soft);
+  --line: var(--ui-border-legacy);
+  --text: var(--ui-text-legacy);
+  --muted: #aebbb5;
+  --accent: var(--ui-accent-legacy);
+  --accent-ink: var(--ui-accent-ink);
+  --danger: var(--ui-danger-legacy);
+  --radius: 18px;
+}

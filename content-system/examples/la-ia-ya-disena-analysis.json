@@ -7,7 +7,7 @@
   "diagnosis": {
     "good": ["El concepto tiene una tensión clara y admite una metáfora visual fuerte."],
     "risks": ["Una portada literal con una pantalla o portátil repetiría el patrón del histórico.", "Un carrusel generado como imagen libre degradaría la tipografía y los saltos de línea."],
-    "regenerate": "Cuando el slug exista en el CMS, ejecutar analyze-existing-assets y regenerate-post-assets con --slug."
+    "audit": "Cuando el slug exista en el CMS, ejecutar analyze-existing-assets y revisar las inconsistencias antes de cualquier regeneración manual."
   },
   "proposedVisualBrief": "sample-visual-brief.json",
   "proposedCarousel": "sample-carousel-output.json"

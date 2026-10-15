@@ -1,61 +1,76 @@
 {
   "site": "escarlet",
-  "version": "1.0.0",
-  "selection": {
-    "approvedOnly": true,
-    "maxCoverReferences": 3,
-    "maxSocialReferences": 1,
-    "preferSameCategory": true,
-    "preferDiversityOfComposition": true
+  "version": "3.0.0",
+  "selectionPolicy": {
+    "mode": "deterministic",
+    "assistantMayChoose": false,
+    "assistantMaySubstitute": false,
+    "priority": ["default"]
+  },
+  "styleBoards": {
+    "style": { "filename": "style-board.png", "description": "Tablero visual maestro de la marca" },
+    "background": { "filename": "fondo-escarlet.png", "description": "Fondo visual de autoridad para el contexto de generación" },
+    "character": { "filename": "character-silvia.webp", "description": "Personajes individuales de Escarlet" },
+    "logo": { "filename": "logo-official-blue.png", "description": "Logo PNG para grounding del agente cuando lo pide" }
+  },
+  "logos": {
+    "png": { "filename": "logo-official-blue.png", "usage": "agent_reference" },
+    "svgWhite": { "filename": "logo-official-white.svg", "usage": "agent_reference" },
+    "svgBlue": { "filename": "logo-official-blue.svg", "usage": "agent_reference" }
+  },
+  "routes": {
+    "default": ["style-board.png", "fondo-escarlet.png"],
+    "with_character": ["style-board.png", "fondo-escarlet.png", "character-silvia.webp", "character-charly.png"],
+    "character": ["style-board.png", "fondo-escarlet.png", "character-silvia.webp", "character-charly.png"],
+    "background": ["fondo-escarlet.png"],
+    "logo": ["logo-official-blue.png"]
   },
   "references": [
     {
-      "id": "esc-paper-light",
-      "type": "mood",
-      "category": "fondos",
-      "tags": ["papel", "crema", "sombra", "editorial"],
-      "description": "Luz suave sobre papel cálido y sombras imperfectas.",
-      "recommendedUse": ["editorial-abstracta", "objeto-simbolico", "metafora-visual-conceptual"],
-      "prohibitedUse": ["copiar el encuadre literalmente"],
-      "priority": 1,
-      "path": "",
-      "approved": true
+      "id": "esc-style-board",
+      "role": "style-board",
+      "filename": "style-board.png",
+      "approved": true,
+      "required": true,
+      "alt": "Sistema visual Escarlet: paleta, tipografía, composición y biblioteca visual"
     },
     {
-      "id": "esc-human-craft",
-      "type": "scene",
-      "category": "escenas con persona",
-      "tags": ["manos", "oficio", "madera", "luz natural"],
-      "description": "Persona parcial trabajando con materiales reales, sin pose de stock.",
-      "recommendedUse": ["escena-humana-parcial", "proceso-mesa-trabajo"],
-      "prohibitedUse": ["retrato frontal posado", "oficina corporativa genérica"],
-      "priority": 2,
-      "path": "",
-      "approved": true
+      "id": "esc-background-authority",
+      "role": "background-authority",
+      "filename": "fondo-escarlet.png",
+      "approved": true,
+      "required": true,
+      "usage": "background",
+      "alt": "Fondo visual oficial de Escarlet con textura de montañas y degradado turquesa, verde y oro"
     },
     {
-      "id": "esc-digital-layer",
-      "type": "composition",
-      "category": "composición digital",
-      "tags": ["interfaz", "capas", "verde bosque", "reflejo"],
-      "description": "Capas digitales abstractas integradas en una escena física.",
-      "recommendedUse": ["interfaz-producto-digital", "editorial-abstracta"],
-      "prohibitedUse": ["pantallas con texto inventado", "mockup de portátil de stock"],
-      "priority": 2,
-      "path": "",
-      "approved": true
+      "id": "esc-character-silvia-webp",
+      "role": "character",
+      "filename": "character-silvia.webp",
+      "approved": true,
+      "required": false,
+      "usage": "character",
+      "characterId": "silvia",
+      "alt": "Silvia de Escarlet sobre el fondo visual de la marca"
     },
     {
-      "id": "esc-existing-firma-email-silvia",
-      "type": "brand-asset",
-      "category": "referencias pendientes",
-      "tags": ["firma", "brand asset"],
-      "description": "Asset existente detectado en el CMS. Requiere revisión humana antes de usarse como referencia visual.",
-      "recommendedUse": [],
-      "prohibitedUse": ["portada de blog", "fondo de carrusel", "referencia de estilo fotográfico"],
-      "priority": 0,
-      "path": "/media/escarlet/reference/firma-email-silvia.jpg",
-      "approved": false
+      "id": "esc-character-charly",
+      "role": "character",
+      "filename": "character-charly.png",
+      "approved": true,
+      "required": false,
+      "usage": "character",
+      "characterId": "charly",
+      "alt": "Personaje Charly"
+    },
+    {
+      "id": "esc-logo-png",
+      "role": "logo",
+      "filename": "logo-official-blue.png",
+      "approved": true,
+      "required": false,
+      "usage": "logo",
+      "alt": "Logo Escarlet PNG (wordmark sobre azul)"
     }
   ]
 }

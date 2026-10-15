@@ -1,31 +1,58 @@
-import type { Author, GeneratedImage, MediaItem, Post, Session } from "./types";
+import type { Author, BrandCapability, BrandChannel, BrandSummary, CalendarEntry, ContentBatch, ContentItem, GeneratedImage, MediaItem, Post, Session } from "./types";
 
 export class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
+    public details: Record<string, unknown> = {},
+    public code?: string,
+    public requestId?: string,
   ) {
     super(message);
   }
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(path, {
-    credentials: "include",
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-    ...options,
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok)
-    throw new ApiError(
-      data.message || "No se pudo completar la operación.",
-      response.status,
-    );
-  return data as T;
+export type ApiRequestOptions = RequestInit & { timeoutMs?: number };
+
+export async function request<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
+  const { timeoutMs = 30_000, signal: upstreamSignal, headers: upstreamHeaders, ...fetchOptions } = options;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new DOMException("Tiempo de espera agotado", "TimeoutError")), timeoutMs);
+  const abort = () => controller.abort(upstreamSignal?.reason);
+  if (upstreamSignal) {
+    if (upstreamSignal.aborted) abort();
+    else upstreamSignal.addEventListener("abort", abort, { once: true });
+  }
+  const headers = options.body instanceof FormData
+    ? upstreamHeaders
+    : { "Content-Type": "application/json", ...(upstreamHeaders || {}) };
+  try {
+    const response = await fetch(path, {
+      credentials: "include",
+      ...fetchOptions,
+      headers,
+      signal: controller.signal,
+    });
+    const data = await response.json().catch(() => ({}));
+    const requestId = response.headers.get("x-request-id") || data.requestId;
+    if (!response.ok) throw new ApiError(data.message || "No se pudo completar la operación.", response.status, data, data.code, requestId);
+    return data as T;
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    if (controller.signal.aborted) throw new ApiError("La operación fue cancelada o agotó el tiempo de espera.", 0, {}, controller.signal.reason?.name === "TimeoutError" ? "timeout" : "aborted");
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    upstreamSignal?.removeEventListener("abort", abort);
+  }
 }
 
 const baseApi = {
   session: () => request<Session>("/api/admin/session"),
+  auth0Status: () => request<{ configured: boolean; enabled: boolean; error?: string | null }>("/api/auth0/status"),
+  chatgptStatus: () => request<ChatGptConnection>("/api/chatgpt/status"),
+  chatgptImport: (credentials: Record<string, unknown>) => request<{ connection: ChatGptConnection }>("/api/chatgpt/import", { method: "POST", body: JSON.stringify({ credentials }) }),
+  chatgptDisconnect: () => request<{ connection: ChatGptConnection }>("/api/chatgpt/disconnect", { method: "DELETE" }),
   loginWithToken: (token: string) =>
     request<Session>("/api/login", {
       method: "POST",
@@ -58,6 +85,14 @@ const baseApi = {
     request<{ ok: boolean; profile: Record<string, any> }>("/api/auth/profile", {
       method: "POST",
       body: JSON.stringify(input),
+    }),
+  issueOwnUserToken: () =>
+    request<{ ok: boolean; profile: Record<string, any>; token: string }>("/api/auth/profile/token", {
+      method: "POST",
+    }),
+  revokeOwnUserToken: () =>
+    request<{ ok: boolean; profile: Record<string, any> }>("/api/auth/profile/token/revoke", {
+      method: "POST",
     }),
   createAuthorInvite: (site?: string) =>
     request<{ ok: boolean; link: string; token: string; expiresAt: string }>("/api/auth/profile/publishing-link", {
@@ -94,7 +129,7 @@ const baseApi = {
     ),
   createDraft: (post: Partial<Post> & { title: string; site?: string }) =>
     request<{ post: Post }>("/api/admin/posts/create-draft", {
-      method: "POST",
+      method: "POST", headers: { "X-Escarlet-Client": "pwa" },
       body: JSON.stringify(post),
     }),
   transcribe: (input: { site?: string; audioBase64: string; mimeType?: string; filename?: string }) =>
@@ -167,9 +202,7 @@ const baseApi = {
       `/api/admin/social-pack/${encodeURIComponent(slug)}${site ? `?site=${encodeURIComponent(site)}` : ""}`,
     ),
   quota: (site?: string) =>
-    request<Record<string, unknown>>(
-      `/api/admin/quota${site ? `?site=${encodeURIComponent(site)}` : ""}`,
-    ),
+    request<Record<string, unknown>>(`/api/v2/usage${site ? `?site=${encodeURIComponent(site)}` : ""}`),
   billing: (site?: string) =>
     request<Record<string, unknown>>(
       `/api/admin/billing${site ? `?site=${encodeURIComponent(site)}` : ""}`,
@@ -179,7 +212,271 @@ const baseApi = {
       sites: Array<{ handle?: string; id?: string; name?: string }>;
       handles: string[];
       role: string;
-    }>("/api/admin/sites"),
+      }>("/api/admin/sites"),
+  contentBatches: (site?: string) =>
+    request<{ items: ContentItem[] }>(
+      `/api/v2/content/items${site ? `?site=${encodeURIComponent(site)}` : ""}`,
+    ),
+  contentItems: (site?: string, signal?: AbortSignal, options: { status?: string; query?: string; channel?: string; batchId?: string; archive?: "active" | "archived" | "all" } = {}) => {
+    const params = new URLSearchParams();
+    if (site) params.set("site", site);
+    if (options.status) params.set("status", options.status);
+    if (options.query) params.set("query", options.query);
+    if (options.channel) params.set("channel", options.channel);
+    if (options.batchId) params.set("batchId", options.batchId);
+    if (options.archive && options.archive !== "active") params.set("archive", options.archive);
+    return request<{ items: ContentItem[] }>(`/api/v2/content/items${params.toString() ? `?${params.toString()}` : ""}`, { signal });
+  },
+  contentItem: (itemId: string, site?: string, signal?: AbortSignal) =>
+    request<{ item: ContentItem }>(`/api/v2/content/items/${encodeURIComponent(itemId)}${site ? `?site=${encodeURIComponent(site)}` : ""}`, { signal }),
+  contentPlans: (site?: string, signal?: AbortSignal) =>
+    request<{ plans: Array<Record<string, any>> }>(
+      `/api/v2/content/plans${site ? `?site=${encodeURIComponent(site)}` : ""}`,
+      { signal },
+    ),
+  context: (site?: string, signal?: AbortSignal) =>
+    request<{
+      workspace: { id: string; name?: string };
+      activeBrand?: { id: string; handle?: string; name?: string; role?: string } | null;
+      brands: Array<{ id: string; handle?: string; name?: string }>;
+      role: string;
+      capabilities: string[];
+      brandCapabilities: Record<string, boolean>;
+      featureFlags: { creation_ui_enabled: boolean; manual_creation_enabled: boolean; [key: string]: boolean };
+      channels: Array<{ channel: string; enabled: boolean; connectionStatus: string }>;
+      connections: Array<Record<string, any>>;
+      usage?: Record<string, any>;
+    }>(`/api/v2/context${site ? `?site=${encodeURIComponent(site)}` : ""}`, { signal }),
+  brands: () =>
+    request<{ brands: BrandSummary[] }>("/api/v2/brands"),
+  createBrand: (input: { handle: string; name: string; domain?: string }) =>
+    request<{ brand: BrandSummary }>("/api/v2/brands", { method: "POST", body: JSON.stringify(input) }),
+  brandV2: (brandId: string, signal?: AbortSignal) =>
+    request<{ brand: BrandSummary }>(`/api/v2/brands/${encodeURIComponent(brandId)}`, { signal }),
+  updateBrandV2: (brandId: string, input: { name?: string; domain?: string }) =>
+    request<{ brand: BrandSummary }>(`/api/v2/brands/${encodeURIComponent(brandId)}`, { method: "PATCH", body: JSON.stringify(input) }),
+  brandChannels: (brandId: string, signal?: AbortSignal) =>
+    request<{ channels: BrandChannel[]; catalog: Array<Record<string, any>> }>(`/api/v2/brands/${encodeURIComponent(brandId)}/channels`, { signal }),
+  updateBrandChannels: (brandId: string, channels: Record<string, boolean>) =>
+    request<{ channels: BrandChannel[] }>(`/api/v2/brands/${encodeURIComponent(brandId)}/channels`, { method: "PATCH", body: JSON.stringify({ channels }) }),
+  brandCapabilities: (brandId: string, signal?: AbortSignal) =>
+    request<{ capabilities: Record<string, boolean>; catalog: BrandCapability[] }>(`/api/v2/brands/${encodeURIComponent(brandId)}/capabilities`, { signal }),
+  updateBrandCapabilities: (brandId: string, capabilities: Record<string, boolean>) =>
+    request<{ capabilities: Record<string, boolean> }>(`/api/v2/brands/${encodeURIComponent(brandId)}/capabilities`, { method: "PATCH", body: JSON.stringify({ capabilities }) }),
+  brandConnections: (brandId: string, signal?: AbortSignal) =>
+    request<{ connections: Array<Record<string, any>> }>(`/api/v2/brands/${encodeURIComponent(brandId)}/connections`, { signal }),
+  saveBrandConnection: (brandId: string, input: Record<string, any>) =>
+    request<{ connection: Record<string, any> }>(`/api/v2/brands/${encodeURIComponent(brandId)}/connections`, { method: "POST", body: JSON.stringify(input) }),
+  postizIntegrations: (brandId: string, input: { apiToken: string; apiBaseUrl?: string }) =>
+    request<{ integrations: Array<Record<string, any>> }>(`/api/v2/brands/${encodeURIComponent(brandId)}/connections/postiz/integrations`, { method: "POST", body: JSON.stringify(input) }),
+  bufferChannels: (brandId: string, input: { apiToken: string; organizationId?: string; apiBaseUrl?: string }) =>
+    request<{ organizations: Array<Record<string, any>>; organizationId?: string | null; channels: Array<Record<string, any>> }>(`/api/v2/brands/${encodeURIComponent(brandId)}/connections/buffer/channels`, { method: "POST", body: JSON.stringify(input) }),
+  testConnection: (connectionId: string, site?: string) =>
+    request<Record<string, any>>(`/api/v2/connections/${encodeURIComponent(connectionId)}/test${site ? `?site=${encodeURIComponent(site)}` : ""}`, { method: "POST", body: JSON.stringify({ site }) }),
+  disconnectConnection: (connectionId: string, site?: string) =>
+    request<{ connection: Record<string, any> }>(`/api/v2/connections/${encodeURIComponent(connectionId)}/disconnect${site ? `?site=${encodeURIComponent(site)}` : ""}`, { method: "POST", body: JSON.stringify({ site }) }),
+  reviewItems: (site?: string, signal?: AbortSignal, archive: "active" | "archived" | "all" = "active") => {
+    const params = new URLSearchParams();
+    if (site) params.set("site", site);
+    if (archive !== "active") params.set("archive", archive);
+    return request<{ items: ContentItem[] }>(`/api/v2/content/review${params.toString() ? `?${params.toString()}` : ""}`, { signal });
+  },
+  syncContentRemoteStatus: (site?: string) =>
+    request<{ queued: number; bucket: string; types: string[] }>("/api/v2/content/sync-remote-status", {
+      method: "POST",
+      body: JSON.stringify(site ? { site } : {}),
+    }),
+  calendarV2: (site?: string) =>
+    request<{ entries: CalendarEntry[] }>(`/api/v2/calendar${site ? `?site=${encodeURIComponent(site)}` : ""}`),
+  teamV2: (site?: string) =>
+    request<{ members: Array<Record<string, any>>; canManage: boolean }>(`/api/v2/team${site ? `?site=${encodeURIComponent(site)}` : ""}`),
+  updateTeamMember: (userId: string, input: { role: string; brandIds?: string[]; brandRoles?: Record<string, string>; reviewRequired?: boolean }) =>
+    request<{ member: Record<string, any> }>(`/api/v2/team/members/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify(input) }),
+  inviteTeamMember: (input: { email: string; role: string; brandIds?: string[]; brandRoles?: Record<string, string>; site?: string }) =>
+    request<{ member: Record<string, any>; invite?: Record<string, any> }>("/api/v2/team/invitations", { method: "POST", body: JSON.stringify(input) }),
+  updateFeatureFlags: (flags: Record<string, boolean>, site?: string, scope?: "workspace" | "brand") =>
+    request<{ flags: Record<string, boolean> }>("/api/v2/feature-flags", {
+      method: "PATCH",
+      body: JSON.stringify({ site, scope, flags }),
+    }),
+  metricoolConnect: (input: { site?: string; channel?: string; userToken: string; userId: string; blogId: string; timezone?: string; capabilities?: Record<string, any> }) =>
+    request<Record<string, any>>("/api/v2/integrations/metricool/connect", { method: "POST", body: JSON.stringify(input) }),
+  metricoolTest: (site?: string) =>
+    request<Record<string, any>>(`/api/v2/integrations/metricool/test${site ? `?site=${encodeURIComponent(site)}` : ""}`, { method: "POST", body: JSON.stringify({ site }) }),
+  contentBatch: (batchId: string, site?: string) =>
+    request<ContentBatch>(
+      `/api/v2/content/batches/${encodeURIComponent(batchId)}${site ? `?site=${encodeURIComponent(site)}` : ""}`,
+    ),
+  createContentBatch: (input: { site?: string; title: string; topics: Array<string | Record<string, any>>; channels: string[]; brandKitVersionId?: string; idempotencyKey?: string; brief?: Record<string, any> }) =>
+    request<{ batchId: string; itemIds: string[]; status: "draft"; totalItems: number }>(
+      "/api/v2/content/batches",
+      { method: "POST", headers: { "X-Escarlet-Client": "pwa", "Idempotency-Key": input.idempotencyKey || crypto.randomUUID() }, body: JSON.stringify({ ...input, metadata: { contentBrief: input.brief } }) },
+    ),
+  updateContentItem: (itemId: string, input: { site?: string; topic?: string; contentTitle?: string; channel?: string; body?: Record<string, any>; visualBrief?: Record<string, any>; mediaAssetIds?: string[]; readyForReview?: boolean; reviewChannels?: string[]; keepPublished?: boolean }) =>
+    request<ContentItem>(
+      `/api/v2/content/items/${encodeURIComponent(itemId)}`,
+      { method: "PATCH", body: JSON.stringify(input) },
+    ),
+  approveContent: (itemId: string, site?: string) =>
+    request<{ itemId: string; status: string }>(
+      `/api/v2/content/items/${encodeURIComponent(itemId)}/approve`,
+      { method: "POST", body: JSON.stringify({ site }) },
+    ),
+  scheduleContent: (itemId: string, publicationDate: string, timezone: string, site?: string, channels?: string[], options?: { publishNow?: boolean }) =>
+    request<{ itemId: string; status: string }>(
+      `/api/v2/content/items/${encodeURIComponent(itemId)}/schedule`,
+      { method: "POST", body: JSON.stringify({ site, channels, publicationDate, timezone, publishNow: options?.publishNow === true }) },
+    ),
+  rescheduleContent: (itemId: string, publicationDate: string, timezone: string, site?: string, channels?: string[], options?: { publishNow?: boolean }) =>
+    request<{ itemId: string; status: string; channels: string[] }>(
+      `/api/v2/content/items/${encodeURIComponent(itemId)}/reschedule`,
+      { method: "POST", body: JSON.stringify({ site, channels, publicationDate, timezone, publishNow: options?.publishNow === true }) },
+    ),
+  markChannelPublished: (itemId: string, channel: string, site?: string) =>
+    request<{ itemId: string; status: string; channel: string }>(
+      `/api/v2/content/items/${encodeURIComponent(itemId)}/mark-published`,
+      { method: "POST", body: JSON.stringify({ site, channel }) },
+    ),
+  reopenUnsentChannel: (itemId: string, channel: string, site?: string) =>
+    request<{ itemId: string; status: string; channel: string }>(
+      `/api/v2/content/items/${encodeURIComponent(itemId)}/reopen-unsent-channel`,
+      { method: "POST", body: JSON.stringify({ site, channel }) },
+    ),
+  publishContentViaBuffer: (itemId: string, channels: string[], site?: string, copy?: string) =>
+    request<{ itemId: string; status: string; channels: string[]; provider: string; publicationDate: string }>(
+      `/api/v2/content/items/${encodeURIComponent(itemId)}/publish-buffer`,
+      { method: "POST", body: JSON.stringify({ site, channels, copy }) },
+    ),
+  productionAssets: (site?: string) =>
+    request<{ assets: MediaItem[] }>(`/api/v2/assets${site ? `?site=${encodeURIComponent(site)}` : ""}`),
+  managedProductionAssets: (site?: string, mode: "standalone" | "all" = "standalone", limit = 100, filters?: { linked?: "all" | "linked" | "unlinked"; published?: "all" | "published" | "unpublished" }) =>
+    request<{ assets: MediaItem[]; protectedAssets?: MediaItem[] }>(`/api/v2/assets/manage?${new URLSearchParams({ ...(site ? { site } : {}), limit: String(limit), ...(mode === "standalone" ? { mode: "standalone", includeProtected: "1" } : {}), ...(filters?.linked && filters.linked !== "all" ? { linked: filters.linked } : {}), ...(filters?.published && filters.published !== "all" ? { published: filters.published } : {}) }).toString()}`),
+  updateProductionAssets: (input: { site?: string; assetIds: string[]; filename?: string; alt?: string; usage?: string }) =>
+    request<{ updated: boolean; count: number; assetIds: string[] }>("/api/v2/assets/update", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  deleteProductionAssets: (input: { site?: string; assetIds: string[]; force?: boolean }) =>
+    request<{ deleted: boolean; count: number; blocked?: Array<{ id: string; blockers: string[] }> }>("/api/v2/assets/delete", {
+      method: "POST",
+      body: JSON.stringify({ ...input, mode: "selected", confirm: true }),
+    }),
+  unlockProductionAssets: (input: { site?: string; assetIds: string[] }) =>
+    request<{ unlocked: boolean; count: number; assetIds: string[]; blocked?: Array<{ id: string; blockers: string[] }> }>("/api/v2/assets/unlock", {
+      method: "POST",
+      body: JSON.stringify({ ...input, confirm: true }),
+    }),
+  uploadProductionAsset: (input: { site?: string; filename: string; contentBase64: string; alt?: string; kind?: "post" | "social" | "reference"; manualUpload?: boolean; idempotencyKey?: string }) =>
+    request<{ asset: Record<string, unknown>; media: MediaItem }>("/api/v2/assets/upload", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  runRecipe: (input: { site?: string; recipeId: string; sourceMediaId?: string; motionAssets?: Array<{ assetId: string; role?: string; kind?: string; mimeType?: string; sha256?: string }>; audioAsset?: { assetId: string; role?: string; kind?: string; mimeType?: string; sha256?: string }; logoAssetId?: string; audioAssetId?: string; backgroundAssetId?: string; renderMode?: "flat_slides" | "layered_motion"; audioMode?: "none" | "supplied"; backgroundMode?: "blurred_source" | "brand_color" | "generated"; motionPreset?: "none" | "subtle_editorial" | "dynamic_editorial"; transition?: { type?: "none" | "crossfade" | "fade" | "wipeleft" | "wiperight" | "slideleft" | "slideright" | "circleopen" | "fadeblack" | "fadewhite"; durationMs?: number }; scenes?: Array<{ sceneId?: string; assetId: string; backgroundAssetId?: string; headline?: string; body?: string; durationMs?: number; fit?: "contain" | "cover"; motionPreset?: "none" | "subtle_editorial" | "dynamic_editorial"; textAnimation?: "none" | "fade_in" | "fade_up" | "slide_left" | "slide_right"; textPosition?: "top_left" | "center_left" | "bottom_left"; textTone?: "auto" | "light" | "dark" }>; copyBlocks?: Array<{ sceneId?: string; headline?: string; body?: string; durationMs?: number }>; text?: string; prompt?: string; formatProfile?: string; channel?: string; provider?: string; createContentIfMissing?: boolean; idempotencyKey?: string }) =>
+    request<Record<string, any>>("/api/v3/recipes/run", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  capabilityCatalog: (site?: string, goal?: string) =>
+    request<{
+      contractVersion: string;
+      guide: { firstSteps: string[]; rules: string[]; examples: Array<Record<string, any>> };
+      capabilities: Array<Record<string, any>>;
+      recipes: Array<Record<string, any>>;
+    }>(`/api/v3/catalog?${new URLSearchParams({ ...(site ? { site } : {}), ...(goal ? { goal } : {}) }).toString()}`),
+  publicationOperation: (input: { site?: string; operation: "destination.list" | "route" | "prepare" | "schedule" | "publish" | "status.get"; channel?: string; provider?: string; contentItemId?: string; assetIds?: string[]; text?: string; runId?: string; publicationId?: string; publicationDate?: string; timezone?: string; approval?: Record<string, any> }) =>
+    request<Record<string, any>>("/api/v2/publication", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  listVideoJobs: (site?: string, contentItemId?: string, status?: string) => {
+    const params = new URLSearchParams();
+    if (site) params.set("site", site);
+    if (contentItemId) params.set("contentItemId", contentItemId);
+    if (status) params.set("status", status);
+    const query = params.toString();
+    return request<{ jobs: Array<Record<string, unknown>> }>(`/api/v2/video/jobs${query ? `?${query}` : ""}`);
+  },
+  createVideoJob: (input: {
+    site?: string;
+    contentItemId?: string;
+    sourceMediaId: string;
+    provider?: string;
+    channel?: string;
+    format?: string;
+    objective?: string;
+    topic?: string;
+    metadata?: Record<string, unknown>;
+    idempotencyKey?: string;
+    createContentIfMissing?: boolean;
+  }) =>
+    request<{ videoJobId?: string; job?: Record<string, unknown> }>(
+      "/api/v2/video/jobs",
+      {
+        method: "POST",
+        headers: { "X-Escarlet-Client": "pwa" },
+        body: JSON.stringify(input),
+      },
+    ),
+  getVideoJob: (videoJobId: string, site?: string) =>
+    request<{ job: Record<string, unknown> }>(
+      `/api/v2/video/jobs/${encodeURIComponent(videoJobId)}${site ? `?site=${encodeURIComponent(site)}` : ""}`,
+    ),
+  getVideoJobForContentItem: async (contentItemId: string, site?: string) => {
+    const listed = await api.listVideoJobs(site, contentItemId);
+    const job = listed.jobs?.[0] as { id?: string } | undefined;
+    if (!job?.id) return { job: null as Record<string, unknown> | null };
+    const detail = await api.getVideoJob(job.id, site);
+    return detail;
+  },
+  updateVideoJob: (
+    videoJobId: string,
+    input: Record<string, unknown>,
+    site?: string,
+  ) =>
+    request<{ job: Record<string, unknown> }>(
+      `/api/v2/video/jobs/${encodeURIComponent(videoJobId)}`,
+      { method: "PATCH", body: JSON.stringify({ ...input, site }) },
+    ),
+  uploadContentVideo: (itemId: string, file: File, site?: string, format: "portrait" | "landscape" = "portrait") => {
+    const body = new FormData();
+    body.append("site", site || "");
+    body.append("format", format);
+    body.append("filename", file.name || "escarlet-reel.webm");
+    body.append("mimeType", file.type || "video/webm");
+    body.append("file", file, file.name || "escarlet-reel.webm");
+    return request<{ itemId: string; media: Record<string, any>; replacedPrevious: boolean }>(
+      `/api/v2/content/items/${encodeURIComponent(itemId)}/video`,
+      { method: "POST", body },
+    );
+  },
+  cancelContent: (itemId: string, site?: string) =>
+    request<{ itemId: string; status: string }>(
+      `/api/v2/content/items/${encodeURIComponent(itemId)}/cancel`,
+      { method: "POST", body: JSON.stringify({ site }) },
+    ),
+  archiveContent: (itemId: string, site?: string) =>
+    request<{ itemId: string; archived: boolean; archivedAt: string | null }>(
+      `/api/v2/content/items/${encodeURIComponent(itemId)}/archive`,
+      { method: "POST", body: JSON.stringify({ site }) },
+    ),
+  restoreArchivedContent: (itemId: string, site?: string) =>
+    request<{ itemId: string; archived: boolean; archivedAt: string | null }>(
+      `/api/v2/content/items/${encodeURIComponent(itemId)}/restore-archive`,
+      { method: "POST", body: JSON.stringify({ site }) },
+    ),
+  cancelContentChannel: (itemId: string, channel: string, site?: string) =>
+    request<{ itemId: string; channel: string; status: string; itemStatus: string }>(
+      `/api/v2/content/items/${encodeURIComponent(itemId)}/cancel-channel`,
+      { method: "POST", body: JSON.stringify({ site, channel }) },
+    ),
+  brandKitV2: (site?: string) =>
+    request<Record<string, any>>(`/api/v2/brand-kits${site ? `?site=${encodeURIComponent(site)}` : ""}`),
+  updateBrandKitAsset: (brandId: string, assetId: string, input: { alt?: string; usage?: string }) =>
+    request<{ asset: Record<string, any> }>(`/api/v2/brands/${encodeURIComponent(brandId)}/brand-kit/assets/${encodeURIComponent(assetId)}`, { method: "PATCH", body: JSON.stringify(input) }),
+  deleteBrandKitAsset: (brandId: string, assetId: string) =>
+    request<{ removed: boolean; assetId: string; name?: string }>(`/api/v2/brands/${encodeURIComponent(brandId)}/brand-kit/assets/${encodeURIComponent(assetId)}`, { method: "DELETE" }),
+  createBrandKitVersion: (input: { site?: string; manifest: Record<string, any>; status?: "draft" | "published" }) =>
+    request<Record<string, any>>("/api/v2/brand-kits/versions", { method: "POST", body: JSON.stringify(input) }),
   createSite: (input: {
     handle: string;
     name?: string;
@@ -199,24 +496,30 @@ const baseApi = {
       body: JSON.stringify(input),
     }),
   brand: (site: string) =>
-    request<{
-      summary?: string;
-      files?: string[];
-      labels?: Record<string, string>;
-      authors?: Author[] | string[];
-    }>(`/api/admin/brand-kit/${encodeURIComponent(site)}`),
+    request<Record<string, any>>(`/api/v2/brand-kits?site=${encodeURIComponent(site)}`).then((kit) => ({
+      summary: kit?.manifest?.["brand-core.json"] ? "Brand Kit canónico" : "Brand Kit pendiente",
+      files: Object.keys(kit?.manifest || {}),
+      labels: {},
+      authors: [],
+    })),
   brandFile: (site: string, file: string) =>
-    request<{ content?: string }>(
-      `/api/admin/brand-kit/${encodeURIComponent(site)}/${encodeURIComponent(file)}`,
-    ),
-  saveBrandFile: (site: string, file: string, content: string) =>
-    request<{ ok: boolean }>(
-      `/api/admin/brand-kit/${encodeURIComponent(site)}/${encodeURIComponent(file)}`,
-      { method: "POST", body: JSON.stringify({ content }) },
-    ),
+    request<Record<string, any>>(`/api/v2/brand-kits?site=${encodeURIComponent(site)}`).then((kit) => ({
+      content: typeof kit?.manifest?.[file] === "string" ? kit.manifest[file] : JSON.stringify(kit?.manifest?.[file] || {}, null, 2),
+    })),
+  saveBrandFile: async (site: string, file: string, content: string) => {
+    const current = await request<Record<string, any>>(`/api/v2/brand-kits?site=${encodeURIComponent(site)}`);
+    let parsed: unknown = content;
+    try { parsed = JSON.parse(content); } catch { /* keep plain-text brand references intact */ }
+    const manifest = { ...(current?.manifest || {}), [file]: parsed };
+    await request<Record<string, any>>("/api/v2/brand-kits/versions", {
+      method: "POST",
+      body: JSON.stringify({ site, manifest, status: "published" }),
+    });
+    return { ok: true };
+  },
   importBrandZip: (site: string, contentBase64: string) =>
     request<{ ok: boolean; importedMd?: string[]; importedData?: string[]; importedImages?: string[]; skipped?: string[] }>(
-      `/api/admin/brand-kit/${encodeURIComponent(site)}/import-zip`,
+      `/api/v2/brands/${encodeURIComponent(site)}/brand-kit/import`,
       { method: "POST", body: JSON.stringify({ contentBase64 }) },
     ),
   onboarding: (site: string) =>
@@ -237,11 +540,10 @@ const baseApi = {
       `/api/admin/site-config/${encodeURIComponent(site)}/test-rebuild`,
       { method: "POST" },
     ),
-  issueSiteToken: (site: string, refreshIcon = false) =>
-    request<{ siteAccessToken: string; message?: string; agentIcon?: Record<string, any> }>(
-      `/api/admin/site-config/${encodeURIComponent(site)}/access-token`,
-      { method: "POST", body: JSON.stringify({ refreshIcon }) },
-    ),
+  mcpConnection: (_site: string, _signal?: AbortSignal) => Promise.resolve({
+    mcpUrl: `${typeof window !== "undefined" ? window.location.origin : ""}/mcp/v3`,
+    mcpAuthHint: "Usa el token MCP del perfil del usuario.",
+  }),
   users: (site: string, all = false) =>
     request<{ users: Array<Record<string, any>>; site: string }>(
       `/api/auth/users?site=${encodeURIComponent(site)}${all ? "&all=1" : ""}`,
@@ -282,9 +584,9 @@ const baseApi = {
       `/api/admin/authors${site ? `?site=${encodeURIComponent(site)}` : ""}`,
     ),
   media: (site?: string, kind?: string) =>
-    request<{ media: MediaItem[] }>(
-      `/api/admin/media${site || kind ? `?${new URLSearchParams({ ...(site ? { site } : {}), ...(kind ? { kind } : {}) })}` : ""}`,
-    ),
+    request<{ assets: MediaItem[] }>(`/api/v2/assets${site ? `?site=${encodeURIComponent(site)}` : ""}`).then(({ assets }) => ({
+      media: (assets || []).filter((asset) => !kind || asset.kind === kind || asset.metadata?.kind === kind),
+    })),
   uploadMedia: (input: {
     site?: string;
     filename: string;
@@ -292,20 +594,19 @@ const baseApi = {
     alt?: string;
     kind?: string;
   }) =>
-    request<{ media: MediaItem }>("/api/admin/media/upload", {
+    request<{ media: MediaItem }>("/api/v2/assets/upload", {
       method: "POST",
       body: JSON.stringify(input),
     }),
   deleteMedia: (input: { site?: string; id?: string; path?: string }) =>
-    request<{ deleted: boolean }>("/api/admin/media/delete", {
+    request<{ deleted: boolean }>("/api/v2/assets/delete", {
       method: "POST",
-      body: JSON.stringify(input),
+      body: JSON.stringify({ site: input.site, assetIds: input.id ? [input.id] : [], mode: "selected", confirm: true }),
     }),
   updateMediaAlt: (input: { site?: string; id: string; alt: string }) =>
-    request<{ media: MediaItem }>("/api/admin/media/update-alt", {
-      method: "POST",
-      body: JSON.stringify(input),
-    }),
+    request<{ updated: boolean }>("/api/v2/assets/update", { method: "POST", body: JSON.stringify({ ...input, assetIds: [input.id] }) }).then(() => ({ media: input as MediaItem })),
+  updateMedia: (input: { site?: string; id: string; filename?: string; alt?: string; usage?: string }) =>
+    request<{ updated: boolean }>("/api/v2/assets/update", { method: "POST", body: JSON.stringify({ ...input, assetIds: [input.id] }) }).then(() => ({ media: input as MediaItem })),
   generateImage: (input: {
     site?: string;
     prompt: string;
@@ -388,6 +689,9 @@ const baseApi = {
         creditCheckoutWithoutStripe: boolean;
         assistantEnabled: boolean;
         blogWizardEnabled: boolean;
+        legacyPreviewEnabled: boolean;
+        legacySocialPackEnabled: boolean;
+        authorInviteEnabled: boolean;
         updatedAt?: string | null;
       };
     }>('/api/admin/feature-flags'),
@@ -396,6 +700,9 @@ const baseApi = {
     creditCheckoutWithoutStripe?: boolean;
     assistantEnabled?: boolean;
     blogWizardEnabled?: boolean;
+    legacyPreviewEnabled?: boolean;
+    legacySocialPackEnabled?: boolean;
+    authorInviteEnabled?: boolean;
   }) =>
     request<{
       ok: boolean;
@@ -404,6 +711,9 @@ const baseApi = {
         creditCheckoutWithoutStripe: boolean;
         assistantEnabled: boolean;
         blogWizardEnabled: boolean;
+        legacyPreviewEnabled: boolean;
+        legacySocialPackEnabled: boolean;
+        authorInviteEnabled: boolean;
         updatedAt?: string | null;
       };
     }>('/api/admin/feature-flags', {
@@ -412,7 +722,7 @@ const baseApi = {
     }),
   workflowFlags: (site?: string) =>
     request<{
-      flags: { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean; updatedAt?: string | null };
+      flags: { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean; legacyPreviewEnabled: boolean; legacySocialPackEnabled: boolean; authorInviteEnabled: boolean; creation_ui_enabled?: boolean; manual_creation_enabled?: boolean; updatedAt?: string | null };
     }>(`/api/app/feature-flags${site ? `?site=${encodeURIComponent(site)}` : ""}`),
   creditPacks: () =>
     request<{
@@ -440,6 +750,16 @@ const baseApi = {
       `/api/admin/billing/credit-packs/${encodeURIComponent(id)}`,
       { method: "DELETE" },
     ),
+};
+
+export type ChatGptConnection = {
+  connected: boolean;
+  mode?: string;
+  email?: string | null;
+  scopes?: string[];
+  expiresAt?: string | null;
+  expired?: boolean;
+  instructions?: { docs?: string; flow?: string; requiredScopes?: string[]; message?: string };
 };
 
 export type AiGeneration = {
@@ -509,49 +829,83 @@ async function deleteAiConversation(id: string, site?: string) {
 async function aiChat(
   input: { site?: string; message: string; model?: string },
   onDelta?: (text: string) => void,
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
 ) {
-  const response = await fetch("/api/ai/chat", {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new DOMException("Tiempo de espera agotado", "TimeoutError")), options.timeoutMs ?? 60_000);
+  const abort = () => controller.abort(options.signal?.reason);
+  if (options.signal) {
+    if (options.signal.aborted) abort();
+    else options.signal.addEventListener("abort", abort, { once: true });
+  }
+  let response: Response;
+  try {
+    response = await fetch("/api/ai/chat", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", "X-Escarlet-Client": "pwa" },
+      body: JSON.stringify(input),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", abort);
+    if (controller.signal.aborted) throw new ApiError("El chat fue cancelado o agotó el tiempo de espera.", 0, {}, controller.signal.reason?.name === "TimeoutError" ? "timeout" : "aborted");
+    throw error;
+  }
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
-    throw new ApiError(
-      data.message || "El asistente no está disponible.",
-      response.status,
-    );
+    clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", abort);
+    throw new ApiError(data.message || "El asistente no está disponible.", response.status, data, data.code, response.headers.get("x-request-id") || data.requestId);
   }
-  if (!response.body) return "";
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let content = "";
-  const consume = (chunk: string) => {
-    for (const line of chunk.split("\n")) {
-      if (!line.startsWith("data:")) continue;
-      try {
-        const value = JSON.parse(line.slice(5).trim());
-        if (typeof value.delta === "string") {
-          content += value.delta;
-          onDelta?.(content);
+  try {
+    if (!response.body) return "";
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let content = "";
+    let sawDone = false;
+    const consume = (chunk: string) => {
+      for (const frame of chunk.split("\n\n")) {
+        const event = frame.match(/^event:\s*([^\n]+)/m)?.[1]?.trim();
+        const line = frame.split("\n").find((entry) => entry.startsWith("data:"));
+        if (!line) continue;
+        try {
+          const value = JSON.parse(line.slice(5).trim());
+          if (event === "error" || value?.error) throw new ApiError(value.message || value.error || "El asistente devolvió un error.", Number(value.status) || 502, value, value.code);
+          if (event === "done") sawDone = true;
+          if (typeof value.delta === "string") {
+            content += value.delta;
+            onDelta?.(content);
+          }
+        } catch (error) {
+          if (error instanceof ApiError) throw error;
+          if (event === "error") throw new ApiError(line.slice(5).trim() || "El asistente devolvió un error.", 502, {}, "sse_error");
+          // A malformed frame is ignored only when it is not an error event.
         }
-      } catch {
-        /* ignore malformed SSE frame */
       }
     }
-  };
-  while (true) {
-    const { done, value } = await reader.read();
-    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
-    const frames = buffer.split("\n\n");
-    buffer = frames.pop() || "";
-    frames.forEach(consume);
-    if (done) break;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+        const frames = buffer.split("\n\n");
+        buffer = frames.pop() || "";
+        frames.forEach(consume);
+        if (done) break;
+      }
+      if (buffer) consume(buffer);
+      if (!sawDone && !controller.signal.aborted) throw new ApiError("La conexión del asistente terminó antes de completar la respuesta.", 502, {}, "sse_incomplete");
+      return content;
+    } catch (error) {
+      if (controller.signal.aborted) throw new ApiError("El chat fue cancelado o agotó el tiempo de espera.", 0, {}, controller.signal.reason?.name === "TimeoutError" ? "timeout" : "aborted");
+      throw error;
+    }
+  } finally {
+    clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", abort);
   }
-  if (buffer) consume(buffer);
-  return content;
 }
 
 async function aiGenerate(input: {
@@ -595,7 +949,7 @@ async function aiToolCall(name: string, args: Record<string, unknown> = {}) {
 
 async function billingSnapshot(site?: string) {
   return request<Record<string, any>>(
-    `/api/billing/snapshot${site ? `?site=${encodeURIComponent(site)}` : ""}`,
+    `/api/v2/usage${site ? `?site=${encodeURIComponent(site)}` : ""}`,
   );
 }
 async function billingCheckout(input: {

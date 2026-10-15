@@ -1,8 +1,8 @@
 import {
-  createContext,
   FormEvent,
   ReactNode,
-  useContext,
+  Suspense,
+  lazy,
   useEffect,
   useMemo,
   useRef,
@@ -12,26 +12,44 @@ import {
   BrowserRouter,
   NavLink,
   Navigate,
-  Outlet,
   Route,
   Routes,
   useLocation,
+  useNavigationType,
   useNavigate,
   useParams,
+  useSearchParams,
 } from "react-router-dom";
+import type { NavigateFunction } from "react-router-dom";
 import { api } from "./api";
-import type { AiConversation, SocialPackJobResult } from "./api";
+import type { AiConversation, ChatGptConnection, SocialPackJobResult } from "./api";
 import { getInitialLanguage, Language, translate } from "./i18n";
-import type { Author, MediaItem, Post, Session } from "./types";
+import type { Author, BrandSummary, ContentItem, MediaItem, Post, Session } from "./types";
+import { contentPreviewPath, itemTitle, statusLabel } from "./content-format";
+import { createVideoCapture } from "./portrait-recorder";
+import type { VideoCapture, VideoFormat } from "./portrait-recorder";
+import { Badge, Button, Card, ChannelBadge, Checkbox, ConnectionCard, Drawer, EmptyState as UiEmptyState, Field, IconButton, Inline, Modal, MultiSelectPills, PageHeader, Select, Stack, StatusBadge, Switch, Tabs, TeleprompterLineControls, Textarea, TextField, Toast as UiToast } from "./ui";
+import { AppShell, NavIcon } from "./app/layouts/AppShell";
+import { SidebarConversations } from "./features/chat/SidebarConversations";
+import { I18nContext, SessionContext, ToastContext, useApp, useI18n, useToast } from "./app/context";
+import type { AppState, Toast, ToastKind, WorkflowFlags } from "./app/context";
+
+const DesignSystem = lazy(() => import("./DesignSystem").then(({ DesignSystem }) => ({ default: DesignSystem })));
+const Publisher = lazy(() => import("./Publisher").then(({ Publisher }) => ({ default: Publisher })));
+const MediaManager = lazy(() => import("./MediaManager").then(({ MediaManager }) => ({ default: MediaManager })));
+const AppsDashboard = lazy(() => import("./AppsDashboard").then(({ AppsDashboard }) => ({ default: AppsDashboard })));
+const EditorialCalendarRoute = lazy(() => import("./features/calendar/EditorialCalendar").then(({ EditorialCalendar }) => ({ default: EditorialCalendar })));
+const ContentInbox = lazy(() => import("./features/content/ContentWorkspace").then(({ ContentInbox }) => ({ default: ContentInbox })));
+const PostWorkspace = lazy(() => import("./features/content/ContentWorkspace").then(({ PostWorkspace }) => ({ default: PostWorkspace })));
 
 type Draft = Partial<Post> & { title: string; slug?: string };
-type WorkflowFlags = { cmsAiEnabled: boolean; assistantEnabled: boolean; blogWizardEnabled: boolean };
 type SocialPackChannels = {
   substack: boolean;
   linkedin: boolean;
   x: boolean;
   videoScript: boolean;
   instagramCarousel: boolean;
+  instagramStory: boolean;
 };
 const DEFAULT_SOCIAL_PACK_CHANNELS: SocialPackChannels = {
   substack: true,
@@ -39,6 +57,7 @@ const DEFAULT_SOCIAL_PACK_CHANNELS: SocialPackChannels = {
   x: true,
   videoScript: true,
   instagramCarousel: true,
+  instagramStory: true,
 };
 const SOCIAL_PACK_CHANNEL_KEYS: Array<{ key: keyof SocialPackChannels; labelKey: string }> = [
   { key: "substack", labelKey: "admin.socialPackSubstack" },
@@ -46,53 +65,55 @@ const SOCIAL_PACK_CHANNEL_KEYS: Array<{ key: keyof SocialPackChannels; labelKey:
   { key: "x", labelKey: "admin.socialPackX" },
   { key: "videoScript", labelKey: "admin.socialPackVideo" },
   { key: "instagramCarousel", labelKey: "admin.socialPackInstagram" },
+  { key: "instagramStory", labelKey: "admin.socialPackInstagramStory" },
 ];
-type AppState = {
-  session: Session;
-  site: string;
-  sites: string[];
-  contentMode: "blog" | "socialmedia";
-  workflowFlags: WorkflowFlags;
-  setSite: (site: string) => void;
-  refresh: () => Promise<void>;
+const uniqueSiteHandles = (values: Array<string | undefined> = []) => [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
+const dedupeMedia = (items: MediaItem[] = []) => {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const path = String(item.path || item.url || "").replace(/^https?:\/\/[^/]+/i, "").split("?")[0];
+    const key = path || `filename:${String(item.filename || item.id || "")}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 };
-const SessionContext = createContext<AppState | null>(null);
-type I18nState = {
-  language: Language;
-  setLanguage: (language: Language) => void;
-  t: (key: string, fallback?: string) => string;
-};
-const I18nContext = createContext<I18nState | null>(null);
-type ToastKind = "success" | "error" | "info";
-type Toast = { id: number; message: string; kind: ToastKind };
-type ToastState = {
-  showToast: (message: string, kind?: ToastKind) => void;
-};
-const ToastContext = createContext<ToastState | null>(null);
-const useApp = () => {
-  const value = useContext(SessionContext);
-  if (!value) throw new Error("App context unavailable");
-  return value;
-};
-const useI18n = () => {
-  const value = useContext(I18nContext);
-  if (!value) throw new Error("I18n context unavailable");
-  return value;
-};
-const useToast = () => {
-  const value = useContext(ToastContext);
-  if (!value) throw new Error("Toast context unavailable");
-  return value;
-};
-const isAdmin = (role?: string) => role === "admin" || role === "agency_admin";
+const brandKitAssetMedia = (asset: Record<string, any>): MediaItem => ({
+  id: asset.id,
+  filename: asset.name,
+  url: asset.publicUrl || asset.metadata?.url || asset.metadata?.path || "",
+  publicUrl: asset.publicUrl || undefined,
+  contentType: asset.contentType,
+  kind: "reference",
+  alt: asset.metadata?.alt || asset.name,
+  metadata: { ...(asset.metadata || {}), source: asset.metadata?.source || "brand-kit", usage: asset.metadata?.usage || asset.metadata?.role || "reference" },
+});
+const isAdmin = (role?: string) => role === "admin" || role === "agency_admin" || role === "owner";
+const isWorkspaceAdmin = (session?: Pick<Session, "role" | "workspaceRole">) => Boolean(session && (isAdmin(session.workspaceRole) || isAdmin(session.role)));
 function AiOnly({ children }: { children: ReactNode }) {
   const { session, workflowFlags } = useApp();
-  return session.role === "client_mcp" || !workflowFlags.cmsAiEnabled ? null : <>{children}</>;
+  return !workflowFlags.cmsAiEnabled ? null : <>{children}</>;
 }
+const ROLE_RANK: Record<string, number> = { owner: 4, admin: 3, approver: 2, editor: 2, author: 1, viewer: 0 };
+const rankedRole = (roles: Array<string | undefined>, fallback = "viewer") =>
+  roles.reduce<string>((best, role) => {
+    const value = String(role || "").toLowerCase();
+    return (ROLE_RANK[value] || 0) > (ROLE_RANK[best] || 0) ? value : best;
+  }, fallback);
+const memberDisplayRole = (member: Record<string, any>, site?: string, activeBrand?: { id?: string; handle?: string } | null) => {
+  const workspaceRole = String(member.role || "viewer").toLowerCase();
+  if (workspaceRole === "owner" || workspaceRole === "admin") return workspaceRole;
+  const brands = Array.isArray(member.brands) ? member.brands : [];
+  const active = brands.find((brand: any) => brand.id === activeBrand?.id || brand.handle === activeBrand?.handle || brand.handle === site || brand.id === site);
+  if (active?.role) return String(active.role).toLowerCase();
+  return rankedRole(brands.map((brand: any) => brand.role), workspaceRole);
+};
 const roleLabel = (role: string | undefined, t: (key: string, fallback?: string) => string) => {
-  const value = String(role || "client").trim().toLowerCase();
+  const value = String(role || "viewer").trim().toLowerCase();
   return t(`role.${value}`, value.replace(/_/g, " "));
 };
+const sessionRoleLabel = (session: Session, t: (key: string, fallback?: string) => string) =>
+  session.systemAdmin ? t("role.system_admin") : roleLabel(session.role, t);
 const uiStatus = (status?: string) => {
   if (status === "pending_schedule") return "scheduled";
   if (status === "review" || status === "changes_requested") return "draft";
@@ -144,6 +165,19 @@ const fileAsBase64 = (file: File) =>
     reader.onerror = () => reject(reader.error || new Error("No se pudo leer el archivo."));
     reader.readAsDataURL(file);
   });
+const socialImageUrl = (value: unknown, resolution: "thumb" | "preview" | "original" = "preview") => {
+  const media = value && typeof value === "object" ? value as any : null;
+  const candidates = media ? resolution === "thumb"
+    ? [media.thumbUrl, media.thumbPath, media.previewUrl, media.previewPath, media.url, media.publicUrl, media.imageUrl, media.path]
+    : resolution === "preview"
+      ? [media.previewUrl, media.previewPath, media.thumbUrl, media.thumbPath, media.url, media.publicUrl, media.imageUrl, media.path]
+      : [media.imageOriginalUrl, media.originalUrl, media.url, media.publicUrl, media.imageUrl, media.path]
+    : [value];
+  const candidate = candidates.find((entry) => entry);
+  const url = String(candidate || "").trim();
+  return url.startsWith("/") || /^https?:\/\//i.test(url) ? url : "";
+};
+const originalImageUrl = (value: unknown) => socialImageUrl(value, "original");
 
 async function waitForSocialPackJob(
   jobId: string,
@@ -191,6 +225,20 @@ function ChoicePills({
       ))}
     </div>
   );
+}
+
+function enterRecorderFullscreen() {
+  if (!document.fullscreenElement) {
+    const request = document.documentElement.requestFullscreen?.();
+    if (request) void request.catch(() => undefined);
+  }
+}
+
+function exitRecorderFullscreen() {
+  if (document.fullscreenElement) {
+    const exit = document.exitFullscreen?.();
+    if (exit) void exit.catch(() => undefined);
+  }
 }
 
 function ModelPicker({
@@ -272,20 +320,9 @@ function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={{ showToast }}>
       {children}
-      <div className="toast-region" aria-live="polite" aria-atomic="true">
+      <div className="ui-toast-region" aria-live="polite" aria-atomic="true">
         {toasts.map((toast) => (
-          <div key={toast.id} className={`toast toast-${toast.kind}`} role="status">
-            <span aria-hidden="true">{toast.kind === "error" ? "!" : toast.kind === "info" ? "i" : "✓"}</span>
-            <p>{toast.message}</p>
-            <button
-              type="button"
-              className="toast-close"
-              aria-label={t("common.closeToast")}
-              onClick={() => setToasts((current) => current.filter((item) => item.id !== toast.id))}
-            >
-              ×
-            </button>
-          </div>
+          <UiToast key={toast.id} message={toast.message} tone={toast.kind === "error" ? "danger" : toast.kind} closeLabel={t("common.closeToast")} onClose={() => setToasts((current) => current.filter((item) => item.id !== toast.id))} />
         ))}
       </div>
     </ToastContext.Provider>
@@ -295,11 +332,16 @@ function ToastProvider({ children }: { children: ReactNode }) {
 function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [workflowFlags, setWorkflowFlags] = useState<WorkflowFlags>({ cmsAiEnabled: true, assistantEnabled: true, blogWizardEnabled: true });
+  const [workflowFlags, setWorkflowFlags] = useState<WorkflowFlags>({ cmsAiEnabled: true, assistantEnabled: false, blogWizardEnabled: false, legacyPreviewEnabled: false, legacySocialPackEnabled: false, authorInviteEnabled: true, creationUiEnabled: true, manualCreationEnabled: false });
+  const [channels, setChannels] = useState<Array<{ channel: string; enabled: boolean; connectionStatus?: string }>>([]);
+  const [brandCapabilities, setBrandCapabilities] = useState<Record<string, boolean>>({});
+  const [productContext, setProductContext] = useState<AppState["productContext"]>();
   const [language, setLanguageState] = useState<Language>(getInitialLanguage);
   const [site, setSiteState] = useState("");
   const [contentMode, setContentMode] = useState<"blog" | "socialmedia">("blog");
   const [contentModeReady, setContentModeReady] = useState(false);
+  const siteContextSequence = useRef(0);
+  const siteContextAbort = useRef<AbortController | null>(null);
   const setLanguage = (next: Language) => {
     setLanguageState(next);
     window.localStorage.setItem("escarlet_language", next);
@@ -312,17 +354,36 @@ function App() {
       setSession(nextSession);
       try {
         const nextFlags = await api.workflowFlags(nextSession.site || nextSession.sites?.[0]);
-        const cmsAiEnabled = nextSession.role !== "client_mcp" && nextFlags.flags?.cmsAiEnabled !== false;
+        const cmsAiEnabled = nextFlags.flags?.cmsAiEnabled !== false;
         setWorkflowFlags({
           cmsAiEnabled,
           assistantEnabled: cmsAiEnabled && nextFlags.flags?.assistantEnabled !== false,
           blogWizardEnabled: cmsAiEnabled && nextFlags.flags?.blogWizardEnabled !== false,
+          legacyPreviewEnabled: false,
+          legacySocialPackEnabled: false,
+          authorInviteEnabled: nextFlags.flags?.authorInviteEnabled !== false,
+          creationUiEnabled: true,
+          manualCreationEnabled: false,
         });
+        try {
+          const savedBrand = window.localStorage.getItem("escarlet_site") || "";
+          const preferredBrand = savedBrand && (nextSession.sites || []).includes(savedBrand)
+            ? savedBrand
+            : nextSession.site || nextSession.sites?.[0];
+          const context = await api.context(preferredBrand);
+          setSession((current) => current ? { ...current, role: current.systemAdmin ? current.role : context.activeBrand?.role || current.role, workspaceRole: nextSession.workspaceRole || current.workspaceRole } : current);
+          setProductContext(context);
+          setChannels(context.channels || []);
+          setBrandCapabilities(context.brandCapabilities || {});
+          setWorkflowFlags((current) => ({ ...current, creationUiEnabled: true, manualCreationEnabled: false, blogWizardEnabled: false }));
+        } catch { setChannels([]); setBrandCapabilities({}); setProductContext(undefined); }
       } catch {
-        setWorkflowFlags({ cmsAiEnabled: nextSession.role !== "client_mcp", assistantEnabled: nextSession.role !== "client_mcp", blogWizardEnabled: nextSession.role !== "client_mcp" });
+        setWorkflowFlags({ cmsAiEnabled: true, assistantEnabled: false, blogWizardEnabled: false, legacyPreviewEnabled: false, legacySocialPackEnabled: false, authorInviteEnabled: true, creationUiEnabled: true, manualCreationEnabled: false });
       }
     } catch {
       setSession(null);
+      setProductContext(undefined);
+      setBrandCapabilities({});
     } finally {
       setLoading(false);
     }
@@ -333,8 +394,8 @@ function App() {
   useEffect(() => {
     if (!session) return;
     const available = session.sites?.length
-      ? session.sites
-      : [session.site || "escarlet"];
+      ? uniqueSiteHandles(session.sites)
+      : uniqueSiteHandles([session.site || "escarlet"]);
     const requested = new URLSearchParams(window.location.search).get("site")?.trim().toLowerCase() || "";
     const requestedHandle = requested
       ? available.find((candidate) => {
@@ -358,25 +419,38 @@ function App() {
     if (!activeSite) return;
     let active = true;
     setContentModeReady(false);
+    const canonicalBlog = productContext?.channels?.find((channel) => channel.channel === "blog")?.enabled;
+    if (productContext && typeof canonicalBlog === "boolean") {
+      setContentMode(canonicalBlog ? "blog" : "socialmedia");
+      setContentModeReady(true);
+      return () => { active = false; };
+    }
     setContentMode("blog");
-    api.siteConfig(activeSite)
-      .then(({ config }) => {
-        if (active) {
-          setContentMode(config?.contentMode === "socialmedia" ? "socialmedia" : "blog");
-          setContentModeReady(true);
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setContentMode("blog");
-          setContentModeReady(true);
-        }
-      });
+    setContentModeReady(true);
     return () => { active = false; };
-  }, [site, session?.site, session?.sites?.join("|")]);
+  }, [site, session?.site, session?.sites?.join("|"), productContext]);
   const setSite = (next: string) => {
     setSiteState(next);
     window.localStorage.setItem("escarlet_site", next);
+    if (!session) return;
+    const sequence = ++siteContextSequence.current;
+    siteContextAbort.current?.abort();
+    const controller = new AbortController();
+    siteContextAbort.current = controller;
+    void api.context(next, controller.signal).then((context) => {
+      if (sequence !== siteContextSequence.current) return;
+      setSession((current) => current ? { ...current, role: current.systemAdmin ? current.role : context.activeBrand?.role || current.role } : current);
+      setProductContext(context);
+      setChannels(context.channels || []);
+      setBrandCapabilities(context.brandCapabilities || {});
+      setWorkflowFlags((current) => ({
+        ...current,
+        creationUiEnabled: true,
+        manualCreationEnabled: false,
+        assistantEnabled: current.cmsAiEnabled && current.assistantEnabled,
+        blogWizardEnabled: false
+      }));
+    }).catch((error) => { if (!controller.signal.aborted && sequence === siteContextSequence.current) { setProductContext(undefined); setChannels([]); setBrandCapabilities({}); console.warn("[pwa] no se pudo cargar el contexto de la marca", error); } });
   };
   const basename =
     window.location.pathname === "/app" ||
@@ -411,15 +485,20 @@ function App() {
               session,
               site: site || session.site || session.sites?.[0] || "escarlet",
               sites: session.sites?.length
-                ? session.sites
-                : [session.site || "escarlet"],
+                ? uniqueSiteHandles(session.sites)
+                : uniqueSiteHandles([session.site || "escarlet"]),
               contentMode,
               workflowFlags,
+              channels,
+              brandCapabilities,
+              productContext,
               setSite,
               refresh,
             }}
           >
+            <RouteScrollMemory />
             <Routes>
+              <Route path="/design-system" element={<Suspense fallback={<RouteLoading />}><DesignSystem /></Suspense>} />
               {session.userId && session.profileComplete === false ? (
                 <>
                   <Route path="/onboarding" element={<Onboarding />} />
@@ -427,28 +506,44 @@ function App() {
                 </>
               ) : <Route element={<Shell />}>
                 <Route path="/" element={<Home />} />
-                {contentMode === "blog" && workflowFlags.assistantEnabled && <Route path="/chat" element={<Chat />} />}
-                {contentMode === "blog" && workflowFlags.blogWizardEnabled && <Route path="/quick-create" element={<QuickCreate />} />}
-                {contentMode === "blog" && <>
-                  <Route path="/manual/:slug?" element={<ManualPost />} />
-                  <Route path="/preview/:slug" element={<Preview />} />
-                  <Route path="/schedule/:slug" element={<Schedule />} />
-                  <Route path="/publish/:slug" element={<PublishSocial />} />
-                  <Route path="/posts" element={<Posts />} />
-                  <Route path="/calendar" element={<Calendar />} />
-                </>}
-                <Route path="/social-pack" element={<SocialPack />} />
-                {contentMode === "blog" && <Route path="/social-pack/:slug" element={<SocialPack />} />}
+                <Route path="/apps" element={<Suspense fallback={<RouteLoading />}><AppsDashboard site={site} t={t} /></Suspense>} />
+                <Route path="/publication/publisher" element={<Suspense fallback={<RouteLoading />}><Publisher site={site} t={t} /></Suspense>} />
+                <Route path="/publication" element={<Suspense fallback={<RouteLoading />}><Publisher site={site} t={t} /></Suspense>} />
+                <Route path="/media" element={<Suspense fallback={<RouteLoading />}><MediaManager site={site} t={t} /></Suspense>} />
+                {workflowFlags.assistantEnabled && brandCapabilities.content_publishing !== false && <Route path="/chat" element={<Chat />} />}
+                <Route path="/content" element={<Suspense fallback={<RouteLoading />}><ContentInbox /></Suspense>} />
+                <Route path="/content/:postId" element={<Suspense fallback={<RouteLoading />}><PostWorkspace /></Suspense>} />
+                <Route path="/campaigns/:campaignId" element={<Suspense fallback={<RouteLoading />}><ContentInbox /></Suspense>} />
+                <Route path="/calendar" element={<Suspense fallback={<RouteLoading />}><EditorialCalendarRoute /></Suspense>} />
+                <Route path="/brand" element={<BrandsView />} />
+                <Route path="/brand/new" element={<NewBrandView />} />
+                <Route path="/brand/:brandId" element={<BrandDetailView />} />
+                <Route path="/brand/:brandId/setup" element={<BrandSetupWizard />} />
+                <Route path="/brand/:brandId/identity" element={<BrandIdentityView />} />
+                <Route path="/brand/:brandId/channels" element={<BrandChannelsView />} />
+                <Route path="/brand/:brandId/connections" element={<BrandConnectionsView />} />
+                <Route path="/admin/connections" element={<ConnectionsView />} />
+                <Route path="/admin/team" element={<TeamView />} />
+                <Route path="/admin/team/invite" element={<TeamView autoInvite />} />
                 <Route path="/settings" element={<Settings />} />
-                <Route path="/author-invite" element={<AuthorInvite />} />
-                {session.role !== "client_mcp" && contentMode === "blog" && <Route path="/billing" element={<Billing />} />}
-                <Route path="/admin" element={<AdminGate />} />
-                <Route path="*" element={<Navigate to={contentMode === "socialmedia" ? "/social-pack" : "/"} replace />} />
+                {workflowFlags.authorInviteEnabled && <Route path="/author-invite" element={<AuthorInvite />} />}
+                {workflowFlags.cmsAiEnabled && <Route path="/admin/billing" element={<PlanUsageView />} />}
+                <Route path="/admin" element={<LegacyRemoved />} />
+                <Route path="/plans/*" element={<LegacyRemoved />} />
+                <Route path="/posts/*" element={<LegacyRemoved />} />
+                <Route path="/preview/*" element={<LegacyRemoved />} />
+                <Route path="/social-pack/*" element={<LegacyRemoved />} />
+                <Route path="/manual/*" element={<LegacyRemoved />} />
+                <Route path="/schedule/*" element={<LegacyRemoved />} />
+                <Route path="/publish/*" element={<LegacyRemoved />} />
+                <Route path="/quick-create/*" element={<LegacyRemoved />} />
+                  <Route path="*" element={<Navigate to="/content" replace />} />
               </Route>}
             </Routes>
           </SessionContext.Provider>
         ) : (
           <Routes>
+            <Route path="/design-system" element={<Suspense fallback={<RouteLoading />}><DesignSystem /></Suspense>} />
             <Route path="*" element={<Login onLogin={refresh} />} />
           </Routes>
         )}
@@ -456,6 +551,11 @@ function App() {
       </BrowserRouter>
     </I18nContext.Provider>
   );
+}
+
+function LegacyRemoved() {
+  const { t } = useI18n();
+  return <main className="ui-page ui-page-narrow"><PageHeader eyebrow="Escarlet V3" title={t("legacy.removedTitle", "Este flujo ya no está disponible")} description={t("legacy.removedDescription", "El contenido ahora se organiza como Posts con variantes por canal.")} /><Card><p className="ui-muted">{t("legacy.removedHelp", "Abre Contenido para continuar con el modelo editorial actual.")}</p><NavLink className="ui-button ui-button-primary" to="/content">{t("legacy.openContent", "Abrir contenido")}</NavLink></Card></main>;
 }
 
 function Login({ onLogin }: { onLogin: () => Promise<void> }) {
@@ -499,9 +599,9 @@ function Login({ onLogin }: { onLogin: () => Promise<void> }) {
         <div className="brand">
           <AppBrand />
         </div>
-        <p className="eyebrow">{t("login.eyebrow")}</p>
+        <p className="ui-eyebrow">{t("login.eyebrow")}</p>
         <h1>{t("login.title")}</h1>
-        <p className="muted">{t("login.description")}</p>
+        <p className="ui-muted">{t("login.description")}</p>
         <form className="login-token-form" onSubmit={submit}>
           <label>
             {t("login.token")}
@@ -516,8 +616,8 @@ function Login({ onLogin }: { onLogin: () => Promise<void> }) {
               />
             </div>
           </label>
-          {tokenError && <p className="error">{tokenError}</p>}
-          <button className="primary" disabled={submitting}>
+          {tokenError && <p className="ui-error">{tokenError}</p>}
+          <button className="ui-button ui-button-primary" disabled={submitting}>
             {submitting ? "…" : t("login.enter")}
           </button>
         </form>
@@ -536,12 +636,12 @@ function Login({ onLogin }: { onLogin: () => Promise<void> }) {
                 autoComplete="email"
               />
             </label>
-            {magicError && <p className="error">{magicError}</p>}
-            <button className="primary" disabled={submitting}>
+            {magicError && <p className="ui-error">{magicError}</p>}
+            <button className="ui-button ui-button-primary" disabled={submitting}>
               {submitting ? "…" : t("login.magic")}
             </button>
           </form>
-          {magicSent && <p className="success">{t("login.sent")}</p>}
+          {magicSent && <p className="ui-success">{t("login.sent")}</p>}
         </details>
         <p className="tiny">{t("login.invited")}</p>
       </section>
@@ -564,6 +664,7 @@ function ProfileAvatarField({
   label,
   help,
   chooseLabel,
+  placeholderLabel,
   removeLabel,
   onChange,
   onRemove,
@@ -573,6 +674,7 @@ function ProfileAvatarField({
   label: string;
   help: string;
   chooseLabel: string;
+  placeholderLabel: string;
   removeLabel: string;
   onChange: (file?: File) => void | Promise<void>;
   onRemove: () => void;
@@ -586,18 +688,18 @@ function ProfileAvatarField({
         onClick={() => fileRef.current?.click()}
         aria-label={chooseLabel}
       >
-        <UserAvatar src={src} name={name} size="lg" />
-        <span aria-hidden="true">✎</span>
+        {src ? <UserAvatar src={src} name={name} size="lg" /> : <span className="profile-avatar-placeholder"><span aria-hidden="true">＋</span><small>{placeholderLabel}</small></span>}
+        <span className="profile-avatar-edit" aria-hidden="true">✎</span>
       </button>
       <div className="profile-avatar-copy">
         <strong>{label}</strong>
-        <p className="muted">{help}</p>
+        <p className="ui-muted">{help}</p>
         <div className="profile-avatar-actions">
-          <button type="button" className="secondary" onClick={() => fileRef.current?.click()}>
+          <button type="button" className="ui-button ui-button-secondary" onClick={() => fileRef.current?.click()}>
             {chooseLabel}
           </button>
           {src && (
-            <button type="button" className="text-link danger-link" onClick={onRemove}>
+            <button type="button" className="text-link ui-danger-link" onClick={onRemove}>
               {removeLabel}
             </button>
           )}
@@ -618,11 +720,10 @@ function ProfileAvatarField({
 }
 
 function Onboarding() {
-  const { session, contentMode, refresh } = useApp();
+  const { session, refresh } = useApp();
   const { t } = useI18n();
   const { showToast } = useToast();
   const nav = useNavigate();
-  const [step, setStep] = useState(0);
   const [displayName, setDisplayName] = useState(session.displayName || "");
   const [bio, setBio] = useState(session.bio || "");
   const [avatarDataUrl, setAvatarDataUrl] = useState(session.avatarUrl || "");
@@ -649,328 +750,144 @@ function Onboarding() {
     }
   };
   return (
-    <main className="onboarding-page">
-      <div className="onboarding-shell">
-        <div className="onboarding-brand brand"><AppBrand /></div>
-        <div className="onboarding-progress" aria-label={`${step + 1} / 3`}>
-          {[0, 1, 2].map((item) => <span key={item} className={item <= step ? "active" : ""} />)}
-        </div>
-        <p className="eyebrow">{t("onboarding.eyebrow")}</p>
-        <h1>{t("onboarding.title")}</h1>
-        {step === 0 && (
-          <section className="onboarding-slide">
-            <div className="onboarding-copy">
-              <h2>{t("onboarding.profileTitle")}</h2>
-              <p className="muted">{t("onboarding.profileHelp")}</p>
-            </div>
-            <ProfileAvatarField
-              src={avatarDataUrl}
-              name={displayName || session.email}
-              label={t("settings.avatar")}
-              help={t("settings.avatarHelp")}
-              chooseLabel={t("settings.avatarChoose")}
-              removeLabel={t("settings.avatarRemove")}
-              onChange={chooseAvatar}
-              onRemove={() => setAvatarDataUrl("")}
-            />
-            <label>{t("settings.displayName")}<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder={t("settings.displayNamePlaceholder")} autoFocus /></label>
-            <label>{t("settings.bio")}<textarea value={bio} onChange={(event) => setBio(event.target.value)} placeholder={t("settings.bioPlaceholder")} rows={4} /></label>
-          </section>
-        )}
-        {step === 1 && (
-          <section className="onboarding-slide onboarding-permission-slide">
-            <div className="onboarding-icon">✦</div>
-            <h2>{t("onboarding.permissionsTitle")}</h2>
-            <p className="muted">{t("onboarding.permissionsHelp")}</p>
-            <div className="onboarding-delegation-note">
-              <b>{t("onboarding.delegatesTitle")}</b>
-              <p className="muted">{t("onboarding.delegatesHelp")}</p>
-            </div>
-          </section>
-        )}
-        {step === 2 && (
-          <section className="onboarding-slide onboarding-tour-slide">
-            <div className="onboarding-icon">◎</div>
-            <h2>{t("onboarding.tourTitle")}</h2>
-            <p className="muted">{t(contentMode === "socialmedia" || session.role === "client_mcp" ? "mcp.help" : "onboarding.tourHelp")}</p>
-            <div className="onboarding-tour-list">
-              <span>✦<b>{t(contentMode === "socialmedia" || session.role === "client_mcp" ? "mcp.connector" : "onboarding.tourAssistant")}</b></span>
-              {contentMode === "blog" && <>
-                <span>▤<b>{t("onboarding.tourPosts")}</b></span>
-                <span>□<b>{t("onboarding.tourCalendar")}</b></span>
-              </>}
-            </div>
-          </section>
-        )}
-        <div className="onboarding-actions">
-          {step > 0 && <button type="button" className="secondary" onClick={() => setStep((value) => value - 1)}>{t("onboarding.back")}</button>}
-          {step < 2 ? <button type="button" className="primary" onClick={() => setStep((value) => value + 1)}>{t("onboarding.next")}</button> : <button type="button" className="primary" disabled={busy} onClick={() => void save()}>{busy ? "…" : t("onboarding.finish")}</button>}
-        </div>
-        <button type="button" className="onboarding-skip" disabled={busy} onClick={() => void save()}>{t("onboarding.skip")}</button>
+    <main className="ui-page onboarding-v2-page">
+      <div className="onboarding-v2-brand brand"><AppBrand /></div>
+      <PageHeader eyebrow={t("onboarding.eyebrow")} title={t("onboarding.title")} description={t("onboarding.profileHelp")} />
+      <div className="onboarding-v2-grid">
+        <Card className="onboarding-v2-profile-card">
+          <span className="ui-eyebrow">{t("onboarding.profileTitle")}</span>
+          <h2>{t("settings.profileTitle")}</h2>
+          <p className="ui-muted">{t("settings.profileHelp")}</p>
+          <ProfileAvatarField
+            src={avatarDataUrl}
+            name={displayName || session.email}
+            label={t("settings.avatar")}
+            help={t("settings.avatarHelp")}
+            chooseLabel={t("settings.avatarChoose")}
+            placeholderLabel={t("settings.avatarPlaceholder")}
+            removeLabel={t("settings.avatarRemove")}
+            onChange={chooseAvatar}
+            onRemove={() => setAvatarDataUrl("")}
+          />
+          <label className="ui-field"><span className="ui-field-label">{t("settings.displayName")}</span><input className="ui-input" value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder={t("settings.displayNamePlaceholder")} autoFocus /></label>
+          <label className="ui-field"><span className="ui-field-label">{t("settings.bio")}</span><textarea className="ui-input ui-textarea" value={bio} onChange={(event) => setBio(event.target.value)} placeholder={t("settings.bioPlaceholder")} rows={4} /></label>
+        </Card>
+        <Card className="onboarding-v2-space-card">
+          <span className="ui-eyebrow">{t("onboarding.workspaceEyebrow")}</span>
+          <h2>{t("onboarding.workspaceTitle")}</h2>
+          <p className="ui-muted">{t("onboarding.workspaceHelp")}</p>
+          <div className="onboarding-v2-nav-list">
+            <div><span aria-hidden="true">▤</span><strong>{t("nav.brands")}</strong><small>{t("onboarding.workspaceBrands")}</small></div>
+            <div><span aria-hidden="true">✦</span><strong>{t("nav.plans")}</strong><small>{t("onboarding.workspacePlans")}</small></div>
+          </div>
+        </Card>
+      </div>
+      <div className="onboarding-v2-actions">
+        <Button type="button" variant="ghost" disabled={busy} onClick={() => void save(false)}>{t("onboarding.skip")}</Button>
+        <Button type="button" disabled={busy} loading={busy} onClick={() => void save()}>{t("onboarding.finish")}</Button>
       </div>
     </main>
   );
 }
 
-function Shell() {
-  const { session, site, sites, setSite, contentMode, workflowFlags } = useApp();
-  const { t } = useI18n();
-  const [open, setOpen] = useState(false);
-  const nav = useNavigate();
+function RouteScrollMemory() {
   const location = useLocation();
-  useEffect(() => setOpen(false), [location.pathname]);
-  const blogMode = contentMode === "blog";
-  const links = [
-    { to: "/", label: t("nav.home"), icon: "home" },
-    ...(blogMode && workflowFlags.assistantEnabled ? [{ to: "/chat", label: t("nav.assistant"), icon: "assistant" }] : []),
-    ...(blogMode ? [{ to: "/posts", label: t("nav.posts"), icon: "posts" }] : []),
-    { to: "/social-pack", label: t("nav.socialPack"), icon: "social" },
-  ];
-  return (
-    <div className="app-shell">
-      <aside className={`sidebar ${open ? "open" : ""}`}>
-        <div className="sidebar-head">
-          <NavLink to="/" className="brand">
-            <AppBrand />
-          </NavLink>
-          <button
-            className="icon-button close"
-            onClick={() => setOpen(false)}
-            aria-label={t("nav.close")}
-          >
-            ×
-          </button>
-        </div>
-        <div className={`site-switcher ${sites.length < 2 ? "single" : ""}`}>
-          <span className="site-switcher-label">{t("site.label")}</span>
-          {sites.length > 1 ? (
-            <ChoicePills
-              value={site}
-              ariaLabel={t("site.selector")}
-              onChange={setSite}
-              options={sites.map((handle) => ({ value: handle, label: handle }))}
-            />
-          ) : (
-            <strong>● {site}</strong>
-          )}
-        </div>
-        <CreditIndicator site={site} />
-        {blogMode && workflowFlags.assistantEnabled && (
-          <button className="new-chat" onClick={() => nav("/chat")}>
-            {t("nav.newChat")}
-          </button>
-        )}
-        <nav>
-          {links.map((link) => (
-            <div className="nav-group" key={link.to}>
-              <NavLink
-                to={link.to}
-                end={link.to === "/"}
-                className="nav-link"
-              >
-                <NavIcon kind={link.icon} />
-                {link.label}
-              </NavLink>
-              {link.icon === "assistant" && <SidebarConversations site={site} />}
-            </div>
-          ))}
-          {isAdmin(session.role) && (
-            <NavLink to="/admin" className="nav-link">
-              <NavIcon kind="admin" />
-              {t("nav.admin")}
-            </NavLink>
-          )}
-        </nav>
-        <div className="sidebar-bottom">
-          <NavLink to="/settings" className="profile">
-            <UserAvatar src={session.avatarUrl} name={session.displayName || session.email || session.userId} size="sm" />
-            <span>
-              <b>{session.displayName || session.email || t("settings.workspace")}</b>
-              <small>
-                {t("settings.role")}: {roleLabel(session.role, t)}
-              </small>
-            </span>
-            <span>···</span>
-          </NavLink>
-        </div>
-      </aside>
-      <button
-        className={`backdrop ${open ? "show" : ""}`}
-        onClick={() => setOpen(false)}
-        aria-label={t("nav.close")}
-      />
-      <section className="workspace">
-        <header className="mobile-head">
-          <NavLink to="/" className="brand" aria-label="Escarlet CMS">
-            <img className="brand-icon" src="/app/icon.png" alt="" />
-          </NavLink>
-          <span className="mobile-version">{t("app.beta")}</span>
-        </header>
-        <Outlet />
-        <nav className="mobile-bottom-nav" aria-label={t("nav.mobile") || t("nav.open")}>
-          {links.map((link) => (
-            <NavLink
-              key={link.to}
-              to={link.to}
-              end={link.to === "/"}
-              className={({ isActive }) => `mobile-bottom-link ${isActive ? "active" : ""}`}
-            >
-              <NavIcon kind={link.icon} />
-              <span>{link.label}</span>
-            </NavLink>
-          ))}
-          <button
-            type="button"
-            className={`mobile-menu-toggle ${open ? "open" : ""}`}
-            onClick={() => setOpen((value) => !value)}
-            aria-label={open ? t("nav.close") : t("nav.open")}
-            aria-expanded={open}
-          >
-            <span className="hamburger-lines" aria-hidden="true"><i /><i /><i /></span>
-            <span>{t("nav.menu") || t("nav.open")}</span>
-          </button>
-        </nav>
-      </section>
-    </div>
-  );
+  const navigationType = useNavigationType();
+  const keyRef = useRef(location.key);
+  const pathRef = useRef(location.pathname);
+  useEffect(() => {
+    const save = () => sessionStorage.setItem(`scroll:${keyRef.current}`, String(window.scrollY));
+    window.addEventListener("scroll", save, { passive: true });
+    return () => { save(); window.removeEventListener("scroll", save); };
+  }, []);
+  useEffect(() => {
+    const samePathReplacement = navigationType === "REPLACE" && pathRef.current === location.pathname;
+    const currentScroll = window.scrollY;
+    if (samePathReplacement) sessionStorage.setItem(`scroll:${location.key}`, String(currentScroll));
+    keyRef.current = location.key;
+    pathRef.current = location.pathname;
+    const saved = navigationType === "POP" ? Number(sessionStorage.getItem(`scroll:${location.key}`) || 0) : samePathReplacement ? currentScroll : 0;
+    window.requestAnimationFrame(() => window.scrollTo(0, saved));
+  }, [location.key, location.pathname, navigationType]);
+  return null;
 }
 
-function SidebarConversations({ site }: { site: string }) {
+function Shell() {
+  const { session, site, sites, setSite, workflowFlags, brandCapabilities, productContext } = useApp();
   const { t } = useI18n();
   const { showToast } = useToast();
   const nav = useNavigate();
   const location = useLocation();
-  const [conversations, setConversations] = useState<AiConversation[]>([]);
-  const [deleting, setDeleting] = useState("");
-  useEffect(() => {
-    let active = true;
-    const load = () => api.aiConversations(site)
-      .then((result) => active && setConversations(result.conversations || []))
-      .catch(() => active && setConversations([]));
-    void load();
-    const onSaved = (event: Event) => {
-      const detail = (event as CustomEvent<{ site?: string }>).detail;
-      if (!detail?.site || detail.site === site) void load();
-    };
-    window.addEventListener("escarlet:conversation-saved", onSaved);
-    const onDeleted = (event: Event) => {
-      const detail = (event as CustomEvent<{ site?: string }>).detail;
-      if (!detail?.site || detail.site === site) void load();
-    };
-    const onArchived = (event: Event) => {
-      const detail = (event as CustomEvent<{ site?: string }>).detail;
-      if (!detail?.site || detail.site === site) void load();
-    };
-    window.addEventListener("escarlet:conversation-deleted", onDeleted);
-    window.addEventListener("escarlet:conversation-archived", onArchived);
-    return () => {
-      active = false;
-      window.removeEventListener("escarlet:conversation-saved", onSaved);
-      window.removeEventListener("escarlet:conversation-deleted", onDeleted);
-      window.removeEventListener("escarlet:conversation-archived", onArchived);
-    };
-  }, [site]);
-  if (!conversations.length) return null;
-  const removeConversation = async (event: React.MouseEvent, id: string) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (deleting) return;
-    if (!window.confirm(t("chat.deleteConfirm"))) return;
-    setDeleting(id);
-    try {
-      await api.deleteAiConversation(id, site);
-      setConversations((current) => current.filter((conversation) => conversation.id !== id));
-      try {
-        const storageKey = `escarlet_chat_threads:${site}`;
-        const local = JSON.parse(window.localStorage.getItem(storageKey) || "[]");
-        if (Array.isArray(local)) {
-          window.localStorage.setItem(storageKey, JSON.stringify(local.filter((thread) => thread?.id !== id)));
-        }
-        if (new URLSearchParams(location.search).get("conversation") === id) {
-          window.localStorage.removeItem(`escarlet_chat_active:${site}`);
-        }
-      } catch {
-        // Online deletion is authoritative; local fallback cleanup is best effort.
-      }
-      window.dispatchEvent(new CustomEvent("escarlet:conversation-deleted", { detail: { site, id } }));
-      if (new URLSearchParams(location.search).get("conversation") === id) nav("/chat");
-      showToast(t("chat.deleted"));
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : t("common.error"), "error");
-    } finally {
-      setDeleting("");
-    }
-  };
-  return (
-    <div className="sidebar-conversations">
-      <span className="sidebar-conversations-label">{t("chat.history")}</span>
-      {conversations.slice(0, 6).map((conversation) => (
-        <div className="sidebar-conversation-row" key={conversation.id}>
-          <NavLink
-            to={`/chat?conversation=${encodeURIComponent(conversation.id)}`}
-            className="sidebar-conversation"
-            title={conversation.title}
-          >
-            <span>·</span>
-            <span>{conversation.title || t("chat.newConversation")}</span>
-          </NavLink>
-          <button
-            type="button"
-            className="sidebar-conversation-delete"
-            aria-label={`${t("chat.delete")} ${conversation.title || t("chat.newConversation")}`}
-            title={t("chat.delete")}
-            disabled={deleting === conversation.id}
-            onClick={(event) => void removeConversation(event, conversation.id)}
-          >
-            ×
-          </button>
-        </div>
-      ))}
-    </div>
-  );
-}
 
-function NavIcon({ kind }: { kind: string }) {
-  if (kind === "assistant") {
-    return (
-      <span className="nav-icon assistant-stars" aria-hidden="true">
-        <i>✦</i><i>✦</i><i>✦</i>
-      </span>
-    );
-  }
-  if (kind === "posts") {
-    return (
-      <svg className="nav-icon" viewBox="0 0 20 20" aria-hidden="true">
-        <rect x="3" y="3" width="14" height="14" rx="2" />
-        <path d="M6.5 7.2h7M6.5 10h7M6.5 12.8h4.2" />
-      </svg>
-    );
-  }
-  if (kind === "social") {
-    return (
-      <svg className="nav-icon" viewBox="0 0 20 20" aria-hidden="true">
-        <path d="M10 2.8 12.1 7l4.6.7-3.3 3.3.8 4.7-4.2-2.2-4.2 2.2.8-4.7-3.3-3.3L7.9 7Z" />
-        <path d="M10 5.4v5.1M7.5 9.2h5" />
-      </svg>
-    );
-  }
-  if (kind === "home") {
-    return (
-      <svg className="nav-icon" viewBox="0 0 20 20" aria-hidden="true">
-        <path d="m3.5 9 6.5-5 6.5 5v6.2a1.3 1.3 0 0 1-1.3 1.3H4.8a1.3 1.3 0 0 1-1.3-1.3Z" />
-        <path d="M8 16.5v-4h4v4" />
-      </svg>
-    );
-  }
-  if (kind === "admin") {
-    return (
-      <svg className="nav-icon" viewBox="0 0 20 20" aria-hidden="true">
-        <path d="M8.1 3.4 8.6 2h2.8l.5 1.4 1.2.7 1.4-.4 2 2-0.5 1.4.7 1.2 1.4.5v2.8l-1.4.5-.7 1.2.5 1.4-2 2-1.4-.4-1.2.7-.5 1.4H8.6l-.5-1.4-1.2-.7-1.4.4-2-2 .5-1.4-.7-1.2-1.4-.5V8.3l1.4-.5.7-1.2-.5-1.4 2-2 1.4.4 1.2-.7Z" />
-        <circle cx="10" cy="9.7" r="2.5" />
-      </svg>
-    );
-  }
-  return <span className="nav-icon nav-icon-glyph" aria-hidden="true">✦</span>;
+  const scopedMatch = location.pathname.match(/^\/brand\/([^/]+)(\/.*)?$/);
+  const scopedBrandId = scopedMatch?.[1] ? decodeURIComponent(scopedMatch[1]) : "";
+  const scopedBrand = scopedBrandId
+    ? (productContext?.brands || []).find((brand) => brand.id === scopedBrandId || brand.handle === scopedBrandId)
+    : undefined;
+  const scopedSuffix = scopedMatch?.[2] || "";
+  const displaySite = scopedBrand?.handle || site;
+  const brandOptions = productContext?.brands?.length
+    ? productContext.brands.map((brand) => ({ value: brand.handle || brand.id, id: brand.id, label: brand.handle || brand.name || brand.id }))
+    : sites.map((handle) => ({ value: handle, id: handle, label: handle }));
+
+  useEffect(() => {
+    // Keep global views aligned with the brand selected in a brand-scoped route.
+    if (scopedBrand?.handle && scopedBrand.handle !== site) setSite(scopedBrand.handle);
+  }, [scopedBrand?.handle, site]);
+
+  const selectBrand = (next: string) => {
+    const selected = brandOptions.find((brand) => brand.value === next || brand.id === next);
+    if (scopedBrand && selected) {
+      nav(`/brand/${encodeURIComponent(selected.id)}${scopedSuffix}`);
+      return;
+    }
+    setSite(selected?.value || next);
+  };
+
+  const publishingEnabled = brandCapabilities.content_publishing !== false;
+  const primaryLinks = [
+    { to: "/", label: t("nav.home", "Inicio"), icon: "home" },
+    { to: "/apps", label: t("nav.apps", "Crear"), icon: "apps" },
+    { to: "/content", label: t("nav.content", "Contenido"), icon: "plans" },
+    { to: "/media", label: t("nav.media", "Medios"), icon: "media" },
+    ...(publishingEnabled ? [{ to: "/calendar", label: t("nav.calendar", "Calendario"), icon: "calendar" }] : []),
+    ...(publishingEnabled ? [{ to: "/publication", label: t("nav.publication", "Publicación"), icon: "send" }] : []),
+    ...(workflowFlags.assistantEnabled && publishingEnabled ? [{ to: "/chat", label: t("nav.assistant"), icon: "assistant" }] : []),
+  ];
+  const adminUser = isWorkspaceAdmin(session);
+  const managementLinks = [
+    { to: "/brand", label: t("nav.brands", "Marca"), icon: "brands" },
+    ...(adminUser ? [{ to: "/admin/connections", label: t("nav.connections", "Canales y conexiones"), icon: "connections" }] : []),
+    ...(adminUser ? [{ to: "/admin/team", label: t("nav.team", "Equipo y permisos"), icon: "team" }] : []),
+    ...(adminUser && workflowFlags.cmsAiEnabled ? [{ to: "/admin/billing", label: t("nav.planUsage", "Plan y uso"), icon: "billing" }] : []),
+  ];
+  const brandSelector = brandOptions.length > 1
+    ? <ChoicePills
+        value={scopedBrand?.id || site}
+        ariaLabel={t("site.selector")}
+        onChange={selectBrand}
+        options={brandOptions.map((brand) => ({ value: scopedBrand ? brand.id : brand.value, label: brand.label }))}
+      />
+    : undefined;
+
+  return (
+    <AppShell
+      primaryLinks={primaryLinks}
+      managementLinks={managementLinks}
+      activeBrand={scopedBrand?.id || site}
+      displayBrand={displaySite}
+      brandScoped={Boolean(scopedBrand)}
+      brandSelector={brandSelector}
+      brandLogo={<AppBrand />}
+      mobileBrandLogo={<img className="brand-icon" src="/app/icon.png" alt="" />}
+      creditIndicator={<CreditIndicator site={displaySite} />}
+      renderAssistantContent={(onNavigate) => <SidebarConversations site={site} t={t} showToast={showToast} onNavigate={onNavigate} />}
+      userAvatar={<UserAvatar src={session.avatarUrl} name={session.displayName || session.email || session.userId} size="sm" />}
+      userName={session.displayName || session.email || t("settings.workspace")}
+      userRoleLabel={sessionRoleLabel(session, t)}
+      t={t}
+    />
+  );
 }
 
 function AdminActionIcon({ kind }: { kind: "edit" | "key" | "mail" | "trash" | "plus" }) {
@@ -990,12 +907,12 @@ function AdminActionIcon({ kind }: { kind: "edit" | "key" | "mail" | "trash" | "
 }
 
 function CreditIndicator({ site }: { site: string }) {
-  const { session, contentMode, workflowFlags } = useApp();
+  const { session, workflowFlags } = useApp();
   const { t, language } = useI18n();
   const [snapshot, setSnapshot] = useState<Record<string, any> | null>(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    if (session.role === "client_mcp" || contentMode === "socialmedia" || !workflowFlags.cmsAiEnabled) {
+    if (!workflowFlags.cmsAiEnabled) {
       setSnapshot(null);
       setLoading(false);
       return () => {};
@@ -1008,14 +925,14 @@ function CreditIndicator({ site }: { site: string }) {
       .catch(() => active && setSnapshot(null))
       .finally(() => active && setLoading(false));
     return () => { active = false; };
-  }, [site, session.role, contentMode, workflowFlags.cmsAiEnabled]);
-  if (session.role === "client_mcp" || contentMode === "socialmedia") return null;
+  }, [site, session.role, workflowFlags.cmsAiEnabled]);
+  if (!workflowFlags.cmsAiEnabled) return null;
   const available = Number(snapshot?.ai?.tokenCredits?.available);
   const hasCredits = Number.isFinite(available);
-  const displayCredits = hasCredits ? available.toLocaleString(language === "en" ? "en-GB" : "es-ES") : loading ? "…" : "—";
+  const displayCredits = hasCredits ? available.toLocaleString(language === "en" ? "en-GB" : "es-ES") : loading ? "…" : "-";
   if (!workflowFlags.cmsAiEnabled) return null;
   return (
-    <NavLink className="credit-indicator" to="/billing" title={t("billing.available")}>
+    <NavLink className="credit-indicator" to="/admin/billing" title={t("billing.available")}>
       <span>✦</span>
       <span>
         <b>{displayCredits}</b>
@@ -1027,65 +944,31 @@ function CreditIndicator({ site }: { site: string }) {
 
 function Home() {
   const nav = useNavigate();
-  const { session, site, contentMode, workflowFlags } = useApp();
+  const { session, site, brandCapabilities } = useApp();
   const { t } = useI18n();
-  const socialOnly = contentMode === "socialmedia";
+  const publishingEnabled = brandCapabilities.content_publishing !== false;
   return (
-    <main className="page home">
+    <main className="ui-page home">
       <div className="home-intro">
-        <p className="eyebrow">{site}</p>
-        <h1>{t(socialOnly ? "home.socialOnlyTitle" : "home.title")}</h1>
-        <p className="muted">{t(socialOnly ? "home.socialOnlyDescription" : "home.description")}</p>
+        <p className="ui-eyebrow">Marca · {site}</p>
+        <h1>{t("home.title", "Tu espacio editorial")}</h1>
+        <p className="ui-muted">{t("home.description", "Crea, revisa y publica Posts con todas sus variantes desde un único lugar.")}</p>
       </div>
       <div className="choice-grid">
-        {socialOnly ? (
-          <button className="choice-card" onClick={() => nav("/social-pack")}>
-            <span>✦</span>
-            <strong>{t("home.social.title")}</strong>
-            <small>{t("home.social.description")}</small>
-            <b>{t("home.social.action")}</b>
-          </button>
-        ) : <>
-        {workflowFlags.assistantEnabled && (
-          <button className="choice-card ai" onClick={() => nav("/chat")}>
-            <span className="assistant-stars home-assistant-stars" aria-hidden="true"><i>✦</i><i>✦</i><i>✦</i></span>
-            <strong>{t("home.ai.title")}</strong>
-            <small>{t("home.ai.description")}</small>
-            <b>{t("home.ai.action")}</b>
-          </button>
-        )}
-        {workflowFlags.blogWizardEnabled && (
-          <button className="choice-card wizard" onClick={() => nav("/quick-create")}>
-            <span>◉</span>
-            <strong>{t("home.wizard.title")}</strong>
-            <small>{t("home.wizard.description")}</small>
-            <b>{t("home.wizard.action")}</b>
-          </button>
-        )}
-        <button className="choice-card" onClick={() => nav("/social-pack")}>
-          <span>✦</span>
-          <strong>{t("home.social.title")}</strong>
-          <small>{t("home.social.description")}</small>
-          <b>{t("home.social.action")}</b>
-        </button>
-        <button className="choice-card" onClick={() => nav("/manual")}>
-          <span>✎</span>
-          <strong>{t("home.manual.title")}</strong>
-          <small>{t("home.manual.description")}</small>
-          <b>{t("home.manual.action")}</b>
-        </button>
-        </>}
+        <button className="choice-card" onClick={() => nav("/content")}><span>✦</span><strong>{t("home.openContent", "Abrir contenido")}</strong><small>{t("home.openContentDescription", "Revisa Posts, variantes y estados de publicación.")}</small><b>{t("home.openContentAction", "Ver contenido")}</b></button>
+        <button className="choice-card" onClick={() => nav("/apps")}><span>◉</span><strong>{t("home.openCreate", "Crear contenido")}</strong><small>{t("home.openCreateDescription", "Crea un Post, elige sus canales y continúa con una IA externa.")}</small><b>{t("home.openCreateAction", "Crear Post")}</b></button>
       </div>
-      {!socialOnly && <section className="home-section">
+      {publishingEnabled && <section className="home-section">
+        <RecentContentWork />
         <div className="section-title">
           <h2>{t("home.continue")}</h2>
-          <NavLink to="/posts">{t("home.seeAll")}</NavLink>
         </div>
         <RecentPosts />
         <div className="quick-actions">
-          <button onClick={() => nav("/posts?status=scheduled&view=month")}>{t("home.calendar")}</button>
-          {isAdmin(session.role) && (
-            <button onClick={() => nav("/admin")}>{t("home.openAdmin")}</button>
+          <button onClick={() => nav("/apps")}>{t("home.apps", "Explorar apps")}</button>
+          <button onClick={() => nav("/calendar")}>{t("home.calendar")}</button>
+          {isWorkspaceAdmin(session) && (
+            <button onClick={() => nav("/brand")}>{t("home.openAdmin")}</button>
           )}
         </div>
       </section>}
@@ -1093,44 +976,82 @@ function Home() {
   );
 }
 
+function RecentContentWork() {
+  const { site } = useApp();
+  const { t } = useI18n();
+  const nav = useNavigate();
+  const [items, setItems] = useState<ContentItem[]>([]);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [refresh, setRefresh] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError("");
+    api.contentBatches(site)
+      .then((result) => active && setItems((result.items || []).filter((item) => ["draft", "generated", "needs_review", "approved", "scheduled", "failed"].includes(item.status)).slice(0, 4)))
+      .catch((cause) => active && setError(cause instanceof Error ? cause.message : t("common.error")))
+      .finally(() => active && setLoading(false));
+    return () => { active = false; };
+  }, [site, refresh]);
+  return <section className="home-content-work"><div className="section-title"><h2>{t("home.inProgress")}</h2><Button size="sm" variant="ghost" onClick={() => nav("/content")}>{t("home.openContent")}</Button></div>{loading ? <p className="ui-muted" role="status">{t("common.loading")}</p> : error ? <Inline gap="md"><p className="ui-field-error" role="alert">{error}</p><Button size="sm" variant="secondary" onClick={() => setRefresh((value) => value + 1)}>{t("common.retry")}</Button></Inline> : !items.length ? <p className="ui-muted">{t("home.noInProgress")}</p> : <div className="post-list compact">{items.map((item) => {
+    const imageSrc = (item.variants || []).flatMap((variant) => [variant.body?.imageThumbUrl, variant.body?.imagePreviewUrl, variant.body?.imageUrl, variant.body?.coverUrl, ...(variant.media || [])]).map((value) => socialImageUrl(value, "thumb")).find(Boolean);
+    return <button key={item.id} type="button" className="post-row" onClick={() => nav(`/content/${encodeURIComponent(item.id)}`)}>
+      {imageSrc ? <img className="post-thumb" src={imageSrc} alt="" loading="lazy" decoding="async" /> : <span className="post-thumb placeholder-thumb" aria-hidden="true">✦</span>}
+      <span className="post-row-copy"><StatusBadge status={item.status} /><h3>{itemTitle(item)}</h3><p>{(item.variants || []).map((variant) => variant.channel).join(" · ") || t("home.noChannel")}</p></span>
+      <span className="chevron">›</span>
+    </button>;
+  })}</div>}</section>;
+}
+
 function RecentPosts() {
   const { site } = useApp();
-  const { t, language } = useI18n();
-  const [posts, setPosts] = useState<Post[]>([]);
+  const { t } = useI18n();
+  const [posts, setPosts] = useState<ContentItem[]>([]);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [refresh, setRefresh] = useState(0);
   useEffect(() => {
-    api
-      .posts(site)
+    let active = true;
+    setLoading(true);
+    setError("");
+    api.contentItems(site, undefined, { archive: "active" })
       .then((r) => {
-        const newest = [...r.posts].sort(
-          (a, b) =>
-            new Date(b.dateModified || b.publishAt || b.datePublished || 0).getTime() -
-            new Date(a.dateModified || a.publishAt || a.datePublished || 0).getTime(),
-        );
-        setPosts(newest.slice(0, 4));
+        const newest = [...r.items].sort((a, b) => new Date(b.updated_at || b.updatedAt || 0).getTime() - new Date(a.updated_at || a.updatedAt || 0).getTime());
+        if (active) setPosts(newest);
       })
-      .catch((e) => setError(e.message));
-  }, [site]);
-  if (error) return <p className="empty">{t("common.noPosts")}</p>;
+      .catch((e) => active && setError(e instanceof Error ? e.message : t("common.error")))
+      .finally(() => active && setLoading(false));
+    return () => { active = false; };
+  }, [site, refresh]);
+  if (loading) return <p className="ui-muted" role="status">{t("common.loading")}</p>;
+  if (error) return <Inline gap="md"><p className="ui-field-error" role="alert">{error}</p><Button size="sm" variant="secondary" onClick={() => setRefresh((value) => value + 1)}>{t("common.retry")}</Button></Inline>;
   if (!posts.length)
     return (
-      <p className="empty">
-        {t("posts.empty")}. {t("posts.emptyAction")}.
+      <p className="ui-empty-compact">
+        {t("content.empty.title", "No hay Posts todavía")}. {t("content.empty.description", "Crea contenido desde MCP o una receta.")}
       </p>
     );
+  const metrics = [
+    { key: "total", label: t("home.kpi.total"), value: posts.length },
+    { key: "draft", label: t("home.kpi.draft"), value: posts.filter((post) => ["draft", "needs_review"].includes(post.status)).length },
+    { key: "scheduled", label: t("home.kpi.scheduled"), value: posts.filter((post) => ["scheduled", "syncing"].includes(post.status)).length },
+    { key: "published", label: t("home.kpi.published"), value: posts.filter((post) => post.status === "published").length },
+  ];
   return (
-    <div className="post-list compact">
-      {posts.map((post) => (
-        <PostRow key={post.slug} post={post} />
-      ))}
-    </div>
+    <>
+      <div className="home-kpis" aria-label={t("home.kpi.label")}>
+        {metrics.map((metric) => <Card className="home-kpi" key={metric.key}><span className="ui-eyebrow">{metric.label}</span><strong>{metric.value}</strong></Card>)}
+      </div>
+      <p className="ui-field-hint home-summary-hint">{t("home.kpi.help", "Los Posts que necesitan trabajo aparecen arriba. Usa Contenido para ver el historial completo.")}</p>
+    </>
   );
 }
 
 type ChatMessage = { role: "assistant" | "user"; text: string };
 type ChatThread = {
   id: string;
-  site?: string;
+  site: string;
   title: string;
   messages: ChatMessage[];
   updatedAt: string;
@@ -1151,8 +1072,9 @@ function Chat() {
   const [creating, setCreating] = useState(false);
   const [lastBrief, setLastBrief] = useState("");
   const [conversationTitle, setConversationTitle] = useState(t("chat.newConversation"));
-  const { site } = useApp();
+  const { site, workflowFlags, brandCapabilities } = useApp();
   const { showToast } = useToast();
+  const canCreateReviewedDraft = brandCapabilities.content_publishing !== false && (workflowFlags.legacyPreviewEnabled || workflowFlags.manualCreationEnabled);
   const hydrationRequestRef = useRef("");
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const location = useLocation();
@@ -1168,7 +1090,9 @@ function Chat() {
     try {
       const parsed = JSON.parse(window.localStorage.getItem(storageKey) || "[]");
       if (Array.isArray(parsed)) {
-        localThreads = parsed.filter((thread) => thread && typeof thread.id === "string" && Array.isArray(thread.messages));
+        localThreads = parsed
+          .filter((thread) => thread && typeof thread.id === "string" && Array.isArray(thread.messages))
+          .map((thread) => ({ ...thread, site: String(thread.site || site) })) as ChatThread[];
       }
     } catch {
       localThreads = [];
@@ -1196,24 +1120,22 @@ function Chat() {
       const summaries: ChatThread[] = online.map((thread) => ({ ...thread, messages: [] }));
       const activeId = requestedConversationId || window.localStorage.getItem(activeKey) || online[0]?.id || localThreads[0]?.id || "";
       const localSelected = localThreads.find((thread) => thread.id === activeId);
-      let selected: ChatThread | null = localSelected || null;
+      let selected: ChatThread = localSelected || {
+        id: activeId || chatThreadId(),
+        site,
+        title: t("chat.newConversation"),
+        messages: [{ role: "assistant", text: t("chat.greeting") }],
+        updatedAt: new Date().toISOString(),
+      };
       if (activeId && !localSelected) {
         try {
           const result = await api.aiConversation(activeId, site);
           if (result.conversation) selected = { ...result.conversation, messages: result.conversation.messages || [] };
         } catch {
-          selected = null;
+          // Keep the local placeholder when the conversation cannot be loaded.
         }
       }
-      if (!selected) {
-        selected = {
-          id: activeId || chatThreadId(),
-          title: t("chat.newConversation"),
-          messages: [{ role: "assistant", text: t("chat.greeting") }],
-          updatedAt: new Date().toISOString(),
-        };
-      }
-      if (!summaries.some((thread) => thread.id === selected?.id)) summaries.unshift({ ...selected, messages: [] });
+      if (!summaries.some((thread) => thread.id === selected.id)) summaries.unshift({ ...selected, messages: [] });
       setThreads(summaries.length ? summaries : [selected]);
       setActiveThreadId(selected.id);
       setConversationTitle(selected.title || t("chat.newConversation"));
@@ -1272,6 +1194,7 @@ function Chat() {
   const newConversation = () => {
     const thread: ChatThread = {
       id: chatThreadId(),
+      site,
       title: t("chat.newConversation"),
       messages: [{ role: "assistant", text: t("chat.greeting") }],
       updatedAt: new Date().toISOString(),
@@ -1357,7 +1280,7 @@ function Chat() {
     }
   };
   const createDraft = async () => {
-    if (!lastBrief) return;
+    if (!lastBrief || !canCreateReviewedDraft) return;
     setCreating(true);
     try {
       const assistantText = [...messages].reverse().find((message) => message.role === "assistant" && message.text.trim())?.text || "";
@@ -1435,7 +1358,8 @@ function Chat() {
         showToast(t("chat.imageUnavailable"), "info");
       }
       showToast(t("chat.draftCreated"));
-      nav(`/preview/${encodeURIComponent(result.post.slug)}`);
+      if (workflowFlags.legacyPreviewEnabled && brandCapabilities.content_publishing !== false) nav(`/preview/${encodeURIComponent(result.post.slug)}`);
+      else if (workflowFlags.manualCreationEnabled && brandCapabilities.content_publishing !== false) nav("/posts");
     } catch (e) {
       showToast(e instanceof Error ? e.message : t("common.error"), "error");
       setMessages((prev) => [
@@ -1453,12 +1377,12 @@ function Chat() {
     <main className="chat-page">
       <div className="chat-top">
         <div>
-          <p className="eyebrow">{t("chat.eyebrow")}</p>
+          <p className="ui-eyebrow">{t("chat.eyebrow")}</p>
           <h1>{conversationTitle || t("chat.title")}</h1>
         </div>
         <div className="chat-top-actions">
-          <button className="ghost" type="button" onClick={newConversation}>{t("chat.newConversation")}</button>
-          <button className="ghost" type="button" onClick={() => {
+          <button className="ui-button ui-button-ghost" type="button" onClick={newConversation}>{t("chat.newConversation")}</button>
+          <button className="ui-button ui-button-ghost" type="button" onClick={() => {
             setLastBrief("");
             setMessages([{ role: "assistant", text: t("chat.reset") }]);
           }}>{t("chat.clear")}</button>
@@ -1477,9 +1401,9 @@ function Chat() {
       </div>
       {lastBrief && (
         <div className="chat-actions">
-          <button className="secondary draft-from-chat" disabled={creating} onClick={createDraft}>
+          {canCreateReviewedDraft ? <button className="ui-button ui-button-secondary draft-from-chat" disabled={creating} onClick={createDraft}>
             {t("chat.convert")}
-          </button>
+          </button> : <p className="ui-field-hint">{t("chat.createUnavailable")}</p>}
         </div>
       )}
       <form className="composer" onSubmit={submit}>
@@ -1491,7 +1415,7 @@ function Chat() {
         />
         <div>
           <small>{t("chat.context")}</small>
-          <button className="primary" disabled={creating || !value.trim()}>
+          <button className="ui-button ui-button-primary" disabled={creating || !value.trim()}>
             {creating ? t("chat.thinking") : t("chat.send")}
           </button>
         </div>
@@ -1503,7 +1427,7 @@ function Chat() {
 type QuickStep = 0 | 1 | 2 | 3;
 
 function QuickCreate() {
-  const { site } = useApp();
+  const { site, workflowFlags } = useApp();
   const { t } = useI18n();
   const { showToast } = useToast();
   const nav = useNavigate();
@@ -1760,53 +1684,53 @@ function QuickCreate() {
   };
   const stepLabels = [t("wizard.stepIdea"), t("wizard.stepReview"), t("wizard.stepImage"), t("wizard.stepPublish")];
   return (
-    <main className="page narrow quick-create-page">
+    <main className="ui-page ui-page-narrow quick-create-page">
       <PageTitle eyebrow={t("wizard.eyebrow")} title={t("wizard.title")} description={t("wizard.description")} back />
       <div className="quick-progress" aria-label={stepLabels.join(", ")}>
         {stepLabels.map((label, index) => <span key={label} className={index <= step ? "active" : ""}><b>{index + 1}</b>{label}</span>)}
       </div>
       {step === 0 && (
-        <section className="card quick-step-card">
+        <section className="ui-card quick-step-card">
           <label><b>{t("wizard.ideaLabel")}</b><textarea value={idea} onChange={(event) => setIdea(event.target.value)} rows={7} placeholder={t("wizard.ideaPlaceholder")} /></label>
           <div className="quick-record-row">
-            <button type="button" className={recording ? "danger" : "secondary"} onClick={() => void startRecording("idea")} disabled={transcribing}>{recording ? t("wizard.stop") : t("wizard.record")}</button>
-            {transcribing && <span className="muted">{t("wizard.transcribing")}</span>}
+            <button type="button" className={recording ? "ui-button ui-button-danger" : "ui-button ui-button-secondary"} onClick={() => void startRecording("idea")} disabled={transcribing}>{recording ? t("wizard.stop") : t("wizard.record")}</button>
+            {transcribing && <span className="ui-muted">{t("wizard.transcribing")}</span>}
           </div>
-          <button type="button" className="primary" onClick={() => void generateDraft()} disabled={busy !== "" || transcribing || !idea.trim()}>{busy === "draft" ? t("chat.thinking") : t("wizard.continue")}</button>
+          <button type="button" className="ui-button ui-button-primary" onClick={() => void generateDraft()} disabled={busy !== "" || transcribing || !idea.trim()}>{busy === "draft" ? t("chat.thinking") : t("wizard.continue")}</button>
         </section>
       )}
       {step === 1 && draft && (
-        <section className="card quick-step-card">
+        <section className="ui-card quick-step-card">
           <h2>{t("wizard.reviewTitle")}</h2>
-          <p className="muted">{t("wizard.reviewHelp")}</p>
+          <p className="ui-muted">{t("wizard.reviewHelp")}</p>
           <label><b>{t("wizard.titleLabel")}</b><input value={draft.title} maxLength={MAX_EDITOR_TITLE_CHARS} onChange={(event) => updateDraftField("title", event.target.value)} /></label>
           <label><b>{t("wizard.summaryLabel")}</b><textarea value={draft.excerptEs || ""} rows={3} onChange={(event) => updateDraftField("excerptEs", event.target.value)} /></label>
           <label><b>{t("wizard.bodyLabel")}</b><textarea className="wizard-body-input" value={String(draft.bodyHtml || "").replace(/<[^>]+>/g, " ").replace(/\s{2,}/g, " ").trim()} rows={12} onChange={(event) => updateDraftField("bodyHtml", event.target.value)} /></label>
           <div className="quick-record-row">
-            <button type="button" className={recording ? "danger" : "secondary"} onClick={() => void startRecording("edit")} disabled={busy !== "" || transcribing}>{recording ? t("wizard.stop") : t("wizard.editVoice")}</button>
+            <button type="button" className={recording ? "ui-button ui-button-danger" : "ui-button ui-button-secondary"} onClick={() => void startRecording("edit")} disabled={busy !== "" || transcribing}>{recording ? t("wizard.stop") : t("wizard.editVoice")}</button>
             <input className="quick-edit-input" placeholder={t("wizard.editPlaceholder")} onKeyDown={(event) => { if (event.key === "Enter" && event.currentTarget.value.trim()) { void reviseDraft(event.currentTarget.value.trim()); event.currentTarget.value = ""; } }} />
           </div>
-          <div className="form-actions"><button type="button" className="ghost" onClick={() => nav("/posts")}>{t("common.back")}</button><button type="button" className="primary" disabled={Boolean(busy) || transcribing} onClick={() => void createImage()}>{busy === "image" ? t("chat.thinking") : t("wizard.createImage")}</button></div>
+          <div className="ui-actions"><button type="button" className="ui-button ui-button-ghost" onClick={() => nav("/posts")}>{t("common.back")}</button><button type="button" className="ui-button ui-button-primary" disabled={Boolean(busy) || transcribing} onClick={() => void createImage()}>{busy === "image" ? t("chat.thinking") : t("wizard.createImage")}</button></div>
         </section>
       )}
       {step === 2 && draft && (
-        <section className="card quick-step-card">
+        <section className="ui-card quick-step-card">
           <h2>{t("wizard.imageTitle")}</h2>
-          <p className="muted">{t("wizard.imageHelp")}</p>
-          {draft.imageUrl && <img className="quick-cover-image" src={draft.imageUrl} alt={draft.imageAlt || draft.title} />}
-          <div className="form-actions"><button type="button" className="ghost" onClick={() => setStep(1)}>{t("common.back")}</button><button type="button" className="primary" disabled={Boolean(busy)} onClick={() => void publish()}>{busy === "publish" ? t("publish.publishing") : t("wizard.publish")}</button></div>
+          <p className="ui-muted">{t("wizard.imageHelp")}</p>
+          {draft.imageUrl && <img className="quick-cover-image" src={draft.imagePreviewUrl || draft.imageThumbUrl || draft.imageUrl} alt={draft.imageAlt || draft.title} loading="lazy" decoding="async" />}
+          <div className="ui-actions"><button type="button" className="ui-button ui-button-ghost" onClick={() => setStep(1)}>{t("common.back")}</button><button type="button" className="ui-button ui-button-primary" disabled={Boolean(busy)} onClick={() => void publish()}>{busy === "publish" ? t("publish.publishing") : t("wizard.publish")}</button></div>
         </section>
       )}
       {step === 3 && draft && (
-        <section className="card quick-step-card">
+        <section className="ui-card quick-step-card">
           <h2>{t("wizard.publishedTitle")}</h2>
-          <p className="muted">{t("wizard.publishedHelp")}</p>
-          <div className="form-actions"><button type="button" className="secondary" disabled={Boolean(busy)} onClick={() => void generateSocial()}>{busy === "social" ? t("publish.preparing") : t("wizard.generateSocial")}</button>{socialPack && <button type="button" className="ghost" onClick={() => nav(`/social-pack/${encodeURIComponent(draft.slug)}`)}>{t("wizard.openSocial")}</button>}</div>
+          <p className="ui-muted">{t("wizard.publishedHelp")}</p>
+          <div className="ui-actions"><button type="button" className="ui-button ui-button-secondary" disabled={Boolean(busy)} onClick={() => void generateSocial()}>{busy === "social" ? t("publish.preparing") : t("wizard.generateSocial")}</button>{socialPack && workflowFlags.legacySocialPackEnabled && <button type="button" className="ui-button ui-button-ghost" onClick={() => nav(`/social-pack/${encodeURIComponent(draft.slug)}`)}>{t("wizard.openSocial")}</button>}</div>
           {socialPack && <div className="quick-social-preview">{Object.entries(socialPack).filter(([, value]) => typeof value === "string").slice(0, 3).map(([key, value]) => <article key={key}><b>{key}</b><p>{String(value)}</p></article>)}</div>}
         </section>
       )}
-      {message && <p className="success">{message}</p>}
-      {error && <p className="error">{error}</p>}
+      {message && <p className="ui-success">{message}</p>}
+      {error && <p className="ui-error">{error}</p>}
     </main>
   );
 }
@@ -1925,26 +1849,26 @@ function LinkModal({
   const [url, setUrl] = useState("");
   return (
     <div
-      className="modal-backdrop"
+      className="ui-modal-backdrop"
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
       <section
-        className="modal-card compact-modal"
+        className="ui-modal ui-modal-compact"
         role="dialog"
         aria-modal="true"
         aria-labelledby="link-modal-title"
       >
-        <div className="modal-head">
+        <div className="ui-modal-head">
           <div>
-            <p className="eyebrow">{t("common.linkUrl")}</p>
+            <p className="ui-eyebrow">{t("common.linkUrl")}</p>
             <h2 id="link-modal-title">{t("editor.linkTitle")}</h2>
-            <p className="muted">{t("editor.linkDescription")}</p>
+            <p className="ui-muted">{t("editor.linkDescription")}</p>
           </div>
           <button
-            className="icon-button"
+            className="ui-icon-button"
             type="button"
             onClick={onClose}
             aria-label={t("editor.close")}
@@ -1965,12 +1889,12 @@ function LinkModal({
             }}
           />
         </label>
-        <div className="form-actions">
-          <button className="ghost" type="button" onClick={onClose}>
+        <div className="ui-actions">
+          <button className="ui-button ui-button-ghost" type="button" onClick={onClose}>
             {t("editor.close")}
           </button>
           <button
-            className="primary"
+            className="ui-button ui-button-primary"
             type="button"
             disabled={!url.trim()}
             onClick={() => onApply(url.trim())}
@@ -2001,26 +1925,26 @@ function ConfirmModal({
   const { t } = useI18n();
   return (
     <div
-      className="modal-backdrop"
+      className="ui-modal-backdrop"
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !busy) onClose();
       }}
     >
       <section
-        className="modal-card compact-modal"
+        className="ui-modal ui-modal-compact"
         role="dialog"
         aria-modal="true"
         aria-labelledby="confirm-modal-title"
       >
-        <div className="modal-head">
+        <div className="ui-modal-head">
           <div>
-            <p className="eyebrow">{t("common.confirm")}</p>
+            <p className="ui-eyebrow">{t("common.confirm")}</p>
             <h2 id="confirm-modal-title">{title}</h2>
-            <p className="muted">{description}</p>
+            <p className="ui-muted">{description}</p>
           </div>
           <button
-            className="icon-button"
+            className="ui-icon-button"
             type="button"
             onClick={onClose}
             aria-label={t("editor.close")}
@@ -2029,11 +1953,11 @@ function ConfirmModal({
             ×
           </button>
         </div>
-        <div className="form-actions">
-          <button className="ghost" type="button" onClick={onClose} disabled={busy}>
+        <div className="ui-actions">
+          <button className="ui-button ui-button-ghost" type="button" onClick={onClose} disabled={busy}>
             {t("editor.close")}
           </button>
-          <button className="danger-button compact-danger" type="button" onClick={onConfirm} disabled={busy}>
+          <button className="ui-button ui-button-danger compact-danger" type="button" onClick={onConfirm} disabled={busy}>
             {busy ? t("admin.saving") : confirmLabel}
           </button>
         </div>
@@ -2048,48 +1972,72 @@ function ReferenceMediaModal({
   onClose,
   onSave,
   onDelete,
+  canDelete = true,
+  readOnlyFilename = false,
 }: {
   media: MediaItem;
   busy: boolean;
   onClose: () => void;
-  onSave: (alt: string) => void;
+  onSave: (details: { filename: string; alt: string; usage: string }) => void;
   onDelete: () => void;
+  canDelete?: boolean;
+  readOnlyFilename?: boolean;
 }) {
   const { t } = useI18n();
+  const [filename, setFilename] = useState(media.filename || "");
   const [alt, setAlt] = useState(media.alt || "");
-  const imageSrc = media.url || media.path || media.thumbUrl || media.thumbPath || "";
+  const [usage, setUsage] = useState(String(media.metadata?.usage || "reference"));
+  const imageSrc = media.url || media.path || media.previewUrl || media.previewPath || media.thumbUrl || media.thumbPath || "";
   return (
     <div
-      className="modal-backdrop"
+      className="ui-modal-backdrop"
       role="presentation"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !busy) onClose();
       }}
     >
-      <section className="modal-card reference-modal" role="dialog" aria-modal="true" aria-labelledby="reference-modal-title">
-        <div className="modal-head">
+      <section className="ui-modal reference-modal" role="dialog" aria-modal="true" aria-labelledby="reference-modal-title">
+        <div className="ui-modal-head">
           <div>
-            <p className="eyebrow">{t("admin.referencesEyebrow")}</p>
+            <p className="ui-eyebrow">{t("admin.referencesEyebrow")}</p>
             <h2 id="reference-modal-title">{t("admin.referenceEditTitle")}</h2>
-            <p className="muted">{t("admin.referenceEditHelp")}</p>
+            <p className="ui-muted">{t("admin.referenceEditHelp")}</p>
           </div>
-          <button className="icon-button" type="button" onClick={onClose} disabled={busy} aria-label={t("editor.close")}>×</button>
+          <button className="ui-icon-button" type="button" onClick={onClose} disabled={busy} aria-label={t("editor.close")}>×</button>
         </div>
         <div className="reference-modal-preview">
-          {imageSrc ? <img src={imageSrc} alt={alt || t("admin.referenceImage")} /> : <span>✦</span>}
+          {imageSrc ? <img src={imageSrc} alt={alt || t("admin.referenceImage")} decoding="async" /> : <span>✦</span>}
         </div>
         <div className="reference-modal-meta">
           <span className="reference-badge">✦ {t("admin.referenceBadge")}</span>
           <span className="tiny">{media.filename || t("admin.referenceImage")}</span>
         </div>
-        <label className="modal-field">
-          {t("admin.referenceAlt")}
-          <textarea value={alt} onChange={(event) => setAlt(event.target.value)} rows={3} autoFocus />
-        </label>
-        <div className="form-actions">
-          <button className="danger-link" type="button" onClick={onDelete} disabled={busy}>{t("admin.delete")}</button>
-          <button className="ghost" type="button" onClick={onClose} disabled={busy}>{t("editor.close")}</button>
-          <button className="primary" type="button" onClick={() => onSave(alt.trim())} disabled={busy}>
+        <div className="reference-modal-fields">
+          <label className="modal-field">
+            Nombre del archivo
+            <input value={filename} onChange={(event) => setFilename(event.target.value)} autoFocus readOnly={readOnlyFilename} />
+          </label>
+          <label className="modal-field">
+            Uso de la imagen
+            <select value={usage} onChange={(event) => setUsage(event.target.value)}>
+              <option value="logo">Logo</option>
+              <option value="reference">Referencia visual</option>
+              <option value="style_board">Tablero visual</option>
+              <option value="character">Personaje</option>
+              <option value="typography">Tipografía</option>
+              <option value="palette">Paleta de color</option>
+              <option value="campaign">Referencia de campaña</option>
+            </select>
+          </label>
+          <label className="modal-field">
+            {t("admin.referenceAlt")}
+            <textarea value={alt} onChange={(event) => setAlt(event.target.value)} rows={3} />
+          </label>
+        </div>
+        <div className="ui-actions">
+          {canDelete && <button className="ui-danger-link" type="button" onClick={onDelete} disabled={busy}>{t("admin.delete")}</button>}
+          <button className="ui-button ui-button-ghost" type="button" onClick={onClose} disabled={busy}>{t("editor.close")}</button>
+          <button className="ui-button ui-button-primary" type="button" onClick={() => onSave({ filename: filename.trim(), alt: alt.trim(), usage })} disabled={busy || !filename.trim()}>
             {busy ? t("admin.saving") : t("admin.save")}
           </button>
         </div>
@@ -2115,20 +2063,20 @@ function BrandAiModal({
   const [prompt, setPrompt] = useState("");
   return (
     <div
-      className="modal-backdrop"
+      className="ui-modal-backdrop"
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !busy) onClose();
       }}
     >
-      <section className="modal-card compact-modal" role="dialog" aria-modal="true">
-        <div className="modal-head">
+      <section className="ui-modal ui-modal-compact" role="dialog" aria-modal="true">
+        <div className="ui-modal-head">
           <div>
-            <p className="eyebrow">{t("admin.brandAiEyebrow")}</p>
+            <p className="ui-eyebrow">{t("admin.brandAiEyebrow")}</p>
             <h2>{t("admin.brandAiTitle")}</h2>
-            <p className="muted">{file} · {t("admin.brandAiHelp")}</p>
+            <p className="ui-muted">{file} · {t("admin.brandAiHelp")}</p>
           </div>
-          <button className="icon-button" type="button" onClick={onClose} disabled={busy} aria-label={t("editor.close")}>×</button>
+          <button className="ui-icon-button" type="button" onClick={onClose} disabled={busy} aria-label={t("editor.close")}>×</button>
         </div>
         <label className="modal-field">
           {t("admin.brandAiPrompt")}
@@ -2141,9 +2089,9 @@ function BrandAiModal({
           />
         </label>
         <p className="tiny">{t("admin.brandAiCurrent")} {current.slice(0, 180)}{current.length > 180 ? "…" : ""}</p>
-        <div className="form-actions">
-          <button className="ghost" type="button" onClick={onClose} disabled={busy}>{t("editor.close")}</button>
-          <button className="primary" type="button" onClick={() => onGenerate(prompt.trim())} disabled={busy || !prompt.trim()}>
+        <div className="ui-actions">
+          <button className="ui-button ui-button-ghost" type="button" onClick={onClose} disabled={busy}>{t("editor.close")}</button>
+          <button className="ui-button ui-button-primary" type="button" onClick={() => onGenerate(prompt.trim())} disabled={busy || !prompt.trim()}>
             {busy ? t("admin.saving") : t("admin.brandAiAction")}
           </button>
         </div>
@@ -2188,25 +2136,25 @@ function ImageGenerationModal({
   ];
   return (
     <div
-      className="modal-backdrop"
+      className="ui-modal-backdrop"
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !busy) onClose();
       }}
     >
       <section
-        className="modal-card image-modal"
+        className="ui-modal image-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="image-modal-title"
       >
-        <div className="modal-head">
+        <div className="ui-modal-head">
           <div>
-            <p className="eyebrow">{t("editor.image")}</p>
+            <p className="ui-eyebrow">{t("editor.image")}</p>
             <h2 id="image-modal-title">{t("editor.imageQuestion")}</h2>
           </div>
           <button
-            className="icon-button"
+            className="ui-icon-button"
             type="button"
             onClick={onClose}
             disabled={busy}
@@ -2257,12 +2205,12 @@ function ImageGenerationModal({
             ))}
           </div>
         </fieldset>
-        <div className="form-actions">
-          <button className="ghost" type="button" onClick={onClose} disabled={busy}>
+        <div className="ui-actions">
+          <button className="ui-button ui-button-ghost" type="button" onClick={onClose} disabled={busy}>
             {t("editor.close")}
           </button>
           <button
-            className="primary"
+            className="ui-button ui-button-primary"
             type="button"
             disabled={
               busy ||
@@ -2299,23 +2247,23 @@ function AiSuggestionModal({
     meta: t("editor.meta"),
   };
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
-      <section className="modal-card compact-modal" role="dialog" aria-modal="true" aria-labelledby="ai-suggestion-title">
-        <div className="modal-head">
+    <div className="ui-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+      <section className="ui-modal ui-modal-compact" role="dialog" aria-modal="true" aria-labelledby="ai-suggestion-title">
+        <div className="ui-modal-head">
           <div>
-            <p className="eyebrow">{t("editor.aiSuggestionEyebrow")}</p>
+            <p className="ui-eyebrow">{t("editor.aiSuggestionEyebrow")}</p>
             <h2 id="ai-suggestion-title">{t("editor.aiSuggestionTitle")} · {labels[operation]}</h2>
-            <p className="muted">{t("editor.aiSuggestionHelp")}</p>
+            <p className="ui-muted">{t("editor.aiSuggestionHelp")}</p>
           </div>
-          <button className="icon-button" type="button" onClick={onClose} disabled={busy} aria-label={t("editor.close")}>×</button>
+          <button className="ui-icon-button" type="button" onClick={onClose} disabled={busy} aria-label={t("editor.close")}>×</button>
         </div>
         <label className="modal-field">
           {t("editor.aiSuggestionPrompt")}
           <textarea autoFocus rows={5} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={t("editor.aiSuggestionPlaceholder")} />
         </label>
-        <div className="form-actions">
-          <button className="ghost" type="button" onClick={onClose} disabled={busy}>{t("editor.close")}</button>
-          <button className="primary" type="button" onClick={() => onGenerate(prompt.trim())} disabled={busy || (operation !== "humanize" && !prompt.trim())}>{busy ? t("editor.saving") : t("editor.generateContent")}</button>
+        <div className="ui-actions">
+          <button className="ui-button ui-button-ghost" type="button" onClick={onClose} disabled={busy}>{t("editor.close")}</button>
+          <button className="ui-button ui-button-primary" type="button" onClick={() => onGenerate(prompt.trim())} disabled={busy || (operation !== "humanize" && !prompt.trim())}>{busy ? t("editor.saving") : t("editor.generateContent")}</button>
         </div>
       </section>
     </div>
@@ -2324,7 +2272,7 @@ function AiSuggestionModal({
 
 function ManualPost() {
   const nav = useNavigate();
-  const { site, session } = useApp();
+  const { site, session, workflowFlags } = useApp();
   const { t } = useI18n();
   const { showToast } = useToast();
   const { slug: editSlug = "" } = useParams();
@@ -2506,6 +2454,7 @@ function ManualPost() {
         kind: "post",
       });
       update("imageUrl", result.media.url || result.media.path || "");
+      update("imagePreviewUrl", result.media.previewUrl || result.media.previewPath || "");
       update(
         "imageThumbUrl",
         result.media.thumbUrl || result.media.thumbPath || "",
@@ -2585,6 +2534,7 @@ function ManualPost() {
         return {
           ...current,
           imageUrl: current.imageUrl || first?.url || first?.path || "",
+          imagePreviewUrl: current.imagePreviewUrl || first?.previewUrl || first?.previewPath || "",
           imageThumbUrl: current.imageThumbUrl || first?.thumbUrl || first?.thumbPath || "",
           imageAlt: current.imageAlt || first?.alt || current.title || t("editor.imageAltPlaceholder"),
           imageGallery: result.gallery?.length ? result.gallery : merged,
@@ -2630,6 +2580,7 @@ function ManualPost() {
   });
   const useGalleryImage = (image: NonNullable<Draft["imageGallery"]>[number]) => {
     update("imageUrl", image.url || image.path || "");
+    update("imagePreviewUrl", image.previewUrl || image.previewPath || "");
     update("imageThumbUrl", image.thumbUrl || image.thumbPath || "");
     update("imageAlt", image.alt || draft.title || t("editor.imageAltPlaceholder"));
     showToast(t("editor.imageSelected"));
@@ -2685,7 +2636,7 @@ function ManualPost() {
       localStorage.removeItem(storageKey);
       localStorage.removeItem(serverDraftKey);
       showToast(t("editor.saved"));
-      nav(`/preview/${encodeURIComponent(saved.post.slug)}`);
+      nav(workflowFlags.legacyPreviewEnabled ? `/preview/${encodeURIComponent(saved.post.slug)}` : "/posts");
     } catch (e) {
       setError(e instanceof Error ? e.message : t("common.error"));
       showToast(e instanceof Error ? e.message : t("common.error"), "error");
@@ -2694,7 +2645,7 @@ function ManualPost() {
     }
   };
   return (
-    <main className="page form-page">
+    <main className="ui-page form-page">
       <PageTitle
         eyebrow={t("editor.eyebrow")}
         title={t("editor.title")}
@@ -2710,7 +2661,7 @@ function ManualPost() {
           </div>
           <button
             type="button"
-            className="danger-link"
+            className="ui-danger-link"
             onClick={() => {
               localStorage.removeItem(storageKey);
               localStorage.removeItem(serverDraftKey);
@@ -2803,7 +2754,7 @@ function ManualPost() {
           <section className="date-picker-card editor-schedule-card">
             <div className="date-picker-heading">
               <div>
-                <p className="eyebrow">{t("editor.scheduleDate")}</p>
+                <p className="ui-eyebrow">{t("editor.scheduleDate")}</p>
                 <span className="optional">{t("editor.scheduleDateHelp")}</span>
               </div>
               <span>◷</span>
@@ -2856,7 +2807,7 @@ function ManualPost() {
             <div className="media-actions">
               <AiOnly><button
                 type="button"
-                className="secondary"
+                className="ui-button ui-button-secondary"
                 onClick={() => setShowImageModal(true)}
                 disabled={imageBusy}
               >
@@ -2864,7 +2815,7 @@ function ManualPost() {
               </button></AiOnly>
               <button
                 type="button"
-                className="ghost"
+                className="ui-button ui-button-ghost"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={imageBusy}
               >
@@ -2882,15 +2833,18 @@ function ManualPost() {
           {draft.imageUrl ? (
             <div className="cover-preview">
               <img
-                src={draft.imageThumbUrl || draft.imageUrl}
+                src={draft.imagePreviewUrl || draft.imageThumbUrl || draft.imageUrl}
                 alt={draft.imageAlt || ""}
+                loading="lazy"
+                decoding="async"
               />
               <button
                 type="button"
-                className="danger-link"
+                className="ui-danger-link"
                 aria-label={t("editor.removeImage")}
                 onClick={() => {
                   update("imageUrl", "");
+                  update("imagePreviewUrl", "");
                   update("imageThumbUrl", "");
                 }}
               >
@@ -2933,13 +2887,13 @@ function ManualPost() {
                 <div className="generated-gallery-grid">
                   {galleryImages.map((image, index) => {
                     const imageSrc = image.thumbUrl || image.thumbPath || image.url || image.path || "";
-                    const selected = imageSrc && imageSrc === (draft.imageThumbUrl || draft.imageUrl);
+                    const selected = Boolean(imageSrc && [draft.imageThumbUrl, draft.imagePreviewUrl, draft.imageUrl].includes(imageSrc));
                     return (
                       <article className={`generated-image-card ${selected ? "selected" : ""}`} key={image.url || image.path || image.id || `${image.generatedAt}-${index}`}>
-                        {imageSrc ? <img src={imageSrc} alt={image.alt || ""} /> : <div className="generated-image-empty">{t("editor.imageUnavailable")}</div>}
+                        {imageSrc ? <img src={imageSrc} alt={image.alt || ""} width={image.width || undefined} height={image.height || undefined} loading="lazy" decoding="async" /> : <div className="generated-image-empty">{t("editor.imageUnavailable")}</div>}
                         <div className="generated-image-card-body">
                           <span className="tiny">{image.generatedAt ? readableDate(image.generatedAt) : t("editor.imageUploaded")}</span>
-                          <button type="button" className="ghost" onClick={() => useGalleryImage(image)} disabled={!imageSrc}>
+                          <button type="button" className="ui-button ui-button-ghost" onClick={() => useGalleryImage(image)} disabled={!imageSrc}>
                             {selected ? t("editor.imageSelectedLabel") : t("editor.useImage")}
                           </button>
                         </div>
@@ -2983,21 +2937,21 @@ function ManualPost() {
           />
         </label>
         {seoMessage && (
-          <p className={seoValid ? "success" : "error"}>{seoMessage}</p>
+          <p className={seoValid ? "ui-success" : "ui-error"}>{seoMessage}</p>
         )}
-        {error && <p className="error">{error}</p>}
-        <div className="form-actions">
-          <button type="button" className="ghost" onClick={() => nav(-1)}>
+        {error && <p className="ui-error">{error}</p>}
+        <div className="ui-actions">
+          <button type="button" className="ui-button ui-button-ghost" onClick={() => navigateBack(nav)}>
             {t("editor.cancel")}
           </button>
           <button
             type="button"
-            className="secondary"
+            className="ui-button ui-button-secondary"
             onClick={() => void validateSeo()}
           >
             {t("editor.seoCheck")}
           </button>
-          <button className="primary" disabled={saving || imageBusy}>
+          <button className="ui-button ui-button-primary" disabled={saving || imageBusy}>
             {saving ? t("editor.saving") : t("editor.save")}
           </button>
         </div>
@@ -3024,8 +2978,10 @@ function ManualPost() {
 function Preview() {
   const { slug = "" } = useParams();
   const nav = useNavigate();
-  const { site } = useApp();
+  const { site, workflowFlags, brandCapabilities } = useApp();
   const { t, language } = useI18n();
+  const [searchParams] = useSearchParams();
+  const socialTab = searchParams.get("tab") === "social";
   const [post, setPost] = useState<Post | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -3034,27 +2990,31 @@ function Preview() {
       .then((r) => setPost(r.post))
       .catch((e) => setError(e.message));
   }, [slug, site]);
+  if (socialTab && workflowFlags.legacySocialPackEnabled) return <SocialPack />;
   if (error)
     return (
-      <main className="page">
-        <p className="error">{error}</p>
+      <main className="ui-page">
+        <BackButton to="/plans" />
+        <p className="ui-error">{error}</p>
       </main>
     );
   if (!post) return <Loading />;
+  const canManagePost = workflowFlags.manualCreationEnabled && brandCapabilities.content_publishing !== false;
+  const canOpenSocialPack = workflowFlags.legacySocialPackEnabled && hasSocialPack(post);
   return (
     <main className="preview-page">
       <div className="preview-head">
         <div>
-          <BackButton />
-          <p className="eyebrow">{t("preview.eyebrow")}</p>
+          <BackButton to="/plans" />
+          <p className="ui-eyebrow">{t("preview.eyebrow")}</p>
           <h1>{t("preview.title")}</h1>
         </div>
-        <span className={`status ${uiStatus(post.status)}`}>
+        <span className={`ui-status ${uiStatus(post.status)}`}>
           {t(`status.${uiStatus(post.status)}`, uiStatus(post.status))}
         </span>
       </div>
       <article className="article-preview">
-        {post.imageUrl && <img src={post.imageUrl} alt={post.imageAlt || ""} />}
+        {(post.imagePreviewUrl || post.imageUrl) && <img src={post.imagePreviewUrl || post.imageUrl} alt={post.imageAlt || ""} decoding="async" fetchPriority="high" />}
         <p className="article-meta">
           {post.authorName || t("common.unknownAuthor")} ·{" "}
           {readableDate(post.datePublished, language)}
@@ -3066,53 +3026,53 @@ function Preview() {
           dangerouslySetInnerHTML={{ __html: post.bodyHtml }}
         />
       </article>
-      {hasSocialPack(post) && (
-        <section className="card preview-social-link">
+      {canOpenSocialPack && (
+        <section className="ui-card preview-social-link">
           <div>
-            <p className="eyebrow">{t("social.eyebrow")}</p>
-            <h2>{t("preview.socialPack")}</h2>
-            <p className="muted">{t("social.description")}</p>
+            <p className="ui-eyebrow">{t("social.eyebrow")}</p>
+            <h2>{t("preview.socialView")}</h2>
+            <p className="ui-muted">{t("social.description")}</p>
           </div>
           <button
-            className="secondary"
+            className="ui-button ui-button-secondary"
             onClick={() => nav(`/social-pack/${encodeURIComponent(post.slug)}`)}
           >
-            {t("preview.socialPack")}
+            {t("preview.socialView")}
           </button>
         </section>
       )}
-      <div className="sticky-actions">
-        <button
-          className="ghost"
+      {(canManagePost || canOpenSocialPack) && <div className="sticky-actions">
+        {canManagePost && <button
+          className="ui-button ui-button-ghost"
           onClick={() => nav(`/manual/${encodeURIComponent(post.slug)}`)}
         >
           {t("preview.edit")}
-        </button>
-        {hasSocialPack(post) && (
+        </button>}
+        {canOpenSocialPack && (
           <button
-            className="secondary"
+            className="ui-button ui-button-secondary"
             onClick={() => nav(`/social-pack/${encodeURIComponent(post.slug)}`)}
           >
-            {t("preview.socialPack")}
+            {t("preview.socialView")}
           </button>
         )}
-        {post.status !== "published" && post.status !== "scheduled" && post.status !== "pending_schedule" && (
+        {canManagePost && post.status !== "published" && post.status !== "scheduled" && post.status !== "pending_schedule" && (
           <button
-            className="secondary"
+            className="ui-button ui-button-secondary"
             onClick={() => nav(`/schedule/${encodeURIComponent(post.slug)}`)}
           >
             {t("preview.schedule")}
           </button>
         )}
-        {(post.status !== "published" && post.status !== "scheduled" && post.status !== "pending_schedule") && (
+        {canManagePost && (post.status !== "published" && post.status !== "scheduled" && post.status !== "pending_schedule") && (
           <button
-            className="primary"
+            className="ui-button ui-button-primary"
             onClick={() => nav(`/publish/${encodeURIComponent(post.slug)}`)}
           >
             {t("preview.publish")}
           </button>
         )}
-      </div>
+      </div>}
     </main>
   );
 }
@@ -3154,9 +3114,9 @@ function CalendarDatePicker({
   return (
     <div className="calendar-picker" aria-label={t("schedule.datePickerLabel")}>
       <div className="calendar-picker-head">
-        <button type="button" className="icon-button" onClick={() => goMonth(-1)} aria-label={t("schedule.previousMonth")}>‹</button>
+        <button type="button" className="ui-icon-button" onClick={() => goMonth(-1)} aria-label={t("schedule.previousMonth")}>‹</button>
         <strong>{monthLabel}</strong>
-        <button type="button" className="icon-button" onClick={() => goMonth(1)} aria-label={t("schedule.nextMonth")}>›</button>
+        <button type="button" className="ui-icon-button" onClick={() => goMonth(1)} aria-label={t("schedule.nextMonth")}>›</button>
       </div>
       <div className="calendar-weekdays">
         {dayNames.map((name) => <span key={name}>{name.slice(0, 2)}</span>)}
@@ -3233,18 +3193,18 @@ function Schedule() {
     }
   };
   return (
-    <main className="page narrow">
+    <main className="ui-page ui-page-narrow">
       <PageTitle
         eyebrow={t("schedule.eyebrow")}
         title={t("schedule.title")}
         description={t("schedule.description")}
         back
       />
-      <form className="card form-stack" onSubmit={submit}>
+      <form className="ui-card ui-stack ui-stack-md" onSubmit={submit}>
         <div className="date-picker-card">
           <div className="date-picker-heading">
             <div>
-              <p className="eyebrow">{t("schedule.date")}</p>
+              <p className="ui-eyebrow">{t("schedule.date")}</p>
               <strong>
                 {date
                   ? readableDate(`${date}T${time}`, "es")
@@ -3320,14 +3280,14 @@ function Schedule() {
             </button>
           </div>
         )}
-        {error && <p className="error">{error}</p>}
+        {error && <p className="ui-error">{error}</p>}
         <button
-          className="primary"
+          className="ui-button ui-button-primary"
           disabled={saving}
         >
           {saving ? t("schedule.scheduling") : t("schedule.confirm")}
         </button>
-        <button type="button" className="ghost" onClick={() => nav(-1)}>
+        <button type="button" className="ui-button ui-button-ghost" onClick={() => navigateBack(nav)}>
           {t("common.back")}
         </button>
       </form>
@@ -3342,7 +3302,7 @@ function languageDateLabel(t: (key: string, fallback?: string) => string) {
 function PublishSocial() {
   const { slug = "" } = useParams();
   const nav = useNavigate();
-  const { site } = useApp();
+  const { site, workflowFlags } = useApp();
   const { t } = useI18n();
   const { showToast } = useToast();
   const [post, setPost] = useState<Post | null>(null);
@@ -3417,7 +3377,7 @@ function PublishSocial() {
   };
   const hasPack = Boolean(socialPack && Object.keys(socialPack).length > 0);
   return (
-    <main className="page narrow">
+    <main className="ui-page ui-page-narrow">
       <PageTitle
         eyebrow={t("publish.eyebrow")}
         title={t("publish.title")}
@@ -3425,10 +3385,10 @@ function PublishSocial() {
         back
       />
       {post && (
-        <section className="card social-card">
+        <section className="ui-card social-card">
           <h2>{post.title}</h2>
-          <p className="muted">{t("publish.prepare")}</p>
-          <AiOnly><button className="secondary" disabled={busy} onClick={generatePack}>
+          <p className="ui-muted">{t("publish.prepare")}</p>
+          <AiOnly><button className="ui-button ui-button-secondary" disabled={busy} onClick={generatePack}>
             {busy
               ? t("publish.preparing")
               : hasPack
@@ -3451,25 +3411,25 @@ function PublishSocial() {
             <span>X</span>
             <span>Substack</span>
           </div>
-          {hasPack && (
+          {hasPack && workflowFlags.legacySocialPackEnabled && (
             <button
-              className="secondary"
+              className="ui-button ui-button-secondary"
               onClick={() =>
                 nav(`/social-pack/${encodeURIComponent(post.slug)}`)
               }
             >
-              {t("preview.socialPack")}
+              {t("preview.socialView")}
             </button>
           )}
         </section>
       )}
-      {message && <p className="success">{message}</p>}
-      <div className="form-actions">
-        <button className="ghost" onClick={() => nav(-1)}>
+      {message && <p className="ui-success">{message}</p>}
+      <div className="ui-actions">
+        <button className="ui-button ui-button-ghost" onClick={() => navigateBack(nav)}>
           {t("common.back")}
         </button>
         <button
-          className="primary"
+          className="ui-button ui-button-primary"
           disabled={busy || !post}
           onClick={publish}
         >
@@ -3480,12 +3440,26 @@ function PublishSocial() {
   );
 }
 
+function SocialPackRoute() {
+  const { slug = "" } = useParams();
+  const location = useLocation();
+  const { workflowFlags, brandCapabilities } = useApp();
+  const search = new URLSearchParams(location.search);
+  if (search.has("itemId") || search.has("batchId") || !workflowFlags.legacyPreviewEnabled || brandCapabilities.content_publishing === false) return <SocialPack />;
+  search.set("tab", "social");
+  return <Navigate to={`/preview/${encodeURIComponent(slug)}?${search.toString()}`} replace />;
+}
+
 function SocialPack() {
   const { slug = "" } = useParams();
-  const { site } = useApp();
+  const location = useLocation();
+  const { site, channels } = useApp();
   const { t } = useI18n();
   const { showToast } = useToast();
-  const standalone = !slug;
+  const search = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const itemId = search.get("itemId") || "";
+  const batchId = search.get("batchId") || "";
+  const standalone = !slug && !itemId;
   const [post, setPost] = useState<Post | null>(null);
   const [socialPack, setSocialPack] = useState<Record<string, any>>({});
   const [articleUrl, setArticleUrl] = useState("");
@@ -3496,6 +3470,9 @@ function SocialPack() {
   const [message, setMessage] = useState("");
   const [showTeleprompter, setShowTeleprompter] = useState(false);
   const [activeSlide, setActiveSlide] = useState(0);
+  const [activeStorySlide, setActiveStorySlide] = useState(0);
+  const [savedVideoMedia, setSavedVideoMedia] = useState<Array<{ url: string; format: VideoFormat }>>([]);
+  const recordRequested = search.get("record") === "1";
   useEffect(() => {
     if (standalone) {
       setPost(null);
@@ -3504,25 +3481,88 @@ function SocialPack() {
       return;
     }
     let active = true;
-    Promise.all([api.post(slug, site), api.onboarding(site).catch(() => ({}))])
+    const contentPreview = itemId && batchId
+      ? api.contentBatch(batchId, site).then((batch) => {
+          const item = batch.items?.find((entry) => entry.id === itemId);
+          if (!item) throw new Error("No se encontró el item del Social Pack.");
+          const blog = item.variants?.find((variant) => variant.channel === "blog");
+          const instagram = item.variants?.find((variant) => variant.channel === "instagram");
+          const instagramStory = item.variants?.find((variant) => variant.channel === "instagram_story");
+          const blogBody = blog?.body || {};
+          const instagramBody = instagram?.body || {};
+          const instagramStoryBody = instagramStory?.body || {};
+          const pack = instagramBody.socialPack && typeof instagramBody.socialPack === "object" ? { ...instagramBody.socialPack } : {};
+          if (Array.isArray(pack.instagramSlides)) {
+            pack.instagramSlides = pack.instagramSlides.map((slide: any, index: number) => ({
+              ...slide,
+              imageUrl: slide?.imageUrl || slide?.url || slide?.image || instagram?.media?.[index]?.url || instagram?.media?.[index]?.path || "",
+              previewUrl: slide?.previewUrl || slide?.imagePreviewUrl || instagram?.media?.[index]?.previewUrl || instagram?.media?.[index]?.previewPath || "",
+              thumbUrl: slide?.thumbUrl || slide?.imageThumbUrl || instagram?.media?.[index]?.thumbUrl || instagram?.media?.[index]?.thumbPath || "",
+            }));
+          }
+          const storyPack = instagramStoryBody.socialPack?.instagramStory;
+          if ((storyPack && typeof storyPack === "object") || instagramStory?.media?.length) {
+            const storyFrames = Array.isArray(storyPack?.frames) ? storyPack.frames : [];
+            const storyMedia = Array.isArray(instagramStory?.media) ? instagramStory.media : [];
+            const fallbackSlides = Array.isArray(pack.instagramSlides) ? pack.instagramSlides : [];
+            const frameCount = storyFrames.length || (storyMedia.length > 1 ? storyMedia.length : fallbackSlides.length || storyMedia.length || (storyPack?.imageUrl || storyPack?.url ? 1 : 0));
+            pack.instagramStory = {
+              ...(storyPack && typeof storyPack === "object" ? storyPack : {}),
+              imageUrl: storyPack?.imageUrl || storyPack?.url || instagramStory?.media?.[0]?.url || instagramStory?.media?.[0]?.path || "",
+              frames: Array.from({ length: frameCount }, (_, index) => ({
+                ...(fallbackSlides[index] || {}),
+                ...(storyMedia[index] || {}),
+                ...(index === 0 ? storyPack || {} : {}),
+                ...(storyFrames[index] || {}),
+                imageUrl: storyFrames[index]?.imageUrl || storyFrames[index]?.url || storyFrames[index]?.image || storyMedia[index]?.url || storyMedia[index]?.path || fallbackSlides[index]?.imageUrl || fallbackSlides[index]?.url || fallbackSlides[index]?.image || "",
+                previewUrl: storyFrames[index]?.previewUrl || storyFrames[index]?.imagePreviewUrl || storyMedia[index]?.previewUrl || storyMedia[index]?.previewPath || fallbackSlides[index]?.previewUrl || "",
+                thumbUrl: storyFrames[index]?.thumbUrl || storyFrames[index]?.imageThumbUrl || storyMedia[index]?.thumbUrl || storyMedia[index]?.thumbPath || fallbackSlides[index]?.thumbUrl || "",
+              })),
+            };
+          }
+          const video = item.variants?.find((variant) => variant.channel === "video");
+          return {
+            videoMedia: video?.media || [],
+            post: {
+              itemId: item.id,
+              slug,
+              site,
+              title: blogBody.title || item.topic,
+              status: item.status,
+              bodyHtml: blogBody.bodyHtml || blogBody.body || "",
+              excerptEs: blogBody.excerpt || blogBody.excerptEs || "",
+              imageUrl: blogBody.imageUrl || blog?.media?.[0]?.url || blog?.media?.[0]?.path || "",
+              imageAlt: blogBody.imageAlt || item.topic,
+              socialPack: pack
+            } as Post
+          };
+        })
+      : api.post(slug, site);
+    Promise.all([contentPreview, api.onboarding(site).catch(() => ({}))])
       .then(([postData, onboarding]) => {
         if (!active) return;
         setPost(postData.post);
+        setSavedVideoMedia(((postData as any).videoMedia || []).map((media: any) => ({
+          url: String(media?.url || media?.path || ""),
+          format: media?.metadata?.format === "landscape" ? "landscape" : "portrait",
+        })).filter((media: { url: string }) => media.url));
         setSocialPack(postData.post.socialPack || {});
+        if (recordRequested && postData.post.socialPack?.videoScript) setShowTeleprompter(true);
         const domain = String(
           (onboarding as any)?.site?.domain || window.location.origin,
         ).replace(/\/$/, "");
         setArticleUrl(`${domain}/blog/${postData.post.slug}`);
       })
-      .catch(
-        (e) =>
-          active &&
-          setMessage(e instanceof Error ? e.message : t("common.error")),
-      );
+      .catch((e) => {
+        if (!active) return;
+        const message = e instanceof Error ? e.message : t("common.error");
+        setMessage(message);
+        showToast(message, "error");
+      });
     return () => {
       active = false;
     };
-  }, [slug, site, t, standalone]);
+  }, [batchId, itemId, recordRequested, slug, site, t, standalone]);
   const generatePack = async () => {
     if (standalone && !standaloneBrief.trim()) {
       const reason = t("social.standaloneRequired");
@@ -3614,7 +3654,7 @@ function SocialPack() {
     URL.revokeObjectURL(url);
   };
   const downloadSlide = async (slide: any, index: number) => {
-    const image = slide?.imageUrl || slide?.url || slide?.image || "";
+    const image = slide?.imageOriginalUrl || originalImageUrl(slide?.url || slide?.imageUrl || slide?.image || slide?.media || post?.imageGallery?.[index]);
     if (!image) return;
     const filename = `${post?.slug || "social-pack"}-instagram-${String(index + 1).padStart(2, "0")}.png`;
     try {
@@ -3641,6 +3681,25 @@ function SocialPack() {
     }
     showToast(t("social.slideDownloaded"));
   };
+  const contentItemId = post?.itemId || itemId;
+  const publishChannels = channels.filter((channel) => ["instagram", "linkedin", "x", "video"].includes(channel.channel) && channel.enabled && String(channel.connectionStatus || "").toLowerCase() === "connected").map((channel) => channel.channel);
+  const bufferReady = publishChannels.length > 0;
+  const publishReel = async (channel = "video") => {
+    if (!contentItemId) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      await api.publishContentViaBuffer(contentItemId, [channel], site);
+      const label = channel === "video" ? "Instagram Reel" : channel === "instagram" ? "Instagram" : channel === "linkedin" ? "LinkedIn" : "X";
+      setMessage(`${label} programado en Buffer.`);
+      showToast(`${label} programado en Buffer.`);
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : "No se pudo programar la publicación en Buffer.");
+      showToast(cause instanceof Error ? cause.message : "No se pudo programar la publicación en Buffer.", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
   const fields = [
     { key: "substackTitle", label: t("social.substackTitle") },
     { key: "substackBody", label: t("social.substackBody") },
@@ -3651,8 +3710,13 @@ function SocialPack() {
   const teleprompterScript =
     typeof socialPack.videoScript === "string" && socialPack.videoScript
       ? socialPack.videoScript
-      : [post?.title, post?.excerptEs].filter(Boolean).join("\n\n");
-  const blogImage = post?.imageThumbUrl || post?.imageUrl || "";
+      : [
+          post?.excerptEs,
+          ...(Array.isArray(socialPack.instagramSlides)
+            ? socialPack.instagramSlides.map((slide: any) => [slide?.headline, slide?.body].filter(Boolean).join("\n"))
+            : []),
+        ].filter(Boolean).join("\n\n");
+  const blogImage = post?.imagePreviewUrl || post?.imageThumbUrl || post?.imageUrl || "";
   let blogImageSrc = blogImage;
   if (blogImage.startsWith("/images/") && articleUrl) {
     try {
@@ -3662,26 +3726,45 @@ function SocialPack() {
     }
   }
   const carouselSlides = Array.isArray(socialPack.instagramSlides)
-    ? socialPack.instagramSlides
+    ? socialPack.instagramSlides.map((slide: any, index: number) => ({
+        ...slide,
+        imageUrl: socialImageUrl(slide?.previewUrl || slide?.imagePreviewUrl || slide?.imageUrl || slide?.url || slide?.image || slide?.media || post?.imageGallery?.[index], "preview"),
+        imageOriginalUrl: originalImageUrl(slide?.url || slide?.imageUrl || slide?.image || slide?.media || post?.imageGallery?.[index]),
+      }))
     : [];
   const safeSlideIndex = carouselSlides.length
     ? Math.min(activeSlide, carouselSlides.length - 1)
     : 0;
   const activeCarouselSlide = carouselSlides[safeSlideIndex];
-  const activeCarouselImage = activeCarouselSlide?.imageUrl || activeCarouselSlide?.url || activeCarouselSlide?.image || "";
+  const activeCarouselImage = socialImageUrl(activeCarouselSlide?.previewUrl || activeCarouselSlide?.imagePreviewUrl || activeCarouselSlide?.imageUrl || activeCarouselSlide?.url || activeCarouselSlide?.image, "preview");
+  const story = socialPack.instagramStory && typeof socialPack.instagramStory === "object" ? socialPack.instagramStory : {};
+  const storySlides = (Array.isArray(story.frames) ? story.frames : []).map((frame: any, index: number) => ({
+    ...carouselSlides[index],
+    ...frame,
+    imageUrl: frame?.imageUrl || frame?.url || frame?.image || frame?.media || carouselSlides[index]?.imageUrl || carouselSlides[index]?.url || carouselSlides[index]?.image || "",
+    previewUrl: frame?.previewUrl || frame?.imagePreviewUrl || carouselSlides[index]?.previewUrl || "",
+    imageOriginalUrl: originalImageUrl(frame?.url || frame?.imageUrl || frame?.image || frame?.media || carouselSlides[index]?.imageOriginalUrl || carouselSlides[index]?.url || carouselSlides[index]?.image),
+  }));
+  const normalizedStorySlides = storySlides.length ? storySlides : (story.imageUrl || story.url || carouselSlides.length ? [{ ...story, ...carouselSlides[0] }] : []);
+  const safeStorySlideIndex = normalizedStorySlides.length ? Math.min(activeStorySlide, normalizedStorySlides.length - 1) : 0;
+  const currentStorySlide = normalizedStorySlides[safeStorySlideIndex];
+  const activeStoryImage = socialImageUrl(currentStorySlide?.previewUrl || currentStorySlide?.imagePreviewUrl || currentStorySlide?.imageUrl || currentStorySlide?.url || currentStorySlide?.image, "preview");
+  const activeStoryOriginalImage = currentStorySlide?.imageOriginalUrl || originalImageUrl(currentStorySlide?.url || currentStorySlide?.imageUrl || currentStorySlide?.image || currentStorySlide?.media) || activeStoryImage;
   return (
-    <main className="page social-pack-page">
+    <main className="ui-page social-pack-page">
       <PageTitle
         eyebrow={t("social.eyebrow")}
         title={t("social.title")}
         description={t("social.description")}
         back
+        backTo="/plans"
       />
+      {savedVideoMedia.length > 0 && <section className="ui-card saved-video-card"><div><p className="ui-eyebrow">Vídeos guardados</p><p className="ui-muted">Puedes conservar una versión vertical y otra horizontal del mismo contenido.</p></div><div className="saved-content-videos">{savedVideoMedia.map((media) => <figure className="saved-content-video-item" key={media.format}><video className={`saved-content-video saved-content-video-${media.format}`} src={media.url} controls playsInline /><figcaption>{media.format === "portrait" ? "Vertical 9:16" : "Horizontal 16:9"}</figcaption></figure>)}</div></section>}
       {standalone && !post && (
-        <section className="card form-stack social-standalone-composer">
-          <p className="eyebrow">{t("social.standaloneEyebrow")}</p>
+        <section className="ui-card ui-stack ui-stack-md social-standalone-composer">
+          <p className="ui-eyebrow">{t("social.standaloneEyebrow")}</p>
           <h2>{t("social.standaloneTitle")}</h2>
-          <p className="muted">{t("social.standaloneHelp")}</p>
+          <p className="ui-muted">{t("social.standaloneHelp")}</p>
           <label>
             {t("social.standaloneTopic")}
             <input
@@ -3710,8 +3793,8 @@ function SocialPack() {
               placeholder="https://ejemplo.com/landing"
             />
           </label>
-          <div className="form-actions">
-            <AiOnly><button className="primary" onClick={() => void generatePack()} disabled={busy || !standaloneBrief.trim()}>
+          <div className="ui-actions">
+            <AiOnly><button className="ui-button ui-button-primary" onClick={() => void generatePack()} disabled={busy || !standaloneBrief.trim()}>
               {busy ? t("publish.preparing") : t("social.generate")}
             </button></AiOnly>
           </div>
@@ -3720,7 +3803,7 @@ function SocialPack() {
       {post && (
         <div className="social-pack-toolbar">
           {articleUrl ? <div>
-            <p className="eyebrow">{standalone ? t("social.standaloneUrl") : t("social.articleUrl")}</p>
+            <p className="ui-eyebrow">{standalone ? t("social.standaloneUrl") : t("social.articleUrl")}</p>
             <a
               className="article-url"
               href={articleUrl}
@@ -3730,18 +3813,18 @@ function SocialPack() {
               {articleUrl}
             </a>
           </div> : <div>
-            <p className="eyebrow">{t("social.standaloneEyebrow")}</p>
+            <p className="ui-eyebrow">{t("social.standaloneEyebrow")}</p>
             <strong>{post.title}</strong>
           </div>}
-          <div className="form-actions">
-            {articleUrl && <button className="ghost" onClick={() => void copy(articleUrl)}>
+          <div className="ui-actions">
+            {articleUrl && <button className="ui-button ui-button-ghost" onClick={() => void copy(articleUrl)}>
               {t("social.copyUrl")}
             </button>}
-            {standalone && <button className="ghost" onClick={() => { setPost(null); setSocialPack({}); setArticleUrl(""); setStandaloneTitle(""); setStandaloneBrief(""); setStandaloneUrl(""); setMessage(""); }}>
+            {standalone && <button className="ui-button ui-button-ghost" onClick={() => { setPost(null); setSocialPack({}); setArticleUrl(""); setStandaloneTitle(""); setStandaloneBrief(""); setStandaloneUrl(""); setMessage(""); }}>
               {t("social.standaloneNew")}
             </button>}
             <button
-              className="secondary"
+              className="ui-button ui-button-secondary"
               onClick={download}
               disabled={!Object.keys(socialPack).length}
             >
@@ -3753,7 +3836,7 @@ function SocialPack() {
       {post && socialPack && Object.keys(socialPack).length > 0 && (
         <div className="social-pack-generation-actions">
           <AiOnly><button
-            className="primary"
+            className="ui-button ui-button-primary"
             onClick={() => void generatePack()}
             disabled={busy}
           >
@@ -3763,14 +3846,27 @@ function SocialPack() {
           </button></AiOnly>
         </div>
       )}
+      {post && teleprompterScript && (
+        <section className="ui-card teleprompter-launch-card">
+          <div>
+            <p className="ui-eyebrow">{t("social.video")}</p>
+            <h2>{t("social.recordTitle")}</h2>
+            <p className="ui-muted">{t("social.recordHelp")}</p>
+            {!bufferReady && <p className="ui-field-hint">Conecta al menos un canal de Buffer en Administración para publicar este vídeo.</p>}
+          </div>
+          <button className="ui-button ui-button-primary" onClick={() => { enterRecorderFullscreen(); setShowTeleprompter(true); }}>{t("social.record")}</button>
+        </section>
+      )}
       {post && (
         <section className="social-visual-grid">
           {blogImageSrc && (
-            <article className="card social-cover-card">
-              <p className="eyebrow">{t("social.blogImage")}</p>
+            <article className="ui-card social-cover-card">
+              <p className="ui-eyebrow">{t("social.blogImage")}</p>
               <img
                 src={blogImageSrc}
                 alt={post.imageAlt || post.title}
+                loading="lazy"
+                decoding="async"
                 onError={(event) => {
                   event.currentTarget.style.display = "none";
                   event.currentTarget.parentElement?.classList.add(
@@ -3778,13 +3874,13 @@ function SocialPack() {
                   );
                 }}
               />
-              <p className="muted">{post.title}</p>
+              <p className="ui-muted">{post.title}</p>
             </article>
           )}
-          <article className="card social-carousel-card">
+          <article className="ui-card social-carousel-card">
                 <div className="social-channel-head">
                   <div>
-                    <p className="eyebrow">{t("social.instagramCarousel")}</p>
+                    <p className="ui-eyebrow">{t("social.instagramCarousel")}</p>
                     <h2>{t("social.carouselTitle")}</h2>
                   </div>
                   <button
@@ -3812,11 +3908,17 @@ function SocialPack() {
                         {activeCarouselImage ? (
                           <img
                             src={activeCarouselImage}
+                            loading="lazy"
+                            decoding="async"
                             alt={
                               activeCarouselSlide?.alt ||
                               activeCarouselSlide?.headline ||
                               `${t("social.slide")} ${safeSlideIndex + 1}`
                             }
+                            onError={(event) => {
+                              const fallback = activeCarouselSlide?.imageOriginalUrl || originalImageUrl(activeCarouselSlide?.url || activeCarouselSlide?.imageUrl || activeCarouselSlide?.image || activeCarouselSlide?.media);
+                              if (fallback && event.currentTarget.src !== fallback) event.currentTarget.src = fallback;
+                            }}
                           />
                         ) : (
                           <div className="carousel-placeholder">{safeSlideIndex + 1}</div>
@@ -3863,26 +3965,34 @@ function SocialPack() {
                     </div>
                   </div>
                 ) : (
-                  <p className="muted carousel-empty">
+                  <p className="ui-muted carousel-empty">
                     {t("social.carouselEmpty")}
                   </p>
                 )}
           </article>
-        </section>
-      )}
-      {post && teleprompterScript && (
-        <section className="card teleprompter-launch-card">
-          <div>
-            <p className="eyebrow">{t("social.video")}</p>
-            <h2>{t("social.recordTitle")}</h2>
-            <p className="muted">{t("social.recordHelp")}</p>
-          </div>
-          <button
-            className="primary"
-            onClick={() => setShowTeleprompter(true)}
-          >
-            {t("social.record")}
-          </button>
+          <article className="ui-card social-story-card">
+            <div className="social-channel-head"><div><p className="ui-eyebrow">{t("social.instagramStory")}</p><h2>Stories publicadas</h2></div><ChannelBadge channel="instagram_story" /></div>
+            {normalizedStorySlides.length > 0 ? (
+              <div className="instagram-carousel instagram-story-carousel" role="region" aria-label={t("social.instagramStory")}>
+                <div className="instagram-carousel-stage">
+                  <button className="carousel-nav carousel-prev" type="button" onClick={() => setActiveStorySlide((safeStorySlideIndex - 1 + normalizedStorySlides.length) % normalizedStorySlides.length)} aria-label="Story anterior" title="Story anterior">‹</button>
+                  <figure>
+                    {activeStoryImage ? <img src={activeStoryImage} alt={currentStorySlide?.alt || currentStorySlide?.headline || `${t("social.instagramStory")} ${safeStorySlideIndex + 1}`} loading="lazy" decoding="async" onError={(event) => { if (activeStoryOriginalImage && event.currentTarget.src !== activeStoryOriginalImage) event.currentTarget.src = activeStoryOriginalImage; }} /> : <div className="carousel-placeholder">{safeStorySlideIndex + 1}</div>}
+                    <figcaption>
+                      <span>{currentStorySlide?.headline || currentStorySlide?.text || `${t("social.instagramStory")} ${safeStorySlideIndex + 1}`}</span>
+                      {activeStoryImage && <button className="chip" type="button" onClick={() => void downloadSlide(currentStorySlide, safeStorySlideIndex)}>{t("social.downloadSlide")}</button>}
+                    </figcaption>
+                  </figure>
+                  <button className="carousel-nav carousel-next" type="button" onClick={() => setActiveStorySlide((safeStorySlideIndex + 1) % normalizedStorySlides.length)} aria-label="Story siguiente" title="Story siguiente">›</button>
+                </div>
+                <div className="carousel-dots" role="tablist" aria-label={t("social.instagramStory")}>
+                  {normalizedStorySlides.map((slide: any, index: number) => <button key={slide?.id || `${slide?.imageUrl || "story"}-${index}`} className={`carousel-dot${index === safeStorySlideIndex ? " active" : ""}`} type="button" role="tab" aria-selected={index === safeStorySlideIndex} aria-label={`${t("social.instagramStory")} ${index + 1}`} onClick={() => setActiveStorySlide(index)}>{index + 1}</button>)}
+                </div>
+              </div>
+            ) : <div className="carousel-placeholder">Story</div>}
+            {story.text && <p>{story.text}</p>}
+            <p className="ui-field-hint">La imagen y el enlace quedan visibles aquí aunque Buffer requiera confirmar el sticker manualmente.</p>
+          </article>
         </section>
       )}
       {post && Object.keys(socialPack).length ? (
@@ -3891,7 +4001,7 @@ function SocialPack() {
             (field) =>
               typeof socialPack[field.key] === "string" &&
               socialPack[field.key] && (
-                <article className="card social-channel-card" key={field.key}>
+                <article className="ui-card social-channel-card" key={field.key}>
                   <div className="social-channel-head">
                     <h2>{field.label}</h2>
                     <button
@@ -3907,7 +4017,7 @@ function SocialPack() {
           )}
           {typeof socialPack.videoScript === "string" &&
             socialPack.videoScript && (
-              <article className="card social-channel-card video-script-card">
+              <article className="ui-card social-channel-card video-script-card">
                 <div className="social-channel-head">
                   <h2>{t("social.video")}</h2>
                 </div>
@@ -3916,12 +4026,12 @@ function SocialPack() {
             )}
         </div>
       ) : post ? (
-        <section className="empty-state">
+        <section className="ui-empty">
           <span>✦</span>
           <h2>{t("social.empty")}</h2>
           <p>{t("social.description")}</p>
           <AiOnly><button
-            className="primary"
+            className="ui-button ui-button-primary"
             onClick={() => void generatePack()}
             disabled={busy}
           >
@@ -3929,10 +4039,17 @@ function SocialPack() {
           </button></AiOnly>
         </section>
       ) : null}
-      {message && <p className="success">{message}</p>}
       {showTeleprompter && (
         <TeleprompterModal
           script={teleprompterScript}
+          itemId={contentItemId}
+          site={site}
+          canPublish={Boolean(contentItemId && publishChannels.length)}
+          publishChannels={publishChannels}
+          busy={busy}
+          onUploaded={(replacedPrevious, mediaUrl, format) => { if (mediaUrl && format) setSavedVideoMedia((current) => [...current.filter((media) => media.format !== format), { url: mediaUrl, format }]); showToast(replacedPrevious ? "Vídeo guardado. Se reemplazó el anterior del mismo formato." : "Vídeo guardado."); }}
+          onNotify={showToast}
+          onPublish={(channel) => void publishReel(channel)}
           onClose={() => setShowTeleprompter(false)}
         />
       )}
@@ -3942,59 +4059,93 @@ function SocialPack() {
 
 function TeleprompterModal({
   script,
+  itemId,
+  site,
+  canPublish,
+  publishChannels = ["video"],
+  busy,
+  onUploaded,
+  onNotify,
+  onPublish,
   onClose,
 }: {
   script: string;
+  itemId?: string;
+  site?: string;
+  canPublish?: boolean;
+  publishChannels?: string[];
+  busy?: boolean;
+  onUploaded?: (replacedPrevious: boolean, mediaUrl?: string, format?: VideoFormat) => void;
+  onNotify?: (message: string, kind?: ToastKind) => void;
+  onPublish?: (channel: string) => void;
   onClose: () => void;
 }) {
   const { t } = useI18n();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const portraitCaptureRef = useRef<VideoCapture | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const countdownTimerRef = useRef<number | null>(null);
   const [recording, setRecording] = useState(false);
-  const paragraphs = useMemo(
-    () => script.split(/\n\s*\n/).map((part) => part.trim()).filter(Boolean),
-    [script],
-  );
+  const paragraphs = useMemo(() => {
+    const lines = script.replace(/([.!?])\s+/g, "$1\n").split(/\r?\n/).map((part) => part.trim()).filter(Boolean);
+    return lines.filter((line, index) => index === 0 || line.replace(/\s+/g, " ").toLocaleLowerCase() !== lines[index - 1].replace(/\s+/g, " ").toLocaleLowerCase());
+  }, [script]);
   const paragraphRefs = useRef<Array<HTMLParagraphElement | null>>([]);
-  const [playing, setPlaying] = useState(false);
+  const [showCamera, setShowCamera] = useState(true);
   const [countdown, setCountdown] = useState(0);
   const [currentParagraph, setCurrentParagraph] = useState(0);
-  const speed = 1;
   const [videoUrl, setVideoUrl] = useState("");
-  const [error, setError] = useState("");
+  const [videoBlob, setVideoBlob] = useState<Blob | null>(null);
+  const [format, setFormat] = useState<VideoFormat>("portrait");
+  const [uploading, setUploading] = useState(false);
+  const [uploaded, setUploaded] = useState(false);
   useEffect(() => {
     setCurrentParagraph(0);
-    setPlaying(false);
     scrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
     return () => {
       if (countdownTimerRef.current) window.clearInterval(countdownTimerRef.current);
     };
+  }, [script]);
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previousOverflow; };
   }, []);
   useEffect(() => {
-    if (!playing) return;
-    const timer = window.setInterval(
-      () => scrollRef.current?.scrollBy({ top: speed, behavior: "auto" }),
-      45,
-    );
-    return () => window.clearInterval(timer);
-  }, [playing, speed]);
+    const handleKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") { exitRecorderFullscreen(); onClose(); } };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => { document.removeEventListener("keydown", handleKeyDown); exitRecorderFullscreen(); };
+  }, [onClose]);
   useEffect(
     () => () => {
+      portraitCaptureRef.current?.stop();
+      portraitCaptureRef.current = null;
       streamRef.current?.getTracks().forEach((track) => track.stop());
       if (videoUrl) URL.revokeObjectURL(videoUrl);
     },
     [videoUrl],
   );
+  useEffect(() => {
+    if (!showCamera || videoUrl || !videoRef.current || !streamRef.current) return;
+    videoRef.current.srcObject = streamRef.current;
+    void videoRef.current.play().catch(() => undefined);
+  }, [showCamera, videoUrl]);
   const start = async () => {
     try {
       if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder)
         throw new Error(t("social.cameraError"));
+      if (videoUrl) URL.revokeObjectURL(videoUrl);
+      setVideoUrl("");
+      setVideoBlob(null);
+      setUploaded(false);
+      const videoConstraints = format === "portrait"
+        ? { width: { ideal: 1080 }, height: { ideal: 1920 }, aspectRatio: { ideal: 9 / 16 }, facingMode: "user" }
+        : { width: { ideal: 1920 }, height: { ideal: 1080 }, aspectRatio: { ideal: 16 / 9 }, facingMode: "user" };
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
+        video: videoConstraints,
         audio: true,
       });
       streamRef.current = stream;
@@ -4003,20 +4154,20 @@ function TeleprompterModal({
         await videoRef.current.play();
       }
       chunksRef.current = [];
-      const recorder = new MediaRecorder(stream);
+      portraitCaptureRef.current = videoRef.current ? createVideoCapture(videoRef.current, stream, format) : null;
+      const recorder = new MediaRecorder(portraitCaptureRef.current?.stream || stream);
       recorder.ondataavailable = (event) => {
         if (event.data.size) chunksRef.current.push(event.data);
       };
       recorder.onstop = () => {
-        const url = URL.createObjectURL(
-          new Blob(chunksRef.current, { type: "video/webm" }),
-        );
-        setVideoUrl(url);
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "video/webm" });
+        setVideoBlob(blob);
+        setVideoUrl(URL.createObjectURL(blob));
+        setUploaded(false);
       };
       recorder.start();
       recorderRef.current = recorder;
       setRecording(true);
-      setPlaying(false);
       setCountdown(3);
       let remaining = 3;
       if (countdownTimerRef.current) window.clearInterval(countdownTimerRef.current);
@@ -4026,64 +4177,68 @@ function TeleprompterModal({
           if (countdownTimerRef.current) window.clearInterval(countdownTimerRef.current);
           countdownTimerRef.current = null;
           setCountdown(0);
-          setPlaying(true);
         } else {
           setCountdown(remaining);
         }
       }, 1000);
-      setError("");
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("social.cameraError"));
+      portraitCaptureRef.current?.stop();
+      portraitCaptureRef.current = null;
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      onNotify?.(e instanceof Error ? e.message : t("social.cameraError"), "error");
     }
   };
   const stop = () => {
     if (countdownTimerRef.current) window.clearInterval(countdownTimerRef.current);
     countdownTimerRef.current = null;
     recorderRef.current?.stop();
+    recorderRef.current = null;
+    portraitCaptureRef.current?.stop();
+    portraitCaptureRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     setRecording(false);
     setCountdown(0);
-    setPlaying(false);
   };
-  const nextParagraph = () => {
-    const next = Math.min(currentParagraph + 1, Math.max(paragraphs.length - 1, 0));
+  const moveParagraph = (direction: -1 | 1) => {
+    const next = Math.max(0, Math.min(currentParagraph + direction, paragraphs.length - 1));
+    if (next === currentParagraph) return;
     setCurrentParagraph(next);
-    paragraphRefs.current[next]?.scrollIntoView({ behavior: "smooth", block: "center" });
-    setPlaying(true);
+    const container = scrollRef.current;
+    const paragraph = paragraphRefs.current[next];
+    if (container && paragraph) {
+      const cameraOffset = Math.min(container.clientHeight * 0.2, 120);
+      container.scrollTo({ top: Math.max(0, paragraph.offsetTop - cameraOffset), behavior: "smooth" });
+    }
   };
+  const upload = async () => {
+    if (!videoBlob || !itemId || !site || uploading) return;
+    setUploading(true);
+    try {
+      const extension = videoBlob.type.includes("mp4") ? "mp4" : videoBlob.type.includes("quicktime") ? "mov" : "webm";
+      const file = new File([videoBlob], `escarlet-reel-${format}.${extension}`, { type: videoBlob.type || "video/webm" });
+      const result = await api.uploadContentVideo(itemId, file, site, format);
+      setUploaded(true);
+      onUploaded?.(result.replacedPrevious, String(result.media?.url || result.media?.path || ""), format);
+    } catch (cause) {
+      onNotify?.(cause instanceof Error ? cause.message : "No se pudo subir el vídeo.", "error");
+    } finally {
+      setUploading(false);
+    }
+  };
+  const publishLabel = (channel: string) => channel === "video" ? "Instagram Reel" : channel === "instagram" ? "Instagram" : channel === "linkedin" ? "LinkedIn" : channel === "x" ? "X" : channel;
+  const controlHint = videoBlob && itemId && site && !uploaded
+    ? "Se reemplaza solo el vídeo del formato elegido."
+    : uploaded && onPublish && !canPublish
+      ? "Conecta y activa un canal de Buffer en Administración para publicar."
+      : "";
   return (
-    <div className="modal-backdrop" role="presentation">
-      <section
-        className="modal-card teleprompter-modal"
-        role="dialog"
-        aria-modal="true"
-      >
-        <div className="modal-head">
-          <div>
-            <p className="eyebrow">{t("social.video")}</p>
-            <h2>{t("social.record")}</h2>
-          </div>
-          <button
-            className="icon-button"
-            onClick={onClose}
-            aria-label={t("editor.close")}
-          >
-            ×
-          </button>
-        </div>
+    <div className="ui-modal-backdrop teleprompter-backdrop" role="presentation">
+      <section className="ui-modal teleprompter-modal" role="dialog" aria-modal="true" aria-label={t("social.record")}>
         <div className="teleprompter-layout">
-          <div className="camera-stage">
-            <video ref={videoRef} muted playsInline />
-            <span>{recording ? "●" : "○"}</span>
-            {countdown > 0 && (
-              <div className="teleprompter-countdown" aria-live="assertive">
-                <strong>{countdown}</strong>
-                <small>{t("social.getReady")}</small>
-              </div>
-            )}
-          </div>
-          <div className="teleprompter-script" ref={scrollRef}>
-            {paragraphs.map((paragraph, index) => (
+          <div className="teleprompter-script-wrap">
+            <div className="teleprompter-script" ref={scrollRef}>
+            {paragraphs.map((paragraph, index) => index < currentParagraph || index > currentParagraph + 1 ? null : (
               <p
                 key={`${index}-${paragraph.slice(0, 18)}`}
                 ref={(element) => { paragraphRefs.current[index] = element; }}
@@ -4092,41 +4247,52 @@ function TeleprompterModal({
                 {paragraph}
               </p>
             ))}
+            </div>
           </div>
+          {showCamera && <div className={`camera-stage camera-stage-${format}`}>
+            {videoUrl ? <video src={videoUrl} controls playsInline /> : <video ref={videoRef} muted playsInline />}
+            <span>{recording ? "●" : "○"}</span>
+            {countdown > 0 && (
+              <div className="teleprompter-countdown" aria-live="assertive">
+                <strong>{countdown}</strong>
+                <small>{t("social.getReady")}</small>
+              </div>
+            )}
+          </div>}
         </div>
+        <TeleprompterLineControls onPrevious={() => moveParagraph(-1)} onNext={() => moveParagraph(1)} previousDisabled={!paragraphs.length || currentParagraph === 0} nextDisabled={!paragraphs.length || currentParagraph >= paragraphs.length - 1} />
+        {controlHint && <p className="ui-field-hint teleprompter-control-hint">{controlHint}</p>}
         <div className="teleprompter-controls">
+          <div className="teleprompter-format-picker" role="group" aria-label="Formato del vídeo">
+            <button className={`ui-button ui-button-${format === "portrait" ? "secondary" : "ghost"}`} type="button" disabled={recording} onClick={() => setFormat("portrait")}>Vertical 9:16</button>
+            <button className={`ui-button ui-button-${format === "landscape" ? "secondary" : "ghost"}`} type="button" disabled={recording} onClick={() => setFormat("landscape")}>Horizontal 16:9</button>
+          </div>
           <button
-            className={recording ? "danger-button" : "primary"}
+            className={recording ? "ui-button ui-button-danger" : "ui-button ui-button-primary"}
             onClick={recording ? stop : start}
           >
             {recording ? t("social.stop") : t("social.record")}
           </button>
-          <button
-            className="secondary"
-            onClick={() => setPlaying((value) => !value)}
-            disabled={countdown > 0}
-          >
-            {playing ? t("social.pause") : t("social.play")}
-          </button>
-          <button
-            className="teleprompter-next"
-            type="button"
-            onClick={nextParagraph}
-            disabled={!paragraphs.length || currentParagraph >= paragraphs.length - 1}
-          >
-            {t("social.nextParagraph")}
-          </button>
+          <button className="ui-button ui-button-ghost" type="button" onClick={() => setShowCamera((value) => !value)}>{showCamera ? "Ocultar cámara" : "Mostrar cámara"}</button>
           {videoUrl && (
             <a
-              className="secondary"
+              className="ui-button ui-button-secondary"
               href={videoUrl}
-              download="escarlet-video.webm"
+              download={`escarlet-video-${format}.webm`}
             >
               {t("social.downloadVideo")}
             </a>
           )}
+          {videoBlob && itemId && site && (
+            <>
+              <button className="ui-button ui-button-secondary" onClick={() => void upload()} disabled={uploading || uploaded}>
+                {uploaded ? "Vídeo guardado" : uploading ? "Guardando vídeo…" : "Guardar vídeo"}
+              </button>
+            </>
+          )}
+          {uploaded && onPublish && (canPublish ? publishChannels.map((channel) => <button key={channel} className={`ui-button ${channel === "video" ? "ui-button-primary" : "ui-button-secondary"}`} onClick={() => onPublish(channel)} disabled={Boolean(busy)}>{busy ? "Programando…" : `Publicar en ${publishLabel(channel)}`}</button>) : <button className="ui-button ui-button-secondary" disabled>Publicar en Buffer</button>)}
+          <Button className="teleprompter-close" size="sm" variant="ghost" onClick={() => { exitRecorderFullscreen(); onClose(); }}>{t("editor.close")}</Button>
         </div>
-        {error && <p className="error">{error}</p>}
       </section>
     </div>
   );
@@ -4135,20 +4301,25 @@ function TeleprompterModal({
 function Posts() {
   const { site } = useApp();
   const { t } = useI18n();
-  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [posts, setPosts] = useState<Post[]>([]);
   const [error, setError] = useState("");
-  const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [scheduledView, setScheduledView] = useState<"list" | "month">("list");
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const requestedFilter = params.get("status");
-    if (requestedFilter && ["all", "draft", "scheduled", "published"].includes(requestedFilter)) {
-      setStatusFilter(requestedFilter);
-    }
-    if (params.get("view") === "month") setScheduledView("month");
-  }, [location.search]);
+  const query = searchParams.get("q") || "";
+  const requestedStatus = searchParams.get("status") || "all";
+  const statusFilter = ["all", "draft", "scheduled", "published"].includes(requestedStatus) ? requestedStatus : "all";
+  const updatePostSearch = (key: string, value: string, defaultValue = "") => {
+    const next = new URLSearchParams(searchParams);
+    if (!value || value === defaultValue) next.delete(key);
+    else next.set(key, value);
+    setSearchParams(next, { replace: true });
+  };
+  const selectPostStatus = (filter: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (filter === "all") next.delete("status");
+    else next.set("status", filter);
+    if (filter !== "scheduled") next.delete("view");
+    setSearchParams(next, { replace: true });
+  };
   const nav = useNavigate();
   useEffect(() => {
     api
@@ -4169,37 +4340,38 @@ function Posts() {
               `${post.title} ${post.slug}`.toLowerCase().includes(needle))
           );
         })
-        .sort(
-          (a, b) =>
-            new Date(
-              b.dateModified || b.publishAt || b.datePublished || 0,
-            ).getTime() -
-            new Date(
-              a.dateModified || a.publishAt || a.datePublished || 0,
-            ).getTime(),
-        ),
+        .sort((a, b) => {
+          if (statusFilter === "scheduled") {
+            const nextPublication = (post: Post) => {
+              const timestamp = new Date(post.publishAt || "").getTime();
+              return Number.isFinite(timestamp) ? timestamp : Number.POSITIVE_INFINITY;
+            };
+            return nextPublication(a) - nextPublication(b);
+          }
+          return new Date(b.dateModified || b.publishAt || b.datePublished || 0).getTime() - new Date(a.dateModified || a.publishAt || a.datePublished || 0).getTime();
+        }),
     [posts, query, statusFilter],
   );
   return (
-    <main className="page">
-      <div className="page-header">
+    <main className="ui-page">
+      <div className="ui-page-header">
         <PageTitle
           eyebrow={t("posts.eyebrow")}
           title={t("posts.title")}
           description={t("posts.description")}
         />
-        <button className="primary" onClick={() => nav("/manual")}>
+        <button className="ui-button ui-button-primary" onClick={() => nav("/manual")}>
           {t("posts.new")}
         </button>
       </div>
       {error ? (
-        <p className="error">{error}</p>
+        <p className="ui-error">{error}</p>
       ) : posts.length ? (
         <>
           <div className="post-filters">
             <input
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => updatePostSearch("q", e.target.value)}
               placeholder={t("posts.search")}
               aria-label={t("posts.search")}
             />
@@ -4215,8 +4387,7 @@ function Posts() {
                     type="button"
                     className={`filter-pill ${statusFilter === filter ? "selected" : ""}`}
                     onClick={() => {
-                      setStatusFilter(filter);
-                      if (filter !== "scheduled") setScheduledView("list");
+                      selectPostStatus(filter);
                     }}
                   >
                     {t(`posts.filter.${filter}`)}
@@ -4225,21 +4396,7 @@ function Posts() {
               )}
             </div>
           </div>
-          {statusFilter === "scheduled" && (
-            <div className="posts-view-toolbar">
-              <span>{t("calendar.onlyScheduled")}</span>
-              <button
-                type="button"
-                className="icon-button calendar-view-toggle"
-                onClick={() => setScheduledView((current) => current === "list" ? "month" : "list")}
-                aria-label={t(scheduledView === "list" ? "calendar.monthView" : "calendar.listView")}
-                title={t(scheduledView === "list" ? "calendar.monthView" : "calendar.listView")}
-              >
-                {scheduledView === "list" ? "▦" : "☷"}
-              </button>
-            </div>
-          )}
-          {statusFilter === "scheduled" && scheduledView === "month" ? (
+          {statusFilter === "scheduled" ? (
             <Calendar embedded postsOverride={visiblePosts} />
           ) : visiblePosts.length ? (
             <div className="post-list">
@@ -4252,8 +4409,7 @@ function Posts() {
               title={t("posts.noMatches")}
               action={t("posts.clearFilters")}
               onClick={() => {
-                setQuery("");
-                setStatusFilter("all");
+                setSearchParams(new URLSearchParams(), { replace: true });
               }}
             />
           )}
@@ -4271,17 +4427,20 @@ function Posts() {
 function PostRow({ post, onDeleted }: { post: Post; onDeleted?: (slug: string) => void }) {
   const nav = useNavigate();
   const { t, language } = useI18n();
+  const { workflowFlags, brandCapabilities } = useApp();
   const { showToast } = useToast();
   const [imageError, setImageError] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const statusKey = uiStatus(post.status);
   const status = t(`status.${statusKey}`, statusKey);
-  const imageSrc = post.imageThumbUrl || post.imageUrl;
+  const imageSrc = post.imageThumbUrl || post.imagePreviewUrl || post.imageUrl || post.imageGallery?.[0]?.thumbUrl || post.imageGallery?.[0]?.previewUrl || post.imageGallery?.[0]?.url || post.imageGallery?.[0]?.path;
   const postSlug = String(post.slug || (post as any).id || "").trim();
   return (
     <div className="post-row">
       <button
         className="post-row-main"
+        disabled={!postSlug || !workflowFlags.legacyPreviewEnabled || brandCapabilities.content_publishing === false}
+        title={!workflowFlags.legacyPreviewEnabled || brandCapabilities.content_publishing === false ? t("preview.disabled") : undefined}
         onClick={() => postSlug && nav(`/preview/${encodeURIComponent(postSlug)}`)}
       >
         {imageSrc && !imageError ? (
@@ -4290,13 +4449,14 @@ function PostRow({ post, onDeleted }: { post: Post; onDeleted?: (slug: string) =
             src={imageSrc}
             alt=""
             loading="lazy"
+            decoding="async"
             onError={() => setImageError(true)}
           />
         ) : (
           <span className="post-thumb placeholder-thumb">✦</span>
         )}
         <div className="post-row-copy">
-          <span className={`status ${statusKey}`}>{status}</span>
+          <span className={`ui-status ${statusKey}`}>{status}</span>
           <h3>{post.title}</h3>
           <p>
             {post.publishAt
@@ -4306,18 +4466,29 @@ function PostRow({ post, onDeleted }: { post: Post; onDeleted?: (slug: string) =
         </div>
         <span className="chevron">›</span>
       </button>
-      {hasSocialPack(post) && (
+      {workflowFlags.legacySocialPackEnabled && hasSocialPack(post) && (
         <button
           className="post-pack-button"
           type="button"
           onClick={() => postSlug && nav(`/social-pack/${encodeURIComponent(postSlug)}`)}
-          aria-label={t("preview.socialPack")}
-          title={t("preview.socialPack")}
+          aria-label={t("preview.socialView")}
+          title={t("preview.socialView")}
         >
           <MobileSocialIcon />
         </button>
       )}
-      <button
+      {workflowFlags.legacySocialPackEnabled && hasSocialPack(post) && post.socialPack?.videoScript && (
+        <button
+          className="post-pack-button"
+          type="button"
+          onClick={() => { if (!postSlug) return; enterRecorderFullscreen(); nav(`/social-pack/${encodeURIComponent(postSlug)}?record=1`); }}
+          aria-label={t("social.record")}
+          title={t("social.record")}
+        >
+          ◉
+        </button>
+      )}
+      {onDeleted && <button
         className="post-delete-button"
         type="button"
         disabled={deleting}
@@ -4343,7 +4514,7 @@ function PostRow({ post, onDeleted }: { post: Post; onDeleted?: (slug: string) =
         title={t("posts.delete")}
       >
         {deleting ? "…" : "⌫"}
-      </button>
+      </button>}
     </div>
   );
 }
@@ -4355,7 +4526,6 @@ function Calendar({ embedded = false, postsOverride }: { embedded?: boolean; pos
   const [posts, setPosts] = useState<Post[]>([]);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
-  const [view, setView] = useState<"list" | "month">(embedded ? "month" : "list");
   const [monthCursor, setMonthCursor] = useState(() => new Date());
   useEffect(() => {
     if (postsOverride) {
@@ -4371,17 +4541,8 @@ function Calendar({ embedded = false, postsOverride }: { embedded?: boolean; pos
   const scheduledPosts = useMemo(
     () => posts
       .filter((post) => ["pending_schedule", "scheduled"].includes(post.status) && Boolean(post.publishAt))
-      .sort((a, b) => new Date(b.publishAt || 0).getTime() - new Date(a.publishAt || 0).getTime()),
+      .sort((a, b) => new Date(a.publishAt || 0).getTime() - new Date(b.publishAt || 0).getTime()),
     [posts],
-  );
-  const grouped = useMemo(
-    () =>
-      scheduledPosts.reduce<Record<string, Post[]>>((acc, post) => {
-        const key = (post.publishAt || "").slice(0, 10);
-        (acc[key] ||= []).push(post);
-        return acc;
-      }, {}),
-    [scheduledPosts],
   );
   const monthDays = useMemo(() => {
     const year = monthCursor.getFullYear();
@@ -4408,7 +4569,7 @@ function Calendar({ embedded = false, postsOverride }: { embedded?: boolean; pos
     ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     : ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
   return (
-    <main className={`page ${embedded ? "calendar-embedded" : ""}`}>
+    <main className={`ui-page ${embedded ? "calendar-embedded" : ""}`}>
       {!embedded && <PageTitle
           eyebrow={t("calendar.eyebrow")}
           title={t("calendar.title")}
@@ -4416,13 +4577,13 @@ function Calendar({ embedded = false, postsOverride }: { embedded?: boolean; pos
           back
         />}
       {error && (
-        <section className="calendar-error card">
+        <section className="calendar-error ui-card">
           <span className="calendar-error-icon">□</span>
           <div>
             <h2>{t("calendar.errorTitle")}</h2>
-            <p className="muted">{t("calendar.errorHelp")}</p>
+            <p className="ui-muted">{t("calendar.errorHelp")}</p>
             <button
-              className="secondary"
+              className="ui-button ui-button-secondary"
               onClick={() => {
                 setError("");
                 setRetry((value) => value + 1);
@@ -4433,33 +4594,12 @@ function Calendar({ embedded = false, postsOverride }: { embedded?: boolean; pos
           </div>
         </section>
       )}
-      {!embedded && <div className="calendar-toolbar">
-          <p className="tiny">{t("calendar.onlyScheduled")}</p>
-          <button
-            type="button"
-            className="icon-button calendar-view-toggle"
-            onClick={() => setView((current) => current === "list" ? "month" : "list")}
-            aria-label={t(view === "list" ? "calendar.monthView" : "calendar.listView")}
-            title={t(view === "list" ? "calendar.monthView" : "calendar.listView")}
-          >
-            {view === "list" ? "▦" : "☷"}
-          </button>
-        </div>}
-      {scheduledPosts.length ? (view === "list" ? (
-        <div className="calendar-list">
-          {Object.entries(grouped).map(([date, rows]) => (
-            <section key={date}>
-              <h2>{readableDate(date, language)}</h2>
-              {rows.map((post) => <PostRow key={post.slug || (post as any).id} post={post} />)}
-            </section>
-          ))}
-        </div>
-      ) : (
-        <section className="calendar-month card">
+      {scheduledPosts.length ? (
+        <section className="calendar-month ui-card">
           <div className="calendar-month-head">
-            <button type="button" className="icon-button" onClick={() => setMonthCursor((date) => new Date(date.getFullYear(), date.getMonth() - 1, 1))} aria-label={t("calendar.previousMonth")}>‹</button>
+            <button type="button" className="ui-icon-button" onClick={() => setMonthCursor((date) => new Date(date.getFullYear(), date.getMonth() - 1, 1))} aria-label={t("calendar.previousMonth")}>‹</button>
             <strong>{monthLabel}</strong>
-            <button type="button" className="icon-button" onClick={() => setMonthCursor((date) => new Date(date.getFullYear(), date.getMonth() + 1, 1))} aria-label={t("calendar.nextMonth")}>›</button>
+            <button type="button" className="ui-icon-button" onClick={() => setMonthCursor((date) => new Date(date.getFullYear(), date.getMonth() + 1, 1))} aria-label={t("calendar.nextMonth")}>›</button>
           </div>
           <div className="calendar-weekdays">{weekDays.map((day) => <span key={day}>{day}</span>)}</div>
           <div className="calendar-month-grid">
@@ -4469,7 +4609,7 @@ function Calendar({ embedded = false, postsOverride }: { embedded?: boolean; pos
                 <div key={dayKey(date)} className={`calendar-day ${inMonth ? "" : "outside"} ${rows.length ? "has-posts" : ""}`}>
                   <span>{date.getDate()}</span>
                   {rows.slice(0, 2).map((post) => (
-                    <button key={post.slug || (post as any).id} type="button" className="calendar-day-post" onClick={() => post.slug && nav(`/preview/${encodeURIComponent(post.slug)}`)} title={post.title}>{post.title}</button>
+                    <button key={post.slug || (post as any).id} type="button" className="calendar-day-post" disabled={!post.itemId} onClick={() => post.itemId && nav(`/content/${encodeURIComponent(post.itemId)}`)} title={post.title}>{post.title}</button>
                   ))}
                   {rows.length > 2 && <small>+{rows.length - 2}</small>}
                 </div>
@@ -4477,7 +4617,7 @@ function Calendar({ embedded = false, postsOverride }: { embedded?: boolean; pos
             })}
           </div>
         </section>
-      )) : null}
+      ) : null}
       {!scheduledPosts.length && !error && (
           <EmptyState
             title={t("calendar.empty")}
@@ -4489,6 +4629,9 @@ function Calendar({ embedded = false, postsOverride }: { embedded?: boolean; pos
   );
 }
 
+/** Canonical v2 calendar. The legacy Calendar component above remains an
+ * adapter for old post routes and embedded views; the visible route uses
+ * schedules/variants directly so plans and execution are clearly separate. */
 function AuthorInvite() {
   const { t } = useI18n();
   const { showToast } = useToast();
@@ -4515,19 +4658,19 @@ function AuthorInvite() {
     });
   }, [showToast, t]);
   return (
-    <main className="page narrow">
+    <main className="ui-page ui-page-narrow">
       <PageTitle eyebrow={t("authorInvite.eyebrow")} title={t("authorInvite.title")} description={t("authorInvite.description")} back />
-      <section className={`card invite-result ${status}`}>
+      <section className={`ui-card invite-result ${status}`}>
         <span className="invite-result-icon">{status === "loading" ? "…" : status === "success" ? "✓" : "!"}</span>
         <p>{status === "loading" ? t("common.loading") : message}</p>
-        <button className="primary" type="button" onClick={() => nav("/settings")}>{t("authorInvite.continue")}</button>
+        <button className="ui-button ui-button-primary" type="button" onClick={() => nav("/settings")}>{t("authorInvite.continue")}</button>
       </section>
     </main>
   );
 }
 
 function Settings() {
-  const { session, site, contentMode, refresh, workflowFlags } = useApp();
+  const { session, site, refresh, workflowFlags } = useApp();
   const { language, setLanguage, t } = useI18n();
   const { showToast } = useToast();
   const [model, setModel] = useState(
@@ -4543,6 +4686,15 @@ function Settings() {
   const [bio, setBio] = useState(session.bio || "");
   const [avatarDataUrl, setAvatarDataUrl] = useState(session.avatarUrl || "");
   const [profileSaving, setProfileSaving] = useState(false);
+  const [personalToken, setPersonalToken] = useState("");
+  const [personalTokenBusy, setPersonalTokenBusy] = useState(false);
+  const [hasPersonalToken, setHasPersonalToken] = useState(Boolean(session.hasLoginToken));
+  const [personalTokenHint, setPersonalTokenHint] = useState(session.loginTokenHint || "");
+  const [tokenAction, setTokenAction] = useState<"regenerate" | "revoke" | null>(null);
+  const [mcpInfo, setMcpInfo] = useState<{ mcpUrl?: string; mcpAuthHint?: string } | null>(null);
+  const [mcpInfoLoading, setMcpInfoLoading] = useState(false);
+  const [chatGptConnection, setChatGptConnection] = useState<ChatGptConnection | null>(null);
+  const [chatGptBusy, setChatGptBusy] = useState(false);
   const [delegates, setDelegates] = useState<Array<Record<string, any>>>([]);
   const [delegateBusy, setDelegateBusy] = useState("");
   useEffect(() => {
@@ -4564,6 +4716,28 @@ function Settings() {
       .then((result) => setDelegates(result.users || []))
       .catch(() => setDelegates([]));
   }, [session.userId, site]);
+  useEffect(() => {
+    if (!session.userId) return;
+    let active = true;
+    api.chatgptStatus()
+      .then((result) => { if (active) setChatGptConnection(result); })
+      .catch(() => { if (active) setChatGptConnection(null); });
+    return () => { active = false; };
+  }, [session.userId]);
+  useEffect(() => {
+    setHasPersonalToken(Boolean(session.hasLoginToken));
+    setPersonalTokenHint(session.loginTokenHint || "");
+  }, [session.hasLoginToken, session.loginTokenHint]);
+  useEffect(() => {
+    if (!session.userId || !site) return;
+    let active = true;
+    setMcpInfoLoading(true);
+    api.mcpConnection(site)
+      .then((result) => { if (active) setMcpInfo(result); })
+      .catch(() => { if (active) setMcpInfo(null); })
+      .finally(() => { if (active) setMcpInfoLoading(false); });
+    return () => { active = false; };
+  }, [session.userId, site]);
   const save = () => {
     localStorage.setItem("escarlet_model", model);
     setError("");
@@ -4576,12 +4750,8 @@ function Settings() {
     setError("");
     try {
       await api.logout();
-      showToast(t("settings.loggedOut"));
-      await refresh();
-    } catch (err) {
-      setLoggingOut(false);
-      setError(err instanceof Error ? err.message : t("common.error"));
-      showToast(err instanceof Error ? err.message : t("common.error"), "error");
+    } finally {
+      window.location.assign("/app");
     }
   };
   const saveProfile = async (event: FormEvent<HTMLFormElement>) => {
@@ -4605,6 +4775,95 @@ function Settings() {
       showToast(t("editor.readImageError"), "error");
     }
   };
+  const copyPersonalToken = async () => {
+    if (!personalToken) return;
+    await navigator.clipboard?.writeText(personalToken).catch(() => {});
+    showToast(t("settings.mcpTokenCopied"));
+  };
+  const copyMcpConnectionUrl = async () => {
+    if (!mcpInfo?.mcpUrl) return;
+    await navigator.clipboard?.writeText(mcpInfo.mcpUrl).catch(() => {});
+    showToast(t("settings.mcpUrlCopied"));
+  };
+  const importChatGptConnection = async (file?: File) => {
+    if (!file) return;
+    setChatGptBusy(true);
+    try {
+      const parsed = JSON.parse(await file.text());
+      const result = await api.chatgptImport(parsed);
+      setChatGptConnection(result.connection);
+      showToast(t("settings.chatgptImported"));
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : t("settings.chatgptImportError"), "error");
+    } finally {
+      setChatGptBusy(false);
+    }
+  };
+  const disconnectChatGpt = async () => {
+    setChatGptBusy(true);
+    try {
+      const result = await api.chatgptDisconnect();
+      setChatGptConnection(result.connection);
+      showToast(t("settings.chatgptDisconnected"));
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : t("common.error"), "error");
+    } finally {
+      setChatGptBusy(false);
+    }
+  };
+  const openChatGpt = () => {
+    window.open("https://chatgpt.com/", "_blank", "noopener,noreferrer");
+  };
+  const mintPersonalToken = async () => {
+    setPersonalTokenBusy(true);
+    try {
+      const result = await api.issueOwnUserToken();
+      setPersonalToken(result.token || "");
+      setHasPersonalToken(true);
+      setPersonalTokenHint(result.profile?.loginTokenHint || "");
+      await navigator.clipboard?.writeText(result.token).catch(() => {});
+      showToast(t("settings.mcpTokenReady"));
+      await refresh();
+      return true;
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : t("common.error"), "error");
+      return false;
+    } finally {
+      setPersonalTokenBusy(false);
+    }
+  };
+  const issuePersonalToken = () => {
+    if (hasPersonalToken) {
+      setTokenAction("regenerate");
+      return;
+    }
+    void mintPersonalToken();
+  };
+  const revokePersonalToken = () => setTokenAction("revoke");
+  const confirmTokenAction = async () => {
+    const action = tokenAction;
+    if (!action) return;
+    setPersonalTokenBusy(true);
+    try {
+      let completed = false;
+      if (action === "regenerate") {
+        completed = await mintPersonalToken();
+      } else {
+        await api.revokeOwnUserToken();
+        setPersonalToken("");
+        setHasPersonalToken(false);
+        setPersonalTokenHint("");
+        showToast(t("settings.mcpTokenRevoked"));
+        await refresh();
+        completed = true;
+      }
+      if (completed) setTokenAction(null);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : t("common.error"), "error");
+    } finally {
+      setPersonalTokenBusy(false);
+    }
+  };
   const toggleDelegate = async (delegate: Record<string, any>) => {
     if (!delegate.id) return;
     const enabled = !Boolean(delegate.enabled);
@@ -4620,7 +4879,7 @@ function Settings() {
     }
   };
   return (
-    <main className="page narrow">
+    <main className="ui-page ui-page-narrow">
       <PageTitle
         eyebrow={t("settings.eyebrow")}
         title={t("settings.title")}
@@ -4628,30 +4887,108 @@ function Settings() {
         back
       />
       {session.userId && (
-        <form className="card settings-card profile-settings-card" onSubmit={saveProfile}>
-          <p className="eyebrow">{t("settings.profileEyebrow")}</p>
+        <form className="ui-card ui-settings-card profile-settings-card" onSubmit={saveProfile}>
+          <p className="ui-eyebrow">{t("settings.profileEyebrow")}</p>
           <h2>{t("settings.profileTitle")}</h2>
-          <p className="muted">{t("settings.profileHelp")}</p>
+          <p className="ui-muted">{t("settings.profileHelp")}</p>
           <ProfileAvatarField
             src={avatarDataUrl}
             name={displayName || session.email}
             label={t("settings.avatar")}
             help={t("settings.avatarHelp")}
             chooseLabel={t("settings.avatarChoose")}
+            placeholderLabel={t("settings.avatarPlaceholder")}
             removeLabel={t("settings.avatarRemove")}
             onChange={chooseProfileAvatar}
             onRemove={() => setAvatarDataUrl("")}
           />
           <label>{t("settings.displayName")}<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder={t("settings.displayNamePlaceholder")} /></label>
           <label>{t("settings.bio")}<textarea value={bio} onChange={(event) => setBio(event.target.value)} placeholder={t("settings.bioPlaceholder")} rows={4} /></label>
-          <button className="primary" disabled={profileSaving}>{profileSaving ? "…" : t("settings.profileSave")}</button>
+          <button className="ui-button ui-button-primary" disabled={profileSaving}>{profileSaving ? "…" : t("settings.profileSave")}</button>
         </form>
       )}
       {session.userId && (
-        <section className="card settings-card delegation-card">
-          <p className="eyebrow">{t("settings.delegatesEyebrow")}</p>
+        <section className="ui-card ui-settings-card personal-token-card">
+          <p className="ui-eyebrow">{t("settings.mcpTokenEyebrow")}</p>
+          <h2>{t("settings.mcpTokenTitle")}</h2>
+          <p className="ui-muted">{t("settings.mcpTokenHelp")}</p>
+          {hasPersonalToken && (
+            <div className="personal-token-warning" role="status">
+              <strong>{t("settings.mcpTokenImpactTitle")}</strong>
+              <p>{t("settings.mcpTokenImpact")}</p>
+            </div>
+          )}
+          {personalToken ? (
+            <div className="site-token-box personal-token-box">
+              <div>
+                <strong>{t("settings.mcpTokenLabel")}</strong>
+                <code>{personalToken}</code>
+              </div>
+              <button type="button" className="ui-button ui-button-secondary" onClick={() => void copyPersonalToken()}>{t("settings.mcpTokenCopy")}</button>
+              <p className="tiny">{t("settings.mcpTokenShownOnce")}</p>
+            </div>
+          ) : (
+            <p className="tiny personal-token-status">
+              {hasPersonalToken ? `${t("settings.mcpTokenActive")}${personalTokenHint ? ` ${personalTokenHint}` : ""}` : t("settings.mcpTokenNone")}
+            </p>
+          )}
+          <div className="ui-actions">
+            <button type="button" className="ui-button ui-button-primary" onClick={() => void issuePersonalToken()} disabled={personalTokenBusy}>
+              {personalTokenBusy ? "…" : hasPersonalToken ? t("settings.mcpTokenRegenerate") : t("settings.mcpTokenGenerate")}
+            </button>
+            {hasPersonalToken && <button type="button" className="ui-danger-link" onClick={() => void revokePersonalToken()} disabled={personalTokenBusy}>{t("settings.mcpTokenRevoke")}</button>}
+          </div>
+        </section>
+      )}
+      {session.userId && (
+        <section className="ui-card ui-settings-card ui-mcp-card">
+          <p className="ui-eyebrow">{t("settings.mcpConnectEyebrow")}</p>
+          <h2>{t("settings.mcpConnectTitle")}</h2>
+          <p className="ui-muted">{t("settings.mcpConnectHelp")}</p>
+          {mcpInfoLoading ? <p className="ui-field-hint">{t("settings.mcpConnectLoading")}</p> : mcpInfo?.mcpUrl ? <div className="ui-mcp-value"><div><span className="ui-field-label">{t("settings.mcpUrlLabel")}</span><code>{mcpInfo.mcpUrl}</code></div><IconButton label={t("settings.mcpUrlCopy")} onClick={() => void copyMcpConnectionUrl()}>⧉</IconButton></div> : <p className="ui-field-error">{t("settings.mcpConnectUnavailable")}</p>}
+          <Stack gap="sm">
+            <p className="ui-field-hint">{t("settings.mcpConnectStep1")}</p>
+            <p className="ui-field-hint">{t("settings.mcpConnectStep2")}</p>
+            <p className="ui-field-hint">{t("settings.mcpConnectStep3")}</p>
+          </Stack>
+          <Inline gap="sm"><Button type="button" variant="secondary" onClick={openChatGpt}>{t("settings.mcpOpenChatGpt")}</Button><span className="ui-field-hint">{mcpInfo?.mcpAuthHint || t("settings.mcpConnectAuthHint")}</span></Inline>
+        </section>
+      )}
+      {session.userId && (
+        <Card id="chatgpt-account" className="ui-settings-card">
+          <div className="ui-card-head">
+            <div><p className="ui-eyebrow">{t("settings.chatgptEyebrow")}</p><h2>{t("settings.chatgptTitle")}</h2></div>
+            <StatusBadge status={chatGptConnection?.connected ? "connected" : "disabled"} label={chatGptConnection?.connected ? t("settings.chatgptConnected") : t("settings.chatgptNotConnected")} />
+          </div>
+          <p className="ui-muted">{t("settings.chatgptHelp")}</p>
+          {chatGptConnection?.connected ? (
+            <Stack gap="sm">
+              <p className="ui-field-hint">{chatGptConnection.email || t("settings.chatgptPersonalAccount")}{chatGptConnection.expiresAt ? ` · ${t("settings.chatgptExpires")} ${new Date(chatGptConnection.expiresAt).toLocaleString()}` : ""}</p>
+              <Button type="button" variant="danger" loading={chatGptBusy} onClick={() => void disconnectChatGpt()}>{t("settings.chatgptDisconnect")}</Button>
+            </Stack>
+          ) : (
+            <Stack gap="sm">
+              <div className="ui-card ui-mcp-setup-note">
+                <p className="ui-eyebrow">{t("settings.chatgptSetupTitle")}</p>
+                <p className="ui-field-hint">{t("settings.chatgptSetupHelp")}</p>
+                <Inline gap="sm">
+                  <Button type="button" variant="secondary" onClick={openChatGpt}>{t("settings.chatgptOpen")}</Button>
+                  <a className="text-link" href="https://developers.openai.com/siwc/quickstart" target="_blank" rel="noreferrer">{t("settings.chatgptSetupDocs")}</a>
+                </Inline>
+              </div>
+              <p className="ui-field-hint">{t("settings.chatgptImportHelp")}</p>
+              <Field label={t("settings.chatgptFileLabel")} hint={t("settings.chatgptFileHint")}>
+                <TextField type="file" accept="application/json,.json" disabled={chatGptBusy} onChange={(event) => void importChatGptConnection(event.target.files?.[0])} />
+              </Field>
+            </Stack>
+          )}
+        </Card>
+      )}
+      {session.userId && (
+        <section className="ui-card ui-settings-card delegation-card">
+          <p className="ui-eyebrow">{t("settings.delegatesEyebrow")}</p>
           <h2>{t("settings.delegatesTitle")}</h2>
-          <p className="muted">{t("settings.delegatesHelp")}</p>
+          <p className="ui-muted">{t("settings.delegatesHelp")}</p>
           {delegates.length ? (
             <div className="delegation-pills" role="group" aria-label={t("settings.delegatesTitle")}>
               {delegates.map((delegate) => (
@@ -4669,11 +5006,11 @@ function Settings() {
               ))}
             </div>
           ) : (
-            <p className="empty">{t("settings.delegatesEmpty")}</p>
+            <p className="ui-empty-compact">{t("settings.delegatesEmpty")}</p>
           )}
         </section>
       )}
-      <section className="card settings-card">
+      <section className="ui-card ui-settings-card">
         <label>
           {t("settings.language")}
           <ChoicePills
@@ -4696,34 +5033,64 @@ function Settings() {
           />
         </label>
         <p className="tiny">{t("settings.modelHelp")}</p>
-        <button className="secondary" onClick={save}>
+        <button className="ui-button ui-button-secondary" onClick={save}>
           {t("settings.save")}
         </button></AiOnly>
-        {message && <p className="success">{message}</p>}
+        {message && <p className="ui-success">{message}</p>}
       </section>
-      <section className="card settings-card">
-        <p className="eyebrow">{t("settings.workspace")}</p>
+      <section className="ui-card ui-settings-card">
+        <p className="ui-eyebrow">{t("settings.workspace")}</p>
         <h2>{site}</h2>
-        <p className="muted">
-          {t("settings.role")}: {roleLabel(session.role, t)}
+        <p className="ui-muted">
+          {t("settings.role")}: {sessionRoleLabel(session, t)}
         </p>
-        {session.role !== "client_mcp" && contentMode === "blog" && <NavLink className="text-link" to="/billing">{t("settings.credits")}</NavLink>}
+        {workflowFlags.cmsAiEnabled && <NavLink className="text-link" to="/admin/billing">{t("settings.credits")}</NavLink>}
       </section>
       <button
         type="button"
-        className="danger-button"
+        className="ui-button ui-button-danger ui-danger-button"
         onClick={() => void logout()}
         disabled={loggingOut}
       >
         {loggingOut ? t("settings.loggingOut") : t("settings.logout")}
       </button>
-      {error && <p className="error">{error}</p>}
+      {error && <p className="ui-error">{error}</p>}
+      {tokenAction && (
+        <ConfirmModal
+          title={t(tokenAction === "regenerate" ? "settings.mcpTokenRegenerateTitle" : "settings.mcpTokenRevokeTitle")}
+          description={t(tokenAction === "regenerate" ? "settings.mcpTokenRegenerateDescription" : "settings.mcpTokenRevokeDescription")}
+          confirmLabel={t(tokenAction === "regenerate" ? "settings.mcpTokenRegenerateAction" : "settings.mcpTokenRevokeAction")}
+          busy={personalTokenBusy}
+          onClose={() => setTokenAction(null)}
+          onConfirm={() => void confirmTokenAction()}
+        />
+      )}
     </main>
   );
 }
 
+function PlanUsageView() {
+  const { site, productContext } = useApp();
+  const { t } = useI18n();
+  const [usage, setUsage] = useState<Record<string, any> | null>(productContext?.usage || null);
+  const [loading, setLoading] = useState(!usage);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    api.context(site).then((context) => {
+      if (active) setUsage(context.usage || null);
+    }).catch((cause) => {
+      if (active) setError(cause instanceof Error ? cause.message : t("common.error"));
+    }).finally(() => active && setLoading(false));
+    return () => { active = false; };
+  }, [site, t]);
+  const entries = usage ? Object.entries(usage).filter(([, value]) => typeof value !== "object" || value === null) : [];
+  return <main className="ui-page ui-page-narrow"><PageHeader eyebrow={t("billing.eyebrow", "Espacio")} title={t("billing.title", "Plan y uso")} description={t("billing.description", "Consulta el uso del espacio sin salir del modelo editorial V3")} /><Card>{loading ? <p role="status">{t("common.loading", "Cargando…")}</p> : error ? <p className="ui-field-error" role="alert">{error}</p> : !entries.length ? <p className="ui-muted">{t("billing.empty", "Todavía no hay métricas de uso disponibles.")}</p> : <Stack gap="sm">{entries.map(([key, value]) => <Inline key={key} gap="md"><strong>{key.replace(/_/g, " ")}</strong><span>{String(value)}</span></Inline>)}</Stack>}</Card></main>;
+}
+
 function Billing() {
-  const { site, workflowFlags } = useApp();
+  const { site, workflowFlags, session } = useApp();
   const { t, language } = useI18n();
   const { showToast } = useToast();
   const [snapshot, setSnapshot] = useState<Record<string, any> | null>(null);
@@ -4763,12 +5130,12 @@ function Billing() {
     }
   };
   const ai = snapshot?.ai?.tokenCredits;
-  if (!workflowFlags.cmsAiEnabled) return <main className="page narrow">
-    <PageTitle title={t("billing.title")} description={t("billing.cmsAiDisabled")} back />
-    <section className="card settings-card">
+  if (!workflowFlags.cmsAiEnabled) return <main className="ui-page ui-page-narrow">
+    <PageTitle eyebrow={t("billing.eyebrow")} title={t("billing.title")} description={t("billing.cmsAiDisabled")} back backTo="/brand" />
+    <section className="ui-card ui-settings-card">
       <h2>{t("billing.cmsAiDisabledTitle")}</h2>
-      <p className="muted">{t("billing.cmsAiDisabledHelp")}</p>
-      <NavLink className="text-link" to="/manual">{t("home.manual.action")}</NavLink>
+      <p className="ui-muted">{t("billing.cmsAiDisabledHelp")}</p>
+      <NavLink className="text-link" to="/content">{t("nav.content", "Ver contenido")}</NavLink>
     </section>
   </main>;
   const testCreditsEnabled = Boolean(snapshot?.stripe?.testCreditsEnabled);
@@ -4779,28 +5146,28 @@ function Billing() {
     configured?: boolean;
   }>;
   return (
-    <main className="page narrow">
+    <main className="ui-page ui-page-narrow">
       <PageTitle
         eyebrow={t("billing.eyebrow")}
         title={t("billing.title")}
         description={t("billing.description")}
         back
+        backTo="/brand"
       />
-      <section className="card quota-card">
+      <section className="ui-card quota-card">
         <h2>{t("billing.ai")}</h2>
         {snapshot ? (
           <>
             <strong className="credit-number">
-              {Number(ai?.available || 0).toLocaleString(
+              {session?.systemAdmin ? "∞" : Number(ai?.available || 0).toLocaleString(
                 language === "en" ? "en-GB" : "es-ES",
               )}
             </strong>
-            <p className="muted">
-              {t("billing.available")} ·{" "}
+            <p className="ui-muted">
+              {session?.systemAdmin ? t("billing.adminUnlimited") : <>{t("billing.available")} ·{" "}
               {Number(ai?.monthlyRemaining || 0).toLocaleString(
                 language === "en" ? "en-GB" : "es-ES",
-              )}{" "}
-              {t("billing.included")}
+              )}{" "}{t("billing.included")}</>}
             </p>
             {testCreditsEnabled && (
               <div className="temporary-flag-warning billing-test-banner" role="status">
@@ -4810,24 +5177,24 @@ function Billing() {
             )}
           </>
         ) : (
-          <p className="muted">{t("common.loading")}</p>
+          <p className="ui-muted">{t("common.loading")}</p>
         )}
       </section>
-      <section className="card credit-help-card">
-        <p className="eyebrow">{t("billing.howItWorks")}</p>
+      {!session?.systemAdmin && <section className="ui-card credit-help-card">
+        <p className="ui-eyebrow">{t("billing.howItWorks")}</p>
         <h2>{t("billing.creditTitle")}</h2>
-        <p className="muted">{t("billing.creditHelp")}</p>
+        <p className="ui-muted">{t("billing.creditHelp")}</p>
         <ul>
           <li>{t("billing.creditPointOne")}</li>
           <li>{t("billing.creditPointTwo")}</li>
           <li>{t("billing.creditPointThree")}</li>
         </ul>
-      </section>
-      <section className="pack-grid">
+      </section>}
+      {!session?.systemAdmin && <section className="pack-grid">
         {packs.length ? (
           packs.map((pack) => (
-            <div className="card" key={pack.id}>
-              <p className="eyebrow">{t("billing.ai")}</p>
+            <div className="ui-card" key={pack.id}>
+              <p className="ui-eyebrow">{t("billing.ai")}</p>
               <h2>{pack.name}</h2>
               <p>
                 {pack.tokenCredits.toLocaleString(
@@ -4836,7 +5203,7 @@ function Billing() {
                 {t("billing.available")}.
               </p>
               <button
-                className="secondary"
+                className="ui-button ui-button-secondary"
                 disabled={Boolean(busy) || (!pack.configured && !testCreditsEnabled)}
                 onClick={() => checkout({ kind: "credits", packId: pack.id })}
               >
@@ -4851,28 +5218,42 @@ function Billing() {
             </div>
           ))
         ) : (
-          <div className="card">
+          <div className="ui-card">
             <h2>{t("billing.empty")}</h2>
             <p>{t("billing.emptyHelp")}</p>
           </div>
         )}
-      </section>
-      {message && <p className="success">{message}</p>}
+      </section>}
+      {message && <p className="ui-success">{message}</p>}
     </main>
   );
 }
 
 function AdminGate() {
   const { session } = useApp();
-  return isAdmin(session.role) ? <Admin /> : <Navigate to="/" replace />;
+  return isWorkspaceAdmin(session) ? <AdminIndex /> : <Navigate to="/" replace />;
+}
+
+function AdminIndex() {
+  const { workflowFlags } = useApp();
+  const { t } = useI18n();
+  const sections = [
+    { path: "/brand", icon: "brands", title: t("nav.brands", "Marcas"), description: t("admin.brandsHelp", "Gestiona las marcas y su configuración editorial.") },
+    { path: "/admin/connections", icon: "connections", title: t("nav.connections", "Conexiones"), description: t("admin.connectionsHelp", "Conecta canales, proveedores y ChatGPT.") },
+    { path: "/admin/team", icon: "team", title: t("nav.team", "Equipo"), description: t("admin.teamHelp", "Invita personas y define sus accesos.") },
+    ...(workflowFlags.cmsAiEnabled ? [{ path: "/admin/billing", icon: "billing", title: t("nav.planUsage", "Plan y uso"), description: t("admin.billingHelp", "Consulta consumo, límites y facturación.") }] : []),
+  ];
+  return <main className="ui-page admin-index-page">
+    <PageHeader eyebrow={t("admin.eyebrow", "Configuración del espacio")} title={t("admin.title", "Administración")} description={t("admin.description", "Gestiona marcas, accesos, conexiones y uso sin salir de esta pantalla.")} />
+    <div className="ui-admin-index-grid" aria-label={t("admin.sections", "Áreas de administración")}>{sections.map((section) => <NavLink className="ui-admin-index-card" key={section.path} to={section.path}><NavIcon kind={section.icon} /><div><h2>{section.title}</h2><p>{section.description}</p></div><span aria-hidden="true">›</span></NavLink>)}</div>
+  </main>;
 }
 function Admin() {
   const { site, session, setSite, refresh } = useApp();
   const { t } = useI18n();
   const { showToast } = useToast();
-  const canIssueSiteToken = session.role === "admin";
   const [adminScope, setAdminScope] = useState<"site" | "global">(
-    session.role === "admin" ? "global" : "site",
+    isWorkspaceAdmin(session) ? "global" : "site",
   );
   const [sites, setSites] = useState<string[]>([]);
   const [showCreateSite, setShowCreateSite] = useState(false);
@@ -4906,6 +5287,7 @@ function Admin() {
     role: string;
     sites: string[];
     allowPublishingAs?: boolean;
+    reviewRequired?: boolean;
   } | null>(null);
   const [userBusy, setUserBusy] = useState(false);
   const [pendingDeleteUser, setPendingDeleteUser] = useState<Record<string, any> | null>(null);
@@ -4926,7 +5308,6 @@ function Admin() {
     socialPackChannels: { ...DEFAULT_SOCIAL_PACK_CHANNELS },
   });
   const [siteSaving, setSiteSaving] = useState(false);
-  const [siteToken, setSiteToken] = useState("");
   const [teamUnavailable, setTeamUnavailable] = useState(false);
   const [message, setMessage] = useState("");
   const [messageKind, setMessageKind] = useState<"success" | "error">("success");
@@ -4967,6 +5348,12 @@ function Admin() {
   const [cmsAiSaving, setCmsAiSaving] = useState(false);
   const [assistantEnabled, setAssistantEnabled] = useState(true);
   const [blogWizardEnabled, setBlogWizardEnabled] = useState(true);
+  const [legacyPreviewEnabled, setLegacyPreviewEnabled] = useState(true);
+  const [legacySocialPackEnabled, setLegacySocialPackEnabled] = useState(true);
+  const [authorInviteEnabled, setAuthorInviteEnabled] = useState(true);
+  const [creationUiEnabled, setCreationUiEnabled] = useState(false);
+  const [manualCreationEnabled, setManualCreationEnabled] = useState(false);
+  const [contentReviewEnabled, setContentReviewEnabled] = useState(true);
   const [workflowSaving, setWorkflowSaving] = useState(false);
   const [busy, setBusy] = useState("");
   const report = (value: string, kind: "success" | "error" = "success") => {
@@ -5033,6 +5420,15 @@ function Admin() {
       setBillingTestMode(Boolean(featureFlagData.flags?.creditCheckoutWithoutStripe));
       setAssistantEnabled(enabled && featureFlagData.flags?.assistantEnabled !== false);
       setBlogWizardEnabled(enabled && featureFlagData.flags?.blogWizardEnabled !== false);
+      setLegacyPreviewEnabled(featureFlagData.flags?.legacyPreviewEnabled !== false);
+      setLegacySocialPackEnabled(featureFlagData.flags?.legacySocialPackEnabled !== false);
+      setAuthorInviteEnabled(featureFlagData.flags?.authorInviteEnabled !== false);
+      try {
+        const productContext = await api.context(site);
+        setCreationUiEnabled(Boolean(productContext.featureFlags?.creation_ui_enabled));
+        setManualCreationEnabled(Boolean(productContext.featureFlags?.manual_creation_enabled));
+        setContentReviewEnabled(productContext.featureFlags?.content_review_enabled !== false);
+      } catch { /* Postgres context may not be initialized during cutover */ }
       if (!enabled) {
         setProviders([]);
         setPacks([]);
@@ -5198,11 +5594,11 @@ function Admin() {
       setReferenceBusy(false);
     }
   };
-  const saveReference = async (media: MediaItem, alt: string) => {
+  const saveReference = async (media: MediaItem, details: { filename: string; alt: string; usage: string }) => {
     if (!media.id) return;
     setReferenceBusy(true);
     try {
-      const result = await api.updateMediaAlt({ site, id: media.id, alt });
+      const result = await api.updateMedia({ site, id: media.id, ...details });
       setReferenceMedia((current) => current.map((item) => item.id === media.id ? result.media : item));
       setSelectedReference(result.media);
       report(t("admin.referenceSaved"));
@@ -5220,6 +5616,8 @@ function Admin() {
     try {
       if (userForm.id) {
         await api.updateUser({ id: userForm.id, email: userForm.email, role: userForm.role, sites: userForm.sites, allowPublishingAs: userForm.allowPublishingAs });
+        const canonicalRole = ["owner", "admin", "approver", "editor", "author", "viewer"].includes(userForm.role) ? userForm.role : userForm.role === "agency_admin" ? "admin" : "viewer";
+        await api.updateTeamMember(userForm.id, { role: canonicalRole, brandIds: userForm.sites, reviewRequired: userForm.reviewRequired !== false });
       } else {
         const result = await api.registerUser({ email: userForm.email, role: userForm.role, sites: userForm.sites, invite: true });
         if (result.invite?.link) {
@@ -5326,18 +5724,6 @@ function Admin() {
     try {
       const result = await api.testSiteRebuild(site);
       report(result.message || t("admin.siteTested"));
-    } catch (err) {
-      report(err instanceof Error ? err.message : t("common.error"), "error");
-    } finally {
-      setSiteSaving(false);
-    }
-  };
-  const issueSiteToken = async () => {
-    setSiteSaving(true);
-    try {
-      const result = await api.issueSiteToken(site, true);
-      setSiteToken(result.siteAccessToken || "");
-      report(t("admin.siteTokenReady"));
     } catch (err) {
       report(err instanceof Error ? err.message : t("common.error"), "error");
     } finally {
@@ -5457,9 +5843,13 @@ function Admin() {
   const saveWorkflowFlags = async () => {
     setWorkflowSaving(true);
     try {
-      const result = await api.saveFeatureFlags({ assistantEnabled, blogWizardEnabled });
+      const result = await api.saveFeatureFlags({ assistantEnabled, blogWizardEnabled, legacyPreviewEnabled, legacySocialPackEnabled, authorInviteEnabled });
+      await api.updateFeatureFlags({ creation_ui_enabled: creationUiEnabled, manual_creation_enabled: manualCreationEnabled, content_review_enabled: contentReviewEnabled }, site);
       setAssistantEnabled(result.flags?.assistantEnabled !== false);
       setBlogWizardEnabled(result.flags?.blogWizardEnabled !== false);
+      setLegacyPreviewEnabled(result.flags?.legacyPreviewEnabled !== false);
+      setLegacySocialPackEnabled(result.flags?.legacySocialPackEnabled !== false);
+      setAuthorInviteEnabled(result.flags?.authorInviteEnabled !== false);
       report(t("admin.savedWorkflowFlags"));
       await refresh();
     } catch (err) {
@@ -5487,7 +5877,7 @@ function Admin() {
     }
   };
   return (
-    <main className={`page admin-page scope-${adminScope}`}>
+    <main className={`ui-page admin-page scope-${adminScope}`}>
       <PageTitle
         eyebrow={t("admin.eyebrow")}
         title={t("admin.title")}
@@ -5499,13 +5889,13 @@ function Admin() {
           {message}
         </div>
       )}
-      {session.role === "admin" && (
+      {isWorkspaceAdmin(session) && (
         <div className="admin-scope-toolbar">
           <div className="admin-scope-switch" role="tablist" aria-label={t("admin.scopeSwitch")}>
             <button type="button" role="tab" aria-selected={adminScope === "site"} className={adminScope === "site" ? "selected" : ""} onClick={() => setAdminScope("site")}>{t("admin.siteScope")}</button>
             <button type="button" role="tab" aria-selected={adminScope === "global"} className={adminScope === "global" ? "selected" : ""} onClick={() => setAdminScope("global")}>{t("admin.workspaceScope")}</button>
           </div>
-          <button className="primary" type="button" onClick={() => setShowCreateSite(true)}>
+          <button className="ui-button ui-button-primary" type="button" onClick={() => setShowCreateSite(true)}>
             ＋ {t("admin.addSite")}
           </button>
         </div>
@@ -5521,7 +5911,7 @@ function Admin() {
         </div>
       </div>
       <div className="admin-grid">
-        <section className="card admin-workspace-card">
+        <section className="ui-card admin-workspace-card">
           <p className="admin-scope-kicker">{t("admin.workspaceScope")}</p>
           <h2>{t("admin.sites")}</h2>
           {sites.length ? (
@@ -5545,15 +5935,15 @@ function Admin() {
               ))}
             </ul>
           ) : (
-            <p className="muted">{t("common.loading")}</p>
+            <p className="ui-muted">{t("common.loading")}</p>
           )}
         </section>
-        <section className="card admin-site-card">
+        <section className="ui-card admin-site-card">
           <p className="admin-scope-kicker">{t("admin.siteScope")}</p>
           <div className="section-title">
             <h2>{t("admin.brand")}</h2>
-            {session.role === "admin" && (
-              <label className="secondary upload-reference-button">
+            {isWorkspaceAdmin(session) && (
+              <label className="ui-button ui-button-secondary upload-reference-button">
                 {brandZipBusy ? t("admin.saving") : t("admin.importBrandZip")}
                 <input
                   ref={brandZipInputRef}
@@ -5566,7 +5956,7 @@ function Admin() {
               </label>
             )}
           </div>
-          <p className="muted">{brand || t("admin.brand")}</p>
+          <p className="ui-muted">{brand || t("admin.brand")}</p>
           {brandFiles.length ? (
             <div className="file-list">
               {brandFiles.slice(0, 8).map((file) => (
@@ -5591,9 +5981,9 @@ function Admin() {
                 rows={8}
                 aria-label={selectedBrandFile}
               />
-              <div className="form-actions">
+              <div className="ui-actions">
                 <AiOnly><button
-                  className="ghost"
+                  className="ui-button ui-button-ghost"
                   type="button"
                   disabled={brandSaving || brandAiBusy}
                   onClick={() => setShowBrandAi(true)}
@@ -5601,7 +5991,7 @@ function Admin() {
                   {t("admin.brandAiAction")}
                 </button></AiOnly>
                 <button
-                  className="secondary"
+                  className="ui-button ui-button-secondary"
                   type="button"
                   disabled={brandSaving}
                   onClick={() => void saveBrand()}
@@ -5615,10 +6005,10 @@ function Admin() {
           <div className="reference-library">
             <div className="section-title">
               <div>
-                <p className="eyebrow">{t("admin.referencesEyebrow")}</p>
+                <p className="ui-eyebrow">{t("admin.referencesEyebrow")}</p>
                 <h3>{t("admin.referencesTitle")}</h3>
               </div>
-              <label className="secondary upload-reference-button">
+              <label className="ui-button ui-button-secondary upload-reference-button">
                 {referenceBusy ? t("admin.saving") : t("admin.referenceAdd")}
                 <input
                   type="file"
@@ -5644,13 +6034,13 @@ function Admin() {
                       onClick={() => setSelectedReference(media)}
                       aria-label={`${t("admin.referenceEditTitle")}: ${media.filename || t("admin.referenceImage")}`}
                     >
-                      <img src={media.thumbUrl || media.url || media.path} alt={media.alt || ""} />
+                      <img src={media.thumbUrl || media.previewUrl || media.url || media.path} alt={media.alt || ""} width={media.width || undefined} height={media.height || undefined} loading="lazy" decoding="async" />
                       <span className="reference-edit-icon" aria-hidden="true">✎</span>
                     </button>
                     <div className="reference-card-actions">
                       <span className="reference-kind-icon" title={t("admin.referenceBadge")} aria-hidden="true">✦</span>
                       <button
-                        className="icon-button reference-delete-button"
+                        className="ui-icon-button reference-delete-button"
                         type="button"
                         disabled={referenceBusy}
                         onClick={() => void deleteReference(media)}
@@ -5664,25 +6054,25 @@ function Admin() {
                 ))}
               </div>
             ) : (
-              <p className="empty">{t("admin.referencesEmpty")}</p>
+              <p className="ui-empty-compact">{t("admin.referencesEmpty")}</p>
             )}
           </div>
         </section>
-        <section className="card admin-workspace-card">
+        <section className="ui-card admin-workspace-card">
           <p className="admin-scope-kicker">{t("admin.workspaceScope")}</p>
           <div className="section-title">
             <h2>{t("admin.users")}</h2>
             <button
-              className="secondary"
+              className="ui-button ui-button-secondary"
               type="button"
-              onClick={() => setUserForm({ email: "", role: "client", sites: [site], allowPublishingAs: false })}
+              onClick={() => setUserForm({ email: "", role: "client", sites: [site], allowPublishingAs: false, reviewRequired: true })}
             >
               <AdminActionIcon kind="plus" />
               {t("admin.addUser")}
             </button>
           </div>
           {teamUnavailable ? (
-            <p className="muted">{t("admin.usersUnavailable")}</p>
+            <p className="ui-muted">{t("admin.usersUnavailable")}</p>
           ) : users.length ? (
             <ul className="user-list">
               {users.map((user) => (
@@ -5698,7 +6088,7 @@ function Admin() {
                     <button
                       className="admin-icon-action"
                       type="button"
-                      onClick={() => setUserForm({ id: user.id, email: user.email || "", role: user.role || "client", sites: user.sites || [user.site || site], allowPublishingAs: Boolean(user.allowPublishingAs) })}
+                      onClick={() => setUserForm({ id: user.id, email: user.email || "", role: user.role || "client", sites: user.sites || [user.site || site], allowPublishingAs: Boolean(user.allowPublishingAs), reviewRequired: user.reviewRequired !== false })}
                       aria-label={t("admin.editUser")}
                       title={t("admin.editUser")}
                     >
@@ -5739,11 +6129,11 @@ function Admin() {
               ))}
             </ul>
           ) : (
-            <p className="muted">{t("admin.noUsers")}</p>
+            <p className="ui-muted">{t("admin.noUsers")}</p>
           )}
           <p className="tiny">{t("admin.usersHelp")}</p>
           {userForm && (
-            <form className="user-editor form-stack" onSubmit={(event) => void saveUser(event)}>
+            <form className="user-editor ui-stack ui-stack-md" onSubmit={(event) => void saveUser(event)}>
               <h3>{userForm.id ? t("admin.editUser") : t("admin.addUser")}</h3>
               <label>
                 {t("admin.userEmail")}
@@ -5756,9 +6146,11 @@ function Admin() {
                   ariaLabel={t("admin.userRole")}
                   onChange={(value) => setUserForm({ ...userForm, role: value })}
                   options={[
-                    { value: "client", label: roleLabel("client", t) },
-                    { value: "client_mcp", label: roleLabel("client_mcp", t) },
-                    { value: "agency_admin", label: roleLabel("agency_admin", t) },
+                    { value: "owner", label: roleLabel("owner", t) },
+                    { value: "admin", label: roleLabel("admin", t) },
+                    { value: "editor", label: roleLabel("editor", t) },
+                    { value: "author", label: roleLabel("author", t) },
+                    { value: "viewer", label: roleLabel("viewer", t) },
                   ]}
                 />
               </label>
@@ -5771,18 +6163,15 @@ function Admin() {
                   </label>
                 ))}
               </fieldset>
-              <label className="switch-row">
-                <span><b>{t("settings.authorPermission")}</b><small>{t("settings.authorPermissionHelp")}</small></span>
-                <input type="checkbox" checked={Boolean(userForm.allowPublishingAs)} onChange={(event) => setUserForm({ ...userForm, allowPublishingAs: event.target.checked })} />
-              </label>
-              <div className="form-actions">
-                <button className="ghost" type="button" onClick={() => setUserForm(null)}>{t("editor.close")}</button>
-                <button className="primary" disabled={userBusy || !userForm.sites.length}>{userBusy ? t("admin.saving") : t("admin.save")}</button>
+              <Switch label={t("settings.authorPermission")} description={t("settings.authorPermissionHelp")} checked={Boolean(userForm.allowPublishingAs)} onChange={(event) => setUserForm({ ...userForm, allowPublishingAs: event.target.checked })} /><Switch label={t("admin.reviewRequired", "Requiere revisión")} description={t("admin.reviewRequiredHelp", "Sus Posts deben pasar por aprobación antes de publicar.")} checked={userForm.reviewRequired !== false} onChange={(event) => setUserForm({ ...userForm, reviewRequired: event.target.checked })} />
+              <div className="ui-actions">
+                <button className="ui-button ui-button-ghost" type="button" onClick={() => setUserForm(null)}>{t("editor.close")}</button>
+                <button className="ui-button ui-button-primary" disabled={userBusy || !userForm.sites.length}>{userBusy ? t("admin.saving") : t("admin.save")}</button>
               </div>
             </form>
           )}
         </section>
-        <section className="card admin-site-card">
+        <section className="ui-card admin-site-card">
           <p className="admin-scope-kicker">{t("admin.siteScope")}</p>
           <h2>{t("admin.connection")}</h2>
           <p className="connection-state">
@@ -5794,12 +6183,12 @@ function Admin() {
               ? t("admin.connected")
               : t("admin.connectionPending")}
           </p>
-          <p className="muted">
+          <p className="ui-muted">
             {onboarding?.site?.domain || t("admin.connectionHelp")}
           </p>
           <p className="tiny">{t("admin.connectionSimple")}</p>
           {siteConfig && (
-            <form className="site-connection-form form-stack" onSubmit={(event) => void saveSite(event)}>
+            <form className="site-connection-form ui-stack ui-stack-md" onSubmit={(event) => void saveSite(event)}>
               <label>
                 {t("admin.siteName")}
                 <input value={siteForm.name} onChange={(event) => setSiteForm({ ...siteForm, name: event.target.value })} />
@@ -5837,19 +6226,7 @@ function Admin() {
                   {t("admin.clearCoolifyToken")}
                 </label>
               )}
-              <label>
-                {t("admin.siteContentMode")}
-                <ChoicePills
-                  value={siteForm.contentMode}
-                  ariaLabel={t("admin.siteContentMode")}
-                  onChange={(value) => setSiteForm({ ...siteForm, contentMode: value as "blog" | "socialmedia", blogEnabled: value === "blog" })}
-                  options={[
-                    { value: "blog", label: t("admin.siteContentModeBlog") },
-                    { value: "socialmedia", label: t("admin.siteContentModeSocial") },
-                  ]}
-                />
-                <span className="tiny">{t("admin.siteContentModeHelp")}</span>
-              </label>
+              <Switch label="Canal blog" description={t("admin.siteContentModeHelp")} checked={siteForm.blogEnabled} onChange={(event) => setSiteForm({ ...siteForm, blogEnabled: event.target.checked, contentMode: event.target.checked ? "blog" : "socialmedia" })} />
               <fieldset className="social-pack-channel-settings">
                 <legend>{t("admin.socialPackChannels")}</legend>
                 <p className="tiny">{t("admin.socialPackChannelsHelp")}</p>
@@ -5870,47 +6247,37 @@ function Admin() {
                   </label>
                 ))}
               </fieldset>
-              <div className="form-actions">
-                <button className="ghost" type="button" disabled={siteSaving} onClick={() => void testSite()}>{t("admin.testRebuild")}</button>
-                <button className="primary" disabled={siteSaving}>{siteSaving ? t("admin.saving") : t("admin.save")}</button>
+              <div className="ui-actions">
+                <button className="ui-button ui-button-ghost" type="button" disabled={siteSaving} onClick={() => void testSite()}>{t("admin.testRebuild")}</button>
+                <button className="ui-button ui-button-primary" disabled={siteSaving}>{siteSaving ? t("admin.saving") : t("admin.save")}</button>
               </div>
-              {canIssueSiteToken && (
-                <div className="site-token-box">
-                  <div>
-                    <strong>{t("admin.siteToken")}</strong>
-                    <p className="tiny">{t("admin.siteTokenHelp")}</p>
-                  </div>
-                  <button className="ghost" type="button" disabled={siteSaving} onClick={() => void issueSiteToken()}>{t("admin.issueSiteToken")}</button>
-                  {siteToken && <code>{siteToken}</code>}
-                </div>
-              )}
             </form>
           )}
         </section>
       </div>
       {session.role === "admin" ? (
         <section className="admin-ai">
-          <section className={`card cms-ai-status-card ${cmsAiEnabled ? "" : "is-disabled"}`}>
-            <p className="eyebrow">{t("admin.cmsAiFlagEyebrow")}</p>
+          <section className={`ui-card cms-ai-status-card ${cmsAiEnabled ? "" : "is-disabled"}`}>
+            <p className="ui-eyebrow">{t("admin.cmsAiFlagEyebrow")}</p>
             <h2>{cmsAiEnabled ? t("admin.cmsAiFlagTitle") : t("admin.cmsAiDisabledTitle")}</h2>
-            <p className="muted">{cmsAiEnabled ? t("admin.cmsAiFlagHelp") : t("admin.cmsAiDisabledHelp")}</p>
-            <label className="switch-row">
-              <span>
-                <b>{t("admin.cmsAiFlagToggle")}</b>
-                <small>{cmsAiSaving ? t("admin.saving") : cmsAiEnabled ? t("admin.cmsAiFlagOn") : t("admin.cmsAiFlagOff")}</small>
-              </span>
-              <input type="checkbox" checked={cmsAiEnabled} disabled={cmsAiSaving} onChange={(event) => void saveCmsAiFlag(event.target.checked)} />
-            </label>
+            <p className="ui-muted">{cmsAiEnabled ? t("admin.cmsAiFlagHelp") : t("admin.cmsAiDisabledHelp")}</p>
+            <Switch
+              label={t("admin.cmsAiFlagToggle")}
+              description={cmsAiSaving ? t("admin.saving") : cmsAiEnabled ? t("admin.cmsAiFlagOn") : t("admin.cmsAiFlagOff")}
+              checked={cmsAiEnabled}
+              disabled={cmsAiSaving}
+              onChange={(event) => void saveCmsAiFlag(event.target.checked)}
+            />
           </section>
           {cmsAiEnabled ? <>
           <div className="section-title">
             <div>
-              <p className="eyebrow">{t("admin.workspaceScope")}</p>
+              <p className="ui-eyebrow">{t("admin.workspaceScope")}</p>
               <p className="admin-scope-kicker">{t("admin.aiBilling")}</p>
               <h2>{t("admin.connectors")}</h2>
             </div>
             <button
-              className="ghost"
+              className="ui-button ui-button-ghost"
               onClick={() => void loadAiBilling()}
               disabled={Boolean(busy)}
             >
@@ -5918,11 +6285,11 @@ function Admin() {
             </button>
           </div>
           <p className="tiny refresh-help">{t("admin.refreshHelp")}</p>
-          <p className="muted">{t("admin.secretHelp")}</p>
+          <p className="ui-muted">{t("admin.secretHelp")}</p>
           <div className="admin-ai-grid">
             {providers.map((provider) => (
               <form
-                className="card form-stack"
+                className="ui-card ui-stack ui-stack-md"
                 key={provider.provider}
                 onSubmit={(event) => {
                   event.preventDefault();
@@ -5930,7 +6297,7 @@ function Admin() {
                 }}
               >
                 <div>
-                  <p className="eyebrow">{provider.provider}</p>
+                  <p className="ui-eyebrow">{provider.provider}</p>
                   <h3>{provider.name}</h3>
                 </div>
                 <label>
@@ -5973,10 +6340,10 @@ function Admin() {
                     placeholder={provider.apiKeyHint || t("admin.apiKeyPlaceholder")}
                   />
                 </label>
-                <div className="form-actions">
+                <div className="ui-actions">
                   <button
                     type="button"
-                    className="ghost"
+                    className="ui-button ui-button-ghost"
                     disabled={busy === `test:${provider.provider}`}
                     onClick={() => void testProvider(provider.provider)}
                   >
@@ -5985,7 +6352,7 @@ function Admin() {
                       : t("admin.test")}
                   </button>
                   <button
-                    className="primary"
+                    className="ui-button ui-button-primary"
                     disabled={busy === `provider:${provider.provider}`}
                   >
                     {busy === `provider:${provider.provider}`
@@ -5998,34 +6365,34 @@ function Admin() {
           </div>
           <div className="section-title admin-pack-title">
             <div>
-              <p className="eyebrow">{t("admin.stripe")}</p>
+              <p className="ui-eyebrow">{t("admin.stripe")}</p>
               <h2>{t("admin.creditPacks")}</h2>
             </div>
           </div>
-          <p className="muted pack-help">{t("admin.packHelp")}</p>
+          <p className="ui-muted pack-help">{t("admin.packHelp")}</p>
           <div className="admin-ai-grid">
             {packs.map((pack) => (
-              <article className="card" key={pack.id}>
-                <p className="eyebrow">
+              <article className="ui-card" key={pack.id}>
+                <p className="ui-eyebrow">
                   {pack.configured
                     ? t("admin.checkoutActive")
                     : t("admin.noPrice")}
                 </p>
                 <h3>{pack.name}</h3>
-                <p className="muted">
+                <p className="ui-muted">
                   {pack.tokenCredits.toLocaleString("es-ES")}{" "}
                   {t("admin.credits")} · {pack.id}
                 </p>
-                <div className="form-actions pack-actions">
+                <div className="ui-actions pack-actions">
                   <button
                     type="button"
-                    className="ghost"
+                    className="ui-button ui-button-ghost"
                     onClick={() => setEditingPack(pack)}
                   >
                     {t("admin.editPack")}
                   </button>
                   <button
-                    className="danger-link"
+                    className="ui-danger-link"
                     disabled={busy === `delete:${pack.id}`}
                     onClick={() => void removePack(pack.id)}
                   >
@@ -6035,14 +6402,14 @@ function Admin() {
               </article>
             ))}
             <form
-              className="card form-stack"
+              className="ui-card ui-stack ui-stack-md"
               key={editingPack?.id || "new-pack"}
               onSubmit={(event) => {
                 event.preventDefault();
                 void savePack(event.currentTarget);
               }}
             >
-              <p className="eyebrow">
+              <p className="ui-eyebrow">
                 {editingPack ? t("admin.editPack") : t("admin.newEdit")}
               </p>
               <label>
@@ -6083,68 +6450,57 @@ function Admin() {
                   placeholder="price_…"
                 />
               </label>
-              <button className="primary" disabled={busy === "pack"}>
+              <button className="ui-button ui-button-primary" disabled={busy === "pack"}>
                 {busy === "pack" ? t("admin.saving") : t("admin.savePack")}
               </button>
             </form>
           </div>
           </> : null}
           {cmsAiEnabled && <>
-          <section className="card temporary-flag-card">
-            <p className="eyebrow">{t("admin.temporaryFlags")}</p>
+          <section className="ui-card temporary-flag-card">
+            <p className="ui-eyebrow">{t("admin.temporaryFlags")}</p>
             <h2>{t("admin.billingTestTitle")}</h2>
-            <p className="muted">{t("admin.billingTestHelp")}</p>
+            <p className="ui-muted">{t("admin.billingTestHelp")}</p>
             <div className="temporary-flag-warning" role="note">
               <strong>{t("admin.billingTestWarningTitle")}</strong>
               <span>{t("admin.billingTestWarning")}</span>
             </div>
-            <label className="switch-row">
-              <span>
-                <b>{t("admin.billingTestToggle")}</b>
-                <small>{billingTestMode ? t("admin.billingTestOn") : t("admin.billingTestOff")}</small>
-              </span>
-              <input
-                type="checkbox"
-                checked={billingTestMode}
-                onChange={(event) => setBillingTestMode(event.target.checked)}
-              />
-            </label>
-            <div className="form-actions">
-              <button className="primary" type="button" disabled={billingTestSaving} onClick={() => void saveBillingTestMode()}>
+            <Switch
+              label={t("admin.billingTestToggle")}
+              description={billingTestMode ? t("admin.billingTestOn") : t("admin.billingTestOff")}
+              checked={billingTestMode}
+              onChange={(event) => setBillingTestMode(event.target.checked)}
+            />
+            <div className="ui-actions">
+              <button className="ui-button ui-button-primary" type="button" disabled={billingTestSaving} onClick={() => void saveBillingTestMode()}>
                 {billingTestSaving ? t("admin.saving") : t("admin.saveFeatureFlag")}
               </button>
             </div>
           </section>
-          <section className="card temporary-flag-card workflow-flags-card">
-            <p className="eyebrow">{t("admin.workflowFlagsEyebrow")}</p>
+          </>}
+          <section className="ui-card temporary-flag-card workflow-flags-card">
+            <p className="ui-eyebrow">{t("admin.workflowFlagsEyebrow")}</p>
             <h2>{t("admin.workflowFlagsTitle")}</h2>
-            <p className="muted">{t("admin.workflowFlagsHelp")}</p>
-            <label className="switch-row">
-              <span>
-                <b>{t("admin.assistantFlag")}</b>
-                <small>{assistantEnabled ? t("admin.workflowFlagOn") : t("admin.workflowFlagOff")}</small>
-              </span>
-              <input type="checkbox" checked={assistantEnabled} onChange={(event) => setAssistantEnabled(event.target.checked)} />
-            </label>
-            <label className="switch-row">
-              <span>
-                <b>{t("admin.blogWizardFlag")}</b>
-                <small>{blogWizardEnabled ? t("admin.workflowFlagOn") : t("admin.workflowFlagOff")}</small>
-              </span>
-              <input type="checkbox" checked={blogWizardEnabled} onChange={(event) => setBlogWizardEnabled(event.target.checked)} />
-            </label>
-            <div className="form-actions">
-              <button className="primary" type="button" disabled={workflowSaving} onClick={() => void saveWorkflowFlags()}>
+            <p className="ui-muted">{t("admin.workflowFlagsHelp")}</p>
+            <Switch label={t("admin.assistantFlag")} description={assistantEnabled ? t("admin.workflowFlagOn") : t("admin.workflowFlagOff")} checked={assistantEnabled} onChange={(event) => setAssistantEnabled(event.target.checked)} />
+            <Switch label={t("admin.blogWizardFlag")} description={blogWizardEnabled ? t("admin.workflowFlagOn") : t("admin.workflowFlagOff")} checked={blogWizardEnabled} onChange={(event) => setBlogWizardEnabled(event.target.checked)} />
+            <Switch label={t("admin.legacyPreviewFlag")} description={legacyPreviewEnabled ? t("admin.screenFlagHelp") : t("admin.screenFlagHidden")} checked={legacyPreviewEnabled} onChange={(event) => setLegacyPreviewEnabled(event.target.checked)} />
+            <Switch label={t("admin.legacySocialPackFlag")} description={legacySocialPackEnabled ? t("admin.screenFlagHelp") : t("admin.screenFlagHidden")} checked={legacySocialPackEnabled} onChange={(event) => setLegacySocialPackEnabled(event.target.checked)} />
+            <Switch label={t("admin.authorInviteFlag")} description={authorInviteEnabled ? t("admin.screenFlagHelp") : t("admin.screenFlagHidden")} checked={authorInviteEnabled} onChange={(event) => setAuthorInviteEnabled(event.target.checked)} />
+            <Switch label="Creación desde la aplicación" description={creationUiEnabled ? "Visible para este espacio/marca" : "Desactivada: la creación se hace desde ChatGPT/MCP"} checked={creationUiEnabled} onChange={(event) => setCreationUiEnabled(event.target.checked)} />
+            <Switch label="Creación manual" description={manualCreationEnabled ? "Editor manual habilitado" : "Oculta mientras se valida el flujo MCP"} checked={manualCreationEnabled} onChange={(event) => setManualCreationEnabled(event.target.checked)} />
+            <Switch label={t("admin.contentReviewFlag", "Revisión de contenido")} description={contentReviewEnabled ? t("admin.contentReviewEnabled", "Los Posts requieren aprobación, salvo superadministradores y miembros exentos.") : t("admin.contentReviewDisabled", "Los Posts pasan directamente a aprobados.")} checked={contentReviewEnabled} onChange={(event) => setContentReviewEnabled(event.target.checked)} />
+            <div className="ui-actions">
+              <button className="ui-button ui-button-primary" type="button" disabled={workflowSaving} onClick={() => void saveWorkflowFlags()}>
                 {workflowSaving ? t("admin.saving") : t("admin.saveWorkflowFlags")}
               </button>
             </div>
           </section>
-          </>}
         </section>
       ) : (
-        <section className="card">
+        <section className="ui-card">
           <h2>{t("admin.restrictedTitle")}</h2>
-          <p className="muted">{t("admin.restrictedHelp")}</p>
+          <p className="ui-muted">{t("admin.restrictedHelp")}</p>
         </section>
       )}
       {pendingDeletePack && (
@@ -6171,7 +6527,7 @@ function Admin() {
           media={selectedReference}
           busy={referenceBusy}
           onClose={() => setSelectedReference(null)}
-          onSave={(alt) => void saveReference(selectedReference, alt)}
+          onSave={(details) => void saveReference(selectedReference, details)}
           onDelete={() => {
             const media = selectedReference;
             setSelectedReference(null);
@@ -6191,26 +6547,26 @@ function Admin() {
       )}
       {showCreateSite && (
         <div
-          className="modal-backdrop"
+          className="ui-modal-backdrop"
           role="presentation"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget && !newSiteSaving) setShowCreateSite(false);
           }}
         >
           <section
-            className="modal-card compact-modal site-create-modal"
+            className="ui-modal ui-modal-compact site-create-modal"
             role="dialog"
             aria-modal="true"
             aria-labelledby="create-site-modal-title"
           >
-            <div className="modal-head">
+            <div className="ui-modal-head">
               <div>
-                <p className="eyebrow">{t("admin.workspaceScope")}</p>
+                <p className="ui-eyebrow">{t("admin.workspaceScope")}</p>
                 <h2 id="create-site-modal-title">{t("admin.addSite")}</h2>
-                <p className="muted">{t("admin.addSiteHelp")}</p>
+                <p className="ui-muted">{t("admin.addSiteHelp")}</p>
               </div>
               <button
-                className="icon-button"
+                className="ui-icon-button"
                 type="button"
                 onClick={() => setShowCreateSite(false)}
                 disabled={newSiteSaving}
@@ -6219,7 +6575,7 @@ function Admin() {
                 ×
               </button>
             </div>
-            <form className="form-stack" onSubmit={(event) => void createSite(event)}>
+            <form className="ui-stack ui-stack-md" onSubmit={(event) => void createSite(event)}>
               <label className="modal-field">
                 {t("admin.siteHandle")}
                 <input
@@ -6253,17 +6609,8 @@ function Admin() {
                 />
               </label>
               <label className="modal-field">
-                {t("admin.siteContentMode")}
-                <ChoicePills
-                  value={newSiteForm.contentMode}
-                  ariaLabel={t("admin.siteContentMode")}
-                  onChange={(value) => setNewSiteForm({ ...newSiteForm, contentMode: value as "blog" | "socialmedia" })}
-                  options={[
-                    { value: "blog", label: t("admin.siteContentModeBlog") },
-                    { value: "socialmedia", label: t("admin.siteContentModeSocial") },
-                  ]}
-                />
-                <span className="optional">{t("admin.siteContentModeHelp")}</span>
+                <span><b>Canal blog</b></span>
+                <span className="optional">Se crea como un canal más de la marca y puede desactivarse después.</span>
               </label>
               <label className="modal-field">
                 {t("admin.siteAuthors")}
@@ -6291,22 +6638,17 @@ function Admin() {
                   placeholder={t("admin.coolifyTokenPlaceholder")}
                 />
               </label>
-              <label className="switch-row">
-                <span>
-                  <b>{t("admin.requireHumanApproval")}</b>
-                  <small>{t("admin.requireHumanApprovalHelp")}</small>
-                </span>
-                <input
-                  type="checkbox"
-                  checked={newSiteForm.requiresHumanApproval}
-                  onChange={(event) => setNewSiteForm({ ...newSiteForm, requiresHumanApproval: event.target.checked })}
-                />
-              </label>
-              <div className="form-actions">
-                <button className="ghost" type="button" onClick={() => setShowCreateSite(false)} disabled={newSiteSaving}>
+              <Switch
+                label={t("admin.requireHumanApproval")}
+                description={t("admin.requireHumanApprovalHelp")}
+                checked={newSiteForm.requiresHumanApproval}
+                onChange={(event) => setNewSiteForm({ ...newSiteForm, requiresHumanApproval: event.target.checked })}
+              />
+              <div className="ui-actions">
+                <button className="ui-button ui-button-ghost" type="button" onClick={() => setShowCreateSite(false)} disabled={newSiteSaving}>
                   {t("editor.close")}
                 </button>
-                <button className="primary" type="submit" disabled={newSiteSaving}>
+                <button className="ui-button ui-button-primary" type="submit" disabled={newSiteSaving}>
                   {newSiteSaving ? t("admin.saving") : t("admin.createSite")}
                 </button>
               </div>
@@ -6322,25 +6664,31 @@ function PageTitle({
   title,
   description,
   back = false,
+  backTo,
 }: {
   eyebrow: string;
   title: string;
   description: string;
   back?: boolean;
+  backTo?: string;
 }) {
   return (
     <div className="title-block">
-      {back && <BackButton />}
-      <p className="eyebrow">{eyebrow}</p>
+      {back && <BackButton to={backTo} />}
+      <p className="ui-eyebrow">{eyebrow}</p>
       <h1>{title}</h1>
-      <p className="muted">{description}</p>
+      <p className="ui-muted">{description}</p>
     </div>
   );
 }
-function BackButton() {
+function navigateBack(nav: NavigateFunction, to = "/plans") {
+  if (typeof window.history.state?.idx === "number" && window.history.state.idx > 0) nav(-1);
+  else nav(to, { replace: true });
+}
+function BackButton({ to = "/plans" }: { to?: string }) {
   const nav = useNavigate();
   const { t } = useI18n();
-  return <button type="button" className="back-link" onClick={() => nav(-1)}>← {t("common.back")}</button>;
+  return <button type="button" className="back-link" onClick={() => navigateBack(nav, to)}>← {t("common.back")}</button>;
 }
 function EmptyState({
   title,
@@ -6353,23 +6701,791 @@ function EmptyState({
 }) {
   const { t } = useI18n();
   return (
-    <section className="empty-state">
+    <section className="ui-empty">
       <span>✦</span>
       <h2>{title}</h2>
       <p>{t("home.description")}</p>
-      <button className="primary" onClick={onClick}>
+      <button className="ui-button ui-button-primary" onClick={onClick}>
         {action}
       </button>
     </section>
   );
 }
+function RouteLoading() {
+  const { t } = useI18n();
+  return <main className="ui-page" role="status" aria-live="polite"><div className="loading">{t("app.loading")}</div></main>;
+}
+
 function Loading() {
   const { t } = useI18n();
   return (
-    <main className="page">
+    <main className="ui-page">
       <div className="loading">{t("common.loading")}</div>
     </main>
   );
+}
+
+function BrandsView({ embedded = false }: { embedded?: boolean } = {}) {
+  const Root = embedded ? "section" : "main";
+  const { site, productContext, session } = useApp();
+  const brands = productContext?.brands || [];
+  const activeBrandId = productContext?.activeBrand?.id || "";
+  const canCreate = isWorkspaceAdmin(session);
+  return <Root className={embedded ? "ui-admin-section" : "ui-page"}><PageHeader eyebrow={productContext?.workspace.name || "Espacio"} title="Marcas" description="Cada marca reúne identidad, capacidades, canales y conexiones." actions={canCreate ? <NavLink className="ui-button ui-button-primary" to="/brand/new">Añadir marca</NavLink> : undefined} /><div className="ui-brand-grid">{brands.map((brand) => { const active = brand.id === activeBrandId || (!activeBrandId && brand.handle === site); return <NavLink key={brand.id} to={`/brand/${encodeURIComponent(brand.id)}`} className={`ui-card ui-brand-card ${active ? "ui-brand-active" : ""}`}><div className="ui-card-head"><div><span className="ui-eyebrow">Marca</span><h2>{brand.name || brand.handle}</h2><p className="ui-brand-handle">{brand.handle}</p></div>{active && <Badge tone="success">Activa</Badge>}</div><div className="ui-channel-list">{(brand.channels || []).filter((channel) => channel.enabled).map((channel) => <ChannelBadge key={channel.channel} channel={channel.channel} />)}</div><div className="ui-capability-list">{brand.capabilities?.presentation_generation && <Badge tone="info">Presentaciones</Badge>}{brand.capabilities?.content_publishing && <Badge tone="success">Publicaciones</Badge>}{!brand.capabilities?.content_publishing && !brand.capabilities?.presentation_generation && <Badge tone="neutral">Sin capacidades activas</Badge>}</div><p className="ui-muted">Ver configuración, brand kit y conexiones →</p></NavLink>; })}</div>{!brands.length && <UiEmptyState title="Configura tu primera marca" description="Un administrador debe crear una marca para comenzar." action={canCreate ? <NavLink className="ui-button ui-button-primary" to="/brand/new">Añadir marca</NavLink> : undefined} />}</Root>;
+}
+
+function NewBrandView() {
+  const nav = useNavigate();
+  const { refresh, session } = useApp();
+  const [form, setForm] = useState({ handle: "", name: "", domain: "" });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  if (!isWorkspaceAdmin(session)) return <main className="ui-page ui-page-narrow"><UiEmptyState title="No tienes permisos para crear marcas" description="Solicita acceso a un administrador del espacio." action={<Button onClick={() => nav("/brand")}>Volver a marcas</Button>} /></main>;
+  const submit = async (event: FormEvent) => {
+    event.preventDefault(); setBusy(true); setError("");
+    try { const result = await api.createBrand(form); await refresh(); nav(`/brand/${encodeURIComponent(result.brand.id)}/setup`); }
+    catch (err: any) { setError(err?.message || "No se pudo crear la marca."); }
+    finally { setBusy(false); }
+  };
+  return <main className="ui-page ui-page-narrow"><PageHeader eyebrow="Espacio" title="Nueva marca" description="Las marcas nuevas empiezan sin canales activos. Activa y conecta solo lo que necesites." back={<NavLink to="/brand">← Volver a marcas</NavLink>} /><Card><form className="ui-stack ui-stack-md" onSubmit={(event) => void submit(event)}>{error && <p className="ui-field-error" role="alert">{error}</p>}<Field label="Nombre de la marca" required><TextField value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required autoFocus placeholder="Ej. Escarlet" /></Field><Field label="Identificador" hint="Se usa en URLs y debe ser único." required><TextField value={form.handle} onChange={(event) => setForm({ ...form, handle: event.target.value })} required placeholder="escarlet" /></Field><Field label="Dominio web (opcional)"><TextField type="url" value={form.domain} onChange={(event) => setForm({ ...form, domain: event.target.value })} placeholder="https://marca.com" /></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => nav("/brand")}>Cancelar</Button><Button type="submit" loading={busy}>Crear marca</Button></Inline></form></Card></main>;
+}
+
+function TeamView({ autoInvite = false }: { autoInvite?: boolean } = {}) {
+  const { session, site, productContext } = useApp();
+  const nav = useNavigate();
+  const { t } = useI18n();
+  const { showToast } = useToast();
+  const [members, setMembers] = useState<Array<Record<string, any>>>([]);
+  const [canManage, setCanManage] = useState(false);
+  const [canonicalTeam, setCanonicalTeam] = useState(false);
+  const [error, setError] = useState("");
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [form, setForm] = useState({ email: "", role: "viewer", brandIds: [] as string[], brandRoles: {} as Record<string, string> });
+  const [busy, setBusy] = useState(false);
+  const [userForm, setUserForm] = useState<{ id: string; email: string; role: string; sites: string[]; brandRoles: Record<string, string>; allowPublishingAs: boolean; reviewRequired: boolean } | null>(null);
+  const [userBusy, setUserBusy] = useState(false);
+  const canAdminUsers = isWorkspaceAdmin(session);
+  const inviteBrands = productContext?.brands || (session.sites || []).map((handle) => ({ id: handle, handle, name: handle }));
+  const defaultInviteSelection = (role = form.role) => {
+    const active = inviteBrands.filter((brand) => brand.id === site || brand.handle === site);
+    const brands = active.length ? active : inviteBrands;
+    return {
+      brandIds: brands.map((brand) => brand.id),
+      brandRoles: Object.fromEntries(brands.map((brand) => [brand.id, role])),
+    };
+  };
+  const canSeeSuperAdmin = session.role === "owner" || session.workspaceRole === "owner";
+  const visibleMembers = (rows: Array<Record<string, any>>) => canSeeSuperAdmin ? rows : rows.filter((member) => String(member.role || "").toLowerCase() !== "owner");
+  const load = () => api.teamV2(site).then((result) => { setMembers(visibleMembers(result.members || [])); setCanManage(Boolean(result.canManage)); setCanonicalTeam(true); }).catch((err: any) => {
+    setError(err?.message || "No se pudo cargar el equipo.");
+  });
+  useEffect(() => { void load(); }, [session.role, session.workspaceRole, site]);
+  useEffect(() => { if (autoInvite && canManage) setInviteOpen(true); }, [autoInvite, canManage]);
+  useEffect(() => { if (!form.brandIds.length && inviteBrands.length) setForm((current) => ({ ...current, ...defaultInviteSelection(current.role) })); }, [inviteBrands, form.brandIds.length, site]);
+  const invite = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!form.brandIds.length) { showToast("Selecciona al menos una marca.", "error"); return; }
+    setBusy(true);
+    try {
+      const role = rankedRole(form.brandIds.map((id) => form.brandRoles[id]), form.role);
+      const result = await api.inviteTeamMember({ email: form.email, role, brandIds: form.brandIds, brandRoles: form.brandRoles });
+      if (result.invite?.link) {
+        await navigator.clipboard?.writeText(result.invite.link).catch(() => {});
+        showToast("Invitación creada. El enlace se copió.");
+      } else {
+        showToast("Invitación enviada.");
+      }
+      setForm({ email: "", role: "viewer", ...defaultInviteSelection("viewer") });
+      setInviteOpen(false);
+      await load();
+    } catch (err: any) {
+      showToast(err?.message || "No se pudo invitar al miembro.", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const userId = (member: Record<string, any>) => String(member.userId || member.id || "");
+  const sitesForMember = (member: Record<string, any>) => uniqueSiteHandles([
+    ...(Array.isArray(member.sites) ? member.sites : []),
+    ...(Array.isArray(member.brands) ? member.brands.map((brand: any) => brand.handle) : []),
+  ]);
+  const availableSiteHandles = uniqueSiteHandles([
+    ...(session.sites || []),
+    ...members.flatMap((member) => sitesForMember(member)),
+  ]);
+  const openUserEditor = (member: Record<string, any>) => {
+    const id = userId(member);
+    if (!id || id === "system") return;
+    setUserForm({
+      id,
+      email: String(member.email || ""),
+      role: memberDisplayRole(member, site, productContext?.activeBrand),
+      sites: sitesForMember(member).length ? sitesForMember(member) : [site],
+      brandRoles: Object.fromEntries((Array.isArray(member.brands) ? member.brands : []).flatMap((brand: any) => {
+        const value = String(brand.role || member.role || "viewer");
+        return [brand.id, brand.handle].filter(Boolean).map((key) => [String(key), value]);
+      })),
+      allowPublishingAs: Boolean(member.allowPublishingAs),
+      reviewRequired: member.reviewRequired !== false,
+    });
+  };
+  const saveUser = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!userForm) return;
+    setUserBusy(true);
+    try {
+      await api.updateUser(userForm);
+      if (canonicalTeam) await api.updateTeamMember(userForm.id, { role: userForm.role, brandIds: userForm.sites, brandRoles: userForm.brandRoles, reviewRequired: userForm.reviewRequired });
+      setUserForm(null);
+      showToast(t("admin.userSaved"));
+      await load();
+    } catch (err: any) {
+      showToast(err?.message || "No se pudo guardar el usuario.", "error");
+    } finally {
+      setUserBusy(false);
+    }
+  };
+  const issueOrRevokeUserToken = async (member: Record<string, any>) => {
+    const id = userId(member);
+    if (!id || id === "system") return;
+    setUserBusy(true);
+    try {
+      if (member.hasLoginToken) {
+        await api.revokeUserToken(id);
+        setMembers((current) => current.map((row) => userId(row) === id ? { ...row, hasLoginToken: false } : row));
+        showToast(t("admin.userTokenRevoked"));
+      } else {
+        const result = await api.issueUserToken(id);
+        await navigator.clipboard?.writeText(result.token).catch(() => {});
+        setMembers((current) => current.map((row) => userId(row) === id ? { ...row, hasLoginToken: true } : row));
+        showToast(t("admin.userTokenReady"));
+      }
+    } catch (err: any) {
+      showToast(err?.message || "No se pudo actualizar el token.", "error");
+    } finally {
+      setUserBusy(false);
+    }
+  };
+  const sendUserMagicLink = async (member: Record<string, any>) => {
+    const email = String(member.email || "").trim();
+    if (!email) return;
+    setUserBusy(true);
+    try {
+      const result = await api.sendMagicLink({ email, site, role: member.role === "agency_admin" ? "agency_admin" : "client" });
+      if (result.link) {
+        await navigator.clipboard?.writeText(result.link).catch(() => {});
+        showToast(t("admin.magicLinkReady"));
+      } else {
+        showToast(t("admin.magicLinkSent"));
+      }
+    } catch (err: any) {
+      showToast(err?.message || "No se pudo enviar el enlace.", "error");
+    } finally {
+      setUserBusy(false);
+    }
+  };
+  return <main className="ui-page"><PageHeader eyebrow="Espacio" title="Equipo y acceso" description="Roles y permisos de las personas que pueden revisar este contenido." actions={<Inline gap="sm">{canAdminUsers && <Button variant="ghost" onClick={() => nav("/admin/team")}>{t("admin.users")}</Button>}{canManage && <Button onClick={() => setInviteOpen(true)}>Invitar miembro</Button>}</Inline>} />{error && <Card><p className="ui-field-error">{error}</p></Card>}{members.length ? <div className="ui-member-list">{members.map((member) => { const memberName = member.displayName || member.name || member.email || (member.userId === "system" ? "Escarlet" : member.userId) || "Miembro"; const id = userId(member); const canAct = canAdminUsers && Boolean(id) && id !== "system" && Boolean(member.email); return <Card key={member.id || member.userId || member.email}><div className="ui-card-head"><div className="ui-team-member"><UserAvatar src={member.avatarUrl} name={memberName} size="sm" /><div><h3>{memberName}</h3><p className="ui-muted">{member.email || (member.brands || []).map((brand: any) => brand.name || brand.handle).join(", ")}</p></div></div><Badge tone="info">{roleLabel(memberDisplayRole(member, site, productContext?.activeBrand), t)}</Badge></div>{canAct && <div className="ui-card-actions ui-team-actions"><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => openUserEditor(member)} aria-label={t("admin.editUser")} title={t("admin.editUser")}><AdminActionIcon kind="edit" /></button><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => void issueOrRevokeUserToken(member)} aria-label={member.hasLoginToken ? t("admin.revokeToken") : t("admin.issueToken")} title={member.hasLoginToken ? t("admin.revokeToken") : t("admin.issueToken")}><AdminActionIcon kind="key" /></button><button className="admin-icon-action" type="button" disabled={userBusy} onClick={() => void sendUserMagicLink(member)} aria-label={t("admin.magicLink")} title={t("admin.magicLink")}><AdminActionIcon kind="mail" /></button></div>}</Card>; })}</div> : !error && <UiEmptyState title="Todavía no hay miembros" description={canManage ? "Invita a la primera persona para empezar a trabajar en equipo." : "Un administrador debe invitar a los miembros de este espacio."} action={canManage ? <Button onClick={() => setInviteOpen(true)}>Invitar miembro</Button> : undefined} />}<Modal open={inviteOpen} title="Invitar miembro" onClose={() => setInviteOpen(false)}><form className="ui-stack ui-stack-md" onSubmit={(event) => void invite(event)}><Field label="Correo electrónico" required><TextField type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required autoFocus /></Field><Field label="Marcas asignadas"><MultiSelectPills options={inviteBrands.map((brand) => ({ id: brand.id, label: brand.name || brand.handle || brand.id }))} value={form.brandIds} onChange={(brandIds) => setForm((current) => ({ ...current, brandIds, brandRoles: Object.fromEntries(brandIds.map((id) => [id, current.brandRoles[id] || current.role])) }))} ariaLabel="Marcas asignadas" /></Field>{form.brandIds.map((brandId) => { const brand = inviteBrands.find((item) => item.id === brandId); return <Field key={brandId} label={`Rol en ${brand?.name || brand?.handle || brandId}`}><Select value={form.brandRoles[brandId] || "viewer"} onChange={(event) => setForm({ ...form, brandRoles: { ...form.brandRoles, [brandId]: event.target.value } })}><option value="owner">{roleLabel("owner", t)}</option><option value="admin">{roleLabel("admin", t)}</option><option value="approver">{roleLabel("approver", t)}</option><option value="editor">{roleLabel("editor", t)}</option><option value="author">{roleLabel("author", t)}</option><option value="viewer">{roleLabel("viewer", t)}</option></Select></Field>; })}<Inline gap="md"><Button type="button" variant="ghost" onClick={() => setInviteOpen(false)}>Cancelar</Button><Button type="submit" loading={busy}>Enviar invitación</Button></Inline></form></Modal><Modal open={Boolean(userForm)} title={t("admin.editUser")} onClose={() => setUserForm(null)}>{userForm && <form className="ui-stack ui-stack-md" onSubmit={(event) => void saveUser(event)}><Field label={t("admin.userEmail")} required><TextField type="email" required value={userForm.email} onChange={(event) => setUserForm({ ...userForm, email: event.target.value })} /></Field><Field label={t("admin.userRole")} required><Select value={userForm.role} onChange={(event) => setUserForm({ ...userForm, role: event.target.value })}>{["owner", "admin", "approver", "editor", "author", "viewer"].map((role) => <option key={role} value={role}>{roleLabel(role, t)}</option>)}</Select></Field><fieldset className="ui-site-checks"><legend>{t("admin.userSites")}</legend><MultiSelectPills options={availableSiteHandles.map((handle) => ({ id: handle, label: handle }))} value={userForm.sites} onChange={(sites) => setUserForm({ ...userForm, sites })} ariaLabel={t("admin.userSites")} />{userForm.sites.map((handle) => { const brandRole = userForm.brandRoles[handle] || userForm.role; return <div key={handle} className="ui-team-brand-row"><span>{handle}</span><Select aria-label={`Rol en ${handle}`} value={brandRole} onChange={(event) => setUserForm({ ...userForm, brandRoles: { ...userForm.brandRoles, [handle]: event.target.value } })}><option value="owner">{roleLabel("owner", t)}</option><option value="admin">{roleLabel("admin", t)}</option><option value="approver">{roleLabel("approver", t)}</option><option value="editor">{roleLabel("editor", t)}</option><option value="author">{roleLabel("author", t)}</option><option value="viewer">{roleLabel("viewer", t)}</option></Select></div> })}</fieldset><Switch label={t("settings.authorPermission")} description={t("settings.authorPermissionHelp")} checked={userForm.allowPublishingAs} onChange={(event) => setUserForm({ ...userForm, allowPublishingAs: event.target.checked })} /><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setUserForm(null)}>{t("editor.close")}</Button><Button type="submit" disabled={!userForm.sites.length} loading={userBusy}>{t("admin.save")}</Button></Inline></form>}</Modal></main>;
+}
+
+function parseBrandDocument(value: unknown): Record<string, any> {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, any>;
+  if (typeof value !== "string" || !value.trim()) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function brandPalette(source: Record<string, any>): Array<{ name: string; value: string }> {
+  const palette = source.fixed?.palette || source.palette || source.designSystem?.palette || {};
+  if (Array.isArray(palette)) {
+    return palette.flatMap((item, index) => {
+      const value = typeof item === "string" ? item : item?.value || item?.hex || item?.color;
+      return typeof value === "string" && /^#[0-9a-f]{3,8}$/i.test(value.trim())
+        ? [{ name: String(item?.name || `Color ${index + 1}`), value: value.trim().toUpperCase() }]
+        : [];
+    });
+  }
+  return Object.entries(palette)
+    .filter(([, value]) => typeof value === "string" && /^#[0-9a-f]{3,8}$/i.test(value.trim()))
+    .map(([name, value]) => ({ name, value: String(value).trim().toUpperCase() }));
+}
+
+function BrandDetailView() {
+  const { brandId = "" } = useParams();
+  const nav = useNavigate();
+  const [brand, setBrand] = useState<BrandSummary | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => { api.brandV2(brandId).then((result) => setBrand(result.brand)).catch((err) => setError(err?.message || "No se pudo cargar la marca.")); }, [brandId]);
+  if (error) return <main className="ui-page"><Card><p className="ui-field-error">{error}</p></Card></main>;
+  if (!brand) return <main className="ui-page"><Card><p className="ui-muted">Cargando marca…</p></Card></main>;
+  return <main className="ui-page"><PageHeader eyebrow="Marca" title={brand.name || brand.handle || "Marca"} description={brand.domain || "Configura identidad, capacidades y canales."} back={<NavLink to="/brand">← Volver a marcas</NavLink>} actions={<Button variant="ghost" onClick={() => nav("/brand")}>Todas las marcas</Button>} /><div className="ui-brand-detail-grid"><Card><span className="ui-eyebrow">Primer paso</span><h2>Define cómo comunica</h2><p className="ui-muted">Completa el asistente y la marca quedará lista para generar campañas consistentes.</p><div className="ui-card-actions"><Button onClick={() => nav(`/brand/${brand.id}/setup`)}>Configurar marca</Button><Button variant="secondary" onClick={() => nav(`/brand/${brand.id}/identity`)}>Abrir identidad avanzada</Button></div></Card><Card><span className="ui-eyebrow">Capacidades</span><h2>Usos de la marca</h2><div className="ui-capability-list">{brand.capabilities && Object.entries(brand.capabilities).filter(([, enabled]) => enabled).map(([key]) => <Badge key={key} tone="info">{key.replace(/_/g, " ")}</Badge>)}</div></Card><Card><span className="ui-eyebrow">Canales</span><h2>Canales activos</h2><div className="ui-channel-list">{(brand.channels || []).filter((channel) => channel.enabled).map((channel) => <ChannelBadge key={channel.channel} channel={channel.channel} />)}</div><div className="ui-card-actions"><Button variant="secondary" onClick={() => nav(`/brand/${brand.id}/channels`)}>Gestionar canales</Button></div></Card></div></main>;
+}
+
+function BrandSetupWizard() {
+  const { brandId = "" } = useParams();
+  const nav = useNavigate();
+  const { session } = useApp();
+  const { showToast } = useToast();
+  const [brand, setBrand] = useState<BrandSummary | null>(null);
+  const [core, setCore] = useState<Record<string, any>>({});
+  const [step, setStep] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [form, setForm] = useState({ name: "", domain: "", audience: "", voice: "", pillars: "", prohibited: "", claims: "", language: "es" });
+  const canEdit = isWorkspaceAdmin(session);
+  const setField = (key: keyof typeof form, value: string) => setForm((current) => ({ ...current, [key]: value }));
+  useEffect(() => {
+    let active = true;
+    Promise.all([api.brandV2(brandId), api.brandKitV2(brandId)]).then(([brandResult, kit]) => {
+      if (!active) return;
+      const nextBrand = brandResult.brand;
+      const nextCore = parseBrandDocument(kit?.manifest?.["brand-core.json"] || kit?.manifest?.["brand-core"] || {});
+      const profile = nextCore.brandProfile || {};
+      setBrand(nextBrand); setCore(nextCore);
+      setForm({
+        name: String(nextBrand.name || nextCore.identity?.name || ""), domain: String(nextBrand.domain || ""),
+        audience: Array.isArray(profile.audience) ? profile.audience.join("\n") : String(profile.audience || ""),
+        voice: String(nextCore.identity?.editorialTone || profile.voice || ""),
+        pillars: Array.isArray(profile.pillars) ? profile.pillars.join("\n") : String(profile.pillars || ""),
+        prohibited: Array.isArray(profile.prohibitedTerms) ? profile.prohibitedTerms.join("\n") : "",
+        claims: Array.isArray(nextCore.claims) ? nextCore.claims.map((claim: any) => typeof claim === "string" ? claim : claim.text).filter(Boolean).join("\n") : "",
+        language: String(profile.language || "es")
+      });
+    }).catch((err) => { if (active) setError(err?.message || "No se pudo abrir el asistente."); });
+    return () => { active = false; };
+  }, [brandId]);
+  const save = async () => {
+    if (!brand?.handle || !canEdit) return;
+    setBusy(true); setError("");
+    const lines = (value: string) => value.split(/\r?\n|,/).map((entry) => entry.trim()).filter(Boolean);
+    try {
+      await api.updateBrandV2(brandId, { name: form.name.trim(), domain: form.domain.trim() || undefined });
+      const nextCore = {
+        ...core,
+        id: core.id || brand.handle,
+        version: core.version || "1.0.0",
+        identity: { ...(core.identity || {}), name: form.name.trim(), editorialTone: form.voice.trim(), embeddedText: false },
+        brandProfile: { ...(core.brandProfile || {}), audience: lines(form.audience), pillars: lines(form.pillars), prohibitedTerms: lines(form.prohibited), language: form.language },
+        claims: lines(form.claims).map((text) => ({ text, status: "draft", source: "" }))
+      };
+      await api.saveBrandFile(brand.handle, "brand-core.json", JSON.stringify(nextCore, null, 2));
+      showToast("Marca configurada. Ya puedes crear una campaña.");
+      nav(`/brand/${encodeURIComponent(brandId)}`);
+    } catch (err: any) { setError(err?.message || "No se pudo guardar la marca."); } finally { setBusy(false); }
+  };
+  const stepLabels = ["Identidad", "Audiencia", "Voz", "Revisión"];
+  if (error && !brand) return <main className="ui-page"><Card><p className="ui-field-error" role="alert">{error}</p></Card></main>;
+  if (!brand) return <main className="ui-page"><Card><p className="ui-muted">Cargando asistente…</p></Card></main>;
+  if (!canEdit) return <main className="ui-page"><PageHeader eyebrow="Configuración de marca" title="No tienes permisos para editar esta marca" back={<Button variant="ghost" onClick={() => nav(`/brand/${brandId}`)}>Volver</Button>} /><Card><p className="ui-muted">Pide a un administrador que complete el sistema de comunicación de la marca.</p></Card></main>;
+  return <main className="ui-page ui-page-narrow"><PageHeader eyebrow="Asistente de marca" title="Haz que la marca se explique sola" description="Responde estas preguntas una vez. Después, el sistema usará las respuestas para mantener el mismo criterio en cada campaña." back={<Button variant="ghost" onClick={() => nav(`/brand/${brandId}`)}>Volver</Button>} /><Card><div className="ui-step-list" aria-label="Pasos del asistente">{stepLabels.map((label, index) => <Badge key={label} tone={index === step ? "info" : index < step ? "success" : "neutral"}>{index + 1}. {label}</Badge>)}</div>{step === 0 && <Stack gap="md"><Field label="Nombre de la marca" hint="Cómo quieres que aparezca en el contenido." required><TextField value={form.name} onChange={(event) => setField("name", event.target.value)} autoFocus required /></Field><Field label="Dominio web" hint="Opcional. Ayuda a enlazar y citar la marca."><TextField type="url" value={form.domain} onChange={(event) => setField("domain", event.target.value)} placeholder="https://tumarca.com" /></Field></Stack>}{step === 1 && <Stack gap="md"><Field label="¿A quién habla la marca?" hint="Una audiencia por línea. Puedes escribir perfiles, sectores o situaciones." required><Textarea value={form.audience} onChange={(event) => setField("audience", event.target.value)} rows={6} autoFocus required placeholder="Personas que están empezando\nEquipos de marketing pequeños" /></Field><Field label="Idioma principal"><Select value={form.language} onChange={(event) => setField("language", event.target.value)}><option value="es">Español</option><option value="en">English</option></Select></Field></Stack>}{step === 2 && <Stack gap="md"><Field label="¿Cómo debe sonar?" hint="Describe el tono con palabras concretas y ejemplos de actitud." required><Textarea value={form.voice} onChange={(event) => setField("voice", event.target.value)} rows={5} autoFocus required placeholder="Claro, cercano y exigente con los datos. Nunca grandilocuente." /></Field><Field label="Pilares de contenido" hint="Un tema prioritario por línea."><Textarea value={form.pillars} onChange={(event) => setField("pillars", event.target.value)} rows={4} placeholder="Educación práctica\nCasos reales\nDecisiones de producto" /></Field><Field label="Palabras o enfoques que debemos evitar" hint="Opcional. Una entrada por línea."><Textarea value={form.prohibited} onChange={(event) => setField("prohibited", event.target.value)} rows={3} /></Field><Field label="Claims que requieren revisión" hint="Uno por línea. Se guardan como pendientes hasta que un responsable los apruebe."><Textarea value={form.claims} onChange={(event) => setField("claims", event.target.value)} rows={4} /></Field></Stack>}{step === 3 && <Stack gap="md"><h2>Comprueba el resumen</h2><p className="ui-muted">{form.name} hablará a {form.audience || "una audiencia todavía no definida"}, con un tono {form.voice || "todavía no definido"}.</p><p><strong>{form.pillars ? `${form.pillars.split(/\r?\n/).filter(Boolean).length} pilares` : "Sin pilares todavía"}</strong> · <strong>{form.claims ? `${form.claims.split(/\r?\n/).filter(Boolean).length} claims pendientes` : "Sin claims"}</strong></p>{error && <p className="ui-field-error" role="alert">{error}</p>}</Stack>}<Inline gap="md"><Button type="button" variant="ghost" disabled={busy || step === 0} onClick={() => setStep((current) => current - 1)}>Atrás</Button>{step < 3 ? <Button type="button" disabled={busy || (step === 0 && !form.name.trim()) || (step === 1 && !form.audience.trim()) || (step === 2 && !form.voice.trim())} onClick={() => setStep((current) => current + 1)}>Continuar</Button> : <Button type="button" loading={busy} onClick={() => void save()}>Guardar sistema de marca</Button>}</Inline></Card></main>;
+}
+
+function BrandIdentityView() {
+  const { brandId = "" } = useParams();
+  const { session } = useApp();
+  const { t } = useI18n();
+  const { showToast } = useToast();
+  const [brand, setBrand] = useState<BrandSummary | null>(null);
+  const [brandCore, setBrandCore] = useState<Record<string, any>>({});
+  const [identityView, setIdentityView] = useState<"summary" | "edit">("summary");
+  const [kit, setKit] = useState<Record<string, any> | null>(null);
+  const [brandFiles, setBrandFiles] = useState<string[]>([]);
+  const [referenceMedia, setReferenceMedia] = useState<MediaItem[]>([]);
+  const [selectedReference, setSelectedReference] = useState<MediaItem | null>(null);
+  const [referenceBusy, setReferenceBusy] = useState(false);
+  const [referenceColumns, setReferenceColumns] = useState("3");
+  const [selectedBrandFile, setSelectedBrandFile] = useState("");
+  const [brandContent, setBrandContent] = useState("");
+  const [brandSaving, setBrandSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [form, setForm] = useState({ name: "", domain: "" });
+  const [busy, setBusy] = useState(false);
+  const [brandZipBusy, setBrandZipBusy] = useState(false);
+  const brandZipInputRef = useRef<HTMLInputElement | null>(null);
+  const canEdit = isWorkspaceAdmin(session);
+  const canImportBrandKit = session.role === "admin";
+  useEffect(() => {
+    let active = true;
+    setError("");
+    setBrandCore({});
+    Promise.all([api.brandV2(brandId), api.brandKitV2(brandId)])
+      .then(async ([brandResult, kitResult]) => {
+        if (!active) return;
+        const nextBrand = brandResult.brand;
+        setBrand(nextBrand);
+        setForm({ name: String(nextBrand.name || ""), domain: String(nextBrand.domain || "") });
+        setKit(kitResult);
+        const manifestBrandCore = parseBrandDocument(kitResult?.manifest?.["brand-core.json"] || kitResult?.manifest?.["brand-core"]);
+        const legacy = nextBrand.handle ? await api.brand(nextBrand.handle).catch(() => null) : null;
+        if (!active) return;
+        const coreFile = canEdit && nextBrand.handle
+          ? await api.brandFile(nextBrand.handle, "brand-core.json").catch(() => ({ content: "" }))
+          : { content: "" };
+        if (!active) return;
+        const loadedBrandCore = parseBrandDocument(coreFile.content);
+        setBrandCore(Object.keys(loadedBrandCore).length ? loadedBrandCore : manifestBrandCore);
+        const kitReferences = Array.isArray(kitResult?.assets)
+          ? kitResult.assets.filter((asset: any) => asset?.publicUrl || asset?.metadata?.url || asset?.metadata?.path).map((asset: any) => brandKitAssetMedia(asset))
+          : [];
+        setReferenceMedia(dedupeMedia(kitReferences));
+        const manifest = kitResult && typeof kitResult.manifest === "object" ? kitResult.manifest : {};
+        const files = [...new Set([...(legacy?.files || []), ...Object.keys(manifest)])];
+        setBrandFiles(files);
+        setSelectedBrandFile((current) => current && files.includes(current) ? current : files[0] || "");
+      })
+      .catch((err) => { if (active) setError(err?.message || "No se pudo cargar la identidad."); });
+    return () => { active = false; };
+  }, [brandId, canEdit]);
+  useEffect(() => {
+    if (!canEdit || !brand?.handle || !selectedBrandFile) {
+      setBrandContent("");
+      return;
+    }
+    let active = true;
+    api.brandFile(brand.handle, selectedBrandFile)
+      .then((data) => { if (active) setBrandContent(data.content || ""); })
+      .catch(() => { if (active) setBrandContent(""); });
+    return () => { active = false; };
+  }, [brand?.handle, canEdit, selectedBrandFile]);
+  const refreshBrandKitAssets = async () => {
+    const latest = await api.brandKitV2(brandId);
+    setKit(latest);
+    const assets = Array.isArray(latest?.assets) ? latest.assets.filter((asset: any) => asset?.publicUrl || asset?.metadata?.url || asset?.metadata?.path).map((asset: Record<string, any>) => brandKitAssetMedia(asset)) : [];
+    const media = dedupeMedia(assets);
+    setReferenceMedia(media);
+    return media;
+  };
+  const save = async (event: FormEvent) => { event.preventDefault(); setBusy(true); try { const result = await api.updateBrandV2(brandId, { name: form.name, domain: form.domain || undefined }); setBrand(result.brand); showToast("Identidad guardada."); } catch (err: any) { showToast(err?.message || "No se pudo guardar la identidad.", "error"); } finally { setBusy(false); } };
+  const saveBrandFile = async () => {
+    if (!brand?.handle || !selectedBrandFile) return;
+    setBrandSaving(true);
+    try {
+      await api.saveBrandFile(brand.handle, selectedBrandFile, brandContent);
+      if (selectedBrandFile === "brand-core.json") setBrandCore(parseBrandDocument(brandContent));
+      showToast(t("admin.savedBrand"));
+    } catch (err: any) {
+      showToast(err?.message || "No se pudo guardar el archivo.", "error");
+    } finally {
+      setBrandSaving(false);
+    }
+  };
+  const importBrandKit = async (file?: File) => {
+    if (!file || !brand?.handle) return;
+    setBrandZipBusy(true);
+    try {
+      const result = await api.importBrandZip(brand.id || brand.handle, await fileAsBase64(file));
+      const legacy = await api.brand(brand.handle).catch(() => null);
+      const core = await api.brandFile(brand.handle, "brand-core.json").catch(() => ({ content: "" }));
+      const importedFiles = [...(result.importedMd || []), ...(result.importedData || [])];
+      const nextFiles = [...new Set([...(legacy?.files || []), ...brandFiles, ...importedFiles])];
+      setBrandFiles(nextFiles);
+      const importedCore = parseBrandDocument(core.content);
+      if (Object.keys(importedCore).length) setBrandCore(importedCore);
+      const refreshedKit = await api.brandKitV2(brandId);
+      setKit(refreshedKit);
+      setReferenceMedia(dedupeMedia((refreshedKit.assets || []).map((asset: Record<string, any>) => brandKitAssetMedia(asset))));
+      if (importedFiles.length) setSelectedBrandFile(importedFiles[0]);
+      setKit((current) => current ? { ...current, manifest: { ...(current.manifest || {}), ...Object.fromEntries(importedFiles.map((name) => [name, current.manifest?.[name] ?? {}])) } } : current);
+      showToast(`${t("admin.brandZipImported")} ${(result.importedImages || []).length} ${t("admin.brandZipImages")}`);
+    } catch (err: any) {
+      showToast(err?.message || "No se pudo importar el brand kit.", "error");
+    } finally {
+      setBrandZipBusy(false);
+      if (brandZipInputRef.current) brandZipInputRef.current.value = "";
+    }
+  };
+  const uploadReference = async (file?: File) => {
+    if (!file || !brand?.handle) return;
+    setReferenceBusy(true);
+    try {
+      await api.uploadMedia({ site: brand.handle, filename: file.name, contentBase64: await fileAsBase64(file), kind: "reference", alt: file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ") });
+      showToast("Asset cargado. Queda disponible para asociarlo a un Post.");
+    } catch (err: any) {
+      showToast(err?.message || "No se pudo cargar la referencia.", "error");
+    } finally {
+      setReferenceBusy(false);
+    }
+  };
+  const deleteReference = async (media: MediaItem) => {
+    if (!media.id || !brand?.handle) return;
+    setReferenceBusy(true);
+    try {
+      if (media.metadata?.source === "brand-kit") await api.deleteBrandKitAsset(brandId, media.id);
+      else await api.deleteMedia({ site: brand.handle, id: media.id, path: media.path });
+      setSelectedReference(null);
+      setReferenceMedia((current) => current.filter((item) => item.id !== media.id));
+      await refreshBrandKitAssets();
+      showToast(media.metadata?.source === "brand-kit" ? "Asset retirado del Brand Kit." : "Referencia eliminada.");
+    } catch (err: any) {
+      showToast(err?.message || "No se pudo eliminar la referencia.", "error");
+    } finally {
+      setReferenceBusy(false);
+    }
+  };
+  const saveReference = async (media: MediaItem, details: { filename: string; alt: string; usage: string }) => {
+    if (!media.id || !brand?.handle) return;
+    setReferenceBusy(true);
+    try {
+      if (media.metadata?.source === "canonical-reference") return;
+      if (media.metadata?.source === "brand-kit") {
+        const result = await api.updateBrandKitAsset(brandId, media.id, { alt: details.alt, usage: details.usage });
+        const refreshed = await refreshBrandKitAssets();
+        const updated = refreshed.find((item) => item.filename === (result.asset.name || media.filename)) || refreshed.find((item) => item.id === result.asset.id) || null;
+        setReferenceMedia((current) => current.map((item) => item.id === media.id ? updated || { ...item, alt: details.alt, metadata: { ...(item.metadata || {}), usage: details.usage } } : item));
+      } else {
+        const result = await api.updateMedia({ site: brand.handle, id: media.id, ...details });
+        setReferenceMedia((current) => current.map((item) => item.id === media.id ? result.media : item));
+      }
+      setSelectedReference(null);
+      showToast("Referencia actualizada.");
+    } catch (err: any) {
+      showToast(err?.message || "No se pudo actualizar la referencia.", "error");
+    } finally {
+      setReferenceBusy(false);
+    }
+  };
+  const visibleBrandFiles = [...new Set([...brandFiles, ...Object.keys(kit?.manifest || {})])];
+  const referenceUsageLabels: Record<string, string> = { logo: "Logo", reference: "Referencia visual", style_board: "Tablero visual", character: "Personaje", typography: "Tipografía", palette: "Paleta de color", campaign: "Referencia de campaña" };
+  const palette = brandPalette(brandCore);
+  const identity = brandCore.identity || {};
+  const typography = brandCore.fixed?.typography || {};
+  const imageRules = Array.isArray(brandCore.fixed?.imageRules) ? brandCore.fixed.imageRules : [];
+  const summaryFiles = visibleBrandFiles.filter((file) => file).slice(0, 6);
+  const summaryTabId = "tabpanel-brand-identity-summary";
+  const editTabId = "tabpanel-brand-identity-edit";
+  return (
+    <main className="ui-page">
+      <PageHeader eyebrow="Marca · Identidad" title={brand?.name || "Identidad y brand kit"} description="Consulta la identidad de un vistazo o abre el editor completo cuando necesites cambiarla." back={<NavLink to={`/brand/${encodeURIComponent(brandId)}`}>← Volver a la marca</NavLink>} />
+      <Tabs
+        items={[{ id: "summary", label: t("brandIdentity.summaryTab", "Resumen") }, { id: "edit", label: t("brandIdentity.editTab", "Editar identidad") }]}
+        value={identityView}
+        onChange={setIdentityView}
+        className="ui-identity-view-tabs"
+        idPrefix="identity-view-tabs"
+        panelIdPrefix="tabpanel-brand-identity"
+        ariaLabel={t("brandIdentity.tabsLabel", "Vista de identidad")}
+      />
+      {error ? <Card><p className="ui-field-error">{error}</p></Card> : !brand ? <Card><p className="ui-muted">{t("common.loading")}</p></Card> : identityView === "summary" ? <section id={summaryTabId} role="tabpanel" aria-labelledby="identity-view-tabs-summary" className="ui-brand-summary-grid">
+        <Card className="ui-brand-summary-hero">
+          <div className="ui-card-head">
+            <div>
+              <span className="ui-eyebrow">{t("brandIdentity.summaryEyebrow", "Vista resumida")}</span>
+              <h2>{brand.name || brand.handle}</h2>
+              <p className="ui-muted">{brand.handle}{brand.domain ? ` · ${brand.domain}` : ` · ${t("brandIdentity.noDomain", "Sin dominio configurado")}`}</p>
+            </div>
+            <StatusBadge status={kit?.status === "published" ? "published" : "draft"} label={kit?.version ? `${t("brandIdentity.kitVersion", "Versión")} ${kit.version}` : t("brandIdentity.kitPending", "Kit pendiente")} />
+          </div>
+          <div className="ui-brand-summary-preview">
+            <div className="ui-brand-summary-mark" aria-hidden="true">{String(brand.name || brand.handle || "M").slice(0, 1).toUpperCase()}</div>
+            <div><strong>{identity.visualTone || t("brandIdentity.visualToneMissing", "Define el tono visual en el brand core")}</strong><span>{identity.editorialTone || t("brandIdentity.editorialToneMissing", "Añade un tono editorial para orientar los contenidos")}</span></div>
+          </div>
+        </Card>
+        <Card>
+          <span className="ui-eyebrow">{t("brandIdentity.paletteEyebrow", "Paleta")}</span>
+          <h2>{t("brandIdentity.paletteTitle", "Colores de marca")}</h2>
+          {palette.length ? <div className="ui-brand-palette">{palette.map((color) => <div className="ui-brand-color" key={`${color.name}-${color.value}`}><span className="ui-brand-color-swatch" style={{ backgroundColor: color.value }} aria-hidden="true" /><div><strong>{color.name}</strong><code>{color.value}</code></div></div>)}</div> : <p className="ui-muted">{t("brandIdentity.paletteEmpty", "No hay una paleta publicada en el brand core.")}</p>}
+        </Card>
+        <Card>
+          <span className="ui-eyebrow">{t("brandIdentity.systemEyebrow", "Sistema")}</span>
+          <h2>{t("brandIdentity.systemTitle", "Tipografía y contraste")}</h2>
+          <dl className="ui-brand-summary-list">
+            <div><dt>{t("brandIdentity.headingFont", "Titulares")}</dt><dd>{typography.heading || t("brandIdentity.notDefined", "Sin definir")}</dd></div>
+            <div><dt>{t("brandIdentity.bodyFont", "Cuerpo")}</dt><dd>{typography.body || t("brandIdentity.notDefined", "Sin definir")}</dd></div>
+            <div><dt>{t("brandIdentity.contrast", "Contraste")}</dt><dd>{identity.contrast || t("brandIdentity.notDefined", "Sin definir")}</dd></div>
+          </dl>
+        </Card>
+        <Card>
+          <span className="ui-eyebrow">{t("brandIdentity.documentsEyebrow", "Documentos")}</span>
+          <h2>{t("brandIdentity.documentsTitle", "Fuentes activas")}</h2>
+          {summaryFiles.length ? <div className="ui-brand-document-list">{summaryFiles.map((file) => <div key={file}><span>{file}</span><Badge tone="success">{t("brandIdentity.available", "Disponible")}</Badge></div>)}</div> : <p className="ui-muted">{t("brandIdentity.documentsEmpty", "Todavía no hay documentos visibles.")}</p>}
+          <p className="ui-field-hint">{referenceMedia.length} {t("brandIdentity.referencesCount", "referencias visuales disponibles")}</p>
+        </Card>
+        <Card>
+          <span className="ui-eyebrow">{t("brandIdentity.rulesEyebrow", "Criterio visual")}</span>
+          <h2>{t("brandIdentity.rulesTitle", "Reglas que conviene respetar")}</h2>
+          {imageRules.length ? <ul className="ui-brand-summary-rules">{imageRules.slice(0, 3).map((rule: any) => <li key={String(rule)}>{String(rule)}</li>)}</ul> : <p className="ui-muted">{t("brandIdentity.rulesEmpty", "Añade reglas visuales al brand core para hacerlas visibles aquí.")}</p>}
+        </Card>
+        <Card className="ui-brand-summary-references">
+          <div className="ui-card-head"><div><span className="ui-eyebrow">{t("brandIdentity.referencesEyebrow", "Referencias")}</span><h2>{t("brandIdentity.referencesTitle", "Biblioteca visual")}</h2></div><Badge tone="info">{referenceMedia.length}</Badge></div>
+          {referenceMedia.length ? <div className="ui-brand-summary-reference-grid">{referenceMedia.slice(0, 4).map((media) => <img key={media.id || media.path || media.url} src={media.thumbUrl || media.previewUrl || media.url || media.path} alt={media.alt || media.filename || t("brandIdentity.visualReference", "Referencia visual")} width={media.width || undefined} height={media.height || undefined} loading="lazy" decoding="async" />)}</div> : <p className="ui-muted">{t("brandIdentity.referencesEmpty", "Aún no hay imágenes de referencia.")}</p>}
+        </Card>
+      </section> : <div id={editTabId} role="tabpanel" aria-labelledby="identity-view-tabs-edit" className="ui-identity-grid">
+        <Card className="ui-identity-brand-card">
+          <div className="ui-card-head ui-identity-brand-head"><div><span className="ui-eyebrow">Brand kit activo</span><h2>{kit?.version ? `Versión ${kit.version}` : "Sin versión publicada"}</h2><p className="ui-muted">Edita los archivos de referencia sin salir de la vista v2.</p></div>{canImportBrandKit && <><Button type="button" variant="secondary" onClick={() => brandZipInputRef.current?.click()} loading={brandZipBusy}>{t("admin.importBrandZip")}</Button><input ref={brandZipInputRef} type="file" accept=".zip,application/zip,application/x-zip-compressed" hidden disabled={brandZipBusy} onChange={(event) => void importBrandKit(event.target.files?.[0])} /></>}</div>
+          <div className="ui-brandkit-workspace">
+            <aside className="ui-brand-file-nav" aria-label="Archivos del brand kit">
+              <span className="ui-field-label">Archivos de referencia</span>
+              {visibleBrandFiles.length ? visibleBrandFiles.map((file) => canEdit ? <button key={file} type="button" className={`ui-brand-file-button ${selectedBrandFile === file ? "active" : ""}`} onClick={() => setSelectedBrandFile(file)}>{file}</button> : <Badge key={file} tone="neutral">{file}</Badge>) : <p className="ui-muted">Todavía no hay archivos.</p>}
+            </aside>
+            <div className="ui-brand-editor">
+              {canEdit && selectedBrandFile ? <><label className="ui-field"><span className="ui-field-label">Editando {selectedBrandFile}</span><textarea className="ui-input ui-textarea" rows={15} value={brandContent} onChange={(event) => setBrandContent(event.target.value)} /></label><div className="ui-card-actions"><Button type="button" onClick={() => void saveBrandFile()} loading={brandSaving}>{t("admin.saveBrand")}</Button></div></> : <p className="ui-muted">Selecciona un archivo para editarlo.</p>}
+            </div>
+          </div>
+          <div className="reference-library ui-brand-reference-library">
+            <div className="ui-reference-toolbar"><div><span className="ui-eyebrow">Referencias visuales</span><h3>Biblioteca de imágenes</h3><p className="ui-field-hint">Abre una imagen para verla en alta calidad y clasificar su uso.</p></div><Inline gap="sm"><Field label="Columnas"><Select value={referenceColumns} onChange={(event) => setReferenceColumns(event.target.value)}><option value="2">2</option><option value="3">3</option><option value="4">4</option></Select></Field>{canEdit && <label className="ui-button ui-button-secondary ui-button-sm ui-file-upload-button">{referenceBusy ? "Cargando…" : "Añadir imágenes"}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden disabled={referenceBusy} onChange={(event) => { Array.from(event.target.files || []).forEach((file) => void uploadReference(file)); event.currentTarget.value = ""; }} /></label>}</Inline></div>
+            {referenceMedia.length ? <div className={`reference-grid ui-reference-grid ui-reference-grid-${referenceColumns}`}>{referenceMedia.map((media) => { const protectedReference = media.metadata?.source === "canonical-reference"; const canEditMedia = canEdit && Boolean(media.id) && !protectedReference; const usage = String(media.metadata?.usage || "reference"); return <article className="reference-card" key={media.id || media.path || media.url}><button className="reference-image-button" type="button" onClick={() => canEditMedia && setSelectedReference(media)} disabled={!canEditMedia} aria-label={`Ver ${media.filename || "referencia visual"}`}><img src={media.thumbUrl || media.previewUrl || media.url || media.path} alt={media.alt || media.filename || "Referencia visual"} width={media.width || undefined} height={media.height || undefined} loading="lazy" decoding="async" /><span className="reference-edit-icon" aria-hidden="true">⌕</span></button><div className="reference-card-actions"><div className="reference-meta"><strong title={media.filename}>{media.filename || "Referencia"}</strong><Badge tone="neutral">{referenceUsageLabels[usage] || usage}</Badge></div>{protectedReference ? <Badge tone="success">Canónica</Badge> : canEditMedia && <Badge tone="info">Editar</Badge>}</div></article>; })}</div> : <UiEmptyState title="Aún no hay referencias visuales" description="Importa un ZIP o añade imágenes para construir la biblioteca de la marca." />}
+          </div>
+          <p className="ui-muted">Las referencias privadas solo se muestran según el rol y la capacidad de acceso.</p>
+        </Card>
+        <Card><span className="ui-eyebrow">Datos de la marca</span><h2>Identidad pública</h2>{canEdit ? <form className="ui-stack ui-stack-md" onSubmit={(event) => void save(event)}><Field label="Nombre" required><TextField value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></Field><Field label="Dominio web opcional"><TextField type="url" value={form.domain} onChange={(event) => setForm({ ...form, domain: event.target.value })} placeholder="https://marca.com" /></Field><Button type="submit" loading={busy}>Guardar identidad</Button></form> : <p className="ui-muted">{brand?.domain || "Sin dominio configurado"}</p>}</Card>
+      </div>}
+      {selectedReference && <ReferenceMediaModal key={selectedReference.id || selectedReference.filename} media={selectedReference} busy={referenceBusy} onClose={() => setSelectedReference(null)} onSave={(details) => void saveReference(selectedReference, details)} onDelete={() => void deleteReference(selectedReference)} canDelete={['brand-kit', 'canonical-reference'].includes(String(selectedReference.metadata?.source || '')) ? selectedReference.metadata?.source === 'brand-kit' : true} readOnlyFilename={['brand-kit', 'canonical-reference'].includes(String(selectedReference.metadata?.source || ''))} />}
+    </main>
+  );
+}
+
+function BrandChannelsView() {
+  const { brandId = "" } = useParams();
+  const { session } = useApp();
+  const { t } = useI18n();
+  const { showToast } = useToast();
+  const [channels, setChannels] = useState<Array<{ channel: string; enabled: boolean }>>([]);
+  const [caps, setCaps] = useState<Record<string, boolean>>({});
+  const [brand, setBrand] = useState<BrandSummary | null>(null);
+  const [web, setWeb] = useState({ domain: "", rebuildWebhookUrl: "", token: "" });
+  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const canManage = isWorkspaceAdmin(session);
+  useEffect(() => { let active = true; setLoading(true); setError(""); Promise.all([api.brandV2(brandId), api.brandChannels(brandId), api.brandConnections(brandId), api.brandCapabilities(brandId)]).then(([brandResult, channelResult, connectionResult, capResult]) => { if (!active) return; setBrand(brandResult.brand); setChannels(channelResult.channels || []); setCaps(capResult.capabilities || {}); const connection = (connectionResult.connections || []).find((item) => item.channel === "blog" && item.provider === "web"); setWeb({ domain: String(connection?.config?.domain || brandResult.brand.domain || ""), rebuildWebhookUrl: String(connection?.config?.rebuildWebhookUrl || ""), token: "" }); }).catch((err) => { if (active) setError(err?.message || "No se pudo cargar la configuración de canales."); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, [brandId]);
+  const save = async () => { setBusy(true); try { const channelMap = Object.fromEntries(channels.map((channel) => [channel.channel, channel.enabled])); await api.updateBrandChannels(brandId, channelMap); await api.updateBrandCapabilities(brandId, { ...caps, content_publishing: Object.values(channelMap).some(Boolean), blog_publishing: Boolean(channelMap.blog) }); if (channelMap.blog && (web.domain || web.rebuildWebhookUrl || web.token)) { await api.updateBrandV2(brandId, { domain: web.domain || undefined }); await api.saveBrandConnection(brandId, { provider: "web", channel: "blog", token: web.token || undefined, config: { domain: web.domain, rebuildWebhookUrl: web.rebuildWebhookUrl } }); } showToast("Canales y capacidades guardados."); } catch (err: any) { showToast(err?.message || "No se pudo guardar la configuración.", "error"); } finally { setBusy(false); } };
+  const blogEnabled = channels.some((channel) => channel.channel === "blog" && channel.enabled);
+  if (loading) return <main className="ui-page"><p className="ui-muted">Cargando configuración de canales...</p></main>;
+  if (error) return <main className="ui-page"><UiEmptyState title="No se pudo cargar la configuración" description={error} action={<Button onClick={() => window.location.reload()}>Reintentar</Button>} /></main>;
+  return <main className="ui-page"><PageHeader eyebrow="Marca · Canales" title={brand?.name || "Canales activos"} description="Activa solo los canales que esta marca utiliza. Cada uno puede tener su propia conexión primaria." back={<NavLink to={`/brand/${encodeURIComponent(brandId)}`}>← Volver a la marca</NavLink>} actions={canManage ? <Button onClick={() => void save()} loading={busy}>Guardar cambios</Button> : undefined} /><div className="ui-channel-settings-grid"><Card><span className="ui-eyebrow">Canales</span><h2>Publicación multicanal</h2><Stack gap="sm">{channels.map((channel) => <Switch key={channel.channel} label={channel.channel === "x" ? "X" : channel.channel.charAt(0).toUpperCase() + channel.channel.slice(1)} description={channel.enabled ? "Activo" : "Inactivo"} disabled={!canManage} checked={Boolean(channel.enabled)} onChange={(event) => setChannels((current) => current.map((item) => item.channel === channel.channel ? { ...item, enabled: event.target.checked } : item))} />)}</Stack></Card><Card><span className="ui-eyebrow">Usos de marca</span><h2>Capacidades</h2><Stack gap="sm"><Switch label="Presentaciones" description="Permite usar el brand kit desde ChatGPT/MCP." disabled={!canManage} checked={Boolean(caps.presentation_generation)} onChange={(event) => setCaps((current) => ({ ...current, presentation_generation: event.target.checked }))} /><Switch label="Publicaciones" description="Se activa automáticamente al encender un canal." checked={Boolean(caps.content_publishing)} readOnly /></Stack></Card>{blogEnabled && <Card className="ui-blog-connection-card"><div className="ui-card-head"><div><span className="ui-eyebrow">{t("admin.blogPublishRouteEyebrow", "Publicación del Blog")}</span><h2>{t("admin.blogPublishRouteTitle", "Webhook de Coolify")}</h2></div><Badge tone={web.rebuildWebhookUrl ? "success" : "warning"}>{web.rebuildWebhookUrl ? t("admin.blogPublishRouteConfigured", "Coolify conectado") : t("admin.blogPublishRouteMissing", "Webhook pendiente")}</Badge></div><p className="ui-muted">{t("admin.blogPublishRouteHelp", "El Blog se publica mediante este webhook. Buffer se reserva para Instagram y los demás canales sociales.")}</p><Stack gap="md"><Field label="Dominio público"><TextField type="url" value={web.domain} onChange={(event) => setWeb({ ...web, domain: event.target.value })} placeholder="https://marca.com" /></Field><Field label="Webhook de rebuild"><TextField value={web.rebuildWebhookUrl} onChange={(event) => setWeb({ ...web, rebuildWebhookUrl: event.target.value })} placeholder="https://…" /></Field><Field label="Token de la conexión" hint="Se cifra y no vuelve a mostrarse."><TextField type="password" value={web.token} onChange={(event) => setWeb({ ...web, token: event.target.value })} placeholder="Pega un token nuevo para reemplazarlo" /></Field></Stack></Card>}</div></main>;
+}
+
+function BrandConnectionsView() {
+  const { brandId = "" } = useParams();
+  return <ConnectionsView brandId={brandId} backTo={`/brand/${encodeURIComponent(brandId)}`} />;
+}
+
+function LegacyConnectionsView({ brandId }: { brandId?: string }) {
+  const { site, session, channels: configuredChannels, productContext } = useApp();
+  const [selectedBrandId, setSelectedBrandId] = useState(brandId || productContext?.activeBrand?.id || site);
+  const [availableChannels, setAvailableChannels] = useState(configuredChannels);
+  const [connections, setConnections] = useState<Array<Record<string, any>>>([]);
+  const [error, setError] = useState("");
+  const [form, setForm] = useState({ provider: "metricool", channel: "instagram", userToken: "", userId: "", blogId: "", workspaceId: "", pageId: "", apiBaseUrl: "", integrationId: "", providerType: "", organizationId: "", channelId: "", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" });
+  const [postizIntegrations, setPostizIntegrations] = useState<Array<Record<string, any>>>([]);
+  const [loadingPostizIntegrations, setLoadingPostizIntegrations] = useState(false);
+  const [bufferOrganizations, setBufferOrganizations] = useState<Array<Record<string, any>>>([]);
+  const [bufferChannels, setBufferChannels] = useState<Array<Record<string, any>>>([]);
+  const [loadingBufferChannels, setLoadingBufferChannels] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  useEffect(() => { setSelectedBrandId(brandId || productContext?.activeBrand?.id || site); }, [brandId, productContext?.activeBrand?.id, site]);
+  useEffect(() => { api.brandConnections(selectedBrandId).then((result) => setConnections(result.connections || [])).catch((err) => setError(err?.message || "No se pudieron cargar las conexiones.")); api.brandChannels(selectedBrandId).then((result) => setAvailableChannels(result.channels || [])).catch(() => setAvailableChannels(configuredChannels)); }, [selectedBrandId]);
+  const connect = async (event: FormEvent) => { event.preventDefault(); setBusy(true); setMessage(""); try { await api.saveBrandConnection(selectedBrandId, { ...form, provider: form.provider, token: form.userToken, userToken: form.userToken, apiToken: ["planable", "postiz", "buffer"].includes(form.provider) ? form.userToken : undefined, workspaceId: form.provider === "planable" ? form.workspaceId : undefined, pageId: form.provider === "planable" ? form.pageId : undefined, integrationId: form.provider === "postiz" ? form.integrationId : undefined, organizationId: form.provider === "buffer" ? form.organizationId : undefined, channelId: form.provider === "buffer" ? form.channelId : undefined, apiBaseUrl: form.provider === "postiz" ? form.apiBaseUrl : undefined, providerType: form.provider === "postiz" ? form.providerType : undefined, config: { ...(form.provider === "metricool" ? { blogId: form.blogId } : {}), ...(form.provider === "planable" ? { workspaceId: form.workspaceId, pageId: form.pageId } : {}), ...(form.provider === "postiz" ? { apiBaseUrl: form.apiBaseUrl, integrationId: form.integrationId, providerType: form.providerType } : {}), ...(form.provider === "buffer" ? { organizationId: form.organizationId, channelId: form.channelId } : {}), timezone: form.timezone } }); const result = await api.brandConnections(selectedBrandId); setConnections(result.connections || []); setMessage("Conexión guardada y lista para probar."); setForm((current) => ({ ...current, userToken: "" })); } catch (err: any) { setMessage(err?.message || "No se pudo guardar la conexión."); } finally { setBusy(false); } };
+  const loadPostizAccounts = async () => { if (!form.userToken) { setMessage("Pega primero la API key u OAuth token de Postiz."); return; } setLoadingPostizIntegrations(true); setMessage(""); try { const result = await api.postizIntegrations(selectedBrandId, { apiToken: form.userToken, apiBaseUrl: form.apiBaseUrl || undefined }); const integrations = result.integrations || []; setPostizIntegrations(integrations); if (integrations.length === 1) setForm((current) => ({ ...current, integrationId: String(integrations[0].id || ""), providerType: String(integrations[0].identifier || current.providerType || "") })); setMessage(integrations.length ? "Cuentas de Postiz cargadas." : "Postiz no devolvió cuentas conectadas."); } catch (err: any) { setMessage(err?.message || "No se pudieron cargar las cuentas de Postiz."); } finally { setLoadingPostizIntegrations(false); } };
+  const loadBufferChannels = async (organizationId = form.organizationId) => { if (!form.userToken) { setMessage("Pega primero la API key de Buffer."); return; } setLoadingBufferChannels(true); setMessage(""); try { const result = await api.bufferChannels(selectedBrandId, { apiToken: form.userToken, organizationId: organizationId || undefined }); const organizations = result.organizations || []; const selectedOrganizationId = String(result.organizationId || organizationId || organizations[0]?.id || ""); const channels = result.channels || []; setBufferOrganizations(organizations); setBufferChannels(channels); setForm((current) => ({ ...current, organizationId: selectedOrganizationId, channelId: current.channelId || String(channels[0]?.id || "") })); setMessage(channels.length ? "Canales de Buffer cargados." : "Buffer no devolvió canales para esa organización."); } catch (err: any) { setMessage(err?.message || "No se pudieron cargar los canales de Buffer."); } finally { setLoadingBufferChannels(false); } };
+  const canManage = isWorkspaceAdmin(session);
+  const brandOptions = productContext?.brands || [];
+  /*
+  return <main className="ui-page"><PageHeader eyebrow="Proveedores por canal" title="Conexiones" description="Postiz, Metricool, Planable, web y futuros proveedores se gestionan desde un único catálogo." actions={!brandId && brandOptions.length > 1 ? <Select aria-label="Filtrar por marca" value={selectedBrandId} onChange={(event) => setSelectedBrandId(event.target.value)}>{brandOptions.map((brand) => <option key={brand.id} value={brand.id}>{brand.name || brand.handle}</option>)}</Select> : undefined} />{error && <Card><p className="ui-field-error">{error}</p></Card>}{connections.length ? <div className="ui-connection-grid">{connections.map((connection) => <ConnectionCard key={connection.id} provider={`${connection.provider || "Proveedor"} · ${connection.channel || "canal"}`} status={connection.status || (connection.enabled ? "connected" : "disabled")} account={connection.externalAccountId || connection.userId ? `Cuenta ${connection.externalAccountId || connection.userId}` : undefined} actions={<Inline gap="sm"><Button variant="ghost" size="sm" onClick={async () => { try { await api.testConnection(connection.id, selectedBrandId); setMessage("Prueba correcta."); } catch (err: any) { setMessage(err?.message || "La prueba falló."); } }}>Probar</Button>{canManage && <Button variant="ghost" size="sm" onClick={async () => { try { await api.disconnectConnection(connection.id, selectedBrandId); setConnections((current) => current.filter((item) => item.id !== connection.id)); } catch (err: any) { setMessage(err?.message || "No se pudo desconectar."); } }}>Desconectar</Button>}</Inline>} />)}</div> : !error && <UiEmptyState title="Aún no hay conexiones" description="Activa un canal y conecta el proveedor que lo ejecutará." />}{canManage && <Card className="ui-connection-form"><div className="ui-card-head"><div><span className="ui-eyebrow">Administrador</span><h2>Añadir conexión</h2></div></div><form className="ui-stack ui-stack-md" onSubmit={(event) => void connect(event)}><Field label="Proveedor"><Select value={form.provider} onChange={(event) => { setForm((current) => { const provider = event.target.value; return { ...current, provider, channel: provider === "postiz" || current.channel !== "blog" ? current.channel : "instagram" }; }); setPostizIntegrations([]); }}><option value="postiz">Postiz (self-hosted)</option><option value="metricool">Metricool</option><option value="planable">Planable.io</option><option value="web">Web / WordPress</option></Select></Field><Field label="Canal"><Select value={form.channel} onChange={(event) => setForm({ ...form, channel: event.target.value })}>{availableChannels.filter((channel) => channel.enabled && (channel.channel !== "blog" || form.provider === "postiz")).map((channel) => <option key={channel.channel} value={channel.channel}>{channel.channel}</option>)}</Select></Field><Field label={form.provider === "planable" || form.provider === "postiz" ? (form.provider === "postiz" ? "API key / OAuth token" : "API token") : "Token"} hint={form.provider === "planable" ? "Planable → Ajustes de cuenta → Integraciones → Public API. Se cifra en el servidor y nunca se vuelve a mostrar." : form.provider === "postiz" ? "Postiz → Settings → Developers → Public API. Para OAuth usa el token pos_…; se cifra en el servidor." : "Se cifra en el servidor y nunca se vuelve a mostrar."} required><TextField type="password" value={form.userToken} onChange={(event) => setForm({ ...form, userToken: event.target.value })} required /></Field>{form.provider === "postiz" && <><Field label="URL de Postiz" hint="Deja vacío para Postiz Cloud. En self-hosted usa la URL pública, por ejemplo https://sociales.marca.com/api."><TextField type="url" value={form.apiBaseUrl} onChange={(event) => setForm({ ...form, apiBaseUrl: event.target.value })} placeholder="https://postiz.tudominio.com/api" /></Field><Inline gap="md"><Field label="Integration ID" hint="Es el id de la cuenta conectada que devuelve GET /integrations." required><TextField value={form.integrationId} onChange={(event) => setForm({ ...form, integrationId: event.target.value })} required /></Field><Button type="button" variant="ghost" size="sm" onClick={() => void loadPostizAccounts()} loading={loadingPostizIntegrations}>Cargar cuentas</Button><Field label="Tipo de proveedor" hint="Opcional; se deduce del canal (video → youtube)."><TextField value={form.providerType} onChange={(event) => setForm({ ...form, providerType: event.target.value })} placeholder="instagram, linkedin, x…" /></Field></Inline>{postizIntegrations.length > 0 && <Field label="Cuenta conectada"><Select value={form.integrationId} onChange={(event) => { const integration = postizIntegrations.find((item) => String(item.id) === event.target.value); setForm({ ...form, integrationId: event.target.value, providerType: String(integration?.identifier || form.providerType || "") }); }}>{postizIntegrations.map((integration) => <option key={integration.id} value={integration.id}>{integration.name || integration.profile || integration.identifier || integration.id} · {integration.identifier || "canal"}</option>)}</Select></Field>}</>}{form.provider === "metricool" && <Inline gap="md"><Field label="userId" required><TextField value={form.userId} onChange={(event) => setForm({ ...form, userId: event.target.value })} required /></Field><Field label="blogId" required><TextField value={form.blogId} onChange={(event) => setForm({ ...form, blogId: event.target.value })} required /></Field></Inline>}{form.provider === "planable" && <Inline gap="md"><Field label="Workspace ID" hint="Lo encuentras en la URL o en la API de Planable." required><TextField value={form.workspaceId} onChange={(event) => setForm({ ...form, workspaceId: event.target.value })} required /></Field><Field label="Page ID" hint="La cuenta social de Planable que recibirá esta variante." required><TextField value={form.pageId} onChange={(event) => setForm({ ...form, pageId: event.target.value })} required /></Field></Inline>}<Field label="Zona horaria"><TextField value={form.timezone} onChange={(event) => setForm({ ...form, timezone: event.target.value })} /></Field><Button type="submit" loading={busy}>Guardar conexión</Button>{message && <p className={message.includes("falló") || message.includes("No se") ? "ui-field-error" : "ui-success"}>{message}</p>}</form></Card>}</main>;
+  */
+}
+
+const BUFFER_TARGET_CHANNELS = ["instagram", "linkedin", "x", "video"] as const;
+const bufferTargetLabel = (channel: string) => channel === "x" ? "X" : channel === "video" ? "Vídeo / Reel" : channel.charAt(0).toUpperCase() + channel.slice(1);
+const bufferServiceForTarget = (service: string, target: string) => {
+  const normalized = service.toLowerCase();
+  if (target === "x") return ["x", "twitter"].includes(normalized);
+  if (target === "video") return ["youtube", "instagram", "tiktok", "threads"].includes(normalized);
+  return normalized === target;
+};
+const bufferWaitLabel = (value: unknown) => {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds < 0) return "unos segundos";
+  if (seconds < 60) return `${Math.ceil(seconds)} segundos`;
+  const minutes = Math.ceil(seconds / 60);
+  return `${minutes} minuto${minutes === 1 ? "" : "s"}`;
+};
+
+function ConnectionsView({ brandId, backTo }: { brandId?: string; backTo?: string }) {
+  const { site, session, channels: configuredChannels, productContext } = useApp();
+  const { t } = useI18n();
+  const { showToast } = useToast();
+  const [selectedBrandId, setSelectedBrandId] = useState(brandId || productContext?.activeBrand?.id || site);
+  const [availableChannels, setAvailableChannels] = useState(configuredChannels);
+  const [connections, setConnections] = useState<Array<Record<string, any>>>([]);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const loadSequence = useRef(0);
+  const loadAbort = useRef<AbortController | null>(null);
+  const [form, setForm] = useState({ provider: "buffer", channel: "buffer", userToken: "", userId: "", blogId: "", workspaceId: "", pageId: "", apiBaseUrl: "", integrationId: "", providerType: "", organizationId: "", channelId: "", channelIds: {} as Record<string, string>, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" });
+  const [postizIntegrations, setPostizIntegrations] = useState<Array<Record<string, any>>>([]);
+  const [loadingPostizIntegrations, setLoadingPostizIntegrations] = useState(false);
+  const [bufferOrganizations, setBufferOrganizations] = useState<Array<Record<string, any>>>([]);
+  const [bufferChannels, setBufferChannels] = useState<Array<Record<string, any>>>([]);
+  const [loadingBufferChannels, setLoadingBufferChannels] = useState(false);
+  const [bufferRetryAt, setBufferRetryAt] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
+  const [mcpInfo, setMcpInfo] = useState<Record<string, any> | null>(null);
+  const mcpLoadSequence = useRef(0);
+  const mcpLoadAbort = useRef<AbortController | null>(null);
+  const notify = (nextMessage: string, kind: ToastKind = "success") => showToast(nextMessage, kind);
+
+  useEffect(() => { setSelectedBrandId(brandId || productContext?.activeBrand?.id || site); }, [brandId, productContext?.activeBrand?.id, site]);
+  useEffect(() => {
+    const sequence = ++loadSequence.current;
+    loadAbort.current?.abort();
+    const controller = new AbortController();
+    loadAbort.current = controller;
+    setLoading(true);
+    setError("");
+    Promise.all([api.brandConnections(selectedBrandId, controller.signal), api.brandChannels(selectedBrandId, controller.signal)])
+      .then(([connectionResult, channelResult]) => {
+        if (sequence !== loadSequence.current || controller.signal.aborted) return;
+        setConnections(connectionResult.connections || []);
+        setAvailableChannels(channelResult.channels || configuredChannels);
+      })
+      .catch((err) => {
+        if (controller.signal.aborted || sequence !== loadSequence.current) return;
+        setError(err?.message || "No se pudieron cargar las conexiones.");
+      })
+      .finally(() => { if (sequence === loadSequence.current) setLoading(false); });
+    return () => controller.abort();
+  }, [selectedBrandId]);
+
+  const connect = async (event: FormEvent) => {
+    event.preventDefault();
+    if (form.provider === "buffer" && !form.organizationId) {
+      notify("Carga los canales de Buffer y selecciona una organización antes de guardar.", "error");
+      return;
+    }
+    if (form.provider === "buffer" && !Object.keys(form.channelIds).length) {
+      notify("Selecciona al menos una cuenta de Buffer antes de guardar.", "error");
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.saveBrandConnection(selectedBrandId, {
+        ...form,
+        token: form.userToken,
+        userToken: form.userToken,
+        apiToken: ["planable", "postiz", "buffer"].includes(form.provider) ? form.userToken : undefined,
+        workspaceId: form.provider === "planable" ? form.workspaceId : undefined,
+        pageId: form.provider === "planable" ? form.pageId : undefined,
+        integrationId: form.provider === "postiz" ? form.integrationId : undefined,
+        organizationId: form.provider === "buffer" ? form.organizationId : undefined,
+        channelId: form.provider === "buffer" ? form.channelId : undefined,
+        channelIds: form.provider === "buffer" ? form.channelIds : undefined,
+        apiBaseUrl: form.provider === "postiz" ? form.apiBaseUrl : undefined,
+        providerType: form.provider === "postiz" ? form.providerType : undefined,
+        config: {
+          ...(form.provider === "metricool" ? { blogId: form.blogId } : {}),
+          ...(form.provider === "planable" ? { workspaceId: form.workspaceId, pageId: form.pageId } : {}),
+          ...(form.provider === "postiz" ? { apiBaseUrl: form.apiBaseUrl, integrationId: form.integrationId, providerType: form.providerType } : {}),
+          ...(form.provider === "buffer" ? { organizationId: form.organizationId, channelIds: form.channelIds } : {}),
+          timezone: form.timezone
+        }
+      });
+      const result = await api.brandConnections(selectedBrandId);
+      setConnections(result.connections || []);
+      notify("Conexión guardada y lista para probar.");
+      setForm((current) => ({ ...current, userToken: "" }));
+      setFormOpen(false);
+    } catch (err: any) {
+      notify(err?.message || "No se pudo guardar la conexión.", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const loadPostizAccounts = async () => {
+    if (!form.userToken) { notify("Pega primero la API key u OAuth token de Postiz.", "error"); return; }
+    setLoadingPostizIntegrations(true);
+    try {
+      const result = await api.postizIntegrations(selectedBrandId, { apiToken: form.userToken, apiBaseUrl: form.apiBaseUrl || undefined });
+      const integrations = result.integrations || [];
+      setPostizIntegrations(integrations);
+      if (integrations.length === 1) setForm((current) => ({ ...current, integrationId: String(integrations[0].id || ""), providerType: String(integrations[0].identifier || current.providerType || "") }));
+      notify(integrations.length ? "Cuentas de Postiz cargadas." : "Postiz no devolvió cuentas conectadas.", integrations.length ? "success" : "info");
+    } catch (err: any) { notify(err?.message || "No se pudieron cargar las cuentas de Postiz.", "error"); } finally { setLoadingPostizIntegrations(false); }
+  };
+
+  const loadBufferChannels = async (organizationId = form.organizationId) => {
+    if (!form.userToken) { notify("Pega primero la API key de Buffer.", "error"); return; }
+    if (bufferRetryAt > Date.now()) {
+      notify(`Buffer está limitando solicitudes. Vuelve a intentarlo en ${bufferWaitLabel((bufferRetryAt - Date.now()) / 1000)}.`, "error");
+      return;
+    }
+    setLoadingBufferChannels(true);
+    try {
+      const result = await api.bufferChannels(selectedBrandId, { apiToken: form.userToken, organizationId: organizationId || undefined });
+      const organizations = result.organizations || [];
+      const channels = result.channels || [];
+      const selectedOrganizationId = String(result.organizationId || organizationId || organizations[0]?.id || channels.find((channel) => channel.organizationId)?.organizationId || "");
+      if (organizations.length) setBufferOrganizations(organizations);
+      setBufferChannels(channels);
+      const suggested: Record<string, string> = {};
+      for (const target of BUFFER_TARGET_CHANNELS) {
+        if (suggested[target]) continue;
+        const match = channels.find((channel) => bufferServiceForTarget(String(channel.service || ""), target));
+        if (match?.id) suggested[target] = String(match.id);
+      }
+      if (suggested.instagram && !suggested.instagram_story) suggested.instagram_story = suggested.instagram;
+      setForm((current) => ({ ...current, organizationId: selectedOrganizationId, channelId: "", channelIds: suggested }));
+      notify(channels.length ? "Canales de Buffer cargados." : "Buffer no devolvió canales para esa organización.", channels.length ? "success" : "info");
+    } catch (err: any) {
+      const retryAfterSeconds = Number(err?.details?.retryAfterSeconds);
+      const retrySeconds = Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : 30;
+      if (err?.status === 429) setBufferRetryAt(Date.now() + retrySeconds * 1000);
+      const message = err?.status === 429
+        ? `Buffer está limitando solicitudes. Vuelve a intentarlo en ${bufferWaitLabel(retrySeconds)}.`
+        : err?.message || "No se pudieron cargar los canales de Buffer.";
+      notify(message, "error");
+    } finally { setLoadingBufferChannels(false); }
+  };
+
+  const canManage = isWorkspaceAdmin(session);
+  const brandOptions = productContext?.brands || [];
+  const selectedBrandHandle = brandOptions.find((brand) => brand.id === selectedBrandId)?.handle || selectedBrandId;
+  useEffect(() => {
+    if (!selectedBrandHandle) return;
+    const sequence = ++mcpLoadSequence.current;
+    mcpLoadAbort.current?.abort();
+    const controller = new AbortController();
+    setMcpInfo(null);
+    mcpLoadAbort.current = controller;
+    api.mcpConnection(selectedBrandHandle, controller.signal).then((result) => { if (sequence === mcpLoadSequence.current) setMcpInfo(result); }).catch((err) => { if (!controller.signal.aborted && sequence === mcpLoadSequence.current) setError(err?.message || "No se pudo cargar la conexión MCP."); });
+    return () => controller.abort();
+  }, [selectedBrandHandle]);
+  const copyMcpUrl = async () => {
+    if (!mcpInfo?.mcpUrl) return;
+    await navigator.clipboard?.writeText(mcpInfo.mcpUrl).catch(() => {});
+    notify("URL del MCP copiada.");
+  };
+  const openChatGpt = () => {
+    window.open("https://chatgpt.com/", "_blank", "noopener,noreferrer");
+  };
+  const tokenLabel = form.provider === "postiz" ? "API key / OAuth token" : form.provider === "planable" ? "API token" : form.provider === "buffer" ? "API key de Buffer" : "Token";
+  const enabledBufferTargets = (availableChannels.length ? BUFFER_TARGET_CHANNELS.filter((target) => availableChannels.some((channel) => channel.channel === target && channel.enabled) || (target === "instagram" && availableChannels.some((channel) => channel.channel === "instagram_story" && channel.enabled))) : BUFFER_TARGET_CHANNELS);
+  if (loading) return <main className="ui-page"><p className="ui-muted">Cargando conexiones...</p></main>;
+  if (error && !connections.length) return <main className="ui-page"><UiEmptyState title="No se pudieron cargar las conexiones" description={error} action={<Button onClick={() => window.location.reload()}>Reintentar</Button>} /></main>;
+  return <main className="ui-page">
+    <PageHeader eyebrow={`Marca · ${brandOptions.find((brand) => brand.id === selectedBrandId)?.name || brandOptions.find((brand) => brand.id === selectedBrandId)?.handle || selectedBrandId}`} title="Conexiones" description={t("admin.connectionsDescription", "El Blog publica mediante el webhook de Coolify. Las conexiones sociales se gestionan aquí.")} back={backTo ? <NavLink to={backTo}>← Volver a la marca</NavLink> : undefined} actions={canManage ? <Button onClick={() => setFormOpen(true)}>{t("admin.addConnection")}</Button> : undefined} />
+    {error && <Card><p className="ui-field-error">{error}</p></Card>}
+    <Card className="ui-mcp-card"><div className="ui-card-head"><div><span className="ui-eyebrow">{t("settings.mcpConnectEyebrow")}</span><h2>{t("settings.mcpConnectTitle")}</h2><p className="ui-muted">{t("settings.mcpConnectHelp")}</p></div></div>{mcpInfo?.mcpUrl && <div className="ui-mcp-value"><div><span className="ui-field-label">{t("settings.mcpUrlLabel")}</span><code>{mcpInfo.mcpUrl}</code></div><IconButton label={t("settings.mcpUrlCopy")} onClick={() => void copyMcpUrl()}>⧉</IconButton></div>}<Stack gap="sm"><p className="ui-field-hint">{t("settings.mcpConnectStep1")}</p><p className="ui-field-hint">{t("settings.mcpConnectStep2")}</p><p className="ui-field-hint">{t("settings.mcpConnectStep3")}</p></Stack><Inline gap="sm"><Button type="button" variant="secondary" onClick={openChatGpt}>{t("settings.chatgptOpen")}</Button><NavLink className="ui-button ui-button-ghost" to="/settings#chatgpt-account">{t("settings.chatgptConnectHere")}</NavLink></Inline></Card>
+    {connections.length ? <div className="ui-connection-grid">{connections.map((connection) => <ConnectionCard key={connection.id} provider={connection.provider === "buffer" && connection.channel === "buffer" ? "Buffer · todos los canales" : `${connection.provider || "Proveedor"} · ${connection.channel || "canal"}`} status={connection.status || (connection.enabled ? "connected" : "disabled")} account={connection.externalAccountId || connection.userId ? `Cuenta ${connection.externalAccountId || connection.userId}` : undefined} actions={<Inline gap="sm"><IconButton label="Probar conexión" onClick={async () => { try { await api.testConnection(connection.id, selectedBrandId); notify("Prueba correcta."); } catch (err: any) { notify(err?.message || "La prueba falló.", "error"); } }}>↻</IconButton>{canManage && <Button variant="ghost" size="sm" onClick={async () => { try { await api.disconnectConnection(connection.id, selectedBrandId); setConnections((current) => current.filter((item) => item.id !== connection.id)); notify("Conexión desconectada."); } catch (err: any) { notify(err?.message || "No se pudo desconectar.", "error"); } }}>Desconectar</Button>}</Inline>} />)}</div> : !error && <UiEmptyState title="Aún no hay conexiones" description="Activa un canal y conecta el proveedor que lo ejecutará." />}
+    <Modal open={canManage && formOpen} title={t("admin.addConnection")} onClose={() => setFormOpen(false)}>
+      <form className="ui-stack ui-stack-md ui-connection-form" onSubmit={(event) => void connect(event)}>
+      <Field label="Proveedor"><Select autoFocus value={form.provider} onChange={(event) => { const provider = event.target.value; setForm((current) => ({ ...current, provider, channel: provider === "buffer" ? "buffer" : provider === "web" ? "blog" : current.channel === "blog" || current.channel === "buffer" ? "instagram" : current.channel })); setPostizIntegrations([]); setBufferOrganizations([]); setBufferChannels([]); }}><option value="buffer">Buffer (una conexión)</option><option value="postiz">Postiz (self-hosted)</option><option value="metricool">Metricool</option><option value="planable">Planable.io</option><option value="web">Coolify webhook / Web</option></Select></Field>
+      {form.provider !== "buffer" && <Field label="Canal"><Select value={form.channel} onChange={(event) => setForm({ ...form, channel: event.target.value })}>{availableChannels.filter((channel) => channel.enabled && (channel.channel !== "blog" || form.provider === "web" || form.provider === "postiz")).map((channel) => <option key={channel.channel} value={channel.channel}>{channel.channel}</option>)}</Select></Field>}
+      {form.provider === "buffer" ? <Inline gap="md" className="ui-buffer-key-row"><Field label={tokenLabel} hint="Se cifra y se usa para descubrir tus cuentas de Buffer." required><TextField type="password" value={form.userToken} onChange={(event) => setForm({ ...form, userToken: event.target.value })} required /></Field><Button type="button" variant="ghost" size="sm" onClick={() => void loadBufferChannels()} loading={loadingBufferChannels}>Cargar canales</Button></Inline> : <Field label={tokenLabel} hint={form.provider === "postiz" ? "Postiz → Settings → Developers → Public API." : form.provider === "planable" ? "Planable → Ajustes de cuenta → Integraciones → Public API." : "Se cifra en el servidor y nunca se vuelve a mostrar."} required><TextField type="password" value={form.userToken} onChange={(event) => setForm({ ...form, userToken: event.target.value })} required /></Field>}
+      {form.provider === "buffer" && <Stack gap="sm">{bufferOrganizations.length > 0 && <Field label="Organización"><Select value={form.organizationId} onChange={(event) => { setForm((current) => ({ ...current, organizationId: event.target.value, channelId: "", channelIds: {} })); void loadBufferChannels(event.target.value); }}>{bufferOrganizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name || organization.id} · {organization.channelCount ?? 0} canales</option>)}</Select></Field>}{bufferChannels.length > 0 ? <Stack gap="sm">{enabledBufferTargets.map((target) => <Field key={target} label={bufferTargetLabel(target)} required><Select value={form.channelIds[target] || ""} onChange={(event) => setForm((current) => ({ ...current, channelIds: { ...current.channelIds, [target]: event.target.value } }))} required><option value="">Selecciona una cuenta</option>{bufferChannels.filter((channel) => bufferServiceForTarget(String(channel.service || ""), target)).map((channel) => <option key={`${target}-${channel.id}`} value={channel.id}>{channel.displayName || channel.name || channel.descriptor || channel.id} · {channel.service || "canal"}</option>)}</Select></Field>)}</Stack> : <p className="ui-field-hint">Pulsa Cargar canales para descubrir las cuentas disponibles.</p>}</Stack>}
+      {form.provider === "postiz" && <><Field label="URL de Postiz"><TextField type="url" value={form.apiBaseUrl} onChange={(event) => setForm({ ...form, apiBaseUrl: event.target.value })} placeholder="https://postiz.tudominio.com/api" /></Field><Inline gap="md"><Field label="Integration ID" required><TextField value={form.integrationId} onChange={(event) => setForm({ ...form, integrationId: event.target.value })} required /></Field><Button type="button" variant="ghost" size="sm" onClick={() => void loadPostizAccounts()} loading={loadingPostizIntegrations}>Cargar cuentas</Button><Field label="Tipo de proveedor"><TextField value={form.providerType} onChange={(event) => setForm({ ...form, providerType: event.target.value })} placeholder="instagram, linkedin, x…" /></Field></Inline>{postizIntegrations.length > 0 && <Field label="Cuenta conectada"><Select value={form.integrationId} onChange={(event) => { const integration = postizIntegrations.find((item) => String(item.id) === event.target.value); setForm({ ...form, integrationId: event.target.value, providerType: String(integration?.identifier || form.providerType || "") }); }}>{postizIntegrations.map((integration) => <option key={integration.id} value={integration.id}>{integration.name || integration.profile || integration.identifier || integration.id} · {integration.identifier || "canal"}</option>)}</Select></Field>}</>}
+      {form.provider === "metricool" && <Inline gap="md"><Field label="userId" required><TextField value={form.userId} onChange={(event) => setForm({ ...form, userId: event.target.value })} required /></Field><Field label="blogId" required><TextField value={form.blogId} onChange={(event) => setForm({ ...form, blogId: event.target.value })} required /></Field></Inline>}
+      {form.provider === "planable" && <Inline gap="md"><Field label="Workspace ID" required><TextField value={form.workspaceId} onChange={(event) => setForm({ ...form, workspaceId: event.target.value })} required /></Field><Field label="Page ID" required><TextField value={form.pageId} onChange={(event) => setForm({ ...form, pageId: event.target.value })} required /></Field></Inline>}
+      <Field label="Zona horaria"><TextField value={form.timezone} onChange={(event) => setForm({ ...form, timezone: event.target.value })} /></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setFormOpen(false)}>{t("editor.cancel")}</Button><Button type="submit" loading={busy}>Guardar conexión</Button></Inline>
+    </form>
+    </Modal>
+  </main>;
 }
 
 export default App;

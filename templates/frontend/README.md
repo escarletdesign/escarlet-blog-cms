@@ -51,7 +51,7 @@ src/data/blog.generated.js
 ## Env
 
 ```
-BLOG_CMS_URL=https://blog-cms.escarlet.cc
+BLOG_CMS_URL=https://cms.escarlet.design
 BLOG_CMS_SITE=handle
 BLOG_SITE_URL=https://dominio.com
 BLOG_RUNTIME_CHANNEL=v1

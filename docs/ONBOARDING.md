@@ -1,7 +1,7 @@
-# Onboarding — añadir blog a un proyecto
+# Onboarding - añadir blog a un proyecto
 
 Guía personal para crear un site nuevo o enchufar el blog a una landing ya existente.
-Un solo CMS (`blog-cms.escarlet.cc`). Cada web es un **handle** con su brand kit y su webhook.
+Un solo CMS v3 (`cms.escarlet.design`). Cada web es un **handle** con su brand kit y su webhook.
 
 ## Idea en 30 segundos
 
@@ -26,16 +26,17 @@ El agente separa pasos tuyos (webhook, tokens) de lo que hace él (sync, rutas, 
 
 ---
 
-## Acceso por sitio (tokens)
+## Acceso de usuario y membresías
 
-- **Admin global** (`ADMIN_TOKEN`). Ve todos los sitios, crea handles, webhooks y tokens de cliente.
-- **Token de sitio**. En `/app/admin` → Sitio → Token de acceso del cliente → Generar. Ese token solo gestiona ese handle (app + MCP).
+- **Admin global** (`ADMIN_TOKEN`). Es un secreto de servidor para operaciones internas, no una credencial humana ni de MCP.
+- **Token personal (PAT)**. En Ajustes del perfil genera un token revocable. El acceso a cada marca se deriva de tus membresías actuales.
+- **OAuth**. ChatGPT y Claude autorizan al usuario y reciben el mismo alcance dinámico que su PAT.
 
-Los clientes reciben su token. Tú te quedas con el `ADMIN_TOKEN`.
+Las invitaciones asignan una o varias marcas y un rol independiente por marca. Revocar una membresía corta el acceso sin reconectar el cliente.
 
 ## A. Site nuevo en el CMS (5 min)
 
-Desde la app. `https://blog-cms.escarlet.cc/app/admin` → **Sitio** → **Nuevo sitio**.
+Desde la app. `https://cms.escarlet.design/app/admin` → **Sitio** → **Nuevo sitio**.
 Asistente en 3 pasos (datos, Coolify, crear) con ayuda de dónde sacar webhook y token.
 
 También por CLI o MCP.
@@ -60,14 +61,34 @@ npm run site:init -- --handle demo --domain https://demo.escarlet.cc \
   --copy-frontend ../mi-landing/scripts
 ```
 
-También puedes hacerlo por MCP (Hermes / Cursor con el CMS conectado).
+También puedes descubrir capabilities y recetas por MCP v3 (Hermes / Cursor con Escarlet OS conectado).
 
 ```
-blog_create_site  { handle, name, domain, rebuildWebhookUrl? }
-blog_get_onboarding { site: "mares24" }
+capability.search { query: "brand reel publication" }
+brand.context.get { site: "mares24" }
 ```
 
-Luego completa el brand kit en `/app/admin` → Brand kit (o `blog_update_brand_file`).
+Para crear un Brand Kit desde un agente, usa `brand.version.create`, sube las
+referencias con `asset.upload` y `kind: "reference"`, enlázalas con
+`brand.asset.register`, valida con `brand.version.validate` y publica solo tras
+confirmación humana mediante `brand.version.publish`. También puedes completar
+el kit en `/app/admin` → Brand kit.
+
+El onboarding crea `reference-library.json` en la versión activa. No publiques
+una versión sin ese archivo, aunque el sitio ya tenga `referenceImages`: son
+dos fuentes distintas y deben compartir el mismo `brandKitSnapshotHash`. MCP
+v3 debe ejecutarse con `DATABASE_URL`; si falta, el runtime devuelve un error y
+no usa un Brand Kit estático desactualizado.
+
+### ZIP importable del Brand Kit
+
+Si el kit se prepara fuera del CMS, entrega un `brand-kit.zip` con los archivos
+canónicos en la raíz y las imágenes dentro de `assets/`. El ZIP debe incluir un
+`reference-library.json` que declare cada imagen con `filename`, `role`,
+`usage`, `alt` y `approved: true`. Para un storyboard visual usa
+`usage: "style_board"`; para un logo usa `usage: "logo"`. El importador copia
+esa clasificación a los metadatos de cada asset y evita tener que corregirlos
+manualmente en la interfaz. Un ZIP que solo contiene imágenes no es portable.
 
 ---
 
@@ -85,17 +106,14 @@ Luego completa el brand kit en `/app/admin` → Brand kit (o `blog_update_brand_
 
 4. `.gitignore` → `src/data/blog.generated.js` y `.escarlet-blog-runtime/`
 5. Monta rutas `/blog` y `/blog/:slug` leyendo `getBlogIndex` / `getPostBySlug` (como en escarlet002)
-6. **Social Pack**. El runtime v1.2.0 solo sincroniza posts. ChatGPT genera el
-   copy y los fondos, `blog_save_social_pack` guarda el pack y el CMS lo ofrece
-   en `/app/social-pack/{slug}`. El look de `/blog` sigue en esta landing.
-   Para campañas sin artículo usa `social_save_pack`; queda guardado como pack
-   independiente y se consulta con `social_list_packs` / `social_get_pack`.
+6. **Contenido**. La app sincroniza publicaciones aprobadas por canal. El agente usa
+   `copy.validate`, una capability de producción y el Publisher. No se usan aliases MCP legacy.
 7. **Interruptor**. CMS `/app/admin` → Sitio → Blog en la web pública. Encendido publica `/blog`. Apagado lo quita en el siguiente rebuild. Los posts siguen en el CMS.
 
 ### Env en Coolify (app del frontend)
 
 ```
-BLOG_CMS_URL=https://blog-cms.escarlet.cc
+BLOG_CMS_URL=https://cms.escarlet.design
 BLOG_CMS_SITE=mares24
 BLOG_SITE_URL=https://mares24.com
 ```
@@ -127,7 +145,7 @@ Son **dos caminos** al mismo sitio.
 
 Prioridad al publicar.
 
-1. `rebuildWebhookUrl` del site (dashboard / `blog_create_site`)
+1. `rebuildWebhookUrl` de la marca (dashboard v2)
 2. Env global `REBUILD_WEBHOOK_URL` (fallback)
 
 Si el webhook falla, puedes redeploy manual del frontend. El sync corre igual en cada build.
@@ -148,13 +166,13 @@ Plugin principal. [`../integrations/wordpress-blog-client`](../integrations/word
 |-------|----------------|
 | Sync | `GET /api/sites/{handle}/posts` → entradas nativas en `/blog` |
 | Webhook | `GET/POST /wp-json/escarlet-blog/v1/sync` con Bearer. Pégalo en CMS → Sitio como webhook |
-| Panel | wp-admin → Escarlet Blog → Abrir panel Escarlet (SSO con token de sitio) |
+| Panel | wp-admin → Escarlet Blog → Abrir panel Escarlet (SSO con PAT personal) |
 | Packs | Se usan en el CMS Escarlet. WordPress **no** genera HTML estático de packs |
 
 ### Pasos
 
 1. Activa el plugin en WordPress.
-2. Escarlet Blog → Ajustes. `BLOG_CMS_URL`, handle, token de sitio (CMS → Sitio → Generar).
+2. Escarlet Blog → Ajustes. `BLOG_CMS_URL`, handle y PAT personal generado en el perfil.
 3. Copia URL de webhook + secreto Bearer al CMS → Sitio. Probar webhook.
 4. Publica un post en el CMS → sync → `https://dominio/blog/{slug}`.
 5. Packs y edición. botón Abrir panel Escarlet (o la fila «Abrir pack en CMS»).
@@ -171,37 +189,37 @@ SSO. El plugin llama `POST /api/embed/session` y redirige a `/api/embed/consume?
 {
   "mcpServers": {
     "escarlet-blog": {
-      "url": "https://blog-cms.escarlet.cc/mcp",
+      "url": "https://cms.escarlet.design/mcp/v3",
       "headers": {
-        "Authorization": "Bearer EL_MISMO_ADMIN_TOKEN_DEL_CMS"
+        "Authorization": "Bearer TU_PAT_PERSONAL_user_..."
       }
     }
   }
 }
 ```
 
-ChatGPT. Connectors → Create → URL `https://blog-cms.escarlet.cc/mcp` → OAuth. Es el mismo conector para todos los roles. Al autorizar pega el token de usuario (`user_...`), sesión (`sess_...`), agencia, sitio (`/app/admin` → Sitio → Generar token) o `ADMIN_TOKEN`. El MCP conserva rol, usuario y sitios asignados; no concede acceso adicional. El panel también ofrece el PNG del favicon (<10 KB) en `/media/{handle}/agent-icon.png`.
+ChatGPT. Connectors → Create → URL `https://cms.escarlet.design/mcp/v3` → OAuth. Es el mismo conector para todos los roles. También puedes usar un PAT personal (`user_...`) en clientes que acepten Bearer. El MCP conserva rol, usuario y marcas asignadas; no concede acceso adicional. El panel también ofrece el PNG del favicon (<10 KB) en `/media/{handle}/agent-icon.png`.
 
-Claude. Customize → Connectors → Add custom connector → URL `https://blog-cms.escarlet.cc/mcp` → OAuth. Usa los mismos tokens y el mismo alcance por rol. Puede usar el mismo icono PNG.
+Claude. Customize → Connectors → Add custom connector → URL `https://cms.escarlet.design/mcp/v3` → OAuth. Usa los mismos tokens y el mismo alcance por rol. Puede usar el mismo icono PNG.
 
-2. Copia `templates/frontend/blog-via-mcp.mdc` al proyecto web y cambia `{{handle}}`
-3. Skill del repo. `.cursor/skills/escarlet-blog-cms/SKILL.md`
-4. Tool de ayuda. `blog_get_onboarding` explica setup + Coolify + flujo de posts
+2. Skill del repo para setup y frontend. `.cursor/skills/escarlet-blog-cms/SKILL.md`
+3. Skill portable de contenido. `payload/escarlet-mcp-content/SKILL.md` se copia al cliente MCP, por ejemplo Hermes, Cursor o Claude
+4. Si el proyecto usa reglas de Cursor para el frontend, copia `templates/frontend/blog-via-mcp.mdc` y cambia `{{handle}}`
+5. Tool de ayuda. `capability.search` descubre primitives y recipes autorizadas
 
 ### Flujo de contenido
 
 | Acción | Tools |
 |--------|-------|
-| Crear fácil | `blog_get_workflow` → ChatGPT genera textos e imágenes → `blog_create_draft` + `blog_upload_media` + `blog_update_post` → confirmación → `blog_publish (direct: true)` |
-| Crear guiado | `blog_get_workflow` → ChatGPT genera → guardar borrador → revisar `/app/preview/{slug}` → `blog_update_post` → `blog_publish (direct: true)` |
-| Social Pack de un post | ChatGPT genera copies e imágenes → `blog_save_social_pack` (nunca genera IA en el CMS) |
-| Social Pack independiente | ChatGPT genera copies e imágenes → `social_save_pack` (sin crear post) |
-| Programar | Igual + `blog_schedule_post` / `blog_publish` con `direct: true` y `publishAt` (YYYY-MM-DD) |
-| Calendario | App → Posts → Programados, o `blog_list_calendar` |
-| Editar | `blog_get_post` + `blog_update_post` (mismo slug) |
-| Setup site | `blog_get_onboarding` / `blog_create_site` |
+| Crear | `copy.validate` → capability de producción → resultado para revisión |
+| Revisar | App → preview → aprobación humana |
+| Programar | `publication.route` → `publication.schedule` con `publicationDate` y `timezone` |
+| Cancelar | App o control plane antes de la publicación |
+| Calendario | App → Calendario, o estado del Publisher |
+| Detalle | `publication.status.get` devuelve estado interno y externo |
+| Marcas | `capability.search` → elegir una marca → `brand.context.get` |
 
-**Token de cliente.** El token estándar solo toca `AGENT.md`, `keywords.md` e imágenes de referencia. El rol `client_mcp` puede leer el brandkit completo en modo solo lectura; ningún token MCP puede usar la IA del CMS.
+**Acceso MCP.** OAuth y los PAT personales comparten la identidad del usuario. El contexto normalizado de la marca incluye voz, keywords, paleta, tipografías, composición, arquetipos, templates y referencias aprobadas. Los archivos fuente privados no se solicitan ni se entregan al MCP.
 
 **Sitio.** Interruptor «Confirmar publicaciones programadas» (default on). Con él, un post programado espera tu OK antes de entrar en cola.
 
@@ -221,14 +239,18 @@ Prohibido. Commitear posts al git del frontend. Usar `create_draft` para editar.
 
 ## E. Checklist rápido
 
-- [ ] `site:init` o `blog_create_site` con handle + domain
+### Registro y membresías
+
+`POST /api/auth/register` permite el alta propia cuando no hay sesión. El usuario crea su workspace y su primera marca, recibe membresía `owner` y puede generar un PAT personal. Las invitaciones posteriores aceptan varias marcas y un rol independiente por marca mediante `brandIds` y `brandRoles`. Revocar la fila de `workspace_member_sites` corta el acceso de inmediato en la app y en MCP.
+
+- [ ] `site:init` o alta de marca desde la app con handle + domain
 - [ ] Brand kit relleno + 2–4 referencias
+- [ ] `reference-library.json` presente y validado en el Brand Kit activo
 - [ ] Frontend Vite. sync en prebuild + env Coolify **o** WordPress. plugin + webhook de sync
-- [ ] Webhook + token en tab Sitio (probado)
+- [ ] Webhook + secreto del proveedor en tab Sitio (probado)
 - [ ] Interruptor Blog en la web pública encendido
-- [ ] MCP `/mcp` + regla `blog-via-mcp.mdc` con el handle correcto (landings Vite)
-- [ ] Publicar post de prueba → rebuild/sync → aparece en `/blog/{slug}`
-- [ ] Social Pack de post abierto desde `/app/social-pack/{slug}` o pack independiente guardado con `social_save_pack`
+- [ ] MCP `/mcp/v3` + descubrimiento de capabilities y selección explícita de marca
+- [ ] Ejecutar una receta de prueba, revisar el artefacto y aprobarlo desde la app
 
 ---
 

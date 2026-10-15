@@ -1,20 +1,34 @@
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
+import { createMcpHandler } from '@modelcontextprotocol/server'
+import { toNodeHandler } from '@modelcontextprotocol/node'
 import { createMcpServer } from './create-mcp-server.mjs'
+import { applyCors } from '../lib/cors.mjs'
 
-export function sendMcpCors(res) {
-  res.setHeader('Access-Control-Allow-Origin', '*')
+export function sendMcpCors(res, req = res._request) {
+  applyCors(res, req, { credentials: false })
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'Authorization, Content-Type, Mcp-Session-Id, MCP-Protocol-Version, Last-Event-Id'
+    'Authorization, Content-Type, MCP-Protocol-Version, Mcp-Method, Mcp-Name, Last-Event-Id'
   )
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
-  res.setHeader('Access-Control-Expose-Headers', 'Mcp-Session-Id')
+  res.setHeader('Access-Control-Expose-Headers', 'MCP-Protocol-Version')
 }
 
+const modernHandler = createMcpHandler(
+  ({ authInfo }) => createMcpServer(authInfo || { role: 'admin' }),
+  {
+    legacy: 'stateless',
+    responseMode: 'json',
+    onerror: (error) => console.error('[mcp] request failed', error)
+  }
+)
+
+const nodeHandler = toNodeHandler(modernHandler, {
+  onerror: (error) => console.error('[mcp] node adapter failed', error)
+})
+
 export async function handleMcpHttp(req, res, parsedBody, auth = { role: 'admin' }) {
-  sendMcpCors(res)
-  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
-  const mcpServer = createMcpServer(auth)
-  await mcpServer.connect(transport)
-  await transport.handleRequest(req, res, parsedBody)
+  sendMcpCors(res, req)
+  req.auth = auth
+  await nodeHandler(req, res, parsedBody)
 }

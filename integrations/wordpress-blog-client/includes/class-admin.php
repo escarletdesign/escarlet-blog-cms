@@ -87,9 +87,9 @@ final class Escarlet_Blog_Client_Admin {
 				Escarlet_Blog_Client_Settings::OPTION_SITE_HANDLE,
 				Escarlet_Blog_Client_Settings::sanitize_handle( wp_unslash( $_POST['site_handle'] ?? '' ) )
 			);
-			$token = isset( $_POST['site_token'] ) ? sanitize_text_field( wp_unslash( (string) $_POST['site_token'] ) ) : '';
+			$token = isset( $_POST['user_token'] ) ? sanitize_text_field( wp_unslash( (string) $_POST['user_token'] ) ) : '';
 			if ( '' !== $token && '********' !== $token ) {
-				update_option( Escarlet_Blog_Client_Settings::OPTION_SITE_TOKEN, $token );
+				update_option( Escarlet_Blog_Client_Settings::OPTION_USER_TOKEN, $token );
 			}
 			add_settings_error( 'escarlet_blog_client', 'saved', __( 'Ajustes guardados.', 'escarlet-blog-client' ), 'success' );
 		}
@@ -162,7 +162,7 @@ final class Escarlet_Blog_Client_Admin {
 	 */
 	public static function request_consume_url( string $next = '/posts' ) {
 		if ( ! Escarlet_Blog_Client_Settings::can_open_cms() ) {
-			return new WP_Error( 'escarlet_config', __( 'Falta URL del CMS, handle o token de sitio.', 'escarlet-blog-client' ) );
+			return new WP_Error( 'escarlet_config', __( 'Falta URL del CMS, handle o token personal.', 'escarlet-blog-client' ) );
 		}
 
 		$endpoint = Escarlet_Blog_Client_Settings::cms_url() . '/api/embed/session';
@@ -171,7 +171,7 @@ final class Escarlet_Blog_Client_Admin {
 			array(
 				'timeout' => 20,
 				'headers' => array(
-					'Authorization' => 'Bearer ' . Escarlet_Blog_Client_Settings::site_token(),
+					'Authorization' => 'Bearer ' . Escarlet_Blog_Client_Settings::user_token(),
 					'Content-Type'  => 'application/json',
 					'Accept'        => 'application/json',
 				),
@@ -221,7 +221,7 @@ final class Escarlet_Blog_Client_Admin {
 			<div class="escarlet-cards">
 				<div class="escarlet-card">
 					<h2><?php esc_html_e( 'Panel Escarlet', 'escarlet-blog-client' ); ?></h2>
-					<p><?php esc_html_e( 'Edición, brand kit, publicación y social packs con tu token de sitio.', 'escarlet-blog-client' ); ?></p>
+					<p><?php esc_html_e( 'Edición, brand kit, publicación y social packs con tu PAT personal.', 'escarlet-blog-client' ); ?></p>
 					<?php if ( $open_url ) : ?>
 						<p>
 							<a class="button button-primary button-hero" href="<?php echo esc_url( $open_url ); ?>">
@@ -229,7 +229,7 @@ final class Escarlet_Blog_Client_Admin {
 							</a>
 						</p>
 					<?php else : ?>
-						<p class="escarlet-warn"><?php esc_html_e( 'Configura URL, handle y token de sitio en Ajustes.', 'escarlet-blog-client' ); ?></p>
+						<p class="escarlet-warn"><?php esc_html_e( 'Configura URL, handle y PAT personal en Ajustes.', 'escarlet-blog-client' ); ?></p>
 					<?php endif; ?>
 					<p class="description"><?php echo esc_html( $packs_note ); ?></p>
 				</div>
@@ -296,7 +296,7 @@ final class Escarlet_Blog_Client_Admin {
 		settings_errors( 'escarlet_blog_client' );
 		$cms     = Escarlet_Blog_Client_Settings::cms_url();
 		$handle  = Escarlet_Blog_Client_Settings::site_handle();
-		$token   = Escarlet_Blog_Client_Settings::site_token();
+		$token   = Escarlet_Blog_Client_Settings::user_token();
 		$secret  = Escarlet_Blog_Client_Settings::webhook_secret();
 		$hook    = Escarlet_Blog_Client_Settings::webhook_url();
 		?>
@@ -309,7 +309,7 @@ final class Escarlet_Blog_Client_Admin {
 						<th scope="row"><label for="cms_url"><?php esc_html_e( 'URL del CMS', 'escarlet-blog-client' ); ?></label></th>
 						<td>
 							<input name="cms_url" id="cms_url" type="url" class="regular-text" value="<?php echo esc_attr( $cms ); ?>" required />
-							<p class="description"><?php esc_html_e( 'Ejemplo. https://blog-cms.escarlet.cc', 'escarlet-blog-client' ); ?></p>
+							<p class="description"><?php esc_html_e( 'Ejemplo. https://cms.escarlet.design', 'escarlet-blog-client' ); ?></p>
 						</td>
 					</tr>
 					<tr>
@@ -320,10 +320,10 @@ final class Escarlet_Blog_Client_Admin {
 						</td>
 					</tr>
 					<tr>
-						<th scope="row"><label for="site_token"><?php esc_html_e( 'Token de sitio', 'escarlet-blog-client' ); ?></label></th>
+						<th scope="row"><label for="user_token"><?php esc_html_e( 'Token personal de usuario', 'escarlet-blog-client' ); ?></label></th>
 						<td>
-							<input name="site_token" id="site_token" type="password" class="regular-text" value="<?php echo $token ? '********' : ''; ?>" autocomplete="new-password" />
-							<p class="description"><?php esc_html_e( 'CMS → Sitio → Token de acceso del cliente. Sirve para abrir el panel desde aquí.', 'escarlet-blog-client' ); ?></p>
+							<input name="user_token" id="user_token" type="password" class="regular-text" value="<?php echo $token ? '********' : ''; ?>" autocomplete="new-password" />
+							<p class="description"><?php esc_html_e( 'Genera un PAT personal en Ajustes del CMS. El acceso se limita a tus membresías de marca.', 'escarlet-blog-client' ); ?></p>
 						</td>
 					</tr>
 				</table>

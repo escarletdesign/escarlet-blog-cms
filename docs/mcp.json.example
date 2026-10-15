@@ -1,9 +1,9 @@
 {
   "mcpServers": {
     "escarlet-blog": {
-      "url": "https://blog-cms.escarlet.cc/mcp",
+      "url": "https://cms.escarlet.design/mcp/v3",
       "headers": {
-        "Authorization": "Bearer EL_MISMO_ADMIN_TOKEN_DEL_CMS"
+        "Authorization": "Bearer TU_PAT_PERSONAL_user_..."
       }
     }
   }

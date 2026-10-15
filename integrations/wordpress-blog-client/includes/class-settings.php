@@ -1,6 +1,6 @@
 <?php
 /**
- * Plugin settings (CMS URL, handle, site token, webhook secret).
+ * Plugin settings (CMS URL, handle, personal user token, webhook secret).
  *
  * @package Escarlet_Blog_Client
  */
@@ -16,6 +16,8 @@ final class Escarlet_Blog_Client_Settings {
 
 	public const OPTION_CMS_URL         = 'escarlet_blog_cms_url';
 	public const OPTION_SITE_HANDLE     = 'escarlet_blog_site_handle';
+	public const OPTION_USER_TOKEN      = 'escarlet_blog_user_token';
+	/** @deprecated Kept only to migrate old installations. */
 	public const OPTION_SITE_TOKEN      = 'escarlet_blog_site_token';
 	public const OPTION_WEBHOOK_SECRET  = 'escarlet_blog_webhook_secret';
 	public const OPTION_LAST_SYNC       = 'escarlet_blog_last_sync';
@@ -31,7 +33,7 @@ final class Escarlet_Blog_Client_Settings {
 			array(
 				'type'              => 'string',
 				'sanitize_callback' => array( __CLASS__, 'sanitize_url' ),
-				'default'           => 'https://blog-cms.escarlet.cc',
+				'default'           => 'https://cms.escarlet.design',
 			)
 		);
 		register_setting(
@@ -45,7 +47,7 @@ final class Escarlet_Blog_Client_Settings {
 		);
 		register_setting(
 			'escarlet_blog_client',
-			self::OPTION_SITE_TOKEN,
+			self::OPTION_USER_TOKEN,
 			array(
 				'type'              => 'string',
 				'sanitize_callback' => 'sanitize_text_field',
@@ -73,16 +75,20 @@ final class Escarlet_Blog_Client_Settings {
 	}
 
 	public static function cms_url(): string {
-		$url = (string) get_option( self::OPTION_CMS_URL, 'https://blog-cms.escarlet.cc' );
-		return untrailingslashit( $url ?: 'https://blog-cms.escarlet.cc' );
+		$url = (string) get_option( self::OPTION_CMS_URL, 'https://cms.escarlet.design' );
+		return untrailingslashit( $url ?: 'https://cms.escarlet.design' );
 	}
 
 	public static function site_handle(): string {
 		return (string) get_option( self::OPTION_SITE_HANDLE, '' );
 	}
 
+	public static function user_token(): string {
+		return (string) get_option( self::OPTION_USER_TOKEN, '' );
+	}
+
 	public static function site_token(): string {
-		return (string) get_option( self::OPTION_SITE_TOKEN, '' );
+		return self::user_token();
 	}
 
 	public static function webhook_secret(): string {
@@ -107,6 +113,6 @@ final class Escarlet_Blog_Client_Settings {
 	}
 
 	public static function can_open_cms(): bool {
-		return self::is_configured() && self::site_token();
+		return self::is_configured() && self::user_token();
 	}
 }

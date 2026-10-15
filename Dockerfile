@@ -1,9 +1,20 @@
-FROM node:20-alpine
+# Vite 8 uses native Rolldown bindings. Debian avoids the silent musl failure
+# observed in Coolify while keeping the same Node major version.
+FROM node:20-bookworm-slim
 
 WORKDIR /app
 
+# The persistent worker renders local motion jobs with FFmpeg. Keep the binary
+# in the same image as the API so Coolify does not need a second worker image.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY package.json package-lock.json ./
-RUN npm ci
+# Coolify can expose NODE_ENV=production while building the image. Vite and
+# TypeScript are devDependencies, so explicitly include them for the build;
+# they are removed by the prune step below before the runtime image is used.
+RUN npm ci --include=dev
 
 COPY . .
 
@@ -18,6 +29,8 @@ RUN mkdir -p /app/data/media /app/data/brand /app/data/site-config
 
 ENV PORT=3040
 ENV NODE_ENV=production
+ENV WORKER_ENABLED=1
+ENV FFMPEG_PATH=/usr/bin/ffmpeg
 # Safe default for deployments: content generation comes from ChatGPT via MCP
 # or the manual editor until CMS_AI_ENABLED=1 is explicitly configured.
 ENV CMS_AI_ENABLED=0
@@ -25,8 +38,9 @@ ENV CMS_AI_ENABLED=0
 VOLUME ["/app/data"]
 
 EXPOSE 3040
+STOPSIGNAL SIGTERM
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -qO- http://127.0.0.1:${PORT}/api/health || exit 1
+  CMD ["node", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || 3040) + '/api/health').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))"]
 
 CMD ["node", "scripts/docker-entrypoint.mjs"]

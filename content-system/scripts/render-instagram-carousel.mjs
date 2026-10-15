@@ -18,7 +18,7 @@ mkdirSync(outputDir, { recursive: true })
 const templateId = String(input.template || payload.visualSystem?.templateId || 'editorial')
 const backgrounds = Array.isArray(payload.backgrounds) ? payload.backgrounds : []
 const files = []
-for (let index = 0; index < Math.min(payload.instagramSlides?.length || 0, 7); index += 1) {
+for (let index = 0; index < (payload.instagramSlides?.length || 0); index += 1) {
   const slide = payload.instagramSlides[index]
   const png = renderSlidePng({
     site: String(input.site || payload.site || 'escarlet'),

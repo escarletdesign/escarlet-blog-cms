@@ -1,0 +1,44 @@
+{
+  "site": "escarlet",
+  "slug": "tu-aplicacion-funciona-pero-no-parece-profesional",
+  "templateId": "editorial",
+  "instagramCaption": "Tu aplicación carga, guarda datos y completa el flujo principal. Aun así, algo puede hacer que parezca inacabada.\n\nSuele sentirse antes de poder explicarse. Todo intenta llamar la atención. Los espacios cambian sin motivo. Los botones parecen de productos distintos. La navegación obliga a probar suerte. La versión móvil es el escritorio encogido.\n\nUna revisión útil empieza por ordenar prioridades, repetir reglas y resolver también los estados de carga, vacío y error.\n\nLa IA acelera la construcción. El criterio convierte esas pantallas en un producto coherente.\n\n¿En qué parte de tu aplicación notas más distancia entre funcionar y estar terminada?\n\nLee las siete señales en https://escarlet.design/blog/tu-aplicacion-funciona-pero-no-parece-profesional",
+  "instagramSlides": [
+    {
+      "id": "tu-aplicacion-funciona-pero-no-parece-profesional-ig-01",
+      "headline": "Tu aplicación funciona.",
+      "body": "Eso no significa que ya parezca terminada.",
+      "alt": "Profesional revisando una aplicación en un portátil y un móvil."
+    },
+    {
+      "id": "tu-aplicacion-funciona-pero-no-parece-profesional-ig-02",
+      "headline": "Cuando todo destaca, nada guía.",
+      "body": "Cada pantalla necesita una prioridad y una acción principal.",
+      "alt": "Interfaz digital revisada en dos dispositivos dentro de un espacio de trabajo."
+    },
+    {
+      "id": "tu-aplicacion-funciona-pero-no-parece-profesional-ig-03",
+      "headline": "El desorden se nota sin saber nombrarlo.",
+      "body": "Espacios irregulares y componentes distintos restan confianza.",
+      "alt": "Diseñadora comparando componentes de una aplicación en un portátil."
+    },
+    {
+      "id": "tu-aplicacion-funciona-pero-no-parece-profesional-ig-04",
+      "headline": "Navegar no debería ser adivinar.",
+      "body": "La persona necesita saber dónde está y qué ocurrirá después.",
+      "alt": "Aplicación abierta en portátil y móvil durante una revisión de navegación."
+    },
+    {
+      "id": "tu-aplicacion-funciona-pero-no-parece-profesional-ig-05",
+      "headline": "Carga, vacío y error también cuentan.",
+      "body": "Los estados menos cómodos y la versión móvil forman parte del producto.",
+      "alt": "Profesional comprobando una aplicación responsive en varios dispositivos."
+    },
+    {
+      "id": "tu-aplicacion-funciona-pero-no-parece-profesional-ig-06",
+      "headline": "La IA acelera la construcción.",
+      "body": "El criterio decide qué conservar, qué eliminar y qué resolver primero.",
+      "alt": "Revisión humana de una interfaz digital antes de lanzar el producto."
+    }
+  ]
+}

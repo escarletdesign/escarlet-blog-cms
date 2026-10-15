@@ -16,6 +16,47 @@
       "maxItems": 7,
       "items": { "$ref": "instagram-slide.schema.json" }
     },
+    "instagramStory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["frames"],
+      "properties": {
+        "imageUrl": { "type": "string" },
+        "alt": { "type": "string" },
+        "text": { "type": "string", "maxLength": 500 },
+        "linkUrl": { "type": "string", "format": "uri-reference" },
+        "frames": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "headline", "body", "templateId", "imageUrl", "alt", "renderedBy", "textRendered", "textContent", "dimensions", "aspectRatio"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "headline": { "type": "string", "maxLength": 90 },
+              "body": { "type": "string", "maxLength": 500 },
+              "templateId": { "type": "string", "minLength": 1 },
+              "imageUrl": { "type": "string" },
+              "alt": { "type": "string", "minLength": 1 },
+              "textContent": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["headline", "body"],
+                "properties": {
+                  "headline": { "type": "string", "maxLength": 90 },
+                  "body": { "type": "string", "maxLength": 500 }
+                }
+              },
+              "renderedBy": { "const": "chatgpt-image-generation" },
+              "textRendered": { "const": true },
+              "dimensions": { "const": "1080x1920" },
+              "aspectRatio": { "const": "9:16" }
+            }
+          }
+        }
+      }
+    },
     "visualSystem": { "type": "object" }
   }
 }

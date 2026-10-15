@@ -1,6 +1,17 @@
 {
   "site": "escarlet",
-  "version": "2.0.0",
+  "version": "2.2.0",
+  "designSystem": {
+    "primaryColor": "#47A4E7",
+    "typography": "Montserrat, Arial, sans-serif",
+    "heroCtaGradient": {
+      "enabled": true,
+      "from": "#12B8D6",
+      "to": "#E8B73A",
+      "direction": "teal-to-gold",
+      "usage": ["web heroes", "web CTAs"]
+    }
+  },
   "cover": {
     "aspectRatio": "3:2",
     "preferredSizes": ["1536x1024", "1024x1024"],
@@ -14,7 +25,7 @@
     "textSource": "template",
     "backgroundSource": "ai",
     "renderOrder": ["background", "overlay", "accent", "headline", "body", "footer"],
-    "consistency": ["un template por carrusel", "un solo color signal por slide", "misma retícula y footer", "máximo dos niveles de texto"]
+    "consistency": ["un template por carrusel", "un solo acento de marca por slide", "misma retícula y footer", "máximo dos niveles de texto", "sin guiones decorativos", "texto sin borde, contorno ni trazo"]
   },
   "qualityGates": {
     "cover": ["hasNoEmbeddedText", "archetypeIsNotRepeated", "usesApprovedReferences", "hasDecisionMetadata"],

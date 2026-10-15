@@ -1,20 +1,19 @@
 ---
-description: Flujo obligatorio para crear o editar posts del blog vía MCP (Escarlet Blog CMS)
+description: Flujo obligatorio para crear y revisar contenido v2 vía MCP (Escarlet CMS)
 globs:
 alwaysApply: false
 ---
 
-# Blog vía MCP
+# Contenido v2 vía MCP
 
-Contenido editorial del blog. Usa el MCP **escarlet-blog** con `site: {{handle}}`.
-Los posts viven en el CMS. El frontend solo sincroniza en build y pinta el HTML.
+Contenido editorial multicanal. Usa el MCP **escarlet-blog** con `site: {{handle}}`.
+Las campañas y publicaciones viven en Postgres y la app v2 las revisa y agenda.
 
 ## Headless. No confundas CMS con diseño
 
-- El CMS guarda título, `bodyHtml`, portada, metas y `socialPack`.
+- El CMS guarda campañas, publicaciones, variantes por canal y media asociada.
 - El **look** de `/blog` y `/blog/{slug}` se define en **esta landing** (vista SPA, o `generate-blog-pages.mjs` + CSS si es HTML estático).
-- La revisión humana vive en `https://blog-cms.escarlet.cc/app/preview/{slug}`. No uses rutas históricas ni generadores alternativos.
-- En `bodyHtml` manda solo contenido semántico (párrafos, títulos, listas). Sin nav, footer ni layout de página.
+- La revisión humana vive en la app v2, dentro de Campañas y Calendario.
 
 Si el humano pide cambiar cómo se ve la ficha del post. edita el generador/vista y el CSS de esta landing, luego rebuild. No edites el CMS para eso.
 Detalle. skill global `escarlet-blog-integrate` (sección Headless).
@@ -27,79 +26,55 @@ Env `BLOG_ENABLED=false` en local fuerza apagado. El interruptor del CMS manda e
 
 ## Antes de redactar
 
-1. Si el site es nuevo o dudas del setup. `blog_get_onboarding` con `site: {{handle}}`
-2. `blog_get_workflow` con `site: {{handle}}` y pregunta `easy` o `guided`
-3. `blog_get_brand_context` con `site: {{handle}}`
-4. Lee `socialPackChannels`, resources `brand://{{handle}}/voice`, `keywords`, `agent`, `image-guide`
+1. `brand_list` si el usuario tiene acceso a varias marcas y pregunta cuál usar
+2. `brand_get_context` con `site: {{handle}}`
+3. Lee resources `brand://{{handle}}/voice`, `keywords`, `agent`, `image-guide`
 
-## Crear post
+## Crear campaña
 
-1. Pregunta si quiere flujo `easy` o `guided`, genera el contenido y las imágenes en ChatGPT y guarda el borrador con `blog_create_draft`, `blog_upload_media` y `blog_update_post`.
-2. En `guided`, comparte `appPreviewUrl` y espera la revisión. En `easy`, pide confirmación antes de publicar.
-3. `blog_update_post` con bodyHtml, metas o correcciones del usuario:
+1. Genera primero textos completos para los canales pedidos y guárdalos con `content_create_batch`. Se crea una campaña nueva automáticamente. Usa `batchId` solo si el usuario pidió continuar una campaña existente.
+2. Prepara y sube las imágenes después de guardar el texto. Sigue el resultado con `content_get_batch` solo si la subida devuelve `in_progress`.
+3. `content_update_item` para corregir una publicación antes de revisar.
 
-```js
-socialPack: {
-  substackTitle: '...',
-  substackBody: '...', // + backlink {{domain}}/blog/{slug}
-  linkedin: '...',
-  x: '...',
-  videoScript: '...',
-  instagramCaption: '...',
-  instagramSlides: [
-    { imageUrl: 'https://…/{slug}-ig-01.webp', alt: '...', headline: '...' }
-  ]
-}
-```
+4. Espera la revisión humana en Campañas y usa `content_approve`.
+5. Usa `content_schedule` para agenda y `content_cancel` para detener una publicación aún no publicada.
 
-4. Si hay que cambiar la portada, genera la nueva imagen en ChatGPT y súbela con `blog_upload_media`; después actualiza el post con `blog_update_post`.
-5. `blog_publish` o `blog_schedule_post` con `direct: true` después de la confirmación. No uses la revisión legacy.
-6. Guarda el copy y carrusel generado por ChatGPT con `blog_save_social_pack`. El CMS no los genera automáticamente.
-   Si el usuario no quiere crear un artículo, usa `social_save_pack` y no llames a `blog_create_draft`.
-7. Tras el rebuild. indicar `appSocialPackUrl` (`/app/social-pack/{slug}`) para copiar o descargar el pack.
+## Editar publicación
 
-## Editar post
-
-1. `blog_get_post` con el slug
-2. `blog_update_post` con el **mismo slug** (nunca `blog_create_draft`)
+1. `content_list_items` o `content_get_batch` para localizar el `itemId`.
+2. `content_update_item` con el `itemId` existente.
 
 ## Imágenes
 
-1. Preferido. `blog_upload_media` con `contentBase64` o `blob` (PNG de 2–3 MB valen). El CMS comprime a JPEG y devuelve `media.url`.
+Una petición singular significa una sola generación y una sola subida. Las variantes o carruseles solo se crean si el usuario los pide explícitamente.
+
+1. Preferido. `content_upload_media` con `contentBase64` o `blob` (PNG de 2–3 MB valen). El CMS comprime a JPEG y devuelve `media.url`.
 2. Si el host recorta el argumento. `uploadId` + `chunkIndex` + `chunkCount`.
 3. URL https pública en `imageUrl`. Nunca pases `/mnt/data` como `imageUrl`.
-4. Pega la URL absoluta del CMS en `blog_update_post.imageUrl` o en `instagramSlides`
+4. Pega la URL absoluta del CMS en la variante del canal correspondiente.
 
 Portada. `kind` `post`. Carrusel. `kind` `social`, filename `{slug}-ig-01.jpg` …
 
 ## Sistema visual v2
 
-- Lee `visualBrief` de los últimos seis posts antes de crear una portada.
-- Usa un arquetipo aprobado y no repitas el anterior. La portada no lleva texto.
-- Guarda `visualBrief` con arquetipo, composición, referencias y motivo de decisión.
-- Para Instagram, genera fondos sin texto y usa `editorial` o `impact` para renderizar el texto exacto con `content-system/instagram-renderer.mjs`.
-- Conserva `templateId`, `backgroundMediaId` y `renderedBy` en cada slide.
+- Usa la composición y referencias que entrega `brand_prepare_image_generation`. La portada no lleva texto.
+- Para Instagram, genera fondos sin texto. El CMS renderiza el headline y body exactos guardados en la variante.
 
-## Social Pack (canónico en el CMS)
+## Canales
 
-El runtime frontend v1.2.0 solo sincroniza posts. El Social Pack se genera en
-ChatGPT, se guarda con `blog_save_social_pack` y se consulta/copia en
-`/app/social-pack/{slug}`. No copies generadores de packs en la landing.
-Para campañas sin blog, guárdalo con `social_save_pack` y recupéralo con
-`social_list_packs` / `social_get_pack`.
-La publicación en redes sigue siendo manual y el look de `/blog` sigue en esta
-landing.
+Cada campaña puede contener Blog, Instagram, LinkedIn, X, Video o Substack. El
+contenido y la agenda se gestionan con las tools `content_*` y la conexión
+configurada para cada marca.
 
 ## Tras publicar
 
-El CMS dispara el Deploy Webhook de Coolify del frontend. El sync baja posts (y
-las páginas HTML si la landing tiene un generador propio).
-Comparte `appPreviewUrl` solo durante la revisión guiada. El MCP no devuelve enlaces de interfaz.
+El CMS dispara el Deploy Webhook de Coolify del frontend cuando corresponde. La
+revisión y la agenda permanecen en la app v2.
 
 ## Prohibido
 
 - Commits de contenido editorial en el repo del frontend
-- Inventar brand kit. Complétalo con `blog_update_brand_file` o el dashboard
-- Publicar en redes desde el agente (el pack es copia/descarga manual)
-- Rellenar canales desactivados en `socialPackChannels`
-- Intentar “diseñar” la ficha del post desde el CMS o metiendo layout en `bodyHtml`
+- Inventar brand kit. Complétalo desde Brand kit en la app v2
+- Publicar en redes desde el agente sin aprobación y conexión configurada
+- Rellenar canales desactivados en la configuración de la marca
+- Intentar diseñar una interfaz desde el contenido

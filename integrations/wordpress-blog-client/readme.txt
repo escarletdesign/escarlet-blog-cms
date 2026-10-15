@@ -7,7 +7,7 @@ Requires PHP: 7.4
 Stable tag: 1.1.0
 License: GPLv2 or later
 
-Sincroniza el blog público desde el CMS Escarlet y abre el panel editorial (packs incluidos) con el token de sitio.
+Sincroniza el blog público desde el CMS Escarlet y abre el panel editorial (packs incluidos) con un token PAT personal.
 
 == Description ==
 
@@ -21,7 +21,7 @@ Sincroniza el blog público desde el CMS Escarlet y abre el panel editorial (pac
 
 1. Sube la carpeta `escarlet-blog-client` a `wp-content/plugins/`.
 2. Activa el plugin.
-3. Escarlet Blog → Ajustes. URL del CMS, handle y token de sitio.
+3. Escarlet Blog → Ajustes. URL del CMS, handle y token PAT personal de usuario.
 4. Copia la URL de webhook + Bearer al CMS → Sitio.
 5. Sincroniza o publica un post en el CMS.
 

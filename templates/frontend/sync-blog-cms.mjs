@@ -9,7 +9,7 @@
  * SEO HTML stays on the landing; CMS validates and stores content only.
  *
  * Env.
- *   BLOG_CMS_URL   https://blog-cms.escarlet.cc
+ *   BLOG_CMS_URL   https://cms.escarlet.design
  *   BLOG_CMS_SITE  handle del site (ej. escarlet, mares24)
  *   BLOG_SITE_URL  https://tu-dominio.com
  *   BLOG_OUT_FILE  ruta relativa al root (default src/data/blog.generated.js)

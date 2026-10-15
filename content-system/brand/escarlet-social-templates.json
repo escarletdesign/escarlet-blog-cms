@@ -5,27 +5,121 @@
       "id": "editorial",
       "name": "Editorial sobrio",
       "description": "Retícula de papel, serif visual sin depender de una imagen tipográfica y bloque de texto contenido.",
-      "canvas": { "width": 1080, "height": 1350 },
-      "font": { "family": "Inter, Arial, sans-serif", "headlineWeight": 700, "bodyWeight": 400 },
-      "safeAreas": { "top": 88, "right": 88, "bottom": 88, "left": 88 },
-      "headline": { "x": 88, "y": 255, "width": 760, "maxChars": 72, "fontSize": 70, "lineHeight": 1.05, "maxLines": 3 },
-      "body": { "x": 88, "y": 770, "width": 760, "maxChars": 180, "fontSize": 32, "lineHeight": 1.25, "maxLines": 4 },
-      "footer": { "x": 88, "y": 1240, "text": "ESCARLET · diseño con criterio", "fontSize": 18 },
-      "background": { "allowed": ["ai-background", "paper", "light-or-grayscale"], "overlay": "rgba(244,241,234,.82)" },
-      "accent": { "color": "#1F4D3A", "shape": "rule" }
+      "canvas": {
+        "width": 1080,
+        "height": 1350
+      },
+      "font": {
+        "family": "Montserrat, Arial, sans-serif",
+        "headlineWeight": 700,
+        "bodyWeight": 400
+      },
+      "safeAreas": {
+        "top": 88,
+        "right": 88,
+        "bottom": 88,
+        "left": 88
+      },
+      "headline": {
+        "x": 88,
+        "y": 255,
+        "width": 760,
+        "maxChars": 72,
+        "fontSize": 70,
+        "lineHeight": 1.05,
+        "maxLines": 3
+      },
+      "body": {
+        "x": 88,
+        "y": 770,
+        "width": 760,
+        "maxChars": 180,
+        "fontSize": 32,
+        "lineHeight": 1.25,
+        "maxLines": 4
+      },
+      "footer": {
+        "x": 88,
+        "y": 1240,
+        "text": "ESCARLET · diseño con criterio",
+        "fontSize": 18
+      },
+      "background": {
+        "allowed": [
+          "ai-background",
+          "matte-surface",
+          "light-or-grayscale"
+        ],
+        "overlay": "rgba(255,255,255,.82)",
+        "textBorder": false,
+        "textOutline": false,
+        "textStroke": false,
+        "decorativeDashes": false
+      },
+      "accent": {
+        "color": "#47A4E7",
+        "shape": "rule"
+      }
     },
     {
       "id": "impact",
       "name": "Impacto visual",
-      "description": "Bloque de color bosque, imagen recortada y titular corto con alto contraste.",
-      "canvas": { "width": 1080, "height": 1350 },
-      "font": { "family": "Inter, Arial, sans-serif", "headlineWeight": 800, "bodyWeight": 500 },
-      "safeAreas": { "top": 88, "right": 88, "bottom": 88, "left": 88 },
-      "headline": { "x": 88, "y": 180, "width": 820, "maxChars": 54, "fontSize": 86, "lineHeight": 0.98, "maxLines": 3 },
-      "body": { "x": 88, "y": 860, "width": 820, "maxChars": 140, "fontSize": 30, "lineHeight": 1.2, "maxLines": 4 },
-      "footer": { "x": 88, "y": 1240, "text": "escarlet.design", "fontSize": 20 },
-      "background": { "allowed": ["ai-background", "brand-color", "light-or-grayscale"], "overlay": "rgba(21,53,42,.76)" },
-      "accent": { "color": "#C8674B", "shape": "pill" }
+      "description": "Bloque de carbón, imagen recortada y titular corto con alto contraste.",
+      "canvas": {
+        "width": 1080,
+        "height": 1350
+      },
+      "font": {
+        "family": "Montserrat, Arial, sans-serif",
+        "headlineWeight": 800,
+        "bodyWeight": 500
+      },
+      "safeAreas": {
+        "top": 88,
+        "right": 88,
+        "bottom": 88,
+        "left": 88
+      },
+      "headline": {
+        "x": 88,
+        "y": 180,
+        "width": 820,
+        "maxChars": 54,
+        "fontSize": 86,
+        "lineHeight": 0.98,
+        "maxLines": 3
+      },
+      "body": {
+        "x": 88,
+        "y": 860,
+        "width": 820,
+        "maxChars": 140,
+        "fontSize": 30,
+        "lineHeight": 1.2,
+        "maxLines": 4
+      },
+      "footer": {
+        "x": 88,
+        "y": 1240,
+        "text": "escarlet.design",
+        "fontSize": 20
+      },
+      "background": {
+        "allowed": [
+          "ai-background",
+          "brand-color",
+          "light-or-grayscale"
+        ],
+        "overlay": "rgba(30,30,30,.76)",
+        "textBorder": false,
+        "textOutline": false,
+        "textStroke": false,
+        "decorativeDashes": false
+      },
+      "accent": {
+        "color": "#E8B73A",
+        "shape": "pill"
+      }
     }
   ]
 }

@@ -11,7 +11,11 @@ cp .env.example .env
 npm run docker:up
 ```
 
-El volumen `escarlet_blog_cms_data` guarda `db.json` y `data/media/` entre reinicios.
+El volumen `escarlet_blog_cms_data` conserva el feed público y los archivos de migración. La operación nueva vive en Postgres; `db.json` solo es fuente de importación/exportación.
+
+El compose levanta `postgres` y un único servicio `cms`. Ese contenedor inicia la API y
+el worker Node persistente (`worker.mjs`), que reclama jobs/outbox con leases y
+reintentos; no depende de Redis ni de un segundo contenedor de aplicación.
 
 Primera vez con DB vacía. Importa posts después:
 
@@ -25,11 +29,26 @@ npm run import:escarlet
 
 ## 1. CMS en Coolify
 
+### Arquitectura recomendada
+
+En producción crea dos recursos dentro del mismo proyecto/red de Coolify:
+
+1. Un recurso **PostgreSQL gestionado** para la base canónica (no ejecutes Postgres
+   dentro del contenedor de la aplicación).
+2. Esta aplicación Docker, cuyo contenedor ejecuta API + worker. Usa el hostname
+   interno del recurso Postgres en `DATABASE_URL`; `localhost` dentro del contenedor
+   apunta al CMS, no a Postgres.
+
 ### Build
 
 - Tipo. **Dockerfile** (raíz del repo)
 - Puerto expuesto. `3040`
 - Health check. `GET /api/health`
+- Rama. `v3` para el control plane MCP namespaced y las micro apps de producción
+- No configures un proceso/servicio adicional `node worker.mjs`: el entrypoint ya lo
+  inicia en el mismo contenedor cuando `WORKER_ENABLED=1`.
+
+Después de cada push que cambie `mcp/v3`, ejecuta un redeploy del servicio CMS en Coolify y reinicia la conexión MCP de ChatGPT. El conector puede conservar el resultado anterior de `tools/list` hasta que se abre una nueva sesión. Verifica que `workspace.context.get`, `content.post.list`, `content.audit.inventory`, `content.audit.repair.plan` y `content.post.archive` aparezcan en el catálogo antes de operar sobre datos reales.
 
 ### Volumen persistente (importante)
 
@@ -46,8 +65,8 @@ En Coolify → tu app CMS → **Storages / Persistent Storage** → Add:
 Comprueba tres veces:
 
 1. Destination Path es exactamente `/app/data` (no `/data`, no `/app/data/db.json`).
-2. El storage está **activo** en la app de `blog-cms.escarlet.cc`.
-3. Tras el deploy, abre `https://blog-cms.escarlet.cc/api/health` y mira `persistence`.
+2. El storage está **activo** en la app de `cms.escarlet.design`.
+3. Tras el deploy, abre `https://cms.escarlet.design/api/health` y mira `persistence`.
 
 Ejemplo sano:
 
@@ -66,17 +85,55 @@ Ejemplo sano:
 
 Si `likelyDockerVolume` es `false` o `posts` vuelve a `0` tras un redeploy, el volumen no está montado. Corrígelo antes de volver a generar posts con Hermes.
 
+### Postgres en Coolify
+
+1. Crea **PostgreSQL** (16 o superior) en el mismo proyecto y red privada.
+2. Guarda usuario, contraseña y nombre de base generados por Coolify.
+3. En la app CMS configura una URL como
+   `postgres://usuario:password@<nombre-interno-del-servicio>:5432/escarlet_blog`.
+   Si tu proveedor exige TLS, añade los parámetros SSL que indique el proveedor.
+4. No publiques el puerto 5432 a Internet salvo que una operación externa lo
+   necesite. Activa backups programados y prueba una restauración antes de migrar.
+
+### Variables de entorno (CMS)
+
+Configúralas como secretos/variables de Coolify, nunca en el repositorio:
+
+```
+NODE_ENV=production
+PORT=3040
+CMS_PUBLIC_URL=https://cms.escarlet.design
+ADMIN_TOKEN=<secreto-aleatorio-largo>
+DEFAULT_SITE=escarlet
+DATABASE_URL=postgres://usuario:password@postgres:5432/escarlet_blog
+CMS_SECRET_KEY=<32+ bytes aleatorios; 64 hex recomendado>
+WORKER_ENABLED=1
+PRODUCT_RESTRUCTURE_V1=1
+```
+
+Auth0 para MCP v3 es opcional. Si se activa, configura el bloque completo de
+`AUTH0_ENABLED`, `AUTH0_ISSUER`, `AUTH0_AUDIENCE` y `AUTH0_JWKS_URL`, además de
+los claims de identidad indicados en [AUTH0-CHATGPT-MCP.md](./AUTH0-CHATGPT-MCP.md).
+No dejes una configuración parcial: los JWT externos se rechazan y no se
+transforman en sesiones locales. El `user_id` emitido por Auth0 debe existir en
+`users.id` y tener membresía vigente en PostgreSQL.
+
+Añade además las variables de la funcionalidad que actives: `STRIPE_SECRET_KEY`,
+`STRIPE_WEBHOOK_SECRET`, `PWA_STRIPE_PRICE_*`, `RESEND_API_KEY` y las claves de
+proveedores de IA. `CMS_SECRET_KEY` es necesaria para cifrar credenciales de
+Metricool; no la cambies entre deploys.
+
 ### Stripe Payment Links (product-restructure F4)
 
 Con `PRODUCT_RESTRUCTURE_V1=1`:
 
 1. Crea Payment Links en Stripe (setup, membership, hosting opcional).
 2. En cada link, metadata: `site=<handle>`, `kind=setup|membership|hosting`, `planId=standard` (membership/setup).
-3. Webhook Stripe → `POST https://blog-cms…/api/stripe/webhook` (evento `checkout.session.completed`).
-4. Env: `STRIPE_WEBHOOK_SECRET`. Opcional `DATABASE_URL` (Postgres Coolify) para ledger idempotente; si no, usa `data/stripe-ledger.json`.
+3. Webhook Stripe → `POST https://cms.escarlet.design/api/stripe/webhook` (evento `checkout.session.completed`).
+4. Env: `STRIPE_WEBHOOK_SECRET`, `DATABASE_URL` y `CMS_SECRET_KEY` (32 bytes o más). Postgres es obligatorio para `/api/v2`, membresías workspace y jobs; el ledger Stripe conserva compatibilidad JSON solo durante la importación.
 5. Agency: `GET /api/admin/payment-links` muestra el contrato de metadata.
 
-Si el contenido lo genera ChatGPT por MCP, añade `CMS_AI_ENABLED=0` al entorno del CMS. Se desactivan las rutas REST de IA, conectores, transcripción, imágenes y créditos; `/mcp` y el editor manual siguen operativos.
+La generación server-side permanece desactivada. No hace falta un flag adicional: las rutas REST de IA, conectores, transcripción, imágenes y créditos están bloqueadas; `/mcp/v3` y el editor manual siguen operativos. ChatGPT genera el contenido final mediante `https://cms.escarlet.design/mcp/v3`.
 
 Si montaste el volumen en otra ruta:
 
@@ -90,22 +147,78 @@ No copies `data/db.json` dentro de la imagen. Eso va en el volumen.
 
 Si el volumen se montó **después** de subir medios, esos archivos se perdieron. Vuelve a subirlos. Una imagen de pocos bytes también se ve rota. El CMS rechaza subidas incompletas.
 
-### Variables de entorno (CMS)
+### Corte único JSON → Postgres
+
+Con el CMS detenido para escritura, ejecuta una vez:
+
+```bash
+npm run db:migrate:v3 -- --dry-run
+npm run db:migrate:v3
+```
+
+El importador crea un backup verificable en `data/migration-backups/`, aplica las migraciones SQL, conserva hashes SHA-256 de media e informa conteos de sitios, miembros, posts, variantes y entitlements. Revisa el resultado antes de habilitar clientes.
+
+En Coolify puedes abrir **Terminal / Execute Command** sobre el contenedor CMS y
+ejecutar esos comandos allí. Haz primero `--dry-run`, comprueba los conteos y luego
+el import real. Congela las escrituras del CMS durante el corte; no ejecutes el
+importador en cada deploy. El arranque normal solo aplica migraciones SQL
+idempotentes. El informe v3 confirma también que no quedan assets publicables
+huérfanos.
+
+### Metricool (después del primer deploy)
+
+Conecta cada workspace/sitio desde un cliente con rol `owner` o `admin`:
+
+```bash
+curl -X POST https://cms.escarlet.design/api/v2/integrations/metricool/connect \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"site":"escarlet","userToken":"<metricool-token>","userId":"<metricool-user-id>","blogId":"<metricool-blog-id>","timezone":"Europe/Madrid","capabilities":["instagram","linkedin","x","blog"]}'
+curl -X POST https://cms.escarlet.design/api/v2/integrations/metricool/test \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"site":"escarlet"}'
+```
+
+El token se cifra con `CMS_SECRET_KEY` y no se guarda en la imagen. Las URLs de
+media que se envíen a Metricool deben ser públicas y permanentes. El worker crea
+el outbox al aprobar y sincroniza estados periódicamente; revisa los logs
+`[entrypoint] iniciando worker` y los estados en `/api/v2/usage`/batch.
+
+Documentación de referencia: [scheduler de Metricool](https://help.metricool.com/wli-scheduler-endpoint-example-on-a-custom-backend-proxy-frko7) y [autenticación/media](https://help.metricool.com/common-questions-and-errors-when-using-the-api-8x9nq).
+
+### Postiz self-hosted (proveedor recomendado)
+
+Postiz se despliega como un recurso separado de Coolify con su compose oficial y
+volúmenes persistentes. En el CMS configura opcionalmente:
 
 ```
-PORT=3040
-ADMIN_TOKEN=<genera-un-secreto-largo>
-DEFAULT_SITE=escarlet
-CMS_PUBLIC_URL=https://blog-cms.escarlet.cc
+POSTIZ_API_BASE_URL=https://sociales.example.com/api
 ```
+
+La URL debe ser la del backend público de Postiz (normalmente termina en `/api`),
+no la URL interna de PostgreSQL o Redis. En la PWA, entra en **Marca → Conexiones**,
+selecciona **Postiz (self-hosted)**, pega la API key de **Settings → Developers →
+Public API** o un OAuth token, pulsa **Cargar cuentas** y elige la integración de
+Instagram, LinkedIn, X u otra cuenta conectada. Escarlet guarda el token cifrado;
+las credenciales OAuth de las redes permanecen dentro de Postiz.
+
+Antes de activar publicaciones reales, prueba una cuenta de staging y verifica
+subida de imágenes, publicación programada, reinicio del stack y sincronización de
+estados. El worker del CMS envía a Postiz únicamente variantes aprobadas.
+
+### Buffer (API gratuita)
+
+Buffer puede usarse como proveedor adicional sin desplegar otro servidor. En Buffer crea una API key desde sus ajustes y, en Escarlet, abre **Administración → Conexiones**, selecciona **Buffer (API)**, pega la key y pulsa **Cargar canales**. Elige la organización y la cuenta social de Buffer antes de guardar.
+
+La API key se cifra en Postgres y nunca se devuelve al navegador. El worker publica con el endpoint GraphQL de Buffer y consulta el estado del post para actualizar el calendario de Escarlet. Buffer limita la API gratuita a una key y 3.000 solicitudes cada 30 días, por lo que conviene dejar el polling con el intervalo predeterminado y no registrar la misma cuenta repetidamente.
 
 Webhook por site. Configúralo en dashboard → **Sitio** (recomendado). Opcional fallback env `REBUILD_WEBHOOK_URL`.
 
-`CMS_PUBLIC_URL` en producción tiene que ser `https://blog-cms.escarlet.cc`. Si queda vacío o en `localhost`, el MCP igual devolverá links absolutos con fallback a `https://blog-cms.escarlet.cc` (preview y media) para que Hermes pueda pegar un enlace clicable.
+`CMS_PUBLIC_URL` en producción tiene que ser `https://cms.escarlet.design`. Si queda vacío o en `localhost`, el MCP igual devolverá links absolutos con fallback a `https://cms.escarlet.design` (preview y media) para que Hermes pueda pegar un enlace clicable.
 
 ### Dominio
 
-`blog-cms.escarlet.cc` — uso interno del equipo. No enlazar desde escarlet.design.
+El host `blog-cms.escarlet.cc` está retirado y no debe configurarse en clientes MCP, frontends ni variables de producción.
 
 ---
 
@@ -114,7 +227,7 @@ Webhook por site. Configúralo en dashboard → **Sitio** (recomendado). Opciona
 Variables **nuevas** en la app de escarlet.design:
 
 ```
-BLOG_CMS_URL=https://blog-cms.escarlet.cc
+BLOG_CMS_URL=https://cms.escarlet.design
 BLOG_CMS_SITE=escarlet
 ```
 
@@ -130,29 +243,29 @@ El MCP corre **dentro del CMS**. Hermes no clona el repo. Solo apunta a la URL.
 {
   "mcpServers": {
     "escarlet-blog": {
-      "url": "https://blog-cms.escarlet.cc/mcp",
+      "url": "https://cms.escarlet.design/mcp/v3",
       "headers": {
-        "Authorization": "Bearer EL_MISMO_ADMIN_TOKEN_DEL_CMS"
+        "Authorization": "Bearer TU_PAT_PERSONAL_user_..."
       }
     }
   }
 }
 ```
 
-Local. `http://localhost:3040/mcp` con el mismo `ADMIN_TOKEN`.
+Local. `http://localhost:3040/mcp/v3` con un PAT personal de usuario. Reserva `ADMIN_TOKEN` para el servidor.
 
-Reinicia el servidor MCP en Cursor. Prueba `blog_list_posts` con site `escarlet`.
+Reinicia el servidor MCP en Cursor. Prueba `capability.search` y después `brand.context.get` con site `escarlet`.
 
 ### ChatGPT (Developer Mode)
 
 ChatGPT solo ofrece OAuth (o sin autenticación). El CMS incluye un OAuth 2.1 mínimo en el mismo host.
 
 1. En ChatGPT. Settings → Connectors → Create
-2. URL. `https://blog-cms.escarlet.cc/mcp`
+2. URL. `https://cms.escarlet.design/mcp/v3`
 3. Autenticación. **OAuth**
 4. Nombre. `escarlet-blog` (o el del cliente)
-5. Al conectar, ChatGPT abre la pantalla del CMS. Pega el **token de sitio** (dashboard → Sitio → Generar token) o el `ADMIN_TOKEN` y autoriza una vez.
-6. Icono. Descarga el PNG del favicon (<10 KB) que muestra el panel al generar el token. Ruta pública típica. `https://blog-cms.escarlet.cc/media/{handle}/agent-icon.png`
+5. Al conectar, ChatGPT abre la pantalla del CMS. Usa OAuth o pega tu PAT personal y autoriza una vez.
+6. Icono. Descarga el PNG del favicon (<10 KB) que muestra el panel al generar el token. Ruta pública típica. `https://cms.escarlet.design/media/{handle}/agent-icon.png`
 
 Cursor y Hermes siguen con Bearer directo. No hace falta migrarlos a OAuth.
 
@@ -161,17 +274,17 @@ Cursor y Hermes siguen con Bearer directo. No hace falta migrarlos a OAuth.
 Claude también puede usar el mismo endpoint OAuth del CMS.
 
 1. En Claude. `Customize → Connectors → Add custom connector`
-2. URL. `https://blog-cms.escarlet.cc/mcp`
+2. URL. `https://cms.escarlet.design/mcp/v3`
 3. Autenticación. **OAuth**
 4. Nombre. `escarlet-blog` (o el del cliente)
-5. Al conectar, Claude abre la pantalla del CMS. Pega el **token de sitio** o el `ADMIN_TOKEN` y autoriza una vez.
+5. Al conectar, Claude abre la pantalla del CMS. Usa OAuth o pega tu PAT personal y autoriza una vez.
 6. Si quieres un icono, usa el mismo PNG del favicon que genera el panel.
 
 ChatGPT y Claude comparten el mismo OAuth del CMS. Cursor y Hermes siguen con Bearer directo.
 
 ---
 
-## 4. Webhook rebuild + activar sync — paso a paso
+## 4. Webhook rebuild + activar sync - paso a paso
 
 Objetivo. Cuando publicas en el CMS, escarlet.design se reconstruye solo con los posts nuevos.
 
@@ -187,7 +300,7 @@ Objetivo. Cuando publicas en el CMS, escarlet.design se reconstruye solo con los
 
 ### B. Pégala en el CMS (dashboard)
 
-1. Abre `https://blog-cms.escarlet.cc/app` (o local)
+1. Abre `https://cms.escarlet.design/app` (o local)
 2. Tab **Sitio**
 3. Campo **Deploy webhook** → pega la URL
 4. Campo **Token API Coolify** → pega el token con permiso Deploy
@@ -203,7 +316,7 @@ Fallback opcional por env en la app CMS. `REBUILD_WEBHOOK_URL` y `COOLIFY_API_TO
 En la app escarlet002:
 
 ```
-BLOG_CMS_URL=https://blog-cms.escarlet.cc
+BLOG_CMS_URL=https://cms.escarlet.design
 BLOG_CMS_SITE=escarlet
 ```
 
@@ -211,7 +324,7 @@ Redeploy de escarlet002.
 
 ### D. Comprueba el flujo
 
-1. Publica un post en el CMS (dashboard `/app` o MCP `blog_publish`)
+1. Revisa y aprueba una pieza desde la app, enrútala con `publication.route` y agenda con `publication.schedule`
 2. El CMS hace `POST` al webhook
 3. Coolify reconstruye escarlet002
 4. En build, `escarlet-blog.mjs` baja el runtime del CMS y descarga posts
@@ -241,3 +354,13 @@ Si el CMS corre en Docker y el import es local, el `db.json` importado está en 
 ## Backup
 
 El volumen `/app/data` contiene todo lo crítico. Backup periódico de Coolify o copia de `db.json` + `media/`.
+
+## Escarlet V3
+
+Antes del corte de producción ejecuta la migración única con Postgres disponible:
+
+```bash
+npm run db:migrate:v3
+```
+
+La herramienta crea backup de `data/db.json`, archivos de marca y media, intenta crear un `pg_dump` y guarda un informe versionado. Después del corte, la PWA usa `/api/v2` incluido `/api/v2/publication` y los agentes usan exclusivamente `/mcp/v3`. Las rutas `/api/admin/*`, `/api/v3/*` de contenido y `/mcp` responden `410`.
