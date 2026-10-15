@@ -2705,6 +2705,8 @@ async function handleRequest(req, res) {
           flags.creation_ui_enabled = false
           flags.manual_creation_enabled = false
         }
+        const chatGptConnection = getChatGptConnection(scope.auth.userId)
+        if (!chatGptConnection.connected || chatGptConnection.expired) flags.creation_ui_enabled = false
         const brandRoles = Object.fromEntries((membershipContext.sites || []).map((brand) => [brand.id, brand.role || membershipContext.workspaceRole || membershipContext.role]))
         const brandsWithRoles = brands.map((brand) => ({ ...brand, role: brandRoles[brand.id] || (isSuperAdmin(scope.auth) ? 'admin' : scope.context.role) }))
         json(res, 200, {
@@ -3486,6 +3488,8 @@ async function handleRequest(req, res) {
         } catch { /* legacy users may not have been imported yet */ }
       }
       if (creationUiGlobalKillSwitch()) productFlags = { creation_ui_enabled: false, manual_creation_enabled: false }
+      const chatGptConnection = getChatGptConnection(auth.userId)
+      if (!chatGptConnection.connected || chatGptConnection.expired) productFlags.creation_ui_enabled = false
       json(res, 200, {
         flags: {
           cmsAiEnabled,

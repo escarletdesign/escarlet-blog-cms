@@ -437,7 +437,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
   }),
   manifest({
     id: 'brand.context.get',
-    description: 'Lee un snapshot versionado del contexto de marca sin exponer archivos privados.',
+    description: 'Lee un snapshot versionado del contexto de marca con voz y reglas AGENT.md aplicables.',
     inputSchema: { type: 'object', properties: { site: { type: 'string' }, brandId: { type: 'string' }, brandKitVersionId: { type: 'string' } }, oneOf: [{ required: ['site'] }, { required: ['brandId'] }], additionalProperties: false },
     outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, site: { type: 'string' }, brandKitVersionId: { type: 'string' }, brandKitSnapshotHash: { type: 'string' } }, required: ['contractVersion', 'site', 'brandKitVersionId', 'brandKitSnapshotHash'], additionalProperties: true },
     permissions: ['brand:read'],
@@ -447,7 +447,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     id: 'brand.voice.get',
     description: 'Lee la proyección de voz de marca del snapshot seleccionado.',
     inputSchema: { type: 'object', properties: { site: { type: 'string' }, brandId: { type: 'string' }, brandKitVersionId: { type: 'string' } }, oneOf: [{ required: ['site'] }, { required: ['brandId'] }], additionalProperties: false },
-    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, site: { type: 'string' }, brandKitVersionId: { type: 'string' }, brandKitSnapshotHash: { type: 'string' }, voice: { type: 'string' } }, required: ['contractVersion', 'site', 'brandKitVersionId', 'brandKitSnapshotHash', 'voice'], additionalProperties: true },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, site: { type: 'string' }, brandKitVersionId: { type: 'string' }, brandKitSnapshotHash: { type: 'string' }, voice: { type: 'string' }, agentRules: { type: 'string' } }, required: ['contractVersion', 'site', 'brandKitVersionId', 'brandKitSnapshotHash', 'voice'], additionalProperties: true },
     permissions: ['brand:read'],
     tags: ['brand', 'kernel', 'read']
   }),
@@ -463,7 +463,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     id: 'brand.rules.get',
     description: 'Lee reglas publicables y restricciones de contenido del snapshot seleccionado.',
     inputSchema: { type: 'object', properties: { site: { type: 'string' }, brandId: { type: 'string' }, brandKitVersionId: { type: 'string' } }, oneOf: [{ required: ['site'] }, { required: ['brandId'] }], additionalProperties: false },
-    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, site: { type: 'string' }, brandKitVersionId: { type: 'string' }, brandKitSnapshotHash: { type: 'string' }, sharedEditorialPolicy: { type: 'object' } }, required: ['contractVersion', 'site', 'brandKitVersionId', 'brandKitSnapshotHash'], additionalProperties: true },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, site: { type: 'string' }, brandKitVersionId: { type: 'string' }, brandKitSnapshotHash: { type: 'string' }, agentRules: { type: 'string' }, sharedEditorialPolicy: { type: 'object' } }, required: ['contractVersion', 'site', 'brandKitVersionId', 'brandKitSnapshotHash'], additionalProperties: true },
     permissions: ['brand:read'],
     tags: ['brand', 'kernel', 'read']
   }),

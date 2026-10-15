@@ -149,7 +149,7 @@ function campaignLabel(item: ContentItem) {
 }
 
 export function ContentInbox() {
-  const { site } = useApp();
+  const { site, workflowFlags } = useApp();
   const { t } = useI18n();
   const navigate = useNavigate();
   const { campaignId } = useParams();
@@ -184,7 +184,7 @@ export function ContentInbox() {
         eyebrow={t("content.eyebrow", "Espacio editorial")}
         title={t("content.title", "Contenido")}
         description={t("content.description", "Revisa cada Post y sus variantes por canal desde un solo lugar.")}
-        actions={<Button onClick={() => navigate("/apps")}>{t("content.create", "Crear contenido")}</Button>}
+        actions={workflowFlags.creationUiEnabled ? <Button onClick={() => navigate("/apps")}>{t("content.create", "Crear contenido")}</Button> : undefined}
       />
       <div className="v3-content-filters" role="search" aria-label={t("content.filters", "Filtros de contenido")}>
         <TextField value={query} onChange={(event) => updateFilter("q", event.target.value)} placeholder={t("content.search", "Buscar Posts")} aria-label={t("content.search", "Buscar Posts")} />
@@ -200,7 +200,7 @@ export function ContentInbox() {
       </div>
       {loading && <div className="v3-content-grid" role="status" aria-live="polite"><Card><span className="ui-skeleton" /><span className="ui-skeleton" /><span className="ui-skeleton" /></Card><Card><span className="ui-skeleton" /><span className="ui-skeleton" /><span className="ui-skeleton" /></Card></div>}
       {!loading && error && <Card className="v3-state-card"><p className="ui-field-error" role="alert">{error}</p><Button variant="secondary" onClick={() => updateFilter("refresh", String(Date.now()))}>{t("common.retry", "Reintentar")}</Button></Card>}
-      {!loading && !error && !items.length && <EmptyState title={t("content.empty.title", "No hay Posts todavía")} description={t("content.empty.description", "Crea contenido desde una receta o conecta una IA externa mediante MCP.")} action={<Button onClick={() => navigate("/apps")}>{t("content.empty.action", "Explorar creación")}</Button>} />}
+      {!loading && !error && !items.length && <EmptyState title={t("content.empty.title", "No hay Posts todavía")} description={t("content.empty.description", "Crea contenido desde una receta o conecta una IA externa mediante MCP.")} action={workflowFlags.creationUiEnabled ? <Button onClick={() => navigate("/apps")}>{t("content.empty.action", "Explorar creación")}</Button> : undefined} />}
       {!loading && !error && items.length > 0 && <div className="v3-content-grid">
         {items.map((item) => {
           const canonical = asCanonicalPost(item);

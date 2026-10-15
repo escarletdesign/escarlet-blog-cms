@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError, api } from "./api";
-import { Button, Card, Field, Inline, PageHeader, Stack, Switch, TextField, Textarea } from "./ui";
+import { Button, Card, EmptyState, Field, Inline, PageHeader, Stack, Switch, TextField, Textarea } from "./ui";
 
 type AppsDashboardProps = { site: string; t: (key: string, fallback?: string) => string };
 
-const fallbackChannels = ["blog"] as const;
 const channelLabels: Record<string, string> = { blog: "Blog", instagram: "Instagram", instagram_story: "Instagram Story", linkedin: "LinkedIn", substack: "Substack", video: "Vídeo", x: "X" };
 
 function errorText(error: unknown, fallback: string) {
@@ -16,8 +15,8 @@ export function AppsDashboard({ site, t }: AppsDashboardProps) {
   const navigate = useNavigate();
   const [title, setTitle] = useState("");
   const [brief, setBrief] = useState("");
-  const [availableChannels, setAvailableChannels] = useState<string[]>([...fallbackChannels]);
-  const [selectedChannels, setSelectedChannels] = useState<string[]>([...fallbackChannels]);
+  const [availableChannels, setAvailableChannels] = useState<string[]>([]);
+  const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -26,13 +25,18 @@ export function AppsDashboard({ site, t }: AppsDashboardProps) {
     api.brandChannels(site, controller.signal).then(({ channels }) => {
       if (controller.signal.aborted) return;
       const enabled = channels.filter((channel) => channel.enabled).map((channel) => channel.channel);
-      const next = enabled.length ? enabled : [...fallbackChannels];
-      setAvailableChannels(next);
+      setError("");
+      setAvailableChannels(enabled);
       setSelectedChannels((current) => {
-        const kept = current.filter((channel) => next.includes(channel));
-        return kept.length ? kept : [next[0]];
+        const kept = current.filter((channel) => enabled.includes(channel));
+        return kept.length ? kept : enabled.slice(0, 1);
       });
-    }).catch(() => undefined);
+    }).catch((cause) => {
+      if (controller.signal.aborted) return;
+      setAvailableChannels([]);
+      setSelectedChannels([]);
+      setError(errorText(cause, t("apps.channelsError", "No se pudieron consultar los canales activos.")));
+    });
     return () => controller.abort();
   }, [site]);
 
@@ -67,9 +71,10 @@ export function AppsDashboard({ site, t }: AppsDashboardProps) {
       description={t("apps.description", "Define la intención y los canales. La generación de copy, imagen y vídeo se realiza fuera del servidor mediante MCP.")}
       actions={<Button variant="secondary" onClick={() => navigate("/content")}>{t("apps.openContent", "Ver contenido")}</Button>}
     />
-    <Card>
+    {error && <p className="ui-field-error" role="alert">{error}</p>}
+    {!error && !availableChannels.length && <EmptyState title={t("apps.noActiveChannels", "No hay canales activos")} description={t("apps.noActiveChannelsDescription", "Activa al menos un canal en la configuración de la marca antes de crear un Post.")} />}
+    {availableChannels.length > 0 && <Card>
       <Stack gap="lg">
-        {error && <p className="ui-field-error" role="alert">{error}</p>}
         <Field label={t("apps.postTitle", "Título del Post")} hint={t("apps.postTitleHint", "Una frase breve para identificarlo en la bandeja editorial.")}>
           <TextField value={title} onChange={(event) => setTitle(event.target.value)} placeholder={t("apps.postTitlePlaceholder", "Ej. Lanzamiento de la nueva carta")} />
         </Field>
@@ -86,6 +91,6 @@ export function AppsDashboard({ site, t }: AppsDashboardProps) {
           <span className="ui-muted">{t("apps.externalAiHint", "Después podrás conectar una generación externa desde MCP v3.")}</span>
         </div>
       </Stack>
-    </Card>
+    </Card>}
   </main>;
 }

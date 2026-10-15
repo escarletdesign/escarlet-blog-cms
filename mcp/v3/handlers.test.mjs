@@ -16,6 +16,17 @@ test('Brand Kernel devuelve un contexto autorizado y sin archivos privados', asy
   assert.equal(result.isError, false)
   assert.equal(result.structuredContent.site, 'escarlet')
   assert.equal(Object.hasOwn(result.structuredContent, 'files'), false)
+  assert.equal(typeof result.structuredContent.voice, 'string')
+  assert.equal(typeof result.structuredContent.agentRules, 'string')
+})
+
+test('las proyecciones de voz y reglas incluyen el contexto requerido para generar', async () => {
+  const server = await createMcpServerV3({ role: 'admin', site: 'escarlet' })
+  const voice = await call(server, 'brand.voice.get', { site: 'escarlet' })
+  const rules = await call(server, 'brand.rules.get', { site: 'escarlet' })
+  assert.equal(typeof voice.structuredContent.voice, 'string')
+  assert.equal(typeof voice.structuredContent.agentRules, 'string')
+  assert.equal(typeof rules.structuredContent.agentRules, 'string')
 })
 
 test('un owner puede crear, validar, registrar assets y publicar un Brand Kit v3', async () => {

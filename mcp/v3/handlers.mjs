@@ -96,7 +96,6 @@ function siteFor(args, auth) {
 function contextProjection(context) {
   const {
     files,
-    agentRules,
     reminder,
     ...publicContext
   } = context || {}
@@ -1713,9 +1712,9 @@ export async function invokeBuiltinCapability(name, args = {}, { auth = {}, runt
     const brandOptions = await activeBrandOptions(site, args, auth, runtime)
     const context = getBrandContext(site, { auth: { ...auth, role: auth.role === 'agent' ? 'editor' : auth.role }, ...brandOptions })
     if (name === 'brand.context.get') return { contractVersion: 'os.production.v1', ...contextProjection(context) }
-    if (name === 'brand.voice.get') return { contractVersion: 'os.production.v1', site, brandKitVersionId: context.brandKitVersionId, brandKitSnapshotHash: context.brandKitSnapshotHash, voice: context.voice, keywords: context.keywords }
+    if (name === 'brand.voice.get') return { contractVersion: 'os.production.v1', site, brandKitVersionId: context.brandKitVersionId, brandKitSnapshotHash: context.brandKitSnapshotHash, voice: context.voice, agentRules: context.agentRules, keywords: context.keywords }
     if (name === 'brand.visual_style.get') return { contractVersion: 'os.production.v1', site, brandKitVersionId: context.brandKitVersionId, brandKitSnapshotHash: context.brandKitSnapshotHash, visualStyle: context.visualStyle, imageGuide: context.imageGuide, imageSpec: context.imageSpec, canonicalPalette: context.canonicalPalette, referenceImages: context.referenceImages, motionAssets: getMotionBrandAssets(site) }
-    if (name === 'brand.rules.get') return { contractVersion: 'os.production.v1', site, brandKitVersionId: context.brandKitVersionId, brandKitSnapshotHash: context.brandKitSnapshotHash, sharedEditorialPolicy: context.sharedEditorialPolicy, editRules: context.editRules, workflow: context.workflow, requiresHumanApproval: context.requiresHumanApproval, requiresPublishConfirmation: context.requiresPublishConfirmation }
+    if (name === 'brand.rules.get') return { contractVersion: 'os.production.v1', site, brandKitVersionId: context.brandKitVersionId, brandKitSnapshotHash: context.brandKitSnapshotHash, agentRules: context.agentRules, sharedEditorialPolicy: context.sharedEditorialPolicy, editRules: context.editRules, workflow: context.workflow, requiresHumanApproval: context.requiresHumanApproval, requiresPublishConfirmation: context.requiresPublishConfirmation }
     if (name === 'brand.references.resolve') {
       const prepared = prepareImageGeneration(site, preparationInput(args), brandOptions.canonicalSnapshot ? { canonicalSnapshot: brandOptions.canonicalSnapshot } : {})
       return { contractVersion: 'os.production.v1', site, brandKitVersionId: prepared.brandKitVersionId, brandKitSnapshotHash: prepared.brandKitSnapshotHash, route: prepared.route, generationBlocked: prepared.generationBlocked, references: prepared.resolvedReferences, resolvedReferences: prepared.resolvedReferences }

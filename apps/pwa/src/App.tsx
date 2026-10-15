@@ -332,7 +332,7 @@ function ToastProvider({ children }: { children: ReactNode }) {
 function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [workflowFlags, setWorkflowFlags] = useState<WorkflowFlags>({ cmsAiEnabled: true, assistantEnabled: false, blogWizardEnabled: false, legacyPreviewEnabled: false, legacySocialPackEnabled: false, authorInviteEnabled: true, creationUiEnabled: true, manualCreationEnabled: false });
+  const [workflowFlags, setWorkflowFlags] = useState<WorkflowFlags>({ cmsAiEnabled: true, assistantEnabled: false, blogWizardEnabled: false, legacyPreviewEnabled: false, legacySocialPackEnabled: false, authorInviteEnabled: true, creationUiEnabled: false, manualCreationEnabled: false });
   const [channels, setChannels] = useState<Array<{ channel: string; enabled: boolean; connectionStatus?: string }>>([]);
   const [brandCapabilities, setBrandCapabilities] = useState<Record<string, boolean>>({});
   const [productContext, setProductContext] = useState<AppState["productContext"]>();
@@ -353,8 +353,12 @@ function App() {
       const nextSession = await api.session();
       setSession(nextSession);
       try {
-        const nextFlags = await api.workflowFlags(nextSession.site || nextSession.sites?.[0]);
+        const [nextFlags, chatGptConnection] = await Promise.all([
+          api.workflowFlags(nextSession.site || nextSession.sites?.[0]),
+          api.chatgptStatus().catch(() => ({ connected: false }))
+        ]);
         const cmsAiEnabled = nextFlags.flags?.cmsAiEnabled !== false;
+        const chatGptReady = Boolean(chatGptConnection.connected && !chatGptConnection.expired);
         setWorkflowFlags({
           cmsAiEnabled,
           assistantEnabled: cmsAiEnabled && nextFlags.flags?.assistantEnabled !== false,
@@ -362,7 +366,7 @@ function App() {
           legacyPreviewEnabled: false,
           legacySocialPackEnabled: false,
           authorInviteEnabled: nextFlags.flags?.authorInviteEnabled !== false,
-          creationUiEnabled: true,
+          creationUiEnabled: Boolean(nextFlags.flags?.creation_ui_enabled) && chatGptReady,
           manualCreationEnabled: false,
         });
         try {
@@ -375,10 +379,10 @@ function App() {
           setProductContext(context);
           setChannels(context.channels || []);
           setBrandCapabilities(context.brandCapabilities || {});
-          setWorkflowFlags((current) => ({ ...current, creationUiEnabled: true, manualCreationEnabled: false, blogWizardEnabled: false }));
+          setWorkflowFlags((current) => ({ ...current, manualCreationEnabled: false, blogWizardEnabled: false }));
         } catch { setChannels([]); setBrandCapabilities({}); setProductContext(undefined); }
       } catch {
-        setWorkflowFlags({ cmsAiEnabled: true, assistantEnabled: false, blogWizardEnabled: false, legacyPreviewEnabled: false, legacySocialPackEnabled: false, authorInviteEnabled: true, creationUiEnabled: true, manualCreationEnabled: false });
+        setWorkflowFlags({ cmsAiEnabled: true, assistantEnabled: false, blogWizardEnabled: false, legacyPreviewEnabled: false, legacySocialPackEnabled: false, authorInviteEnabled: true, creationUiEnabled: false, manualCreationEnabled: false });
       }
     } catch {
       setSession(null);
@@ -445,7 +449,6 @@ function App() {
       setBrandCapabilities(context.brandCapabilities || {});
       setWorkflowFlags((current) => ({
         ...current,
-        creationUiEnabled: true,
         manualCreationEnabled: false,
         assistantEnabled: current.cmsAiEnabled && current.assistantEnabled,
         blogWizardEnabled: false
@@ -506,7 +509,7 @@ function App() {
                 </>
               ) : <Route element={<Shell />}>
                 <Route path="/" element={<Home />} />
-                <Route path="/apps" element={<Suspense fallback={<RouteLoading />}><AppsDashboard site={site} t={t} /></Suspense>} />
+                {workflowFlags.creationUiEnabled && <Route path="/apps" element={<Suspense fallback={<RouteLoading />}><AppsDashboard site={site} t={t} /></Suspense>} />}
                 <Route path="/publication/publisher" element={<Suspense fallback={<RouteLoading />}><Publisher site={site} t={t} /></Suspense>} />
                 <Route path="/publication" element={<Suspense fallback={<RouteLoading />}><Publisher site={site} t={t} /></Suspense>} />
                 <Route path="/media" element={<Suspense fallback={<RouteLoading />}><MediaManager site={site} t={t} /></Suspense>} />
@@ -847,7 +850,7 @@ function Shell() {
   const publishingEnabled = brandCapabilities.content_publishing !== false;
   const primaryLinks = [
     { to: "/", label: t("nav.home", "Inicio"), icon: "home" },
-    { to: "/apps", label: t("nav.apps", "Crear"), icon: "apps" },
+    ...(workflowFlags.creationUiEnabled ? [{ to: "/apps", label: t("nav.apps", "Crear"), icon: "apps" }] : []),
     { to: "/content", label: t("nav.content", "Contenido"), icon: "plans" },
     { to: "/media", label: t("nav.media", "Medios"), icon: "media" },
     ...(publishingEnabled ? [{ to: "/calendar", label: t("nav.calendar", "Calendario"), icon: "calendar" }] : []),
@@ -944,7 +947,7 @@ function CreditIndicator({ site }: { site: string }) {
 
 function Home() {
   const nav = useNavigate();
-  const { session, site, brandCapabilities } = useApp();
+  const { session, site, brandCapabilities, workflowFlags } = useApp();
   const { t } = useI18n();
   const publishingEnabled = brandCapabilities.content_publishing !== false;
   return (
@@ -956,7 +959,7 @@ function Home() {
       </div>
       <div className="choice-grid">
         <button className="choice-card" onClick={() => nav("/content")}><span>✦</span><strong>{t("home.openContent", "Abrir contenido")}</strong><small>{t("home.openContentDescription", "Revisa Posts, variantes y estados de publicación.")}</small><b>{t("home.openContentAction", "Ver contenido")}</b></button>
-        <button className="choice-card" onClick={() => nav("/apps")}><span>◉</span><strong>{t("home.openCreate", "Crear contenido")}</strong><small>{t("home.openCreateDescription", "Crea un Post, elige sus canales y continúa con una IA externa.")}</small><b>{t("home.openCreateAction", "Crear Post")}</b></button>
+        {workflowFlags.creationUiEnabled && <button className="choice-card" onClick={() => nav("/apps")}><span>◉</span><strong>{t("home.openCreate", "Crear contenido")}</strong><small>{t("home.openCreateDescription", "Crea un Post, elige sus canales y continúa con una IA externa.")}</small><b>{t("home.openCreateAction", "Crear Post")}</b></button>}
       </div>
       {publishingEnabled && <section className="home-section">
         <RecentContentWork />
@@ -965,7 +968,7 @@ function Home() {
         </div>
         <RecentPosts />
         <div className="quick-actions">
-          <button onClick={() => nav("/apps")}>{t("home.apps", "Explorar apps")}</button>
+          {workflowFlags.creationUiEnabled && <button onClick={() => nav("/apps")}>{t("home.apps", "Explorar apps")}</button>}
           <button onClick={() => nav("/calendar")}>{t("home.calendar")}</button>
           {isWorkspaceAdmin(session) && (
             <button onClick={() => nav("/brand")}>{t("home.openAdmin")}</button>
@@ -4792,6 +4795,7 @@ function Settings() {
       const parsed = JSON.parse(await file.text());
       const result = await api.chatgptImport(parsed);
       setChatGptConnection(result.connection);
+      await refresh();
       showToast(t("settings.chatgptImported"));
     } catch (err) {
       showToast(err instanceof Error ? err.message : t("settings.chatgptImportError"), "error");
@@ -4804,6 +4808,7 @@ function Settings() {
     try {
       const result = await api.chatgptDisconnect();
       setChatGptConnection(result.connection);
+      await refresh();
       showToast(t("settings.chatgptDisconnected"));
     } catch (err) {
       showToast(err instanceof Error ? err.message : t("common.error"), "error");
