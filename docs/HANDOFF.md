@@ -28,10 +28,10 @@ MCP v3. `capability.search`, Brand Kernel, producción y Publisher. Plantillas e
 
 ## Repos
 
-| Repo | Ruta local |
+| Repo | Checkout |
 |------|------------|
-| CMS + MCP | `/Users/carlosbrugiafredo/Documents/Escarlet/_Landigs/escarlet-blog-cms` |
-| Web Escarlet | `/Users/carlosbrugiafredo/Documents/Escarlet/_Landigs/escarlet002` |
+| CMS + MCP | `escarlet-blog-cms` |
+| Web Escarlet | `escarlet002` |
 
 ## Estado implementado (rama v3)
 
@@ -64,7 +64,7 @@ App. http://localhost:3040/app
 
 El MCP v3 es el endpoint `POST https://cms.escarlet.design/mcp/v3` del mismo servicio. Hermes puede usar `auth: oauth` o `url` + `Authorization` Bearer. Ver `docs/mcp.json.example`.
 
-## Deploy pendiente (Carlos)
+## Checklist de deploy
 
 1. Repo GitHub para `escarlet-blog-cms`
 2. Coolify app CMS (Dockerfile, volumen `/app/data`, puerto 3040)
