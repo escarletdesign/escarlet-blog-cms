@@ -54,6 +54,15 @@ onboarding y no generes ni subas assets publicables. El proceso MCP necesita
 `DATABASE_URL`; no debe caer a un Brand Kit estático cuando hay un usuario
 autenticado y un scope de workspace/marca.
 
+En cada Brand Kit publicado, `reference-library.json` y las filas aprobadas de
+`brand_assets` deben estar sincronizadas por nombre y por archivo. Si el
+manifest declara rutas sin `default`, el backend puede derivar una ruta
+determinista, pero el onboarding debe persistir también
+`selection.routes.default`. Para un carrusel ya existente, conserva sus assets
+`reference`, prepara con el Brand Kit activo y sube las imágenes finales como
+`kind=social` con índices consecutivos. No uses referencias del moodboard como
+medios de una variante.
+
 ## Frontend
 
 Runtime en `{CMS}/runtime/v1/`. Cada landing guarda `scripts/escarlet-blog.mjs`.

@@ -387,13 +387,15 @@ async function uploadGeneratedAsset(args, auth, runtime) {
     if (preparation.generationBlocked || preparation.state === 'blocked') throw Object.assign(new Error('La preparación visual está bloqueada.'), { code: 'generation_blocked', status: 409 })
     if (preparation.expiresAt && new Date(preparation.expiresAt).getTime() <= Date.now()) throw Object.assign(new Error('La preparación visual ha expirado.'), { code: 'preparation_expired', status: 409 })
     const assetType = String(args.assetType || preparation.assetType || '').trim()
+    const activeBrand = await activeBrandOptions(site, args, auth, runtime)
     const validation = validateImagePreparation(site, preparationId, {
       assetType,
       route: preparation.route,
       expectedAssetCount: preparation.expectedAssetCount,
       itemId: preparation.itemId || args.itemId,
       batchId: preparation.batchId || args.batchId,
-      channel: preparation.channel || args.channel
+      channel: preparation.channel || args.channel,
+      canonicalSnapshot: activeBrand.canonicalSnapshot
     })
     if (!validation.ok) throw Object.assign(new Error('La preparación no coincide con el Brand Kit actual.'), { code: validation.code || 'brand_grounding_stale', status: 409, details: validation })
     const kind = requestedKind || (assetType === 'blog_cover' ? 'post' : ['social_image', 'instagram_story'].includes(assetType) ? 'social' : '')
