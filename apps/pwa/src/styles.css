@@ -1120,6 +1120,10 @@ button.ui-calendar-item:focus-visible { outline: 2px solid var(--ui-accent); out
 .ui-brand-summary-reference-grid img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); background: var(--ui-surface-code); }
 .ui-file-upload-button { position: relative; overflow: hidden; cursor: pointer; }
 .ui-file-upload-button input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.ui-file-dropzone { display: flex; align-items: center; gap: var(--ui-space-3); padding: var(--ui-space-3); border: 1px dashed var(--ui-border-strong); border-radius: var(--ui-radius-md); background: var(--ui-surface-soft); transition: border-color .15s ease, background .15s ease; }
+.ui-file-dropzone.is-dragging { border-color: var(--ui-accent); background: var(--ui-surface-action); }
+.ui-file-dropzone .ui-field-hint { margin: 0; }
+@media (max-width: 640px) { .ui-file-dropzone { align-items: stretch; flex-direction: column; } }
 .ui-reference-grid { grid-template-columns: repeat(var(--reference-columns,3), minmax(0,1fr)); gap: 12px; }
 .ui-reference-grid-2 { --reference-columns: 2; }
 .ui-reference-grid-3 { --reference-columns: 3; }

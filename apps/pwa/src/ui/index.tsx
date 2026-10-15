@@ -79,6 +79,20 @@ export function Field({ label, hint, error, children, required = false }: { labe
   return <label className="ui-field">{label && <span className="ui-field-label">{label}{required && <span aria-hidden="true"> *</span>}</span>}{children}{hint && !error && <span className="ui-field-hint">{hint}</span>}{error && <span className="ui-field-error" role="alert">{error}</span>}</label>;
 }
 
+export function FileDropzone({ accept = "image/jpeg,image/png,image/webp,image/gif", multiple = true, disabled = false, label, hint, className = "", onFiles }: { accept?: string; multiple?: boolean; disabled?: boolean; label: string; hint?: string; className?: string; onFiles: (files: File[]) => void | Promise<void> }) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const handleFiles = (files: FileList | File[]) => {
+    const images = Array.from(files).filter((file) => file.type.startsWith("image/"));
+    if (images.length) void onFiles(multiple ? images : images.slice(0, 1));
+  };
+  return <div className={`ui-file-dropzone${dragging ? " is-dragging" : ""} ${className}`.trim()} onDragOver={(event) => { event.preventDefault(); if (!disabled) setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); if (!disabled) handleFiles(event.dataTransfer.files); }} aria-disabled={disabled || undefined}>
+    <input ref={inputRef} type="file" accept={accept} multiple={multiple} hidden disabled={disabled} onChange={(event) => { handleFiles(event.currentTarget.files || []); event.currentTarget.value = ""; }} />
+    <Button type="button" variant="secondary" size="sm" disabled={disabled} onClick={() => inputRef.current?.click()}>{label}</Button>
+    {hint && <span className="ui-field-hint">{hint}</span>}
+  </div>;
+}
+
 export const TextField = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function TextField({ className = "", ...props }, ref) { return <input ref={ref} className={`ui-input ${className}`.trim()} {...props} />; });
 export function Textarea({ className = "", ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) { return <textarea className={`ui-input ui-textarea ${className}`.trim()} {...props} />; }
 export function Select({ children, className = "", ...props }: SelectHTMLAttributes<HTMLSelectElement>) { return <select className={`ui-input ui-select ${className}`.trim()} {...props}>{children}</select>; }

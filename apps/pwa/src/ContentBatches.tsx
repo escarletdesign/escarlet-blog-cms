@@ -4,7 +4,7 @@ import { api } from "./api";
 import type { ContentChannel, ContentItem, ContentPlanSummary, ContentStatus, ContentVariant, MediaItem } from "./types";
 import { aggregateStatus, canApproveStatus, CONTENT_TITLE_MAX, contentPreviewPath, itemTitle, statusLabel } from "./content-format";
 import { ContentPackPreview } from "./ContentPackPreview";
-import { Badge, Button, Card, ChannelBadge, Checkbox, Drawer, EmptyState, Field, Inline, Modal, MultiSelectPills, PageHeader, Progress, Select, Stack, StatusBadge, Tabs, TextField, Textarea } from "./ui";
+import { Badge, Button, Card, ChannelBadge, Checkbox, Drawer, EmptyState, Field, FileDropzone, Inline, Modal, MultiSelectPills, PageHeader, Progress, Select, Stack, StatusBadge, Tabs, TextField, Textarea } from "./ui";
 
 const ALL_CHANNELS: ContentChannel[] = ["blog", "instagram", "instagram_story", "linkedin", "x", "video"];
 const channelLabel = (channel: string) => channel === "x" ? "X" : channel === "instagram_story" ? "Instagram Story" : channel === "video" ? "Vídeo / Reel" : channel.charAt(0).toUpperCase() + channel.slice(1);
@@ -242,7 +242,7 @@ function ContentAssetLibrary({ groups, standaloneAssets, protectedAssets, conten
     setUploading(true);
     try { await onUpload(files); } finally { setUploading(false); }
   };
-  const uploadAction = <label className="ui-button ui-button-secondary ui-button-sm ui-file-upload-button">{uploading ? t("contentLibrary.uploading", "Subiendo…") : t("contentLibrary.upload", "Subir imágenes")}<input type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden disabled={uploading} onChange={(event) => { void uploadFiles(Array.from(event.target.files || [])); event.currentTarget.value = ""; }} /></label>;
+  const uploadAction = <FileDropzone disabled={uploading} label={uploading ? t("contentLibrary.uploading", "Subiendo…") : t("contentLibrary.upload", "Subir imágenes")} hint={t("contentLibrary.uploadHint", "Arrastra una o varias imágenes aquí.")} onFiles={uploadFiles} />;
   const total = visibleGroups.reduce((sum, group) => sum + group.assets.length, 0);
   const published = visibleGroups.reduce((sum, group) => sum + group.assets.filter((asset) => asset.status === "published").length, 0);
   const generated = visibleGroups.reduce((sum, group) => sum + group.assets.filter((asset) => asset.url && ["generated", "approved", "scheduled", "syncing"].includes(asset.status)).length, 0);
@@ -559,7 +559,7 @@ export function ContentBatches({ site, brandId, previewItemId, creationEnabled =
     for (const file of files) {
       if (!file.type.startsWith("image/")) throw new Error("La biblioteca global solo admite imágenes.");
       if (file.size > 12 * 1024 * 1024) throw new Error(`${file.name} supera el límite de 12 MB.`);
-      await api.uploadProductionAsset({ site, filename: file.name, contentBase64: await fileAsDataUrl(file), alt: file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ") });
+      await api.uploadProductionAsset({ site, filename: file.name, contentBase64: await fileAsDataUrl(file), alt: file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " "), kind: "post", manualUpload: true });
     }
     onNotify?.(`${files.length} asset${files.length === 1 ? "" : "s"} subido${files.length === 1 ? "" : "s"}.`, "success");
   });

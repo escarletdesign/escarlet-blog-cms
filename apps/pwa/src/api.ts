@@ -366,7 +366,7 @@ const baseApi = {
       method: "POST",
       body: JSON.stringify({ ...input, confirm: true }),
     }),
-  uploadProductionAsset: (input: { site?: string; filename: string; contentBase64: string; alt?: string; idempotencyKey?: string }) =>
+  uploadProductionAsset: (input: { site?: string; filename: string; contentBase64: string; alt?: string; kind?: "post" | "social" | "reference"; manualUpload?: boolean; idempotencyKey?: string }) =>
     request<{ asset: Record<string, unknown>; media: MediaItem }>("/api/v2/assets/upload", {
       method: "POST",
       body: JSON.stringify(input),

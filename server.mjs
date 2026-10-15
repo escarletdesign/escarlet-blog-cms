@@ -2295,6 +2295,9 @@ async function handleRequest(req, res) {
         if (!scope) return
         assertWorkspaceRole(scope.context.role, ['owner', 'admin', 'editor', 'author'])
         const siteHandle = scope.context.siteHandle || scope.siteId
+        const manualUpload = body.manualUpload === true
+        const requestedKind = String(body.kind || '').toLowerCase()
+        const uploadKind = manualUpload && ['post', 'social'].includes(requestedKind) ? requestedKind : 'reference'
         const stored = await saveUploadedMedia({
           site: siteHandle,
           filename: body.filename || 'food-to-reel-image.jpg',
@@ -2302,7 +2305,8 @@ async function handleRequest(req, res) {
           imageUrl: body.imageUrl,
           filePath: body.filePath,
           alt: body.alt || '',
-          kind: 'reference'
+          kind: uploadKind,
+          manualUpload
         })
         const asset = await registerContentMedia({
           workspaceId: scope.workspaceId,

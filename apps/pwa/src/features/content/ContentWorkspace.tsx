@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { api } from "../../api";
 import { asCanonicalPost, postActionLabel, statusTone } from "../../content-model";
 import type { CanonicalPost, ContentChannel, ContentItem, ContentVariant, PostVariant } from "../../types";
-import { Badge, Button, Card, ChannelBadge, Drawer, EmptyState, Field, IconButton, Inline, Modal, PageHeader, Select, Stack, StatusBadge, Tabs, Textarea, TextField } from "../../ui";
+import { Badge, Button, Card, ChannelBadge, Drawer, EmptyState, Field, FileDropzone, IconButton, Inline, Modal, PageHeader, Select, Stack, StatusBadge, Tabs, Textarea, TextField } from "../../ui";
 import { useApp, useI18n, useToast } from "../../app/context";
 
 const channels: ContentChannel[] = ["blog", "instagram", "instagram_story", "linkedin", "x", "video"];
@@ -53,6 +53,15 @@ function mediaUrl(media: NonNullable<ContentVariant["media"]>[number]) {
 function mediaIsVideo(media: NonNullable<ContentVariant["media"]>[number]) {
   const type = String(media.contentType || media.kind || media.metadata?.mimeType || "").toLowerCase();
   return type.includes("video") || /\.(?:mp4|webm|mov)(?:[?#]|$)/i.test(mediaUrl(media));
+}
+
+function fileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("No se pudo leer el archivo."));
+    reader.onerror = () => reject(new Error("No se pudo leer el archivo."));
+    reader.readAsDataURL(file);
+  });
 }
 
 function previewMediaUrl(value: unknown) {
@@ -345,6 +354,42 @@ export function PostWorkspace() {
     }
   };
 
+  const uploadVariantMedia = async (files: File[]) => {
+    if (!post || !activeVariant || !canEdit || activeVariant.channel === "video") return;
+    const currentIds = activeVariant.media.map((media) => String(media.id || "")).filter(Boolean);
+    const remaining = Math.max(0, 20 - currentIds.length);
+    if (!remaining) {
+      showToast(t("content.media.limit", "Una variante admite como máximo 20 imágenes."), "error");
+      return;
+    }
+    setMediaBusy(true);
+    try {
+      const newIds: string[] = [];
+      for (const file of files.slice(0, remaining)) {
+        if (!file.type.startsWith("image/")) throw new Error(t("content.media.imageOnly", "Solo puedes subir imágenes."));
+        if (file.size > 12 * 1024 * 1024) throw new Error(`${file.name} supera el límite de 12 MB.`);
+        const uploaded = await api.uploadProductionAsset({
+          site,
+          filename: file.name,
+          contentBase64: await fileAsDataUrl(file),
+          alt: file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " "),
+          kind: activeVariant.channel === "blog" ? "post" : "social",
+          manualUpload: true
+        });
+        const assetId = String(uploaded.asset?.id || uploaded.media?.id || "");
+        if (assetId) newIds.push(assetId);
+      }
+      if (!newIds.length) throw new Error(t("content.media.uploadError", "No se pudo cargar ninguna imagen."));
+      await api.updateContentItem(post.id, { site, channel: activeVariant.channel, mediaAssetIds: [...currentIds, ...newIds] });
+      showToast(t("content.toast.mediaUploaded", "Imágenes asociadas a la variante."));
+      load();
+    } catch (cause) {
+      showToast(cause instanceof Error ? cause.message : t("common.error"), "error");
+    } finally {
+      setMediaBusy(false);
+    }
+  };
+
   const cancelVariant = async () => {
     if (!post || !activeVariant || activeVariant.status === "published" || activeVariant.status === "archived") return;
     setSaving(true);
@@ -395,7 +440,11 @@ export function PostWorkspace() {
             <Field label={t("content.post.title", "Título")}><TextField value={title} onChange={(event) => setTitle(event.target.value)} /></Field>
             <Field label={t("content.post.copy", "Contenido")} hint={t("content.post.copyHint", "La IA externa y el Brand Kit se muestran en el rail de revisión.")}><Textarea className="v3-copy-editor" value={draft} onChange={(event) => setDraft(event.target.value)} /></Field>
             <PostVariantPreview variant={activeVariant} />
-            <div className="v3-variant-media"><div className="v3-card-heading"><div><span className="ui-eyebrow">{t("content.media.eyebrow", "Assets")}</span><h2>{t("content.media.title", "Elementos de esta variante")}</h2></div><Badge tone="neutral">{activeVariant.media.length}</Badge></div>{activeVariant.media.length ? <div className="v3-media-list">{activeVariant.media.map((media) => <Card className="v3-media-item" key={media.id || media.path || media.url}><div>{mediaUrl(media) ? mediaIsVideo(media) ? <video src={mediaUrl(media)} controls muted preload="metadata" aria-label={media.alt || media.filename || "Vídeo"} /> : <img src={mediaUrl(media)} alt={media.alt || media.filename || ""} loading="lazy" decoding="async" /> : <span className="v3-media-placeholder" aria-hidden="true">✦</span>}<div><strong>{media.filename || media.alt || media.id || t("content.media.asset", "Asset")}</strong><span className="ui-muted">{media.kind || media.contentType || "Media"}</span></div></div>{canEdit && !["published", "scheduled"].includes(activeVariant.status) && <Button size="sm" variant="danger" loading={mediaBusy} disabled={!media.id} onClick={() => void removeMedia(String(media.id))}>{t("content.media.remove", "Quitar")}</Button>}</Card>)}</div> : <p className="ui-muted">{t("content.media.empty", "Esta variante todavía no tiene imágenes ni vídeo asociados.")}</p>}</div>
+            <div className="v3-variant-media">
+              <div className="v3-card-heading"><div><span className="ui-eyebrow">{t("content.media.eyebrow", "Assets")}</span><h2>{t("content.media.title", "Elementos de esta variante")}</h2></div><Badge tone="neutral">{activeVariant.media.length}</Badge></div>
+              {activeVariant.media.length ? <div className="v3-media-list">{activeVariant.media.map((media) => <Card className="v3-media-item" key={media.id || media.path || media.url}><div>{mediaUrl(media) ? mediaIsVideo(media) ? <video src={mediaUrl(media)} controls muted preload="metadata" aria-label={media.alt || media.filename || "Vídeo"} /> : <img src={mediaUrl(media)} alt={media.alt || media.filename || ""} loading="lazy" decoding="async" /> : <span className="v3-media-placeholder" aria-hidden="true">✦</span>}<div><strong>{media.filename || media.alt || media.id || t("content.media.asset", "Asset")}</strong><span className="ui-muted">{media.kind || media.contentType || "Media"}</span></div></div>{canEdit && !["published", "scheduled"].includes(activeVariant.status) && <Button size="sm" variant="danger" loading={mediaBusy} disabled={!media.id} onClick={() => void removeMedia(String(media.id))}>{t("content.media.remove", "Quitar")}</Button>}</Card>)}</div> : <p className="ui-muted">{t("content.media.empty", "Esta variante todavía no tiene imágenes ni vídeo asociados.")}</p>}
+              {canEdit && !["published", "scheduled", "archived"].includes(activeVariant.status) && activeVariant.channel !== "video" && <FileDropzone disabled={mediaBusy || activeVariant.media.length >= 20} label={mediaBusy ? t("content.media.uploading", "Subiendo…") : t("content.media.upload", "Subir imágenes")} hint={t("content.media.uploadHint", "Arrastra una o varias imágenes aquí. Se añadirán en orden.")} onFiles={uploadVariantMedia} />}
+            </div>
             <Inline gap="sm"><Button loading={saving} onClick={() => void save()}>{t("common.save", "Guardar cambios")}</Button><Button variant="secondary" loading={saving} onClick={() => void save(true)}>{t("content.action.reviewVariant", "Enviar esta variante a revisión")}</Button></Inline>
           </Stack> : <EmptyState title={t("content.variant.empty", "No hay variante para este canal")} />}
         </div>
