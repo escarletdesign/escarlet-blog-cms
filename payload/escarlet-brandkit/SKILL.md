@@ -20,6 +20,68 @@ description: Identidad Escarlet v3: style board, personajes y logo PNG/SVG para 
 | `assets/logo-official-blue.png` | Logo PNG (referencia agente) |
 | `assets/logo-official-*.svg` | Logo SVG (motor motion / web) |
 
+## Entrega portable para importar
+
+Cuando el kit se construye fuera del CMS, la entrega obligatoria es un ZIP
+importable. Usa esta estructura, sin carpetas intermedias ambiguas:
+
+```text
+brand-kit.zip
+├── voice.md
+├── visual-style.md
+├── image-guide.md
+├── keywords.md
+├── AGENT.md
+├── brand-core.json
+├── image-spec.json
+├── visual-system.json
+├── image-archetypes.json
+├── reference-library.json
+├── social-templates.json
+└── assets/
+    ├── style-board.png
+    ├── logo-official-blue.png
+    └── ...
+```
+
+`reference-library.json` es obligatorio y debe declarar cada imagen incluida
+en `assets/` dentro de `references`, con `filename`, `role`, `usage`, `alt` y
+`approved: true`. Usa los usos del CMS: `logo`, `reference`, `style_board`,
+`character`, `typography`, `palette` o `campaign`. Para una imagen de
+storyboard usa `role: "storyboard"` y `usage: "style_board"`. El importador
+aplica esos metadatos al asset, por lo que no hay que reclasificar imágenes a
+mano después de subir el ZIP.
+
+Ejemplo mínimo:
+
+```json
+{
+  "site": "shift",
+  "references": [
+    {
+      "id": "shift-storyboard",
+      "filename": "shift-storyboard.png",
+      "role": "storyboard",
+      "usage": "style_board",
+      "alt": "Storyboard visual de Shift",
+      "approved": true
+    },
+    {
+      "id": "shift-logo",
+      "filename": "shift-logo.svg",
+      "role": "logo",
+      "usage": "logo",
+      "alt": "Logo de Shift",
+      "approved": true
+    }
+  ]
+}
+```
+
+Antes de entregar el ZIP, comprueba que cada `filename` existe y que no hay
+dos entradas con el mismo nombre. No entregues un ZIP de imágenes sueltas:
+sin `reference-library.json` el CMS no puede conservar el tipo de asset.
+
 ## Flujo
 
 1. `workspace.context.get` y `brand.context.get`
@@ -61,4 +123,6 @@ validar el Brand Kit activo y genera una preparación nueva. No uses un snapshot
 estático ni conviertas referencias en assets publicables.
 
 No uses `/mcp`, `brand_get_context`, `brand_get_style_board` ni otras
-tools legacy. El ZIP solo es staging o respaldo.
+tools legacy. El ZIP es el formato portable de intercambio y respaldo, y debe
+incluir siempre el índice `reference-library.json` con la clasificación de sus
+imágenes.

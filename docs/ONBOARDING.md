@@ -80,6 +80,16 @@ dos fuentes distintas y deben compartir el mismo `brandKitSnapshotHash`. MCP
 v3 debe ejecutarse con `DATABASE_URL`; si falta, el runtime devuelve un error y
 no usa un Brand Kit estático desactualizado.
 
+### ZIP importable del Brand Kit
+
+Si el kit se prepara fuera del CMS, entrega un `brand-kit.zip` con los archivos
+canónicos en la raíz y las imágenes dentro de `assets/`. El ZIP debe incluir un
+`reference-library.json` que declare cada imagen con `filename`, `role`,
+`usage`, `alt` y `approved: true`. Para un storyboard visual usa
+`usage: "style_board"`; para un logo usa `usage: "logo"`. El importador copia
+esa clasificación a los metadatos de cada asset y evita tener que corregirlos
+manualmente en la interfaz. Un ZIP que solo contiene imágenes no es portable.
+
 ---
 
 ## B. Frontend (Vue/Vite u otro)

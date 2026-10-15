@@ -2497,7 +2497,18 @@ export function createMcpServer(auth = { role: 'admin' }, { restrictMutations = 
             // Reference images are visual guidance, not private credentials.
             // Keep them scoped to the brand and readable by editors through
             // the role-limited asset policy.
-            const assets = (imported.importedImages || []).map((name) => ({ name, storageKey: `media/${site}/reference/${name}`, publicUrl: `${origin}/media/${site}/reference/${encodeURIComponent(name)}`, visibility: 'role_limited' }))
+            const metadataByName = new Map((imported.importedImageMetadata || []).map((asset) => [String(asset.filename || '').toLowerCase(), asset]))
+            const assets = (imported.importedImages || []).map((name) => {
+              const declared = metadataByName.get(String(name).toLowerCase()) || {}
+              const { filename: _filename, alt: _alt, ...metadata } = declared
+              return {
+                name,
+                storageKey: `media/${site}/reference/${name}`,
+                publicUrl: `${origin}/media/${site}/reference/${encodeURIComponent(name)}`,
+                visibility: 'role_limited',
+                metadata: { source: 'brand-kit', ...metadata, ...(declared.alt ? { alt: declared.alt } : {}) }
+              }
+            })
             await registerBrandAssets({ workspaceId: scope.workspaceId, siteId: scope.siteId, brandKitVersionId: draft.id, userId: auth.userId, role: scope.role, assets })
             const version = await publishBrandKitVersion({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: auth.userId, role: scope.role, versionId: draft.id, expectedActiveVersionId: draft.baseVersionId || null })
             return textResult({ ...imported, canonicalBrandKitVersionId: version.id, canonicalAssets: assets.length })

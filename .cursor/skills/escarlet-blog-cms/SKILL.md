@@ -63,6 +63,16 @@ determinista, pero el onboarding debe persistir también
 `kind=social` con índices consecutivos. No uses referencias del moodboard como
 medios de una variante.
 
+### ZIP portable del Brand Kit
+
+Cuando el Brand Kit se entrega desde una landing o desde otro workspace, crea
+un `brand-kit.zip` con los archivos canónicos y `assets/`. Incluye siempre
+`reference-library.json` y declara allí cada imagen con `filename`, `role`,
+`usage`, `alt` y `approved: true`. Usa `usage: "style_board"` para un
+storyboard visual y `usage: "logo"` para logos. El importador del CMS conserva
+esa clasificación en los metadatos del asset. No subas imágenes sueltas ni
+dejes la clasificación para una edición manual posterior.
+
 ## Frontend
 
 Runtime en `{CMS}/runtime/v1/`. Cada landing guarda `scripts/escarlet-blog.mjs`.
@@ -105,7 +115,7 @@ Git push = código (con caché). Webhook del CMS = contenido. Usa force=true par
 
 **Programar.** `publishAt` YYYY-MM-DD futuro. Con el interruptor del sitio activo queda `pending_schedule` hasta `blog_confirm_schedule` (solo super-admin). Luego `scheduled` y el ticker lo publica el día. Calendario en `/app/calendar`.
 
-**Brand Kit y PAT personal.** El MCP recibe el contexto normalizado completo de la marca, incluidos voz, estilo, paleta, tipografías, composición, arquetipos, templates y referencias aprobadas. Los archivos fuente privados quedan en la app para owner/admin. Para construirlos desde una landing usa `escarlet-cms-brandkit` y persiste el resultado con las capabilities namespaced de v3. El ZIP solo sirve como staging o respaldo.
+**Brand Kit y PAT personal.** El MCP recibe el contexto normalizado completo de la marca, incluidos voz, estilo, paleta, tipografías, composición, arquetipos, templates y referencias aprobadas. Los archivos fuente privados quedan en la app para owner/admin. Para construirlos desde una landing usa `escarlet-cms-brandkit`, genera el ZIP portable con su `reference-library.json` y persiste el resultado con las capabilities namespaced de v3. El ZIP también sirve como staging o respaldo.
 
 Prohibido. Commitear posts al frontend. Usar `create_draft` para editar.
 
