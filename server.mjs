@@ -299,6 +299,7 @@ import { testMetricoolConnection, scheduleMetricoolPost, syncMetricoolPost } fro
 import { testPlanableConnection } from './lib/planable.mjs'
 import { listPostizIntegrations, testPostizConnection, postizProviderForChannel } from './lib/postiz.mjs'
 import { listBufferOrganizations, listBufferChannels, testBufferConnection } from './lib/buffer.mjs'
+import { testZernioConnection, zernioPlatformForChannel } from './lib/zernio.mjs'
 import { CANONICAL_CMS_URL, DEPRECATED_CMS_HOSTS, canonicalCmsPublicUrl } from './lib/cms-url.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -2527,8 +2528,28 @@ async function handleRequest(req, res) {
             capabilities: body.capabilities || { drafts: true, scheduling: true, media: true, channels: true },
             status: body.status || 'connected'
           })
+        } else if (provider === 'zernio') {
+          const token = body.apiToken || body.token || body.userToken || body.credentials?.apiToken || body.credentials?.token
+          if (!token) throw Object.assign(new Error('apiToken es obligatorio para Zernio.'), { status: 400 })
+          const accountId = body.accountId || body.externalAccountId || body.config?.accountId || body.config?.account_id
+          if (!accountId) throw Object.assign(new Error('accountId es obligatorio para Zernio.'), { status: 400 })
+          const platform = body.platform || body.config?.platform || zernioPlatformForChannel(channel)
+          const encrypted = encryptSecret(token)
+          legacy = await upsertBrandConnection({
+            workspaceId: scope.workspaceId,
+            siteId: scope.siteId,
+            userId: scope.auth.userId,
+            role: scope.context.role,
+            channel,
+            provider,
+            externalAccountId: accountId,
+            credentialsCiphertext: encrypted,
+            config: { ...(body.config || {}), accountId, platform, timezone: body.timezone || body.config?.timezone || 'UTC' },
+            capabilities: body.capabilities || { drafts: true, scheduling: true, media: true },
+            status: body.status || 'connected'
+          })
         } else {
-          const token = body.token || body.userToken || body.credentials?.token
+          const token = body.token || body.userToken || body.apiToken || body.credentials?.token || body.credentials?.apiToken
           const encrypted = token ? encryptSecret(token) : null
           legacy = await upsertBrandConnection({ workspaceId: scope.workspaceId, siteId: scope.siteId, userId: scope.auth.userId, role: scope.context.role, channel, provider, externalAccountId: body.externalAccountId, credentialsCiphertext: encrypted, config: body.config || { domain: body.domain, rebuildWebhookUrl: body.rebuildWebhookUrl }, capabilities: body.capabilities, status: body.status || 'connected' })
         }
@@ -2559,6 +2580,9 @@ async function handleRequest(req, res) {
           if (!credentials.apiToken) throw Object.assign(new Error('No se puede descifrar la credencial.'), { status: 503, code: 'credential_unavailable' })
           const channelIds = row.config?.channelIds || row.config?.channel_ids || {}
           result = await testBufferConnection({ ...credentials, organizationId: credentials.organizationId || row.config?.organizationId, channelId: credentials.channelId || row.config?.channelId || channelIds.instagram || Object.values(channelIds)[0] })
+        } else if (row.provider === 'zernio') {
+          if (!credentials.apiToken) throw Object.assign(new Error('No se puede descifrar la credencial.'), { status: 503, code: 'credential_unavailable' })
+          result = await testZernioConnection({ ...credentials, accountId: row.external_account_id || row.config?.accountId || row.config?.account_id, platform: row.config?.platform || zernioPlatformForChannel(row.channel) })
         } else result = { ok: true, provider: row.provider, message: 'Conexión configurada correctamente.' }
         const pool = await getPgPool()
         if (result.ok) await pool.query('UPDATE channel_connections SET status=\'connected\',last_tested_at=NOW(),last_error=NULL,updated_at=NOW() WHERE id=$1 AND workspace_id=$2 AND site_id=$3', [connectionId, scope.workspaceId, scope.siteId])

@@ -32,6 +32,8 @@
     "@modelcontextprotocol/core": "^2.0.0",
     "@modelcontextprotocol/node": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",
+    "@remotion/bundler": "4.0.536",
+    "@remotion/renderer": "4.0.536",
     "@resvg/resvg-js": "^2.6.2",
     "jimp": "^0.22.12",
     "jszip": "^3.10.1",
@@ -40,7 +42,8 @@
     "pg": "^8.23.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "react-router-dom": "^7.18.3"
+    "react-router-dom": "^7.18.3",
+    "remotion": "4.0.536"
   },
   "devDependencies": {
     "@types/node": "^22.20.2",

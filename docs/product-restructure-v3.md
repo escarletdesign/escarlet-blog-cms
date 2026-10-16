@@ -37,7 +37,7 @@ La primera vertical ya está integrada en el monolito modular:
 - La PWA incluye la micro app `production/food-to-reel`: consulta assets canónicos, acepta una imagen y texto, y envía la receta por la misma frontera MCP v3.
 - `/api/v2/assets` y `/api/v2/assets/upload` mantienen los inputs de producción en `media_assets`. La generación creativa no tiene una ruta REST propia: se prepara y registra mediante `/mcp/v3`.
 - `/mcp` responde `410 mcp_v3_required`; el health check, OAuth, favicon y onboarding apuntan a `/mcp/v3`.
-- `production.motion.compose` ya crea un `video_job` idempotente en estado `queued`; el proveedor `local` usa FFmpeg para producir un MP4 vertical con copy, fundidos y asset fuente, mientras los proveedores externos siguen en handoff explícito.
+- `production.motion.compose` ya crea un `video_job` idempotente en estado `queued`; el proveedor `local` usa Remotion para escenas de imagen, conserva FFmpeg como fallback y produce un MP4 con copy, movimiento, fundidos y asset fuente, mientras los proveedores externos siguen en handoff explícito.
 - `production.image.product.transform` conserva el original y puede crear una composición local determinista con procedencia y receipt; si se necesita una edición generativa, deja el envelope en `awaiting_provider` hasta conectar un ejecutor autorizado.
 - `recipe.run` ejecuta `food-to-reel` y `menu-to-reel` con texto y audio opcional hasta la cola, validación de copy, destinos y revisión humana. No publica automáticamente.
 - `recipe.run` también ejecuta `product-to-social`: transforma el asset original, conserva procedencia y devuelve destinos compatibles sin publicar.

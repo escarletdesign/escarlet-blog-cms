@@ -22,7 +22,12 @@ export const MOTION_FORMAT_PROFILES = Object.freeze({
   youtube_landscape: Object.freeze({ channel: 'youtube', format: 'landscape', width: 1920, height: 1080, aspectRatio: '16:9', fps: 30, maxDurationMs: 3600000 }),
   youtube_landscape_16_9: Object.freeze({ channel: 'youtube', format: 'landscape', width: 1920, height: 1080, aspectRatio: '16:9', fps: 30, maxDurationMs: 3600000 }),
   youtube_16_9: Object.freeze({ channel: 'youtube', format: 'landscape', width: 1920, height: 1080, aspectRatio: '16:9', fps: 30, maxDurationMs: 3600000 }),
-  youtube_video: Object.freeze({ channel: 'youtube', format: 'landscape', width: 1920, height: 1080, aspectRatio: '16:9', fps: 30, maxDurationMs: 3600000 })
+  youtube_video: Object.freeze({ channel: 'youtube', format: 'landscape', width: 1920, height: 1080, aspectRatio: '16:9', fps: 30, maxDurationMs: 3600000 }),
+  youtube_short: Object.freeze({ channel: 'youtube_short', format: 'short', width: 1080, height: 1920, aspectRatio: '9:16', fps: 30, maxDurationMs: 180000 }),
+  youtube_shorts: Object.freeze({ channel: 'youtube_short', format: 'short', width: 1080, height: 1920, aspectRatio: '9:16', fps: 30, maxDurationMs: 180000 }),
+  youtube_short_9_16: Object.freeze({ channel: 'youtube_short', format: 'short', width: 1080, height: 1920, aspectRatio: '9:16', fps: 30, maxDurationMs: 180000 }),
+  tiktok: Object.freeze({ channel: 'tiktok_video', format: 'video', width: 1080, height: 1920, aspectRatio: '9:16', fps: 30, maxDurationMs: 600000 }),
+  tiktok_video: Object.freeze({ channel: 'tiktok_video', format: 'video', width: 1080, height: 1920, aspectRatio: '9:16', fps: 30, maxDurationMs: 600000 })
 })
 
 const motionFormatProfileSchema = {
@@ -804,6 +809,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
         text: { type: 'string', maxLength: 50000 },
         script: { type: 'string', maxLength: 50000 },
         renderMode: { type: 'string', enum: ['flat_slides', 'layered_motion'] },
+        renderEngine: { type: 'string', enum: ['auto', 'ffmpeg', 'remotion'], description: 'Motor de render. auto prueba Remotion para escenas de imagen y usa FFmpeg como fallback.' },
         audioMode: { type: 'string', enum: ['none', 'supplied'] },
         backgroundAssetId: { type: 'string' },
         backgroundMode: { type: 'string', enum: ['blurred_source', 'brand_color', 'generated'] },
@@ -838,6 +844,76 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     outputSchema: motionStatusOutputSchema,
     permissions: ['production:motion'],
     tags: ['production', 'motion', 'video', 'status']
+  }),
+  manifest({
+    id: 'production.video.upload',
+    description: 'Recibe un vídeo desde ChatGPT, Hermes o cualquier cliente MCP, lo guarda en el scope de la marca y lo deja listo para revisión y publicación.',
+    inputSchema: {
+      type: 'object',
+      $defs: openaiFileDefs(),
+      properties: {
+        site: { type: 'string' },
+        brandId: { type: 'string' },
+        workspaceId: { type: 'string' },
+        siteId: { type: 'string' },
+        filename: { type: 'string', minLength: 1, maxLength: 300 },
+        mimeType: { type: 'string', maxLength: 120 },
+        contentBase64: { type: 'string', minLength: 1, maxLength: 10000000 },
+        blob: { type: 'string', minLength: 1, maxLength: 10000000 },
+        sourceUrl: { type: 'string', format: 'uri', maxLength: 2000 },
+        file: { $ref: '#/$defs/OpenAIFile' },
+        uploadId: { type: 'string', minLength: 1, maxLength: 200 },
+        chunkIndex: { type: 'integer', minimum: 0, maximum: 39 },
+        chunkCount: { type: 'integer', minimum: 1, maximum: 40 },
+        mediaRole: { type: 'string', enum: ['source_video', 'final_video', 'video_cover'] },
+        format: { type: 'string', enum: ['portrait', 'landscape'] },
+        contentItemId: { type: 'string' },
+        videoJobId: { type: 'string' },
+        jobId: { type: 'string' },
+        runId: { type: 'string' },
+        attachToItem: { type: 'boolean' }
+      },
+      oneOf: [
+        { required: ['filename', 'contentBase64'] },
+        { required: ['filename', 'blob'] },
+        { required: ['filename', 'file'] },
+        { required: ['sourceUrl'] },
+        { required: ['uploadId', 'chunkIndex', 'chunkCount'] }
+      ],
+      additionalProperties: false
+    },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string', const: 'production.video.upload' }, status: { type: 'string' }, mediaAssetId: { type: ['string', 'null'] }, awaitingChunks: { type: 'boolean' }, nextAction: { type: 'string' } }, required: ['contractVersion', 'capability', 'status', 'nextAction'], additionalProperties: true },
+    permissions: ['asset:write', 'production:motion'],
+    sideEffects: 'write',
+    humanReviewRequired: true,
+    toolMeta: connectorFileMeta(),
+    tags: ['production', 'video', 'upload', 'chatgpt', 'connector']
+  }),
+  manifest({
+    id: 'production.video.import',
+    description: 'Importa un vídeo final desde una URL HTTPS permitida, lo vincula a un trabajo de motion y lo deja listo para revisión.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site: { type: 'string' },
+        brandId: { type: 'string' },
+        workspaceId: { type: 'string' },
+        siteId: { type: 'string' },
+        videoJobId: { type: 'string' },
+        jobId: { type: 'string' },
+        runId: { type: 'string' },
+        sourceUrl: { type: 'string', format: 'uri', maxLength: 2000 },
+        idempotencyKey: { type: 'string', maxLength: 300 }
+      },
+      required: ['sourceUrl'],
+      anyOf: [{ required: ['videoJobId'] }, { required: ['jobId'] }, { required: ['runId'] }],
+      additionalProperties: false
+    },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string', const: 'production.video.import' }, status: { type: 'string', const: 'ready_for_review' }, mediaAssetId: { type: ['string', 'null'] }, nextAction: { type: 'string' } }, required: ['contractVersion', 'capability', 'status', 'nextAction'], additionalProperties: true },
+    permissions: ['asset:write', 'production:motion'],
+    sideEffects: 'write',
+    humanReviewRequired: true,
+    tags: ['production', 'video', 'import', 'review']
   }),
   manifest({
     id: 'production.motion.retry',

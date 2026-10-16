@@ -101,7 +101,8 @@ Extender el sistema. [docs/MICROAPP-DEVELOPMENT.md](docs/MICROAPP-DEVELOPMENT.md
 | `asset.upload` | Guardar el PNG final del agente con validación de dimensiones, copy y procedencia |
 | `asset.list` / `asset.delete` | Consultar y limpiar assets canónicos con preflight de vínculos y confirmación explícita |
 | `copy.validate` | Validar copy contra el Brand Kernel |
-| `production.motion.compose` | Composición vertical local con FFmpeg o handoff explícito a un proveedor externo |
+| `production.motion.compose` | Composición local con Remotion para escenas de imagen, fallback FFmpeg y handoff explícito a un proveedor externo |
+| `production.video.upload` / `production.video.import` | Recibir un MP4 desde un conector MCP o importar una URL HTTPS para dejarlo listo para revisión y publicación |
 | `production.image.product.transform` | Composición local determinista con Brand Kit y procedencia, o preparación para generación externa |
 | `publication.destination.list` / `publication.route` | Elegir canal y proveedor compatibles |
 | `publication.schedule` / `publication.publish` | Programar o publicar solo después de aprobación humana |

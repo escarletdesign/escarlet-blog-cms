@@ -14,7 +14,7 @@ import {
   validateBrandKitVersion
 } from '../../lib/workspace-domain.mjs'
 import { getPgPool } from '../../lib/pg.mjs'
-import { cancelVideoJob, createVideoJob, getVideoJob, retryVideoJob, updateVideoJob } from '../../lib/video-jobs.mjs'
+import { cancelVideoJob, createVideoJob, getVideoJob, importExternalVideoMedia, ingestVideoUpload, retryVideoJob, updateVideoJob } from '../../lib/video-jobs.mjs'
 import { uploadMedia } from '../../lib/cms-ops.mjs'
 import {
   attachContentMedia,
@@ -1338,6 +1338,7 @@ const MOTION_TRANSITIONS = new Set(['none', 'crossfade', 'fade', 'wipeleft', 'wi
 const MOTION_LAYER_ROLES = new Set(['background', 'foreground', 'overlay', 'logo', 'headline', 'body', 'caption', 'icon', 'shape'])
 const MOTION_LAYER_ANIMATIONS = new Set(['none', 'fade_in', 'fade_up', 'slide_left', 'slide_right', 'scale_in', 'float', 'ken_burns', 'reveal', 'pop'])
 const MOTION_EASINGS = new Set(['linear', 'ease_in', 'ease_out', 'ease_in_out', 'spring'])
+const MOTION_RENDER_ENGINES = new Set(['auto', 'ffmpeg', 'remotion'])
 
 function normalizeMotionAssets(args = {}) {
   const declared = [
@@ -1563,7 +1564,7 @@ async function assertMotionAssetsBelongToScope(motionAssets, scope) {
 
 function motionIdempotencyKey(args, site, sourceMediaId) {
   if (args.idempotencyKey || args.runId) return String(args.idempotencyKey || args.runId)
-  const payload = JSON.stringify({ site, sourceMediaId, motionAssets: args.motionAssets || args.inputs || [], storyboard: args.storyboard || null, scenes: args.scenes || [], copyBlocks: args.copyBlocks || [], renderMode: args.renderMode || '', audioMode: args.audioMode || '', backgroundMode: args.backgroundMode || '', backgroundAssetId: args.backgroundAssetId || '', transition: args.transition || {}, motionPreset: args.motionPreset || '', prompt: args.prompt || '', brandKitVersionId: args.brandKitVersionId || '', recipeId: args.recipeId || '', formatProfile: args.formatProfile, format: args.format || '', text: args.text || args.script || args.topic || '' })
+  const payload = JSON.stringify({ site, sourceMediaId, motionAssets: args.motionAssets || args.inputs || [], storyboard: args.storyboard || null, scenes: args.scenes || [], copyBlocks: args.copyBlocks || [], renderMode: args.renderMode || '', renderEngine: args.renderEngine || '', audioMode: args.audioMode || '', backgroundMode: args.backgroundMode || '', backgroundAssetId: args.backgroundAssetId || '', transition: args.transition || {}, motionPreset: args.motionPreset || '', prompt: args.prompt || '', brandKitVersionId: args.brandKitVersionId || '', recipeId: args.recipeId || '', formatProfile: args.formatProfile, format: args.format || '', text: args.text || args.script || args.topic || '' })
   return `motion:${createHash('sha256').update(payload).digest('hex').slice(0, 32)}`
 }
 
@@ -1635,6 +1636,8 @@ async function composeMotionJob(args, auth, runtime) {
   })
   const scenes = storyboard.scenes
   const backgroundMode = ['blurred_source', 'brand_color', 'generated'].includes(args.backgroundMode) ? args.backgroundMode : 'blurred_source'
+  const requestedRenderEngine = String(args.renderEngine || process.env.MOTION_RENDERER || 'auto').trim().toLowerCase()
+  const renderEngine = MOTION_RENDER_ENGINES.has(requestedRenderEngine) ? requestedRenderEngine : 'auto'
   const motionPreset = MOTION_PRESETS.has(String(args.motionPreset || '').trim().toLowerCase()) ? String(args.motionPreset).trim().toLowerCase() : 'subtle_editorial'
   const requestedTransition = String(args.transition?.type || 'crossfade').trim().toLowerCase()
   const transitionType = MOTION_TRANSITIONS.has(requestedTransition) ? requestedTransition : 'crossfade'
@@ -1691,6 +1694,7 @@ async function composeMotionJob(args, auth, runtime) {
       scenes,
       storyboard,
       renderMode: args.renderMode === 'flat_slides' ? 'flat_slides' : 'layered_motion',
+      renderEngine,
       audioMode: args.audioMode === 'none' ? 'none' : audioAssetId ? 'supplied' : 'none',
       backgroundMode,
       motionPreset,
@@ -1775,6 +1779,51 @@ async function motionJobAction(args, auth, runtime, action) {
     retryable: job.retryable === true,
     nextAction: action === 'cancel' ? 'none' : 'check_status',
     ...(result.previousStatus ? { previousStatus: result.previousStatus } : {})
+  }
+}
+
+async function uploadVideo(args, auth, runtime) {
+  const scope = await motionScope(args, auth, runtime)
+  const ingest = typeof runtime?.ingestVideoUpload === 'function' ? runtime.ingestVideoUpload : ingestVideoUpload
+  const result = await ingest({
+    ...scope,
+    userId: auth.userId,
+    role: auth.role === 'agent' ? 'editor' : auth.role,
+    payload: args,
+    mediaRole: args.mediaRole || 'source_video',
+    format: args.format === 'landscape' ? 'landscape' : 'portrait',
+    contentItemId: args.contentItemId || null,
+    videoJobId: args.videoJobId || args.jobId || args.runId || null,
+    attachToItem: args.attachToItem !== false
+  })
+  return {
+    contractVersion: 'os.production.v1',
+    capability: 'production.video.upload',
+    ...result,
+    status: result.awaitingChunks ? 'uploading' : 'ready_for_review',
+    nextAction: result.awaitingChunks ? 'upload_next_chunk' : 'human_review'
+  }
+}
+
+async function importVideo(args, auth, runtime) {
+  const videoJobId = String(args.videoJobId || args.jobId || args.runId || '').trim()
+  if (!videoJobId) throw Object.assign(new Error('videoJobId, jobId o runId es obligatorio.'), { code: 'motion_job_required', status: 422 })
+  const scope = await motionScope(args, auth, runtime)
+  const importer = typeof runtime?.importExternalVideoMedia === 'function' ? runtime.importExternalVideoMedia : importExternalVideoMedia
+  const result = await importer({
+    ...scope,
+    userId: auth.userId,
+    role: auth.role === 'agent' ? 'editor' : auth.role,
+    videoJobId,
+    sourceUrl: args.sourceUrl,
+    idempotencyKey: args.idempotencyKey
+  })
+  return {
+    contractVersion: 'os.production.v1',
+    capability: 'production.video.import',
+    ...result,
+    status: 'ready_for_review',
+    nextAction: 'human_review'
   }
 }
 
@@ -2067,6 +2116,8 @@ export async function invokeBuiltinCapability(name, args = {}, { auth = {}, runt
   if (name === 'production.image.product.transform') return prepareProductTransform(args, auth, runtime)
   if (name === 'production.motion.plan') return planMotionStoryboard(args, auth, runtime)
   if (name === 'production.motion.compose') return composeMotionJob(args, auth, runtime)
+  if (name === 'production.video.upload') return uploadVideo(args, auth, runtime)
+  if (name === 'production.video.import') return importVideo(args, auth, runtime)
   if (name === 'production.motion.status.get') return motionJobAction(args, auth, runtime, 'status')
   if (name === 'production.motion.retry') return motionJobAction(args, auth, runtime, 'retry')
   if (name === 'production.motion.cancel') return motionJobAction(args, auth, runtime, 'cancel')

@@ -7380,7 +7380,7 @@ function ConnectionsView({ brandId, backTo }: { brandId?: string; backTo?: strin
   const [loading, setLoading] = useState(true);
   const loadSequence = useRef(0);
   const loadAbort = useRef<AbortController | null>(null);
-  const [form, setForm] = useState({ provider: "buffer", channel: "buffer", userToken: "", userId: "", blogId: "", workspaceId: "", pageId: "", apiBaseUrl: "", integrationId: "", providerType: "", organizationId: "", channelId: "", channelIds: {} as Record<string, string>, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" });
+  const [form, setForm] = useState({ provider: "buffer", channel: "buffer", userToken: "", userId: "", blogId: "", workspaceId: "", pageId: "", apiBaseUrl: "", integrationId: "", providerType: "", organizationId: "", channelId: "", accountId: "", platform: "", channelIds: {} as Record<string, string>, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" });
   const [postizIntegrations, setPostizIntegrations] = useState<Array<Record<string, any>>>([]);
   const [loadingPostizIntegrations, setLoadingPostizIntegrations] = useState(false);
   const [bufferOrganizations, setBufferOrganizations] = useState<Array<Record<string, any>>>([]);
@@ -7426,13 +7426,17 @@ function ConnectionsView({ brandId, backTo }: { brandId?: string; backTo?: strin
       notify("Selecciona al menos una cuenta de Buffer antes de guardar.", "error");
       return;
     }
+    if (form.provider === "zernio" && !form.accountId) {
+      notify("Indica el account ID de Zernio antes de guardar.", "error");
+      return;
+    }
     setBusy(true);
     try {
       await api.saveBrandConnection(selectedBrandId, {
         ...form,
         token: form.userToken,
         userToken: form.userToken,
-        apiToken: ["planable", "postiz", "buffer"].includes(form.provider) ? form.userToken : undefined,
+        apiToken: ["planable", "postiz", "buffer", "zernio"].includes(form.provider) ? form.userToken : undefined,
         workspaceId: form.provider === "planable" ? form.workspaceId : undefined,
         pageId: form.provider === "planable" ? form.pageId : undefined,
         integrationId: form.provider === "postiz" ? form.integrationId : undefined,
@@ -7441,11 +7445,14 @@ function ConnectionsView({ brandId, backTo }: { brandId?: string; backTo?: strin
         channelIds: form.provider === "buffer" ? form.channelIds : undefined,
         apiBaseUrl: form.provider === "postiz" ? form.apiBaseUrl : undefined,
         providerType: form.provider === "postiz" ? form.providerType : undefined,
+        accountId: form.provider === "zernio" ? form.accountId : undefined,
+        platform: form.provider === "zernio" ? form.platform : undefined,
         config: {
           ...(form.provider === "metricool" ? { blogId: form.blogId } : {}),
           ...(form.provider === "planable" ? { workspaceId: form.workspaceId, pageId: form.pageId } : {}),
           ...(form.provider === "postiz" ? { apiBaseUrl: form.apiBaseUrl, integrationId: form.integrationId, providerType: form.providerType } : {}),
           ...(form.provider === "buffer" ? { organizationId: form.organizationId, channelIds: form.channelIds } : {}),
+          ...(form.provider === "zernio" ? { accountId: form.accountId, platform: form.platform || undefined } : {}),
           timezone: form.timezone
         }
       });
@@ -7528,7 +7535,7 @@ function ConnectionsView({ brandId, backTo }: { brandId?: string; backTo?: strin
   const openChatGpt = () => {
     window.open("https://chatgpt.com/", "_blank", "noopener,noreferrer");
   };
-  const tokenLabel = form.provider === "postiz" ? "API key / OAuth token" : form.provider === "planable" ? "API token" : form.provider === "buffer" ? "API key de Buffer" : "Token";
+  const tokenLabel = form.provider === "postiz" ? "API key / OAuth token" : form.provider === "planable" ? "API token" : form.provider === "buffer" ? "API key de Buffer" : form.provider === "zernio" ? "API key de Zernio" : "Token";
   const enabledBufferTargets = (availableChannels.length ? BUFFER_TARGET_CHANNELS.filter((target) => availableChannels.some((channel) => channel.channel === target && channel.enabled) || (target === "instagram" && availableChannels.some((channel) => channel.channel === "instagram_story" && channel.enabled))) : BUFFER_TARGET_CHANNELS);
   if (loading) return <main className="ui-page"><p className="ui-muted">Cargando conexiones...</p></main>;
   if (error && !connections.length) return <main className="ui-page"><UiEmptyState title="No se pudieron cargar las conexiones" description={error} action={<Button onClick={() => window.location.reload()}>Reintentar</Button>} /></main>;
@@ -7539,13 +7546,14 @@ function ConnectionsView({ brandId, backTo }: { brandId?: string; backTo?: strin
     {connections.length ? <div className="ui-connection-grid">{connections.map((connection) => <ConnectionCard key={connection.id} provider={connection.provider === "buffer" && connection.channel === "buffer" ? "Buffer · todos los canales" : `${connection.provider || "Proveedor"} · ${connection.channel || "canal"}`} status={connection.status || (connection.enabled ? "connected" : "disabled")} account={connection.externalAccountId || connection.userId ? `Cuenta ${connection.externalAccountId || connection.userId}` : undefined} actions={<Inline gap="sm"><IconButton label="Probar conexión" onClick={async () => { try { await api.testConnection(connection.id, selectedBrandId); notify("Prueba correcta."); } catch (err: any) { notify(err?.message || "La prueba falló.", "error"); } }}>↻</IconButton>{canManage && <Button variant="ghost" size="sm" onClick={async () => { try { await api.disconnectConnection(connection.id, selectedBrandId); setConnections((current) => current.filter((item) => item.id !== connection.id)); notify("Conexión desconectada."); } catch (err: any) { notify(err?.message || "No se pudo desconectar.", "error"); } }}>Desconectar</Button>}</Inline>} />)}</div> : !error && <UiEmptyState title="Aún no hay conexiones" description="Activa un canal y conecta el proveedor que lo ejecutará." />}
     <Modal open={canManage && formOpen} title={t("admin.addConnection")} onClose={() => setFormOpen(false)}>
       <form className="ui-stack ui-stack-md ui-connection-form" onSubmit={(event) => void connect(event)}>
-      <Field label="Proveedor"><Select autoFocus value={form.provider} onChange={(event) => { const provider = event.target.value; setForm((current) => ({ ...current, provider, channel: provider === "buffer" ? "buffer" : provider === "web" ? "blog" : current.channel === "blog" || current.channel === "buffer" ? "instagram" : current.channel })); setPostizIntegrations([]); setBufferOrganizations([]); setBufferChannels([]); }}><option value="buffer">Buffer (una conexión)</option><option value="postiz">Postiz (self-hosted)</option><option value="metricool">Metricool</option><option value="planable">Planable.io</option><option value="web">Coolify webhook / Web</option></Select></Field>
+      <Field label="Proveedor"><Select autoFocus value={form.provider} onChange={(event) => { const provider = event.target.value; setForm((current) => ({ ...current, provider, channel: provider === "buffer" ? "buffer" : provider === "web" ? "blog" : current.channel === "blog" || current.channel === "buffer" ? "instagram" : current.channel })); setPostizIntegrations([]); setBufferOrganizations([]); setBufferChannels([]); }}><option value="buffer">Buffer (una conexión)</option><option value="zernio">Zernio</option><option value="postiz">Postiz (self-hosted)</option><option value="metricool">Metricool</option><option value="planable">Planable.io</option><option value="web">Coolify webhook / Web</option></Select></Field>
       {form.provider !== "buffer" && <Field label="Canal"><Select value={form.channel} onChange={(event) => setForm({ ...form, channel: event.target.value })}>{availableChannels.filter((channel) => channel.enabled && (channel.channel !== "blog" || form.provider === "web" || form.provider === "postiz")).map((channel) => <option key={channel.channel} value={channel.channel}>{channel.channel}</option>)}</Select></Field>}
       {form.provider === "buffer" ? <Inline gap="md" className="ui-buffer-key-row"><Field label={tokenLabel} hint="Se cifra y se usa para descubrir tus cuentas de Buffer." required><TextField type="password" value={form.userToken} onChange={(event) => setForm({ ...form, userToken: event.target.value })} required /></Field><Button type="button" variant="ghost" size="sm" onClick={() => void loadBufferChannels()} loading={loadingBufferChannels}>Cargar canales</Button></Inline> : <Field label={tokenLabel} hint={form.provider === "postiz" ? "Postiz → Settings → Developers → Public API." : form.provider === "planable" ? "Planable → Ajustes de cuenta → Integraciones → Public API." : "Se cifra en el servidor y nunca se vuelve a mostrar."} required><TextField type="password" value={form.userToken} onChange={(event) => setForm({ ...form, userToken: event.target.value })} required /></Field>}
       {form.provider === "buffer" && <Stack gap="sm">{bufferOrganizations.length > 0 && <Field label="Organización"><Select value={form.organizationId} onChange={(event) => { setForm((current) => ({ ...current, organizationId: event.target.value, channelId: "", channelIds: {} })); void loadBufferChannels(event.target.value); }}>{bufferOrganizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name || organization.id} · {organization.channelCount ?? 0} canales</option>)}</Select></Field>}{bufferChannels.length > 0 ? <Stack gap="sm">{enabledBufferTargets.map((target) => <Field key={target} label={bufferTargetLabel(target)} required><Select value={form.channelIds[target] || ""} onChange={(event) => setForm((current) => ({ ...current, channelIds: { ...current.channelIds, [target]: event.target.value } }))} required><option value="">Selecciona una cuenta</option>{bufferChannels.filter((channel) => bufferServiceForTarget(String(channel.service || ""), target)).map((channel) => <option key={`${target}-${channel.id}`} value={channel.id}>{channel.displayName || channel.name || channel.descriptor || channel.id} · {channel.service || "canal"}</option>)}</Select></Field>)}</Stack> : <p className="ui-field-hint">Pulsa Cargar canales para descubrir las cuentas disponibles.</p>}</Stack>}
       {form.provider === "postiz" && <><Field label="URL de Postiz"><TextField type="url" value={form.apiBaseUrl} onChange={(event) => setForm({ ...form, apiBaseUrl: event.target.value })} placeholder="https://postiz.tudominio.com/api" /></Field><Inline gap="md"><Field label="Integration ID" required><TextField value={form.integrationId} onChange={(event) => setForm({ ...form, integrationId: event.target.value })} required /></Field><Button type="button" variant="ghost" size="sm" onClick={() => void loadPostizAccounts()} loading={loadingPostizIntegrations}>Cargar cuentas</Button><Field label="Tipo de proveedor"><TextField value={form.providerType} onChange={(event) => setForm({ ...form, providerType: event.target.value })} placeholder="instagram, linkedin, x…" /></Field></Inline>{postizIntegrations.length > 0 && <Field label="Cuenta conectada"><Select value={form.integrationId} onChange={(event) => { const integration = postizIntegrations.find((item) => String(item.id) === event.target.value); setForm({ ...form, integrationId: event.target.value, providerType: String(integration?.identifier || form.providerType || "") }); }}>{postizIntegrations.map((integration) => <option key={integration.id} value={integration.id}>{integration.name || integration.profile || integration.identifier || integration.id} · {integration.identifier || "canal"}</option>)}</Select></Field>}</>}
       {form.provider === "metricool" && <Inline gap="md"><Field label="userId" required><TextField value={form.userId} onChange={(event) => setForm({ ...form, userId: event.target.value })} required /></Field><Field label="blogId" required><TextField value={form.blogId} onChange={(event) => setForm({ ...form, blogId: event.target.value })} required /></Field></Inline>}
       {form.provider === "planable" && <Inline gap="md"><Field label="Workspace ID" required><TextField value={form.workspaceId} onChange={(event) => setForm({ ...form, workspaceId: event.target.value })} required /></Field><Field label="Page ID" required><TextField value={form.pageId} onChange={(event) => setForm({ ...form, pageId: event.target.value })} required /></Field></Inline>}
+      {form.provider === "zernio" && <Inline gap="md"><Field label="Account ID de Zernio" hint="Zernio → Accounts. Es el valor _id de la cuenta conectada." required><TextField value={form.accountId} onChange={(event) => setForm({ ...form, accountId: event.target.value })} required /></Field><Field label="Platform" hint="Opcional: youtube, tiktok, instagram, linkedin o twitter."><TextField value={form.platform} onChange={(event) => setForm({ ...form, platform: event.target.value })} placeholder="youtube" /></Field></Inline>}
       <Field label="Zona horaria"><TextField value={form.timezone} onChange={(event) => setForm({ ...form, timezone: event.target.value })} /></Field><Inline gap="md"><Button type="button" variant="ghost" onClick={() => setFormOpen(false)}>{t("editor.cancel")}</Button><Button type="submit" loading={busy}>Guardar conexión</Button></Inline>
     </form>
     </Modal>

@@ -124,6 +124,35 @@ test('product transform exige un asset fuente antes de preparar el proveedor', a
   assert.equal(result.structuredContent.error.code, 'product_source_required')
 })
 
+test('production.video.upload acepta un archivo de conector y lo deja para revisión', async () => {
+  let received = null
+  const server = await createMcpServerV3({ role: 'agent', userId: 'user-1', site: 'demo' }, {
+    runtime: {
+      resolveWorkspaceContext: async () => ({ workspaceId: 'workspace-1', sites: [{ id: 'site-1', handle: 'demo', role: 'editor' }] }),
+      ingestVideoUpload: async (input) => { received = input; return { mediaAssetId: 'media-1', media: { filename: 'reel.mp4' } } }
+    }
+  })
+  const result = await call(server, 'production.video.upload', { site: 'demo', filename: 'reel.mp4', file: { download_url: 'https://files.example.test/reel.mp4', file_id: 'file-1' } })
+  assert.equal(result.isError, false)
+  assert.equal(result.structuredContent.status, 'ready_for_review')
+  assert.equal(received.payload.file.file_id, 'file-1')
+  assert.equal(received.workspaceId, 'workspace-1')
+})
+
+test('production.video.import conserva el scope y exige el trabajo de motion', async () => {
+  let received = null
+  const result = await invokeBuiltinCapability('production.video.import', { site: 'demo', videoJobId: 'job-1', sourceUrl: 'https://cdn.example.test/final.mp4' }, {
+    auth: { role: 'agent', userId: 'user-1', site: 'demo' },
+    runtime: {
+      resolveWorkspaceContext: async () => ({ workspaceId: 'workspace-1', sites: [{ id: 'site-1', handle: 'demo', role: 'editor' }] }),
+      importExternalVideoMedia: async (input) => { received = input; return { mediaAssetId: 'media-2', job: { id: 'job-1', status: 'ready_for_review' } } }
+    }
+  })
+  assert.equal(result.status, 'ready_for_review')
+  assert.equal(received.videoJobId, 'job-1')
+  assert.equal(received.siteId, 'site-1')
+})
+
 test('asset.upload no permite guardar un asset publicable sin preparación', async () => {
   const server = await createMcpServerV3({ role: 'admin', site: 'escarlet' })
   const result = await call(server, 'asset.upload', {

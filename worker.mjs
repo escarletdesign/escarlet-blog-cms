@@ -7,6 +7,7 @@ import { scheduleMetricoolPost, syncMetricoolPost } from './lib/metricool.mjs'
 import { schedulePlanablePost, syncPlanablePost, planableStatus } from './lib/planable.mjs'
 import { schedulePostizPost, syncPostizPost, postizPostId, postizProviderForChannel, postizStatus } from './lib/postiz.mjs'
 import { scheduleBufferPost, syncBufferPost, updateBufferPostDueAt, bufferPostId, bufferStatus } from './lib/buffer.mjs'
+import { scheduleZernioPost, syncZernioPost, zernioPlatformForChannel, zernioPostId, zernioStatus } from './lib/zernio.mjs'
 import { blogPublicationIsLive, blogPublicationSlug, blogPublicationTitle, blogPublicationUrl } from './lib/blog-publication.mjs'
 import { blogPublishJobKey, dueBlogJobAction } from './lib/blog-publish.mjs'
 import { fetchRemote } from './lib/remote-fetch.mjs'
@@ -338,13 +339,19 @@ async function processExternalPublicationEvent(event) {
         : variant.provider_post_id
           ? await syncBufferPost({ apiToken: token, providerPostId: variant.provider_post_id })
           : await scheduleBufferPost({ apiToken: token, organizationId, channelId, publicationDate: variant.publication_date || null, text, media: mediaRows.rows.filter((asset) => asset.url), idempotencyKey: `buffer:${variant.id}:${variant.publication_date || 'draft'}:${event.id}`, postType, service: variant.channel, linkUrl: story ? (socialPack.instagramStory?.linkUrl || blogPublicationUrl(variant)) : '' })
+    } else if (provider === 'zernio') {
+      const accountId = connectionConfig.accountId || connectionConfig.account_id || variant.connection_external_account_id
+      const postType = variant.publication_date ? 'schedule' : 'draft'
+      response = variant.provider_post_id
+        ? await syncZernioPost({ apiToken: token, providerPostId: variant.provider_post_id, apiBaseUrl: connectionConfig.apiBaseUrl || connectionConfig.api_base_url })
+        : await scheduleZernioPost({ apiToken: token, accountId, platform: connectionConfig.platform || zernioPlatformForChannel(variant.channel), publicationDate: variant.publication_date || null, timezone: variant.timezone || connectionConfig.timezone || 'UTC', text, channel: variant.channel, media: mediaRows.rows.filter((asset) => asset.url), idempotencyKey: `zernio:${variant.id}:${variant.publication_date || 'draft'}:${event.id}`, postType, platformSettings: connectionConfig.platformSettings || connectionConfig.platform_settings || {} })
     } else throw new Error(`El proveedor ${provider} aún no tiene un adaptador de publicación.`)
-    const providerPostId = provider === 'postiz' ? (postizPostId(response) || variant.provider_post_id || null) : provider === 'buffer' ? (bufferPostId(response) || variant.provider_post_id || null) : (response?.id || response?.postId || response?.data?.id || response?.posts?.[0]?.id || variant.provider_post_id || null)
-    const remoteStatus = provider === 'planable' ? planableStatus(response) : provider === 'postiz' ? postizStatus(response) : provider === 'buffer' ? bufferStatus(response) : String(response?.status || response?.data?.status || '').toLowerCase()
-    const status = provider === 'buffer' && story && remoteStatus === 'published' ? 'action_required' : ['failed', 'error', 'rejected'].includes(remoteStatus) ? 'failed' : remoteStatus === 'published' ? 'published' : ['postiz', 'buffer'].includes(provider) && remoteStatus === 'canceled' ? 'canceled' : ['postiz', 'buffer'].includes(provider) && (remoteStatus === 'scheduled' || remoteStatus === 'draft') ? 'scheduled' : 'syncing'
+    const providerPostId = provider === 'postiz' ? (postizPostId(response) || variant.provider_post_id || null) : provider === 'buffer' ? (bufferPostId(response) || variant.provider_post_id || null) : provider === 'zernio' ? (zernioPostId(response) || variant.provider_post_id || null) : (response?.id || response?.postId || response?.data?.id || response?.posts?.[0]?.id || variant.provider_post_id || null)
+    const remoteStatus = provider === 'planable' ? planableStatus(response) : provider === 'postiz' ? postizStatus(response) : provider === 'buffer' ? bufferStatus(response) : provider === 'zernio' ? zernioStatus(response) : String(response?.status || response?.data?.status || '').toLowerCase()
+    const status = provider === 'buffer' && story && remoteStatus === 'published' ? 'action_required' : ['failed', 'error', 'rejected'].includes(remoteStatus) ? 'failed' : remoteStatus === 'published' ? 'published' : ['postiz', 'buffer', 'zernio'].includes(provider) && remoteStatus === 'canceled' ? 'canceled' : ['postiz', 'buffer', 'zernio'].includes(provider) && (remoteStatus === 'scheduled' || remoteStatus === 'draft') ? 'scheduled' : 'syncing'
     await pool.query('UPDATE content_variants SET status=$1,updated_at=NOW() WHERE id=$2', [status, variant.id])
     await pool.query('UPDATE schedules SET status=$1,provider=$2,provider_post_id=COALESCE($3,provider_post_id),attempts=attempts+1,last_error=NULL,updated_at=NOW() WHERE variant_id=$4', [status, provider, providerPostId, variant.id])
-    if ((status === 'syncing' || (['postiz', 'buffer'].includes(provider) && status === 'scheduled')) && providerPostId) {
+    if ((provider !== 'zernio' && (status === 'syncing' || (['postiz', 'buffer'].includes(provider) && status === 'scheduled'))) && providerPostId) {
       if (provider === 'buffer') bufferPending.push({ site_id: variant.site_id, publication_date: variant.publication_date, status })
       else {
         const nextPoll = new Date(Date.now() + metricoolPollMs)
@@ -665,6 +672,7 @@ async function processMotionCompositionJob(job) {
         backgroundMode: video.metadata?.backgroundMode || 'blurred_source',
         motionPreset: video.metadata?.motionPreset || 'subtle_editorial',
         transition: video.metadata?.transition || { type: 'crossfade', durationMs: 400 },
+        renderEngine: video.metadata?.renderEngine || process.env.MOTION_RENDERER || 'auto',
         formatProfile: profile.id,
         width: profile.width,
         height: profile.height,
@@ -696,6 +704,7 @@ async function processMotionCompositionJob(job) {
         code: 'local_renderer_completed',
         retryable: false,
         provider: 'local',
+        renderEngine: rendered.output?.engine || video.metadata?.renderEngine || 'auto',
         rendered: true,
         mediaAssetId: uploaded.mediaAssetId,
         formatProfile: profile.id,
@@ -709,7 +718,7 @@ async function processMotionCompositionJob(job) {
       return { videoJobId, status: 'ready_for_review', provider: 'local', rendered: true, mediaAssetId: uploaded.mediaAssetId, retryable: false, code: 'local_renderer_completed' }
     } catch (error) {
       const qaFailure = new Set(['motion_qa_failed', 'motion_timeline_invalid', 'motion_timeline_duration_mismatch', 'motion_render_output_invalid']).has(error.code)
-      const processing = { state: qaFailure ? 'qa_failed' : 'failed', code: error.code || 'local_renderer_failed', retryable: true, provider: 'local', rendered: false, message: String(error.message || '').slice(0, 500), updatedAt: new Date().toISOString() }
+      const processing = { state: qaFailure ? 'qa_failed' : 'failed', code: error.code || 'local_renderer_failed', retryable: true, provider: 'local', renderEngine: video.metadata?.renderEngine || process.env.MOTION_RENDERER || 'auto', rendered: false, message: String(error.message || '').slice(0, 500), updatedAt: new Date().toISOString() }
       await pool.query("UPDATE video_jobs SET status='failed',metadata=metadata || jsonb_build_object('processing',$3::jsonb),updated_at=NOW() WHERE id=$1 AND workspace_id=$2", [video.id, video.workspace_id, JSON.stringify(processing)])
       return { videoJobId, status: 'failed', provider: 'local', rendered: false, retryable: true, code: processing.code, error: processing.message }
     }

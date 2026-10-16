@@ -34,7 +34,7 @@ test('MCP v3 publica solo tools namespaced y excluye nombres legacy', async () =
     assert.deepEqual(tool.outputSchema, manifest.outputSchema, `${name} outputSchema`)
   }
   assert.ok(listed.tools.some((tool) => tool.name === 'recipe.run'))
-  for (const name of ['production.motion.status.get', 'production.motion.retry', 'production.motion.cancel']) assert.ok(listed.tools.some((tool) => tool.name === name), name)
+  for (const name of ['production.motion.status.get', 'production.motion.retry', 'production.motion.cancel', 'production.video.upload', 'production.video.import']) assert.ok(listed.tools.some((tool) => tool.name === name), name)
   for (const tool of listed.tools) {
     assert.match(tool.name, /^[a-z][a-z0-9]*(?:\.[a-z0-9_-]+)+$/)
     assert.doesNotMatch(tool.name, /^(?:blog|social|content|video|brand)_/)
@@ -237,7 +237,7 @@ test('tools/call valida los argumentos declarados antes de ejecutar una capabili
 
 test('el catálogo inicial mantiene los contratos de Brand Kernel y Publisher', () => {
   const ids = new Set(BUILTIN_CAPABILITIES.map((entry) => entry.id))
-  for (const id of ['brand.context.get', 'brand.version.create', 'brand.version.validate', 'brand.asset.register', 'brand.version.publish', 'brand.voice.get', 'brand.visual_style.get', 'brand.rules.get', 'brand.references.resolve', 'brand.generation.prepare', 'brand.generation.receipt.issue', 'asset.upload', 'production.image.product.transform', 'production.motion.status.get', 'production.motion.retry', 'production.motion.cancel', 'content.post.list', 'content.topic.check', 'content.campaign.list', 'content.campaign.get', 'content.campaign.create', 'content.campaign.approve', 'content.campaign.schedule', 'content.campaign.publish', 'content.media.attach', 'publication.destination.list', 'publication.validate', 'publication.route', 'publication.prepare', 'publication.schedule', 'publication.publish', 'publication.status.get']) assert.ok(ids.has(id), id)
+  for (const id of ['brand.context.get', 'brand.version.create', 'brand.version.validate', 'brand.asset.register', 'brand.version.publish', 'brand.voice.get', 'brand.visual_style.get', 'brand.rules.get', 'brand.references.resolve', 'brand.generation.prepare', 'brand.generation.receipt.issue', 'asset.upload', 'production.image.product.transform', 'production.motion.status.get', 'production.motion.retry', 'production.motion.cancel', 'production.video.upload', 'production.video.import', 'content.post.list', 'content.topic.check', 'content.campaign.list', 'content.campaign.get', 'content.campaign.create', 'content.campaign.approve', 'content.campaign.schedule', 'content.campaign.publish', 'content.media.attach', 'publication.destination.list', 'publication.validate', 'publication.route', 'publication.prepare', 'publication.schedule', 'publication.publish', 'publication.status.get']) assert.ok(ids.has(id), id)
   assert.ok(BUILTIN_RECIPES.some((entry) => entry.id === 'recipe.autonomous-content'))
 })
 
