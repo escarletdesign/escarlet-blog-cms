@@ -61,6 +61,20 @@ async function enqueueBufferStatusPolls(workspaceId, rows, now = Date.now(), quo
   }
 }
 
+async function refreshContentItemStatuses(pool, itemIds) {
+  const ids = [...new Set((itemIds || []).map((value) => String(value || '').trim()).filter(Boolean))]
+  if (!ids.length) return
+  await pool.query(`UPDATE content_items ci SET status=CASE
+    WHEN EXISTS (SELECT 1 FROM content_variants cv WHERE cv.item_id=ci.id AND cv.status='scheduled') THEN 'scheduled'
+    WHEN EXISTS (SELECT 1 FROM content_variants cv WHERE cv.item_id=ci.id AND cv.status='failed') THEN 'failed'
+    WHEN EXISTS (SELECT 1 FROM content_variants cv WHERE cv.item_id=ci.id AND cv.status='action_required') THEN 'action_required'
+    WHEN EXISTS (SELECT 1 FROM content_variants cv WHERE cv.item_id=ci.id AND cv.status='syncing') THEN 'syncing'
+    WHEN EXISTS (SELECT 1 FROM content_variants cv WHERE cv.item_id=ci.id AND cv.status='published')
+      AND NOT EXISTS (SELECT 1 FROM content_variants cv WHERE cv.item_id=ci.id AND cv.status NOT IN ('published','canceled')) THEN 'published'
+    ELSE ci.status END,
+    updated_at=NOW() WHERE ci.id=ANY($1::text[])`, [ids])
+}
+
 function nestedMotionAssetIds(value, ids = new Set()) {
   if (Array.isArray(value)) {
     value.forEach((entry) => nestedMotionAssetIds(entry, ids))
@@ -377,7 +391,9 @@ async function processMetricoolSyncJob(job) {
     WHERE cv.workspace_id=$1 AND s.provider='metricool' AND s.provider_post_id IS NOT NULL AND s.status IN ('scheduled','syncing') ${siteClause}
     ORDER BY s.updated_at ASC LIMIT 100`, params)
   let synced = 0
+  const itemIds = new Set()
   for (const row of rows.rows) {
+    itemIds.add(row.item_id)
     const token = decryptSecret(row.user_token_ciphertext)
     if (!token) throw new Error('Metricool no está configurado para el sitio.')
     const response = await syncMetricoolPost({ userToken: token, userId: row.metricool_user_id, blogId: row.blog_id, providerPostId: row.provider_post_id })
@@ -392,6 +408,7 @@ async function processMetricoolSyncJob(job) {
     }
     synced++
   }
+  await refreshContentItemStatuses(pool, itemIds)
   return { synced }
 }
 
@@ -409,7 +426,9 @@ async function processPlanableSyncJob(job) {
     WHERE cv.workspace_id=$1 AND s.provider='planable' AND s.provider_post_id IS NOT NULL AND s.status IN ('scheduled','syncing') ${siteClause}
     ORDER BY s.updated_at ASC LIMIT 100`, params)
   let synced = 0
+  const itemIds = new Set()
   for (const row of rows.rows) {
+    itemIds.add(row.item_id)
     const token = decryptSecret(row.credentials_ciphertext)
     if (!token) throw new Error('Planable no está configurado para la marca.')
     const config = row.config && typeof row.config === 'object' ? row.config : {}
@@ -425,6 +444,7 @@ async function processPlanableSyncJob(job) {
     }
     synced++
   }
+  await refreshContentItemStatuses(pool, itemIds)
   return { synced }
 }
 
@@ -442,7 +462,9 @@ async function processPostizSyncJob(job) {
     WHERE cv.workspace_id=$1 AND s.provider='postiz' AND s.provider_post_id IS NOT NULL AND s.status IN ('scheduled','syncing') ${siteClause}
     ORDER BY s.updated_at ASC LIMIT 100`, params)
   let synced = 0
+  const itemIds = new Set()
   for (const row of rows.rows) {
+    itemIds.add(row.item_id)
     const token = decryptSecret(row.credentials_ciphertext)
     if (!token) throw new Error('Postiz no está configurado para la marca.')
     const config = row.config && typeof row.config === 'object' ? row.config : {}
@@ -458,6 +480,7 @@ async function processPostizSyncJob(job) {
     }
     synced++
   }
+  await refreshContentItemStatuses(pool, itemIds)
   return { synced }
 }
 
@@ -476,8 +499,10 @@ async function processBufferSyncJob(job) {
     ORDER BY s.updated_at ASC LIMIT 100`, params)
   const pending = []
   let synced = 0
+  const itemIds = new Set()
   const now = Date.now()
   for (const row of rows.rows) {
+    itemIds.add(row.item_id)
     if (!job.payload?.force && !providerRowNeedsRemoteSync(row, { now, intervalMs: metricoolPollMs })) {
       pending.push(row)
       continue
@@ -503,6 +528,7 @@ async function processBufferSyncJob(job) {
     synced++
   }
   await enqueueBufferStatusPolls(job.workspace_id, pending, now, Boolean(job.payload?.quotaExempt))
+  await refreshContentItemStatuses(pool, itemIds)
   return { synced }
 }
 

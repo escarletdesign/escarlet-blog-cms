@@ -298,12 +298,18 @@ export function PostWorkspace() {
     } finally { setSaving(false); }
   };
 
-  const approve = async () => {
+  const approveAll = async () => {
     if (!post) return;
+    const pendingVariants = post.variants.filter((variant) => ["draft", "ready_for_review", "changes_requested"].includes(variant.status));
+    if (!pendingVariants.length) return;
     setSaving(true);
     try {
+      const reviewChannels = pendingVariants.map((variant) => variant.channel);
+      if (post.status === "draft" || pendingVariants.some((variant) => variant.status === "draft")) {
+        await api.updateContentItem(post.id, { site, readyForReview: true, reviewChannels });
+      }
       await api.approveContent(post.id, site);
-      showToast(t("content.toast.approved", "Post aprobado"));
+      showToast(t("content.toast.approvedAll", "Todas las variantes fueron aprobadas"));
       load();
     } catch (cause) { showToast(cause instanceof Error ? cause.message : t("common.error"), "error"); }
     finally { setSaving(false); }
@@ -451,10 +457,10 @@ export function PostWorkspace() {
         <Card className="v3-provenance-card"><div className="v3-card-heading"><div><span className="ui-eyebrow">{t("content.provenance.eyebrow", "Procedencia")}</span><h2>{t("content.provenance.title", "Brand Kit aplicado")}</h2></div><Badge tone={tone}>{post.provenance.brandKitVersionId || t("content.provenance.unknown", "Pendiente")}</Badge></div><p>{post.provenance.brandKitSnapshotHash ? t("content.provenance.snapshot", "La generación externa utilizó un snapshot verificable de la marca.") : t("content.provenance.pending", "Este Post aún no tiene una procedencia completa registrada.")}</p></Card>
       </section>
       <aside className="v3-review-rail" aria-label={t("content.review.rail", "Revisión y publicación")}>
-        <ReviewRail post={post} canApprove={canApprove} saving={saving} scheduleAt={scheduleAt} setScheduleAt={setScheduleAt} onApprove={approve} onSchedule={schedule} />
+        <ReviewRail post={post} canApprove={canApprove} saving={saving} scheduleAt={scheduleAt} setScheduleAt={setScheduleAt} onApproveAll={approveAll} onSchedule={schedule} />
       </aside>
     </div>
-    <Drawer open={reviewOpen} title={t("content.review.title", "Revisión y publicación")} onClose={() => setReviewOpen(false)}><ReviewRail post={post} canApprove={canApprove} saving={saving} scheduleAt={scheduleAt} setScheduleAt={setScheduleAt} onApprove={approve} onSchedule={schedule} /></Drawer>
+    <Drawer open={reviewOpen} title={t("content.review.title", "Revisión y publicación")} onClose={() => setReviewOpen(false)}><ReviewRail post={post} canApprove={canApprove} saving={saving} scheduleAt={scheduleAt} setScheduleAt={setScheduleAt} onApproveAll={approveAll} onSchedule={schedule} /></Drawer>
     <Modal open={deleteOpen} title={t("content.delete.title", "Eliminar este borrador") } onClose={() => setDeleteOpen(false)}><Stack gap="md"><p className="ui-muted">{t("content.delete.description", "El Post se archivará y dejará de aparecer en Contenido y Publicación. Podrás restaurarlo desde el filtro de archivados.")}</p><Inline gap="sm"><Button variant="ghost" onClick={() => setDeleteOpen(false)}>{t("common.cancel", "Cancelar")}</Button><Button variant="danger" loading={saving} onClick={() => void archivePost()}>{t("content.action.deleteConfirm", "Eliminar borrador")}</Button></Inline></Stack></Modal>
     <Modal open={cancelVariantOpen} title={t("content.variant.omitTitle", "Omitir este canal") } onClose={() => setCancelVariantOpen(false)}><Stack gap="md"><p className="ui-muted">{t("content.variant.omitDescription", "La variante quedará fuera de futuras publicaciones de este Post. Las demás variantes no cambiarán.")}</p><Inline gap="sm"><Button variant="ghost" onClick={() => setCancelVariantOpen(false)}>{t("common.cancel", "Cancelar")}</Button><Button variant="danger" loading={saving} onClick={() => void cancelVariant()}>{t("content.variant.omitConfirm", "Omitir canal")}</Button></Inline></Stack></Modal>
   </main>;
@@ -495,10 +501,11 @@ function PostVariantPreview({ variant }: { variant: PostVariant }) {
   </Card>;
 }
 
-function ReviewRail({ post, canApprove, saving, scheduleAt, setScheduleAt, onApprove, onSchedule }: { post: CanonicalPost; canApprove: boolean; saving: boolean; scheduleAt: string; setScheduleAt: (value: string) => void; onApprove: () => void; onSchedule: () => void }) {
+function ReviewRail({ post, canApprove, saving, scheduleAt, setScheduleAt, onApproveAll, onSchedule }: { post: CanonicalPost; canApprove: boolean; saving: boolean; scheduleAt: string; setScheduleAt: (value: string) => void; onApproveAll: () => void; onSchedule: () => void }) {
   const { t } = useI18n();
+  const pendingVariants = post.variants.filter((variant) => ["draft", "ready_for_review", "changes_requested"].includes(variant.status));
   return <Stack gap="md">
     <Card className="v3-review-card"><div className="v3-card-heading"><h2>{t("content.review.title", "Revisión")}</h2><StatusBadge status={post.status} /></div><p>{t("content.review.summary", "Comprueba el contenido, la marca y los destinos antes de publicar.")}</p><div className="v3-channel-summary">{post.variants.map((variant) => <div key={variant.id}><div><ChannelBadge channel={variant.channel} /><StatusBadge status={variant.status} /></div>{variant.lastError && <p className="ui-field-error" role="alert">{variant.lastError}</p>}</div>)}</div></Card>
-    <Card className="v3-review-card"><span className="ui-eyebrow">{t("content.review.next", "Siguiente acción")}</span><h2>{postActionLabel(post.status, t)}</h2>{canApprove && ["ready_for_review", "changes_requested"].includes(post.status) && <Button loading={saving} onClick={onApprove}>{t("content.action.approve", "Aprobar Post")}</Button>}{canApprove && post.status === "approved" && <Stack gap="sm"><Field label={t("content.schedule.label", "Fecha de publicación")}><TextField type="datetime-local" value={scheduleAt} onChange={(event) => setScheduleAt(event.target.value)} /></Field><Button loading={saving} disabled={!scheduleAt} onClick={onSchedule}>{t("content.action.schedule", "Programar")}</Button></Stack>}<p className="ui-muted">{post.variants.length} {post.variants.length === 1 ? t("content.variant.one", "variante") : t("content.variant.many", "variantes")}</p></Card>
+    <Card className="v3-review-card"><span className="ui-eyebrow">{t("content.review.next", "Siguiente acción")}</span><h2>{postActionLabel(post.status, t)}</h2>{canApprove && pendingVariants.length > 0 && <Button loading={saving} onClick={onApproveAll}>{t("content.action.approveAll", "Aprobar todo")}</Button>}{canApprove && post.status === "approved" && <Stack gap="sm"><Field label={t("content.schedule.label", "Fecha de publicación")}><TextField type="datetime-local" value={scheduleAt} onChange={(event) => setScheduleAt(event.target.value)} /></Field><Button loading={saving} disabled={!scheduleAt} onClick={onSchedule}>{t("content.action.schedule", "Programar")}</Button></Stack>}<p className="ui-muted">{post.variants.length} {post.variants.length === 1 ? t("content.variant.one", "variante") : t("content.variant.many", "variantes")}</p></Card>
   </Stack>;
 }

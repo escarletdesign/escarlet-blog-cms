@@ -21,6 +21,14 @@ export function variantStatus(status?: string | null): PostStatus {
   return postStatus(status);
 }
 
+function postStatusFromVariants(statuses: PostStatus[], fallback: PostStatus): PostStatus {
+  const activeStatuses = statuses.filter((status) => status !== "archived");
+  if (activeStatuses.length && activeStatuses.every((status) => status === "published") && statuses.some((status) => status === "published")) {
+    return "published";
+  }
+  return fallback;
+}
+
 export function asCanonicalPost(item: ContentItem): CanonicalPost {
   const variants = (item.variants || []).map((variant: ContentVariant) => ({
     id: variant.id,
@@ -35,6 +43,7 @@ export function asCanonicalPost(item: ContentItem): CanonicalPost {
     scheduleTimezone: variant.scheduleTimezone || null,
     lastError: variant.lastError || null,
   })) as PostVariant[];
+  const fallbackStatus = postStatus(item.status);
   const metadata = item.metadata || {};
   const brandOs = metadata.brandOs || {};
   const brandContext = brandOs.brandContext || {};
@@ -45,7 +54,7 @@ export function asCanonicalPost(item: ContentItem): CanonicalPost {
     campaignTitle: item.planTitle && !String((item as any).campaignMetadata?.system || "").includes("inbox") ? item.planTitle : null,
     title: String(metadata.contentTitle || item.topic || "Nueva publicación"),
     topic: item.topic,
-    status: postStatus(item.status),
+    status: postStatusFromVariants(variants.map((variant) => variant.status), fallbackStatus),
     brandKitVersionId: brandContext.brandKitVersionId || null,
     provenance: {
       brandKitVersionId: brandContext.brandKitVersionId || null,
