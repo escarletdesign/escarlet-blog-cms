@@ -499,7 +499,7 @@ async function importExternalImageAsset(args, auth, runtime) {
     membershipUserId: auth.userId || ''
   })
   const register = typeof runtime?.registerContentMedia === 'function' ? runtime.registerContentMedia : registerContentMedia
-  const sourceRef = source.sourceAssetId || createHash('sha256').update(source.sourceUrl || sourceHash).digest('hex')
+  const sourceRef = source.sourceAssetId || sourceHash
   const idempotencyKey = String(args.idempotencyKey || `asset-import:${scope.siteId}:${source.sourceProvider}:${sourceRef}:${sourceHash}`).slice(0, 300)
   const asset = await register({
     workspaceId: scope.workspaceId,
