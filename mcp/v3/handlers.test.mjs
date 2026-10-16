@@ -237,6 +237,7 @@ test('asset.import_from_url puede asociar una variante sin publicar ni cambiar e
   assert.equal(result.status, 'ready_for_review')
   assert.equal(attachment.itemId, 'post-1')
   assert.equal(attachment.preserveItemStatus, true)
+  assert.equal(attachment.allowReplace, false)
   assert.equal(result.attachment.status, 'draft')
 })
 
