@@ -52,6 +52,16 @@ test('asset.upload declara el transporte nativo de archivos de ChatGPT', async (
   assert.equal(upload.inputSchema.properties.file.$ref, '#/$defs/OpenAIFile')
 })
 
+test('asset.import_from_url publica el contrato de URL externa y Canva', async () => {
+  const server = createMcpServerV3Sync({ role: 'admin' })
+  const listed = await list(server, 'tools/list')
+  const imported = listed.tools.find((tool) => tool.name === 'asset.import_from_url')
+  assert.ok(imported)
+  assert.deepEqual(imported.inputSchema.properties.sourceProvider.enum, ['external_url', 'canva'])
+  assert.ok(imported.inputSchema.oneOf.some((branch) => branch.required.includes('sourceAssetId')))
+  assert.equal(imported.outputSchema.properties.capability.const, 'asset.import_from_url')
+})
+
 test('resources/list expone el índice, recipes y Brand Kernel sin archivos privados', async () => {
   const server = createMcpServerV3Sync({ role: 'agent' })
   const listed = await list(server, 'resources/list')

@@ -16,6 +16,8 @@ import {
 import { getPgPool } from '../../lib/pg.mjs'
 import { cancelVideoJob, createVideoJob, getVideoJob, importExternalVideoMedia, ingestVideoUpload, retryVideoJob, updateVideoJob } from '../../lib/video-jobs.mjs'
 import { uploadMedia } from '../../lib/cms-ops.mjs'
+import { assertPublicUrl, fetchRemote } from '../../lib/remote-fetch.mjs'
+import { MAX_IMAGE_UPLOAD_BYTES, inspectImageBuffer } from '../../lib/media-url.mjs'
 import {
   attachContentMedia,
   approveContentBatch,
@@ -27,6 +29,7 @@ import {
   addContentItemToBatch,
   archiveContentItem,
   listContentPlans,
+  preflightContentMediaAttachment,
   registerContentMedia,
   scheduleContentBatch,
   scheduleContentItem,
@@ -376,6 +379,166 @@ async function deleteCanonicalAssets(args, auth) {
   }
   const scope = await canonicalAssetScope(args, auth)
   return { contractVersion: 'os.production.v1', capability: 'asset.delete', ...await deleteCanonicalMedia({ ...scope, userId: auth.userId, role: String(auth.role || '').toLowerCase(), mode: args.mode, assetIds: args.assetIds, confirm: args.confirm, force: args.force === true, idempotencyKey: args.idempotencyKey }) }
+}
+
+function externalImageImportError(message, code = 'external_image_import_failed', status = 400, details = undefined) {
+  return Object.assign(new Error(message), { code, status, ...(details ? { details } : {}) })
+}
+
+function importedImageFilename(sourceUrl, sourceAssetId, format, requested = '') {
+  const candidate = String(requested || '').trim() || (sourceUrl ? new URL(sourceUrl).pathname.split('/').pop() : '') || (sourceAssetId ? `canva-${sourceAssetId}` : 'imported-image')
+  const safe = candidate.replace(/[\\/]+/g, '-').slice(0, 240) || 'imported-image'
+  if (/\.(?:jpe?g|png|webp|gif)$/i.test(safe)) return safe
+  return `${safe}.${format === 'jpeg' ? 'jpg' : format || 'png'}`
+}
+
+async function resolveImportedImageSource(args, scope, auth, runtime) {
+  const sourceAssetId = String(args.sourceAssetId || '').trim()
+  const sourceProvider = String(args.sourceProvider || (sourceAssetId ? 'canva' : 'external_url')).trim().toLowerCase()
+  if (!['external_url', 'canva'].includes(sourceProvider)) throw externalImageImportError('sourceProvider debe ser external_url o canva.', 'external_image_source_invalid', 422)
+  let sourceUrl = String(args.sourceUrl || '').trim()
+  let buffer = null
+  let filename = String(args.filename || '').trim()
+  let declaredMimeType = String(args.mimeType || '').trim().toLowerCase()
+
+  if (sourceProvider === 'canva') {
+    if (!sourceAssetId) throw externalImageImportError('sourceAssetId es obligatorio para importar desde Canva.', 'canva_source_asset_required', 422)
+    const resolveCanvaAsset = runtime?.resolveCanvaAsset
+    if (typeof resolveCanvaAsset !== 'function') {
+      throw externalImageImportError('El conector oficial de Canva debe resolver sourceAssetId a un recurso descargable.', 'canva_connector_required', 503, { sourceAssetId })
+    }
+    const resolved = await resolveCanvaAsset({ sourceAssetId, ...scope, userId: auth.userId || null }, { auth })
+    sourceUrl = String(resolved?.sourceUrl || resolved?.downloadUrl || resolved?.url || '').trim()
+    buffer = Buffer.isBuffer(resolved?.buffer) ? resolved.buffer : null
+    filename = filename || String(resolved?.filename || resolved?.name || '').trim()
+    declaredMimeType = declaredMimeType || String(resolved?.mimeType || resolved?.contentType || '').trim().toLowerCase()
+    if (!buffer && !sourceUrl) throw externalImageImportError('El conector de Canva no devolvió bytes ni una URL descargable.', 'canva_asset_unresolved', 502, { sourceAssetId })
+  }
+
+  if (!buffer) {
+    if (!sourceUrl) throw externalImageImportError('sourceUrl es obligatoria para importar una imagen.', 'external_image_source_required', 422)
+    let parsed
+    try {
+      parsed = await assertPublicUrl(sourceUrl, { allowLocalhost: false, resolveDns: false })
+    } catch (error) {
+      throw externalImageImportError(error.message || 'sourceUrl no es segura.', 'external_image_url_blocked', 400)
+    }
+    sourceUrl = parsed.toString()
+    const fetcher = typeof runtime?.fetchRemote === 'function' ? runtime.fetchRemote : fetchRemote
+    let fetched
+    try {
+      fetched = await fetcher(sourceUrl, { method: 'GET', maxBytes: MAX_IMAGE_UPLOAD_BYTES, timeoutMs: 15_000, allowLocalhost: false })
+    } catch (error) {
+      throw externalImageImportError(error.message || 'No se pudo descargar la imagen externa.', error.code || 'external_image_download_failed', error.status || 502)
+    }
+    const response = fetched?.response || fetched
+    if (!response?.ok) throw externalImageImportError(`La URL de imagen respondió HTTP ${response?.status || 0}.`, 'external_image_download_failed', 502)
+    const contentType = String(response.headers?.get?.('content-type') || '').split(';', 1)[0].trim().toLowerCase()
+    if (contentType && !contentType.startsWith('image/') && contentType !== 'application/octet-stream') {
+      throw externalImageImportError('La URL no devolvió un MIME de imagen.', 'external_image_mime_invalid', 415, { contentType })
+    }
+    declaredMimeType = contentType || declaredMimeType
+    buffer = Buffer.isBuffer(fetched?.body) ? fetched.body : Buffer.from(await response.arrayBuffer())
+  }
+
+  if (!Buffer.isBuffer(buffer) || !buffer.length || buffer.length > MAX_IMAGE_UPLOAD_BYTES) throw externalImageImportError('La imagen importada está vacía o supera 12 MB.', 'external_image_size_invalid', 413)
+  if (declaredMimeType && !declaredMimeType.startsWith('image/') && declaredMimeType !== 'application/octet-stream') throw externalImageImportError('El conector no declaró un MIME de imagen.', 'external_image_mime_invalid', 415, { contentType: declaredMimeType })
+  const integrity = inspectImageBuffer(buffer)
+  if (!integrity.ok) throw externalImageImportError('El contenido descargado no es una imagen válida.', 'external_image_signature_invalid', 415, { format: integrity.format || null })
+  return { sourceProvider, sourceAssetId: sourceAssetId || null, sourceUrl, buffer, filename: importedImageFilename(sourceUrl, sourceAssetId, integrity.format, filename), declaredMimeType, integrity }
+}
+
+async function importExternalImageAsset(args, auth, runtime) {
+  const scope = await motionScope(args, auth, runtime)
+  const source = await resolveImportedImageSource(args, scope, auth, runtime)
+  const sourceHash = createHash('sha256').update(source.buffer).digest('hex')
+  const kind = String(args.kind || 'post').trim().toLowerCase()
+  if (!['post', 'social', 'reference'].includes(kind)) throw externalImageImportError('kind debe ser post, social o reference.', 'media_kind_invalid', 422)
+  const attachRequested = args.attachToPost === true || args.attachToItem === true
+  let attachmentTarget = null
+  if (attachRequested) {
+    const requestedItemId = String(args.itemId || '').trim()
+    if (!requestedItemId) throw externalImageImportError('itemId es obligatorio cuando attachToPost es true.', 'content_item_required', 422)
+    const channels = [...new Set((Array.isArray(args.channels) && args.channels.length ? args.channels : args.channel ? [args.channel] : []).map((value) => String(value || '').trim().toLowerCase()).filter(Boolean))]
+    let itemId = requestedItemId
+    let channel = channels[0]
+    const pool = typeof runtime?.getPgPool === 'function' ? await runtime.getPgPool() : await getPgPool()
+    if (pool) {
+      const item = await pool.query('SELECT id FROM content_items WHERE id=$1 AND workspace_id=$2 AND site_id=$3', [requestedItemId, scope.workspaceId, scope.siteId])
+      if (!item.rowCount) {
+        const variant = await pool.query('SELECT cv.item_id AS "itemId",cv.channel FROM content_variants cv JOIN content_items ci ON ci.id=cv.item_id WHERE cv.id=$1 AND cv.workspace_id=$2 AND ci.site_id=$3', [requestedItemId, scope.workspaceId, scope.siteId])
+        if (!variant.rowCount) throw externalImageImportError('El Post o la variante no pertenece a esta marca.', 'content_item_not_found', 404)
+        itemId = variant.rows[0].itemId
+        channel = channel || variant.rows[0].channel
+        if (!channels.length && channel) channels.push(channel)
+      }
+      if (!channels.length) channels.push(kind === 'social' ? 'instagram' : 'blog')
+      const preflight = typeof runtime?.preflightContentMediaAttachment === 'function' ? runtime.preflightContentMediaAttachment : preflightContentMediaAttachment
+      await preflight({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId, channels, assetIndex: Number(args.assetIndex || 0) })
+    }
+    if (!channels.length) channels.push(kind === 'social' ? 'instagram' : 'blog')
+    attachmentTarget = { itemId, channels }
+  }
+  const metadata = {
+    sourceProvider: source.sourceProvider,
+    ...(source.sourceAssetId ? { sourceAssetId: source.sourceAssetId } : {}),
+    sourceType: 'external_generated_image',
+    importedBy: 'mcp',
+    sourceSha256: sourceHash,
+    ...(args.assetType ? { assetType: String(args.assetType).trim() } : {})
+  }
+  const upload = typeof runtime?.uploadMedia === 'function' ? runtime.uploadMedia : uploadMedia
+  const uploaded = await upload({
+    site: scope.site,
+    filename: source.filename,
+    kind,
+    alt: args.alt || '',
+    buffer: source.buffer,
+    manualUpload: true,
+    metadata,
+    membershipUserId: auth.userId || ''
+  })
+  const register = typeof runtime?.registerContentMedia === 'function' ? runtime.registerContentMedia : registerContentMedia
+  const sourceRef = source.sourceAssetId || createHash('sha256').update(source.sourceUrl || sourceHash).digest('hex')
+  const idempotencyKey = String(args.idempotencyKey || `asset-import:${scope.siteId}:${source.sourceProvider}:${sourceRef}:${sourceHash}`).slice(0, 300)
+  const asset = await register({
+    workspaceId: scope.workspaceId,
+    siteId: scope.siteId,
+    userId: auth.userId,
+    role: auth.role === 'agent' ? 'editor' : auth.role,
+    media: uploaded.media,
+    idempotencyKey,
+    idempotencyFingerprint: `${source.sourceProvider}:${sourceRef}:${sourceHash}`
+  })
+  let attachment = null
+  if (attachRequested) {
+    const attach = typeof runtime?.attachContentMedia === 'function' ? runtime.attachContentMedia : attachContentMedia
+    attachment = await attach({
+      workspaceId: scope.workspaceId,
+      siteId: scope.siteId,
+      itemId: attachmentTarget.itemId,
+      userId: auth.userId,
+      role: auth.role === 'agent' ? 'editor' : auth.role,
+      mediaAssetId: asset.id,
+      channels: attachmentTarget.channels,
+      assetIndex: Number(args.assetIndex || 0),
+      createMissingVariants: args.createMissingVariants,
+      removeReplacedAssets: args.removeReplacedAssets === true,
+      preserveItemStatus: true
+    })
+  }
+  return {
+    contractVersion: MCP_V3_CONTRACT,
+    capability: 'asset.import_from_url',
+    status: attachment?.contentComplete ? 'ready_for_review' : 'imported_for_review',
+    assetId: asset.id,
+    asset,
+    media: uploaded.media,
+    attachment,
+    postId: attachment?.itemId || null,
+    provenance: metadata,
+    nextAction: attachment ? 'human_review' : 'attach_to_content_item'
+  }
 }
 
 async function uploadGeneratedAsset(args, auth, runtime) {
@@ -2112,6 +2275,7 @@ export async function invokeBuiltinCapability(name, args = {}, { auth = {}, runt
   if (name === 'asset.register') return registerAssetReference(args, auth, runtime)
   if (name === 'asset.list') return listCanonicalAssets(args, auth, runtime)
   if (name === 'asset.delete') return deleteCanonicalAssets(args, auth)
+  if (name === 'asset.import_from_url') return importExternalImageAsset(args, auth, runtime)
   if (name === 'asset.upload') return uploadGeneratedAsset(args, auth, runtime)
   if (name === 'production.image.product.transform') return prepareProductTransform(args, auth, runtime)
   if (name === 'production.motion.plan') return planMotionStoryboard(args, auth, runtime)

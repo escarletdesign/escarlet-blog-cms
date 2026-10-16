@@ -758,6 +758,43 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     tags: ['asset', 'storage', 'read']
   }),
   manifest({
+    id: 'asset.import_from_url',
+    description: 'Importa una imagen real desde una URL HTTPS pública o desde un mediaId de Canva resuelto por su conector oficial. Valida SSRF, tamaño, MIME y firma antes de guardarla para revisión.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site: { type: 'string' },
+        brandId: { type: 'string' },
+        workspaceId: { type: 'string' },
+        siteId: { type: 'string' },
+        sourceProvider: { type: 'string', enum: ['external_url', 'canva'] },
+        sourceUrl: { type: 'string', format: 'uri', maxLength: 2000 },
+        sourceAssetId: { type: 'string', maxLength: 300 },
+        filename: { type: 'string', maxLength: 300 },
+        mimeType: { type: 'string', maxLength: 120 },
+        kind: { type: 'string', enum: ['post', 'social', 'reference'] },
+        assetType: { type: 'string', enum: ['blog_cover', 'social_image', 'instagram_story', 'x_image', 'presentation', 'generic'] },
+        itemId: { type: 'string' },
+        attachToPost: { type: 'boolean' },
+        attachToItem: { type: 'boolean' },
+        channels: { type: 'array', items: { type: 'string' }, maxItems: 20 },
+        channel: { type: 'string' },
+        assetIndex: { type: 'integer', minimum: 0, maximum: 19 },
+        createMissingVariants: { type: 'array', items: { type: 'string' }, maxItems: 20 },
+        removeReplacedAssets: { type: 'boolean' },
+        alt: { type: 'string', maxLength: 1000 },
+        idempotencyKey: { type: 'string', maxLength: 300 }
+      },
+      oneOf: [{ required: ['sourceUrl'] }, { required: ['sourceAssetId'] }],
+      additionalProperties: false
+    },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string', const: 'asset.import_from_url' }, status: { type: 'string' }, assetId: { type: 'string' }, asset: { type: 'object' }, media: { type: 'object' }, attachment: { type: ['object', 'null'] }, postId: { type: ['string', 'null'] }, provenance: { type: 'object' }, nextAction: { type: 'string' } }, required: ['contractVersion', 'capability', 'status', 'assetId', 'asset', 'provenance', 'nextAction'], additionalProperties: true },
+    permissions: ['asset:write'],
+    sideEffects: 'write',
+    humanReviewRequired: true,
+    tags: ['asset', 'import', 'image', 'canva', 'external-url', 'review']
+  }),
+  manifest({
     id: 'workspace.context.get',
     description: 'Resuelve el workspace y las marcas autorizadas para el token actual sin adivinar IDs.',
     inputSchema: { type: 'object', properties: { workspaceId: { type: 'string' }, siteId: { type: 'string' }, site: { type: 'string' }, brandId: { type: 'string' } }, additionalProperties: false },

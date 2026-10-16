@@ -169,6 +169,77 @@ test('asset.upload no permite guardar un asset publicable sin preparación', asy
   assert.equal(result.structuredContent.error.code, 'brand_preparation_required')
 })
 
+test('asset.import_from_url transfiere una imagen real, valida su firma y conserva procedencia', async () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
+  let uploaded = null
+  let registered = null
+  const result = await invokeBuiltinCapability('asset.import_from_url', {
+    site: 'demo',
+    sourceUrl: 'https://cdn.example.test/maria.png',
+    filename: 'maria-cover.png',
+    kind: 'post'
+  }, {
+    auth: { role: 'agent', userId: 'user-1', site: 'demo' },
+    runtime: {
+      resolveWorkspaceContext: async () => ({ workspaceId: 'workspace-1', sites: [{ id: 'site-1', handle: 'demo', role: 'editor' }] }),
+      fetchRemote: async () => ({ response: new Response(png, { status: 200, headers: { 'content-type': 'image/png' } }), body: png, url: 'https://cdn.example.test/maria.png' }),
+      uploadMedia: async (input) => { uploaded = input; return { media: { id: 'legacy-1', filename: input.filename, metadata: input.metadata, sha256: 'hash-1' } } },
+      registerContentMedia: async (input) => { registered = input; return { id: 'asset-1', metadata: input.media.metadata } }
+    }
+  })
+  assert.equal(result.status, 'imported_for_review')
+  assert.equal(uploaded.manualUpload, true)
+  assert.equal(uploaded.metadata.sourceProvider, 'external_url')
+  assert.equal(uploaded.metadata.sourceType, 'external_generated_image')
+  assert.equal(uploaded.metadata.importedBy, 'mcp')
+  assert.equal(registered.siteId, 'site-1')
+  assert.equal(result.provenance.sourceProvider, 'external_url')
+})
+
+test('asset.import_from_url resuelve Canva solo mediante el conector oficial y bloquea HTTP privado', async () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
+  let canvaRequest = null
+  const baseRuntime = {
+    resolveWorkspaceContext: async () => ({ workspaceId: 'workspace-1', sites: [{ id: 'site-1', handle: 'demo', role: 'editor' }] }),
+    resolveCanvaAsset: async (input) => { canvaRequest = input; return { buffer: png, filename: 'maria-canva.png', mimeType: 'image/png' } },
+    uploadMedia: async (input) => ({ media: { id: 'legacy-1', filename: input.filename, metadata: input.metadata } }),
+    registerContentMedia: async (input) => ({ id: 'asset-1', metadata: input.media.metadata })
+  }
+  const canva = await invokeBuiltinCapability('asset.import_from_url', { site: 'demo', sourceProvider: 'canva', sourceAssetId: 'MAHYMa4hGDI' }, {
+    auth: { role: 'agent', userId: 'user-1', site: 'demo' },
+    runtime: baseRuntime
+  })
+  assert.equal(canva.provenance.sourceProvider, 'canva')
+  assert.equal(canva.provenance.sourceAssetId, 'MAHYMa4hGDI')
+  assert.equal(canvaRequest.sourceAssetId, 'MAHYMa4hGDI')
+
+  await assert.rejects(
+    () => invokeBuiltinCapability('asset.import_from_url', { site: 'demo', sourceUrl: 'http://127.0.0.1/image.png' }, { auth: { role: 'agent', site: 'demo' }, runtime: baseRuntime }),
+    (error) => error.code === 'external_image_url_blocked'
+  )
+})
+
+test('asset.import_from_url puede asociar una variante sin publicar ni cambiar el estado del Post', async () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
+  let attachment = null
+  const result = await invokeBuiltinCapability('asset.import_from_url', {
+    site: 'demo', sourceProvider: 'canva', sourceAssetId: 'MAHYMa4hGDI', kind: 'post', itemId: 'post-1', channel: 'blog', attachToPost: true
+  }, {
+    auth: { role: 'agent', userId: 'user-1', site: 'demo' },
+    runtime: {
+      resolveWorkspaceContext: async () => ({ workspaceId: 'workspace-1', sites: [{ id: 'site-1', handle: 'demo', role: 'editor' }] }),
+      resolveCanvaAsset: async () => ({ buffer: png, filename: 'cover.png', mimeType: 'image/png' }),
+      uploadMedia: async (input) => ({ media: { id: 'legacy-1', filename: input.filename, metadata: input.metadata } }),
+      registerContentMedia: async () => ({ id: 'asset-1', metadata: {} }),
+      attachContentMedia: async (input) => { attachment = input; return { itemId: input.itemId, contentComplete: true, status: 'draft' } }
+    }
+  })
+  assert.equal(result.status, 'ready_for_review')
+  assert.equal(attachment.itemId, 'post-1')
+  assert.equal(attachment.preserveItemStatus, true)
+  assert.equal(result.attachment.status, 'draft')
+})
+
 test('asset.delete mantiene la eliminación canónica restringida a owner y admin', async () => {
   const agent = await createMcpServerV3({ role: 'agent', workspaceId: 'workspace-1', siteId: 'site-1' })
   const result = await call(agent, 'asset.delete', { workspaceId: 'workspace-1', siteId: 'site-1', assetIds: ['asset-1'], confirm: true })
