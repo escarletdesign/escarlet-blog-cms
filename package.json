@@ -35,7 +35,7 @@
     "@remotion/bundler": "4.0.536",
     "@remotion/renderer": "4.0.536",
     "@resvg/resvg-js": "^2.6.2",
-    "jimp": "^0.22.12",
+    "jimp": "^1.6.1",
     "jszip": "^3.10.1",
     "marked": "^15.0.12",
     "openid-client": "^6.8.8",
