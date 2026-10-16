@@ -1981,7 +1981,7 @@ function ReferenceMediaModal({
   media: MediaItem;
   busy: boolean;
   onClose: () => void;
-  onSave: (details: { filename: string; alt: string; usage: string }) => void;
+  onSave: (details: { filename: string; alt: string; usage: string; characterId?: string }) => void;
   onDelete: () => void;
   canDelete?: boolean;
   readOnlyFilename?: boolean;
@@ -1990,6 +1990,7 @@ function ReferenceMediaModal({
   const [filename, setFilename] = useState(media.filename || "");
   const [alt, setAlt] = useState(media.alt || "");
   const [usage, setUsage] = useState(String(media.metadata?.usage || "reference"));
+  const [characterId, setCharacterId] = useState(String(media.metadata?.characterId || ""));
   const imageSrc = media.url || media.path || media.previewUrl || media.previewPath || media.thumbUrl || media.thumbPath || "";
   return (
     <div
@@ -2032,6 +2033,11 @@ function ReferenceMediaModal({
               <option value="campaign">Referencia de campaña</option>
             </select>
           </label>
+          {usage === "character" && <label className="modal-field">
+            Identificador del personaje
+            <input value={characterId} onChange={(event) => setCharacterId(event.target.value)} placeholder="maria" />
+            <span className="tiny">El MCP usará este identificador para elegir el personaje cuando la política lo indique.</span>
+          </label>}
           <label className="modal-field">
             {t("admin.referenceAlt")}
             <textarea value={alt} onChange={(event) => setAlt(event.target.value)} rows={3} />
@@ -2040,7 +2046,7 @@ function ReferenceMediaModal({
         <div className="ui-actions">
           {canDelete && <button className="ui-danger-link" type="button" onClick={onDelete} disabled={busy}>{t("admin.delete")}</button>}
           <button className="ui-button ui-button-ghost" type="button" onClick={onClose} disabled={busy}>{t("editor.close")}</button>
-          <button className="ui-button ui-button-primary" type="button" onClick={() => onSave({ filename: filename.trim(), alt: alt.trim(), usage })} disabled={busy || !filename.trim()}>
+          <button className="ui-button ui-button-primary" type="button" onClick={() => onSave({ filename: filename.trim(), alt: alt.trim(), usage, characterId: usage === "character" ? characterId.trim() || undefined : undefined })} disabled={busy || !filename.trim()}>
             {busy ? t("admin.saving") : t("admin.save")}
           </button>
         </div>
@@ -5599,7 +5605,7 @@ function Admin() {
       setReferenceBusy(false);
     }
   };
-  const saveReference = async (media: MediaItem, details: { filename: string; alt: string; usage: string }) => {
+  const saveReference = async (media: MediaItem, details: { filename: string; alt: string; usage: string; characterId?: string }) => {
     if (!media.id) return;
     setReferenceBusy(true);
     try {
@@ -7005,6 +7011,9 @@ function BrandIdentityView() {
   const [selectedBrandFile, setSelectedBrandFile] = useState("");
   const [brandContent, setBrandContent] = useState("");
   const [brandSaving, setBrandSaving] = useState(false);
+  const [characterMode, setCharacterMode] = useState<"never" | "optional" | "preferred">("optional");
+  const [defaultCharacterId, setDefaultCharacterId] = useState("");
+  const [characterPolicySaving, setCharacterPolicySaving] = useState(false);
   const [error, setError] = useState("");
   const [form, setForm] = useState({ name: "", domain: "" });
   const [busy, setBusy] = useState(false);
@@ -7023,6 +7032,11 @@ function BrandIdentityView() {
         setBrand(nextBrand);
         setForm({ name: String(nextBrand.name || ""), domain: String(nextBrand.domain || "") });
         setKit(kitResult);
+        const referenceLibrary = parseBrandDocument(kitResult?.manifest?.["reference-library.json"] || kitResult?.manifest?.["reference-library"]);
+        const selection = referenceLibrary.selectionPolicy || referenceLibrary.selection || {};
+        const characterPolicy = selection.characterPolicy || selection.characters || {};
+        setCharacterMode(["never", "optional", "preferred"].includes(String(characterPolicy.mode)) ? String(characterPolicy.mode) as "never" | "optional" | "preferred" : "optional");
+        setDefaultCharacterId(String(characterPolicy.defaultCharacterId || characterPolicy.characterId || ""));
         const manifestBrandCore = parseBrandDocument(kitResult?.manifest?.["brand-core.json"] || kitResult?.manifest?.["brand-core"]);
         const legacy = nextBrand.handle ? await api.brand(nextBrand.handle).catch(() => null) : null;
         if (!active) return;
@@ -7075,6 +7089,22 @@ function BrandIdentityView() {
       showToast(err?.message || "No se pudo guardar el archivo.", "error");
     } finally {
       setBrandSaving(false);
+    }
+  };
+  const saveCharacterPolicy = async () => {
+    if (!brand?.handle || !canEdit) return;
+    setCharacterPolicySaving(true);
+    try {
+      const current = parseBrandDocument(kit?.manifest?.["reference-library.json"] || kit?.manifest?.["reference-library"]);
+      const selection = { ...(current.selectionPolicy || current.selection || {}), characterPolicy: { mode: characterMode, ...(defaultCharacterId.trim() ? { defaultCharacterId: defaultCharacterId.trim() } : {}) } };
+      await api.saveBrandFile(brand.handle, "reference-library.json", JSON.stringify({ ...current, selectionPolicy: selection }, null, 2));
+      const latest = await api.brandKitV2(brandId);
+      setKit(latest);
+      showToast("Criterio de personajes guardado.");
+    } catch (err: any) {
+      showToast(err?.message || "No se pudo guardar el criterio de personajes.", "error");
+    } finally {
+      setCharacterPolicySaving(false);
     }
   };
   const importBrandKit = async (file?: File) => {
@@ -7130,16 +7160,16 @@ function BrandIdentityView() {
       setReferenceBusy(false);
     }
   };
-  const saveReference = async (media: MediaItem, details: { filename: string; alt: string; usage: string }) => {
+  const saveReference = async (media: MediaItem, details: { filename: string; alt: string; usage: string; characterId?: string }) => {
     if (!media.id || !brand?.handle) return;
     setReferenceBusy(true);
     try {
       if (media.metadata?.source === "canonical-reference") return;
       if (media.metadata?.source === "brand-kit") {
-        const result = await api.updateBrandKitAsset(brandId, media.id, { alt: details.alt, usage: details.usage });
+        const result = await api.updateBrandKitAsset(brandId, media.id, { alt: details.alt, usage: details.usage, characterId: details.characterId });
         const refreshed = await refreshBrandKitAssets();
         const updated = refreshed.find((item) => item.filename === (result.asset.name || media.filename)) || refreshed.find((item) => item.id === result.asset.id) || null;
-        setReferenceMedia((current) => current.map((item) => item.id === media.id ? updated || { ...item, alt: details.alt, metadata: { ...(item.metadata || {}), usage: details.usage } } : item));
+        setReferenceMedia((current) => current.map((item) => item.id === media.id ? updated || { ...item, alt: details.alt, metadata: { ...(item.metadata || {}), usage: details.usage, characterId: details.characterId } } : item));
       } else {
         const result = await api.updateMedia({ site: brand.handle, id: media.id, ...details });
         setReferenceMedia((current) => current.map((item) => item.id === media.id ? result.media : item));
@@ -7234,6 +7264,27 @@ function BrandIdentityView() {
             {referenceMedia.length ? <div className={`reference-grid ui-reference-grid ui-reference-grid-${referenceColumns}`}>{referenceMedia.map((media) => { const protectedReference = media.metadata?.source === "canonical-reference"; const canEditMedia = canEdit && Boolean(media.id) && !protectedReference; const usage = String(media.metadata?.usage || "reference"); return <article className="reference-card" key={media.id || media.path || media.url}><button className="reference-image-button" type="button" onClick={() => canEditMedia && setSelectedReference(media)} disabled={!canEditMedia} aria-label={`Ver ${media.filename || "referencia visual"}`}><img src={media.thumbUrl || media.previewUrl || media.url || media.path} alt={media.alt || media.filename || "Referencia visual"} width={media.width || undefined} height={media.height || undefined} loading="lazy" decoding="async" /><span className="reference-edit-icon" aria-hidden="true">⌕</span></button><div className="reference-card-actions"><div className="reference-meta"><strong title={media.filename}>{media.filename || "Referencia"}</strong><Badge tone="neutral">{referenceUsageLabels[usage] || usage}</Badge></div>{protectedReference ? <Badge tone="success">Canónica</Badge> : canEditMedia && <Badge tone="info">Editar</Badge>}</div></article>; })}</div> : <UiEmptyState title="Aún no hay referencias visuales" description="Importa un ZIP o añade imágenes para construir la biblioteca de la marca." />}
           </div>
           <p className="ui-muted">Las referencias privadas solo se muestran según el rol y la capacidad de acceso.</p>
+        </Card>
+        <Card>
+          <span className="ui-eyebrow">Uso de personajes</span>
+          <h2>Qué debe hacer el agente</h2>
+          <p className="ui-muted">Este criterio se guarda en el Brand Kit y se devuelve con cada preparación del MCP.</p>
+          <Stack gap="md">
+            <Field label="Frecuencia">
+              <Select value={characterMode} onChange={(event) => setCharacterMode(event.target.value as "never" | "optional" | "preferred")} disabled={!canEdit || characterPolicySaving}>
+                <option value="optional">Solo cuando la pieza lo pida</option>
+                <option value="preferred">Usarlo por defecto</option>
+                <option value="never">No usar personajes</option>
+              </Select>
+            </Field>
+            {characterMode === "preferred" && <Field label="Personaje por defecto" hint="El identificador se toma de cada referencia clasificada como Personaje.">
+              <Select value={defaultCharacterId} onChange={(event) => setDefaultCharacterId(event.target.value)} disabled={!canEdit || characterPolicySaving}>
+                <option value="">Cualquiera de los personajes aprobados</option>
+                {referenceMedia.filter((media) => String(media.metadata?.usage || "") === "character").map((media) => <option key={media.id || media.filename} value={String(media.metadata?.characterId || media.filename || media.id)}>{String(media.metadata?.characterId || media.filename || media.id)}</option>)}
+              </Select>
+            </Field>}
+            {canEdit && <Button type="button" onClick={() => void saveCharacterPolicy()} loading={characterPolicySaving}>Guardar criterio</Button>}
+          </Stack>
         </Card>
         <Card><span className="ui-eyebrow">Datos de la marca</span><h2>Identidad pública</h2>{canEdit ? <form className="ui-stack ui-stack-md" onSubmit={(event) => void save(event)}><Field label="Nombre" required><TextField value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></Field><Field label="Dominio web opcional"><TextField type="url" value={form.domain} onChange={(event) => setForm({ ...form, domain: event.target.value })} placeholder="https://marca.com" /></Field><Button type="submit" loading={busy}>Guardar identidad</Button></form> : <p className="ui-muted">{brand?.domain || "Sin dominio configurado"}</p>}</Card>
       </div>}

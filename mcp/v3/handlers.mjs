@@ -1793,13 +1793,21 @@ async function prepareProductTransform(args, auth, runtime) {
     if (!owned.rowCount) throw Object.assign(new Error('El asset fuente no pertenece a esta marca.'), { code: 'product_source_not_found', status: 404 })
     sourceRow = owned.rows[0]
   }
+  // Keep the legacy transform contract generic unless the caller explicitly
+  // requests a publishable image type with its text metadata requirements.
+  const assetType = args.assetType || 'generic'
   const prepared = prepareImageGeneration(scope.site, {
     // Product transformation changes the visual treatment; publication copy
     // remains a separate validated field and does not force text into the image.
-    assetType: args.assetType || 'generic',
+    assetType,
     title: args.title || args.topic || 'product transform',
     topic: args.topic || args.instructions || 'Adaptar el producto al estilo visual de la marca',
     expectedAssetCount: 1,
+    inputs: [{ ...sourceAsset, assetId: sourceAssetId, kind: 'image', role: 'product', ...(sourceRow?.sha256 ? { sha256: sourceRow.sha256 } : {}) }],
+    preserveProduct: args.preserveProduct !== false,
+    useCharacter: args.useCharacter,
+    characterId: args.characterId,
+    referenceRoute: args.referenceRoute,
     // Keep product preparations deterministic per caller key and source asset.
     itemId: args.itemId,
     batchId: args.batchId || args.idempotencyKey || `source:${sourceAssetId}`
@@ -1856,7 +1864,7 @@ async function prepareProductTransform(args, auth, runtime) {
     }
   }
   const localProductSupported = Boolean(sourceRow?.storage_key)
-  if (!prepared.generationBlocked && localProductSupported && process.env.PRODUCT_RENDERER_LOCAL !== 'false' && sourceRow?.storage_key) {
+  if (!prepared.generationBlocked && !['social_image', 'instagram_story'].includes(assetType) && localProductSupported && process.env.PRODUCT_RENDERER_LOCAL !== 'false' && sourceRow?.storage_key) {
     const root = resolvePath(mediaDir)
     const relative = String(sourceRow.storage_key).replace(/^\/?media\//, '').replace(/^\/+/, '')
     const sourcePath = resolvePath(join(root, relative))
@@ -1868,7 +1876,7 @@ async function prepareProductTransform(args, auth, runtime) {
         const receipt = await issueGenerationReceipt({ site: scope.site, preparationId: record.preparationId, usedReferences: prepared.resolvedReferences || [], generatedResultId: asset.id, generatedFileHash: stored.sha256, assetType: prepared.assetType, route: prepared.route })
         return { contractVersion: 'os.production.v1', capability: 'production.image.product.transform', runId: record.preparationId, status: 'ready_for_review', sourceAsset, assets: [{ assetId: asset.id, kind: 'image', mimeType: stored.mimeType, sha256: stored.sha256 }], preparation: { ...record, state: 'receipted' }, receipt, provenance: { sourceAssetId, brandKitVersionId: prepared.brandKitVersionId, brandKitSnapshotHash: prepared.brandKitSnapshotHash, preparationId: record.preparationId, receiptId: receipt.receiptId }, effects: { assetCreated: true, providerExecution: false, mutatesProvider: false }, nextAction: 'human_review' }
       } catch (error) {
-        return { contractVersion: 'os.production.v1', capability: 'production.image.product.transform', runId: record.preparationId, status: 'awaiting_provider', sourceAsset, assets: [], preparation: record, provenance: { sourceAssetId, brandKitVersionId: prepared.brandKitVersionId, brandKitSnapshotHash: prepared.brandKitSnapshotHash, preparationId: record.preparationId }, effects: { assetCreated: false, providerExecution: false, mutatesProvider: false }, nextAction: 'configure_image_provider', error: { code: error.code || 'product_renderer_failed', retryable: true, message: String(error.message || 'No se pudo transformar el producto.') } }
+        return { contractVersion: 'os.production.v1', capability: 'production.image.product.transform', runId: record.preparationId, status: 'awaiting_provider', sourceAsset, assets: [], ...productPreparationForAgent(prepared), preparation: record, provenance: { sourceAssetId, brandKitVersionId: prepared.brandKitVersionId, brandKitSnapshotHash: prepared.brandKitSnapshotHash, preparationId: record.preparationId }, effects: { assetCreated: false, providerExecution: false, mutatesProvider: false }, nextAction: 'configure_image_provider', error: { code: error.code || 'product_renderer_failed', retryable: true, message: String(error.message || 'No se pudo transformar el producto.') } }
       }
     }
   }
@@ -1879,6 +1887,7 @@ async function prepareProductTransform(args, auth, runtime) {
     status: prepared.generationBlocked ? 'blocked' : 'awaiting_provider',
     sourceAsset,
     assets: [],
+    ...productPreparationForAgent(prepared),
     preparation: record,
     provenance: {
       sourceAssetId,
@@ -1888,6 +1897,19 @@ async function prepareProductTransform(args, auth, runtime) {
     },
     effects: { assetCreated: false, providerExecution: false, mutatesProvider: false },
     nextAction: prepared.generationBlocked ? 'fix_brand_references' : 'configure_image_provider'
+  }
+}
+
+function productPreparationForAgent(prepared) {
+  return {
+    assetType: prepared.assetType,
+    route: prepared.route,
+    composition: prepared.composition,
+    generationPrompt: prepared.generationPrompt,
+    resolvedReferences: prepared.resolvedReferences,
+    inputAssets: prepared.inputAssets,
+    generationBlocked: prepared.generationBlocked,
+    generationDiagnostics: prepared.generationDiagnostics
   }
 }
 
@@ -1984,15 +2006,15 @@ export async function invokeBuiltinCapability(name, args = {}, { auth = {}, runt
     const context = getBrandContext(resolvedSite, { auth: { ...auth, role: auth.role === 'agent' ? 'editor' : auth.role }, ...brandOptions })
     if (name === 'brand.context.get') return { contractVersion: 'os.production.v1', ...contextProjection({ ...context, site: resolvedSite }) }
     if (name === 'brand.voice.get') return { contractVersion: 'os.production.v1', site: resolvedSite, brandKitVersionId: context.brandKitVersionId, brandKitSnapshotHash: context.brandKitSnapshotHash, voice: context.voice, agentRules: context.agentRules, keywords: context.keywords }
-    if (name === 'brand.visual_style.get') return { contractVersion: 'os.production.v1', site: resolvedSite, brandKitVersionId: context.brandKitVersionId, brandKitSnapshotHash: context.brandKitSnapshotHash, visualStyle: context.visualStyle, imageGuide: context.imageGuide, imageSpec: context.imageSpec, canonicalPalette: context.canonicalPalette, referenceImages: context.referenceImages, motionAssets: getMotionBrandAssets(resolvedSite) }
+    if (name === 'brand.visual_style.get') return { contractVersion: 'os.production.v1', site: resolvedSite, brandKitVersionId: context.brandKitVersionId, brandKitSnapshotHash: context.brandKitSnapshotHash, visualStyle: context.visualStyle, imageGuide: context.imageGuide, imageSpec: context.imageSpec, canonicalPalette: context.canonicalPalette, referenceImages: context.referenceImages, referenceSelectionPolicy: context.referenceSelectionPolicy, motionAssets: getMotionBrandAssets(resolvedSite) }
     if (name === 'brand.rules.get') return { contractVersion: 'os.production.v1', site: resolvedSite, brandKitVersionId: context.brandKitVersionId, brandKitSnapshotHash: context.brandKitSnapshotHash, agentRules: context.agentRules, sharedEditorialPolicy: context.sharedEditorialPolicy, editRules: context.editRules, workflow: context.workflow, requiresHumanApproval: context.requiresHumanApproval, requiresPublishConfirmation: context.requiresPublishConfirmation }
     if (name === 'brand.references.resolve') {
       const prepared = prepareImageGeneration(resolvedSite, preparationInput(args), brandOptions.canonicalSnapshot ? { canonicalSnapshot: brandOptions.canonicalSnapshot } : {})
-      return { contractVersion: 'os.production.v1', site: resolvedSite, brandKitVersionId: prepared.brandKitVersionId, brandKitSnapshotHash: prepared.brandKitSnapshotHash, route: prepared.route, generationBlocked: prepared.generationBlocked, generationDiagnostics: prepared.generationDiagnostics, references: prepared.resolvedReferences, resolvedReferences: prepared.resolvedReferences }
+      return { contractVersion: 'os.production.v1', site: resolvedSite, brandKitVersionId: prepared.brandKitVersionId, brandKitSnapshotHash: prepared.brandKitSnapshotHash, route: prepared.route, referenceSelectionPolicy: prepared.referenceSelectionPolicy, generationBlocked: prepared.generationBlocked, generationDiagnostics: prepared.generationDiagnostics, references: prepared.resolvedReferences, resolvedReferences: prepared.resolvedReferences }
     }
     if (name === 'brand.generation.prepare') {
       const prepared = prepareImageGeneration(resolvedSite, preparationInput(args), brandOptions.canonicalSnapshot ? { canonicalSnapshot: brandOptions.canonicalSnapshot } : {})
-      const record = await persistImagePreparation(prepared, { workspaceId: brandOptions.workspaceId || auth.workspaceId || args.workspaceId, siteId: brandOptions.siteId || auth.siteId || args.siteId, itemId: args.itemId, batchId: args.batchId, channel: args.channel })
+      const record = await persistImagePreparation(prepared, { workspaceId: brandOptions.workspaceId || auth.workspaceId || args.workspaceId, siteId: brandOptions.siteId || auth.siteId || args.siteId, itemId: args.itemId, batchId: args.batchId || prepared.brandPreparation?.batchId, channel: args.channel })
       return { contractVersion: 'os.production.v1', ...prepared, preparation: record }
     }
     if (name === 'brand.generation.receipt.issue') {

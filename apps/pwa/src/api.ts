@@ -471,7 +471,7 @@ const baseApi = {
     ),
   brandKitV2: (site?: string) =>
     request<Record<string, any>>(`/api/v2/brand-kits${site ? `?site=${encodeURIComponent(site)}` : ""}`),
-  updateBrandKitAsset: (brandId: string, assetId: string, input: { alt?: string; usage?: string }) =>
+  updateBrandKitAsset: (brandId: string, assetId: string, input: { alt?: string; usage?: string; characterId?: string }) =>
     request<{ asset: Record<string, any> }>(`/api/v2/brands/${encodeURIComponent(brandId)}/brand-kit/assets/${encodeURIComponent(assetId)}`, { method: "PATCH", body: JSON.stringify(input) }),
   deleteBrandKitAsset: (brandId: string, assetId: string) =>
     request<{ removed: boolean; assetId: string; name?: string }>(`/api/v2/brands/${encodeURIComponent(brandId)}/brand-kit/assets/${encodeURIComponent(assetId)}`, { method: "DELETE" }),

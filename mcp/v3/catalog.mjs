@@ -627,7 +627,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
   manifest({
     id: 'brand.references.resolve',
     description: 'Resuelve referencias visuales permitidas para una operación de generación.',
-    inputSchema: { type: 'object', properties: { site: { type: 'string' }, brandId: { type: 'string' }, brandKitVersionId: { type: 'string' }, purpose: { type: 'string' }, formatProfile: { type: 'string' } }, oneOf: [{ required: ['site', 'purpose'] }, { required: ['brandId', 'purpose'] }], additionalProperties: false },
+    inputSchema: { type: 'object', properties: { site: { type: 'string' }, brandId: { type: 'string' }, brandKitVersionId: { type: 'string' }, purpose: { type: 'string' }, formatProfile: { type: 'string' }, board: { type: 'string', enum: ['default', 'style', 'background', 'logo', 'character'] }, referenceRoute: { type: 'string' }, useCharacter: { type: 'boolean' }, characterId: { type: 'string', maxLength: 120 } }, oneOf: [{ required: ['site', 'purpose'] }, { required: ['brandId', 'purpose'] }], additionalProperties: false },
     outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, references: { type: 'array' }, brandKitVersionId: { type: 'string' }, brandKitSnapshotHash: { type: 'string' }, generationBlocked: { type: 'boolean' } }, required: ['contractVersion', 'references', 'brandKitVersionId', 'brandKitSnapshotHash', 'generationBlocked'], additionalProperties: true },
     permissions: ['brand:read'],
     tags: ['brand', 'kernel', 'read', 'provenance']
@@ -652,7 +652,11 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
         prompt: { type: 'string', maxLength: 12000 },
         title: { type: 'string', maxLength: 240 },
         topic: { type: 'string', maxLength: 5000 },
-        textContent: { type: 'object', properties: { headline: { type: 'string', maxLength: 90 }, body: { type: 'string', maxLength: 240 } }, additionalProperties: false }
+        textContent: { type: 'object', properties: { headline: { type: 'string', maxLength: 90 }, body: { type: 'string', maxLength: 240 } }, additionalProperties: false },
+        board: { type: 'string', enum: ['default', 'style', 'background', 'logo', 'character'] },
+        referenceRoute: { type: 'string' },
+        useCharacter: { type: 'boolean' },
+        characterId: { type: 'string', maxLength: 120 }
       },
       oneOf: [{ required: ['site', 'purpose'] }, { required: ['brandId', 'purpose'] }],
       additionalProperties: false
@@ -764,7 +768,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
   manifest({
     id: 'production.image.product.transform',
     description: 'Transforma un producto manteniendo el original y creando un asset derivado con procedencia.',
-    inputSchema: { type: 'object', properties: { sourceAssetId: { type: 'string' }, sourceAsset: assetReferenceSchema, workspaceId: { type: 'string' }, siteId: { type: 'string' }, site: { type: 'string' }, brandId: { type: 'string' }, brandKitVersionId: { type: 'string' }, formatProfile: { type: 'string' }, preserveProduct: { type: 'boolean' }, title: { type: 'string' }, topic: { type: 'string' }, instructions: { type: 'string' } }, required: ['formatProfile'], oneOf: [{ required: ['sourceAssetId'] }, { required: ['sourceAsset'] }], additionalProperties: false },
+    inputSchema: { type: 'object', properties: { sourceAssetId: { type: 'string' }, sourceAsset: assetReferenceSchema, workspaceId: { type: 'string' }, siteId: { type: 'string' }, site: { type: 'string' }, brandId: { type: 'string' }, brandKitVersionId: { type: 'string' }, formatProfile: { type: 'string' }, assetType: { type: 'string', enum: ['blog_cover', 'social_image', 'instagram_story', 'x_image', 'presentation', 'generic'] }, channel: { type: 'string' }, itemId: { type: 'string' }, batchId: { type: 'string' }, idempotencyKey: { type: 'string', maxLength: 300 }, preserveProduct: { type: 'boolean' }, useCharacter: { type: 'boolean' }, characterId: { type: 'string', maxLength: 120 }, referenceRoute: { type: 'string' }, title: { type: 'string' }, topic: { type: 'string' }, instructions: { type: 'string' } }, required: ['formatProfile'], oneOf: [{ required: ['sourceAssetId'] }, { required: ['sourceAsset'] }], additionalProperties: false },
     permissions: ['asset:read', 'generation:run'],
     sideEffects: 'write',
     humanReviewRequired: true,
