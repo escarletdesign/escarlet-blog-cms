@@ -345,6 +345,38 @@ test('content.post.create no expande variantes a canales no seleccionados', asyn
   assert.deepEqual(created.channels, ['blog'])
 })
 
+test('brand y contenido comparten el sitio canónico y el scope resuelto', async () => {
+  const resolveCalls = []
+  const runtime = {
+    resolveWorkspaceContext: async (input) => {
+      resolveCalls.push(input)
+      return { workspaceId: 'workspace-maria', sites: [{ id: 'site-maria', handle: 'mariamoralesosteopatia.com', role: 'editor' }] }
+    },
+    getActiveBrandKit: async () => ({ id: 'brand-maria-v1', version: 1, status: 'published', manifest: {}, assets: [] }),
+    listContentPlans: async (input) => ({ scope: input, plans: [] })
+  }
+  const auth = { role: 'editor', userId: 'user-maria', site: 'https://www.mariamoralesosteopatia.com/', sites: ['mariamoralesosteopatia.com'] }
+  const context = await invokeBuiltinCapability('brand.context.get', { site: 'https://www.mariamoralesosteopatia.com/' }, { auth, runtime })
+  assert.equal(context.site, 'mariamoralesosteopatia.com')
+  assert.equal(context.brandKitVersionId, 'brand-maria-v1')
+  assert.deepEqual(context.backgroundDirective, {})
+
+  const preparation = await invokeBuiltinCapability('brand.generation.prepare', {
+    site: 'https://www.mariamoralesosteopatia.com/',
+    assetType: 'blog_cover',
+    title: 'Portada'
+  }, { auth, runtime })
+  assert.equal(preparation.preparation.workspaceId, 'workspace-maria')
+  assert.equal(preparation.preparation.siteId, 'site-maria')
+  assert.equal(preparation.generationDiagnostics.status, 'blocked')
+  assert.equal(preparation.generationDiagnostics.blockers[0].code, 'reference_route_empty')
+
+  const campaigns = await invokeBuiltinCapability('content.campaign.list', { site: 'https://www.mariamoralesosteopatia.com/' }, { auth, runtime })
+  assert.equal(campaigns.campaigns.scope.workspaceId, 'workspace-maria')
+  assert.equal(campaigns.campaigns.scope.siteId, 'site-maria')
+  assert.ok(resolveCalls.every((call) => call.siteHandle === 'mariamoralesosteopatia.com'))
+})
+
 test('asset.list reutiliza la marca activa sin exigir IDs internos', async () => {
   const server = await createMcpServerV3({ role: 'viewer', site: 'escarlet' }, {
     runtime: {

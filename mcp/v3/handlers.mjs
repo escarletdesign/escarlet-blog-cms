@@ -30,7 +30,8 @@ import {
   registerContentMedia,
   scheduleContentBatch,
   scheduleContentItem,
-  updateContentItem
+  updateContentItem,
+  normalizeSiteSelector
 } from '../../lib/workspace-domain.mjs'
 import { canonicalMutationReferences, canonicalPost } from '../../lib/content-contract.mjs'
 import { contentPostUrl } from '../../lib/preview-url.mjs'
@@ -87,7 +88,7 @@ function authPermissions(auth = {}) {
 }
 
 function siteFor(args, auth) {
-  const site = String(args?.site || args?.brandId || auth?.site || '').trim().toLowerCase()
+  const site = normalizeSiteSelector(args?.site || args?.brandId || auth?.site)
   if (!site) throw Object.assign(new Error('site o brandId es obligatorio.'), { code: 'site_required', status: 422 })
   assertSiteAccess({ ...auth, role: auth?.role === 'agent' ? 'editor' : auth?.role }, site)
   return site
@@ -118,11 +119,12 @@ function preparationInput(args = {}) {
 
 async function activeBrandOptions(site, args, auth, runtime = null) {
   let workspaceId = String(args.workspaceId || auth.workspaceId || '').trim()
-  let siteId = String(args.siteId || auth.siteId || '').trim()
-  const scoped = Boolean(auth.userId || workspaceId || siteId)
+  let siteId = normalizeSiteSelector(args.siteId || auth.siteId)
+  let resolvedSite = site
+  const scoped = Boolean(auth.userId || auth.site || workspaceId || siteId || auth.role === 'admin')
   const pool = typeof runtime?.getPgPool === 'function' ? await runtime.getPgPool() : await getPgPool()
   const readActive = typeof runtime?.getActiveBrandKit === 'function' ? runtime.getActiveBrandKit : getActiveBrandKit
-  if (scoped && (pool || typeof runtime?.getActiveBrandKit === 'function') && (!workspaceId || !siteId)) {
+  if (scoped && (pool || typeof runtime?.resolveWorkspaceContext === 'function')) {
     const resolveContext = typeof runtime?.resolveWorkspaceContext === 'function' ? runtime.resolveWorkspaceContext : resolveWorkspaceContext
     const context = await resolveContext({
       userId: auth.userId || undefined,
@@ -131,22 +133,28 @@ async function activeBrandOptions(site, args, auth, runtime = null) {
       siteHandle: site,
       role: auth.role === 'admin' ? 'admin' : auth.role === 'agent' ? 'editor' : undefined
     })
-    const selected = context.sites.find((entry) => entry.id === siteId || entry.handle === site) || context.sites[0]
-    workspaceId ||= context.workspaceId
-    siteId ||= selected?.id || ''
+    const selected = context.sites.find((entry) => entry.id === siteId || normalizeSiteSelector(entry.handle) === site)
+    if (!selected) throw Object.assign(new Error('Workspace o sitio no encontrado.'), { code: 'workspace_context_required', status: 404 })
+    if (workspaceId && context.workspaceId !== workspaceId) throw Object.assign(new Error('El workspace no pertenece al contexto autenticado.'), { code: 'asset_scope_forbidden', status: 403 })
+    workspaceId = context.workspaceId
+    siteId = selected.id
+    resolvedSite = selected?.handle || site
   }
   if (!workspaceId || !siteId || (!pool && typeof runtime?.getActiveBrandKit !== 'function')) {
-    if (scoped && !runtime) throw Object.assign(new Error('MCP v3 no tiene DATABASE_URL y no puede leer el Brand Kit versionado.'), { code: 'brand_runtime_unconfigured', status: 503, action: 'configure_database' })
+    if (scoped && !runtime && (pool || auth.userId || workspaceId || siteId)) throw Object.assign(new Error('MCP v3 no tiene DATABASE_URL y no puede leer el Brand Kit versionado.'), { code: 'brand_runtime_unconfigured', status: 503, action: 'configure_database' })
     return {}
   }
   try {
     const active = await readActive({ workspaceId, siteId })
     return {
+      site: resolvedSite,
+      workspaceId,
+      siteId,
       canonicalManifest: active.manifest,
       canonicalAssets: active.assets,
       brandKitVersionId: active.id,
       brandKitVersion: { id: active.id, version: active.version, status: active.status },
-      canonicalSnapshot: loadActiveBrandKitSnapshot(site, {
+      canonicalSnapshot: loadActiveBrandKitSnapshot(resolvedSite, {
         manifest: active.manifest,
         assets: active.assets,
         brandKitVersionId: active.id,
@@ -203,8 +211,8 @@ async function registerAssetReference(args, auth, runtime) {
 
 async function resolveReadScope(args = {}, auth = {}, runtime = null) {
   const requestedWorkspaceId = String(args.workspaceId || auth.workspaceId || '').trim()
-  const requestedSiteId = String(args.siteId || auth.siteId || '').trim()
-  const requestedSite = String(args.site || args.brandId || auth.site || '').trim().toLowerCase()
+  const requestedSiteId = normalizeSiteSelector(args.siteId || auth.siteId)
+  const requestedSite = normalizeSiteSelector(args.site || args.brandId || auth.site)
   const resolveContext = typeof runtime?.resolveWorkspaceContext === 'function' ? runtime.resolveWorkspaceContext : resolveWorkspaceContext
   const context = await resolveContext({
     userId: auth.userId || undefined,
@@ -215,7 +223,7 @@ async function resolveReadScope(args = {}, auth = {}, runtime = null) {
   })
   const sites = Array.isArray(context?.sites) ? context.sites : []
   const selected = requestedSiteId || requestedSite
-    ? sites.find((entry) => entry.id === requestedSiteId || entry.handle === requestedSite)
+    ? sites.find((entry) => entry.id === requestedSiteId || normalizeSiteSelector(entry.id) === normalizeSiteSelector(requestedSiteId) || normalizeSiteSelector(entry.handle) === requestedSite)
     : sites.length === 1 ? sites[0] : null
   if (!selected) {
     throw Object.assign(new Error('Indica una marca autorizada o resuelve primero workspace.context.get.'), {
@@ -1562,7 +1570,7 @@ function motionIdempotencyKey(args, site, sourceMediaId) {
 async function motionScope(args, auth, runtime) {
   const site = siteFor(args, auth)
   const requestedWorkspaceId = String(args.workspaceId || auth.workspaceId || '').trim()
-  const requestedSiteId = String(args.siteId || auth.siteId || '').trim()
+  const requestedSiteId = normalizeSiteSelector(args.siteId || auth.siteId)
   const resolveContext = typeof runtime?.resolveWorkspaceContext === 'function' ? runtime.resolveWorkspaceContext : resolveWorkspaceContext
   const context = await resolveContext({
     userId: auth.userId || undefined,
@@ -1571,7 +1579,7 @@ async function motionScope(args, auth, runtime) {
     siteHandle: site,
     role: auth.role === 'admin' ? 'admin' : auth.role === 'agent' ? 'editor' : undefined
   })
-  const selected = context.sites.find((entry) => entry.id === requestedSiteId || entry.handle === site) || context.sites[0]
+  const selected = context.sites.find((entry) => entry.id === requestedSiteId || normalizeSiteSelector(entry.handle) === site) || context.sites[0]
   if (!selected) throw Object.assign(new Error('La marca no está disponible para crear el trabajo.'), { code: 'motion_site_required', status: 422 })
   return { site: selected.handle || site, workspaceId: context.workspaceId, siteId: selected.id, siteHandle: selected.handle || site, role: selected.role || context.role || auth.role }
 }
@@ -1972,18 +1980,19 @@ export async function invokeBuiltinCapability(name, args = {}, { auth = {}, runt
   if (name.startsWith('brand.') || name === 'copy.validate') {
     const site = siteFor(args, auth)
     const brandOptions = await activeBrandOptions(site, args, auth, runtime)
-    const context = getBrandContext(site, { auth: { ...auth, role: auth.role === 'agent' ? 'editor' : auth.role }, ...brandOptions })
-    if (name === 'brand.context.get') return { contractVersion: 'os.production.v1', ...contextProjection(context) }
-    if (name === 'brand.voice.get') return { contractVersion: 'os.production.v1', site, brandKitVersionId: context.brandKitVersionId, brandKitSnapshotHash: context.brandKitSnapshotHash, voice: context.voice, agentRules: context.agentRules, keywords: context.keywords }
-    if (name === 'brand.visual_style.get') return { contractVersion: 'os.production.v1', site, brandKitVersionId: context.brandKitVersionId, brandKitSnapshotHash: context.brandKitSnapshotHash, visualStyle: context.visualStyle, imageGuide: context.imageGuide, imageSpec: context.imageSpec, canonicalPalette: context.canonicalPalette, referenceImages: context.referenceImages, motionAssets: getMotionBrandAssets(site) }
-    if (name === 'brand.rules.get') return { contractVersion: 'os.production.v1', site, brandKitVersionId: context.brandKitVersionId, brandKitSnapshotHash: context.brandKitSnapshotHash, agentRules: context.agentRules, sharedEditorialPolicy: context.sharedEditorialPolicy, editRules: context.editRules, workflow: context.workflow, requiresHumanApproval: context.requiresHumanApproval, requiresPublishConfirmation: context.requiresPublishConfirmation }
+    const resolvedSite = brandOptions.site || site
+    const context = getBrandContext(resolvedSite, { auth: { ...auth, role: auth.role === 'agent' ? 'editor' : auth.role }, ...brandOptions })
+    if (name === 'brand.context.get') return { contractVersion: 'os.production.v1', ...contextProjection({ ...context, site: resolvedSite }) }
+    if (name === 'brand.voice.get') return { contractVersion: 'os.production.v1', site: resolvedSite, brandKitVersionId: context.brandKitVersionId, brandKitSnapshotHash: context.brandKitSnapshotHash, voice: context.voice, agentRules: context.agentRules, keywords: context.keywords }
+    if (name === 'brand.visual_style.get') return { contractVersion: 'os.production.v1', site: resolvedSite, brandKitVersionId: context.brandKitVersionId, brandKitSnapshotHash: context.brandKitSnapshotHash, visualStyle: context.visualStyle, imageGuide: context.imageGuide, imageSpec: context.imageSpec, canonicalPalette: context.canonicalPalette, referenceImages: context.referenceImages, motionAssets: getMotionBrandAssets(resolvedSite) }
+    if (name === 'brand.rules.get') return { contractVersion: 'os.production.v1', site: resolvedSite, brandKitVersionId: context.brandKitVersionId, brandKitSnapshotHash: context.brandKitSnapshotHash, agentRules: context.agentRules, sharedEditorialPolicy: context.sharedEditorialPolicy, editRules: context.editRules, workflow: context.workflow, requiresHumanApproval: context.requiresHumanApproval, requiresPublishConfirmation: context.requiresPublishConfirmation }
     if (name === 'brand.references.resolve') {
-      const prepared = prepareImageGeneration(site, preparationInput(args), brandOptions.canonicalSnapshot ? { canonicalSnapshot: brandOptions.canonicalSnapshot } : {})
-      return { contractVersion: 'os.production.v1', site, brandKitVersionId: prepared.brandKitVersionId, brandKitSnapshotHash: prepared.brandKitSnapshotHash, route: prepared.route, generationBlocked: prepared.generationBlocked, references: prepared.resolvedReferences, resolvedReferences: prepared.resolvedReferences }
+      const prepared = prepareImageGeneration(resolvedSite, preparationInput(args), brandOptions.canonicalSnapshot ? { canonicalSnapshot: brandOptions.canonicalSnapshot } : {})
+      return { contractVersion: 'os.production.v1', site: resolvedSite, brandKitVersionId: prepared.brandKitVersionId, brandKitSnapshotHash: prepared.brandKitSnapshotHash, route: prepared.route, generationBlocked: prepared.generationBlocked, generationDiagnostics: prepared.generationDiagnostics, references: prepared.resolvedReferences, resolvedReferences: prepared.resolvedReferences }
     }
     if (name === 'brand.generation.prepare') {
-      const prepared = prepareImageGeneration(site, preparationInput(args), brandOptions.canonicalSnapshot ? { canonicalSnapshot: brandOptions.canonicalSnapshot } : {})
-      const record = await persistImagePreparation(prepared, { workspaceId: auth.workspaceId || args.workspaceId, siteId: auth.siteId || args.siteId, itemId: args.itemId, batchId: args.batchId, channel: args.channel })
+      const prepared = prepareImageGeneration(resolvedSite, preparationInput(args), brandOptions.canonicalSnapshot ? { canonicalSnapshot: brandOptions.canonicalSnapshot } : {})
+      const record = await persistImagePreparation(prepared, { workspaceId: brandOptions.workspaceId || auth.workspaceId || args.workspaceId, siteId: brandOptions.siteId || auth.siteId || args.siteId, itemId: args.itemId, batchId: args.batchId, channel: args.channel })
       return { contractVersion: 'os.production.v1', ...prepared, preparation: record }
     }
     if (name === 'brand.generation.receipt.issue') {
