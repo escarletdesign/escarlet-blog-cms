@@ -42,6 +42,16 @@ test('MCP v3 publica solo tools namespaced y excluye nombres legacy', async () =
   assert.equal(listed.tools.some((tool) => /^(?:blog|social|content|video|brand)_/.test(tool.name)), false)
 })
 
+test('asset.upload declara el transporte nativo de archivos de ChatGPT', async () => {
+  const server = createMcpServerV3Sync({ role: 'admin' })
+  const listed = await list(server, 'tools/list')
+  const upload = listed.tools.find((tool) => tool.name === 'asset.upload')
+  assert.deepEqual(upload._meta['openai/fileParams'], ['file'])
+  assert.deepEqual(upload.inputSchema.$defs.OpenAIFile.required, ['download_url', 'file_id'])
+  assert.deepEqual(Object.keys(upload.inputSchema.$defs.OpenAIFile.properties), ['download_url', 'file_id', 'mime_type', 'file_name'])
+  assert.equal(upload.inputSchema.properties.file.$ref, '#/$defs/OpenAIFile')
+})
+
 test('resources/list expone el índice, recipes y Brand Kernel sin archivos privados', async () => {
   const server = createMcpServerV3Sync({ role: 'agent' })
   const listed = await list(server, 'resources/list')

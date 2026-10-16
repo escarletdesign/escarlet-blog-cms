@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { ARTIFACT_REFERENCE_SCHEMA } from '../../lib/os/artifacts.mjs'
+import { openaiFileDefs, connectorFileMeta } from '../../lib/openai-file.mjs'
 
 export const MCP_V3_SERVER_NAME = 'escarlet-os'
 export const MCP_V3_SERVER_VERSION = '0.1.1'
@@ -295,7 +296,8 @@ function manifest({
   tags = [],
   aliases = [],
   useCases = [],
-  metadata = {}
+  metadata = {},
+  toolMeta = {}
 }) {
   return Object.freeze({
     id: namespaced(id),
@@ -311,7 +313,8 @@ function manifest({
     tags,
     aliases,
     useCases,
-    metadata
+    metadata,
+    toolMeta
   })
 }
 
@@ -696,6 +699,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     description: 'Guarda el archivo final generado por el agente y valida dimensiones, copy, Brand Kit y procedencia antes de dejarlo para revisión.',
     inputSchema: {
       type: 'object',
+      $defs: openaiFileDefs(),
       properties: {
         site: { type: 'string' },
         workspaceId: { type: 'string' },
@@ -704,7 +708,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
         mimeType: { type: 'string', maxLength: 120 },
         contentBase64: { type: 'string', minLength: 1, maxLength: 10000000, description: 'Para archivos mayores, usa uploadId, chunkIndex y chunkCount.' },
         blob: { type: 'string', minLength: 1, maxLength: 10000000, description: 'Para archivos mayores, usa uploadId, chunkIndex y chunkCount.' },
-        file: { type: 'object' },
+        file: { $ref: '#/$defs/OpenAIFile' },
         uploadId: { type: 'string', minLength: 1, maxLength: 200 },
         chunkIndex: { type: 'integer', minimum: 0, maximum: 39 },
         chunkCount: { type: 'integer', minimum: 1, maximum: 40 },
@@ -737,6 +741,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
     permissions: ['asset:write', 'generation:provenance'],
     sideEffects: 'write',
     humanReviewRequired: true,
+    toolMeta: connectorFileMeta(),
     tags: ['asset', 'upload', 'generation', 'provenance']
   }),
   manifest({
@@ -1330,7 +1335,7 @@ export function mergeCatalog({ registry = {}, capabilities = BUILTIN_CAPABILITIE
 }
 
 export function publicCapabilityManifest(entry) {
-  const { handler, execute, invoke, ...publicEntry } = entry
+  const { handler, execute, invoke, toolMeta, ...publicEntry } = entry
   return publicEntry
 }
 
@@ -1354,7 +1359,8 @@ export function publicToolManifest(entry) {
       sideEffects: manifest.sideEffects,
       humanReviewRequired: manifest.humanReviewRequired,
       composesWith: manifest.composesWith,
-      tags: manifest.tags
+      tags: manifest.tags,
+      ...(entry.toolMeta || {})
     }
   }
 }
