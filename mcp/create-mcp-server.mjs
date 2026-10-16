@@ -334,7 +334,7 @@ export function normalizeImagePreparationArgs(args = {}) {
   const assetType = String(args.assetType || '').trim().toLowerCase()
   const board = String(args.board || '').trim().toLowerCase()
   const next = { ...args }
-  if (board && ['style', 'character', 'logo', 'default'].includes(board)) next.board = board
+  if (board && ['default', 'style', 'background', 'character', 'logo'].includes(board)) next.board = board
   if (channel === 'linkedin' && (!assetType || assetType === 'generic')) next.assetType = 'blog_cover'
   if (channel === 'instagram' && (!assetType || assetType === 'generic')) next.assetType = 'social_image'
   if (channel === 'instagram_story' && (!assetType || assetType === 'generic')) next.assetType = 'instagram_story'
@@ -1410,7 +1410,7 @@ export function buildToolList(auth) {
         type: 'object',
         properties: {
           site: { type: 'string' },
-          assetType: { type: 'string', enum: ['blog_cover', 'social_image', 'instagram_story', 'presentation', 'generic'] },
+          assetType: { type: 'string', enum: ['blog_cover', 'social_image', 'instagram_story', 'x_image', 'presentation', 'generic'] },
           title: { type: 'string' },
           summary: { type: 'string' },
           topic: { type: 'string' },
@@ -1422,7 +1422,8 @@ export function buildToolList(auth) {
           batchId: { type: 'string' },
           useCharacter: { type: 'boolean', description: 'Usa el tablero de personajes (o characterId) solo si el usuario lo pide.' },
           characterId: { type: 'string', description: 'silvia | charly' },
-          board: { type: 'string', enum: ['style', 'background', 'character', 'logo'], description: 'style (default), background, character o logo PNG.' },
+          board: { type: 'string', enum: ['default', 'style', 'background', 'character', 'logo'], description: 'default/style, background, character o logo PNG.' },
+          referenceRoute: { type: 'string', description: 'Ruta determinista del Brand Kit, por ejemplo default o with_character.' },
           preparationId: { type: 'string', description: 'Reentrega el style board de una preparación existente.' },
           referenceIndex: { type: 'integer', minimum: 0, description: 'Legacy: una referencia suelta. Omítelo para recibir el style board completo.' }
         },
@@ -1437,7 +1438,7 @@ export function buildToolList(auth) {
         type: 'object',
         properties: {
           site: { type: 'string' },
-          board: { type: 'string', enum: ['style', 'background', 'character', 'logo'], description: 'Qué tablero entregar. Default style.' },
+          board: { type: 'string', enum: ['default', 'style', 'background', 'character', 'logo'], description: 'Qué tablero entregar. Default style.' },
           assetType: { type: 'string', enum: ['blog_cover', 'social_image', 'instagram_story', 'presentation', 'generic'] },
           title: { type: 'string' },
           summary: { type: 'string' },
