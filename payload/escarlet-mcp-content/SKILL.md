@@ -153,9 +153,11 @@ idempotentes:
    `automation` indicados arriba. Sin esos flags el resultado queda en
    `ready_for_review` o `awaiting_media`. Con ellos, el MCP aprueba y encola la
    publicación usando el control plane, sin recibir credenciales del proveedor.
-6. Consulta `publication.status.get` o `content.post.get` después de cada run.
-   Usa la misma `idempotencyKey` en reintentos y no crees otro Post si el job
-   ya devolvió `postId`.
+6. Después de cada ejecución de esta recipe consulta `content.post.get`, que es
+   la fuente de verdad del Post y sus variantes. `publication.status.get` solo
+   aplica a operaciones que devolvieron un `publicationId` o `runId` persistido.
+   Usa la misma `idempotencyKey` en reintentos y no crees otro Post si el job ya
+   devolvió `postId`.
 
 Ejemplo de primera ejecución:
 

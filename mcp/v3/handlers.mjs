@@ -754,7 +754,7 @@ async function runAutonomousContent(args, auth, runtime) {
         expectedAssetCount: assetCount,
         topic,
         title: args.title || topic,
-        textContent: { body: text.slice(0, 240) }
+        textContent: { headline: String(args.title || topic).trim(), body: text }
       }, { auth, runtime })
       preparations.push({ channel, formatProfile: args.formatProfiles?.[channel] || autonomousFormat(channel), assetType: autonomousAssetType(channel), ...prepared })
     }
@@ -819,7 +819,7 @@ async function runAutonomousContent(args, auth, runtime) {
     expectedCounts,
     contentReady,
     publication,
-    review: { required: !publication, status: publication ? 'publish_requested' : mediaReady && contentReady ? 'pending' : mediaReady ? 'awaiting_content' : 'awaiting_media', next: publication ? 'publication.status.get' : mediaReady && contentReady ? 'human_approval_or_publish_opt_in' : mediaReady ? 'complete_variant_copy' : 'generate_and_upload_media' }
+    review: { required: !publication, status: publication ? 'publish_requested' : mediaReady && contentReady ? 'pending' : mediaReady ? 'awaiting_content' : 'awaiting_media', next: publication ? 'content.post.get' : mediaReady && contentReady ? 'human_approval_or_publish_opt_in' : mediaReady ? 'complete_variant_copy' : 'generate_and_upload_media' }
   }
 }
 

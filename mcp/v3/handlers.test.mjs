@@ -219,6 +219,7 @@ test('recipe.autonomous-content crea una pieza y publica solo con opt-in explíc
   assert.equal(result.isError, false, JSON.stringify(result.structuredContent))
   assert.equal(result.structuredContent.status, 'scheduled')
   assert.equal(result.structuredContent.postId, 'post-1')
+  assert.equal(result.structuredContent.review.next, 'content.post.get')
   assert.deepEqual(calls.map(([name]) => name), ['create', 'attach', 'approve', 'schedule'])
 })
 
