@@ -474,7 +474,7 @@ async function importExternalImageAsset(args, auth, runtime) {
       }
       if (!channels.length) channels.push(kind === 'social' ? 'instagram' : 'blog')
       const preflight = typeof runtime?.preflightContentMediaAttachment === 'function' ? runtime.preflightContentMediaAttachment : preflightContentMediaAttachment
-      await preflight({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId, channels, assetIndex: Number(args.assetIndex || 0) })
+      await preflight({ workspaceId: scope.workspaceId, siteId: scope.siteId, itemId, channels, assetIndex: Number(args.assetIndex || 0), allowReplace: args.replaceExisting === true })
     }
     if (!channels.length) channels.push(kind === 'social' ? 'instagram' : 'blog')
     attachmentTarget = { itemId, channels }
@@ -524,7 +524,8 @@ async function importExternalImageAsset(args, auth, runtime) {
       assetIndex: Number(args.assetIndex || 0),
       createMissingVariants: args.createMissingVariants,
       removeReplacedAssets: args.removeReplacedAssets === true,
-      preserveItemStatus: true
+      preserveItemStatus: true,
+      allowReplace: args.replaceExisting === true
     })
   }
   return {
@@ -536,6 +537,7 @@ async function importExternalImageAsset(args, auth, runtime) {
     media: uploaded.media,
     attachment,
     postId: attachment?.itemId || null,
+    postUrl: attachment ? contentPostUrl(attachment.itemId, scope.site, attachmentTarget.channels[0]) : null,
     provenance: metadata,
     nextAction: attachment ? 'human_review' : 'attach_to_content_item'
   }

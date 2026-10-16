@@ -781,6 +781,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
         channel: { type: 'string' },
         assetIndex: { type: 'integer', minimum: 0, maximum: 19 },
         createMissingVariants: { type: 'array', items: { type: 'string' }, maxItems: 20 },
+        replaceExisting: { type: 'boolean' },
         removeReplacedAssets: { type: 'boolean' },
         alt: { type: 'string', maxLength: 1000 },
         idempotencyKey: { type: 'string', maxLength: 300 }
@@ -788,7 +789,7 @@ export const BUILTIN_CAPABILITIES = Object.freeze([
       oneOf: [{ required: ['sourceUrl'] }, { required: ['sourceAssetId'] }],
       additionalProperties: false
     },
-    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string', const: 'asset.import_from_url' }, status: { type: 'string' }, assetId: { type: 'string' }, asset: { type: 'object' }, media: { type: 'object' }, attachment: { type: ['object', 'null'] }, postId: { type: ['string', 'null'] }, provenance: { type: 'object' }, nextAction: { type: 'string' } }, required: ['contractVersion', 'capability', 'status', 'assetId', 'asset', 'provenance', 'nextAction'], additionalProperties: true },
+    outputSchema: { type: 'object', properties: { contractVersion: { type: 'string', const: MCP_V3_CONTRACT }, capability: { type: 'string', const: 'asset.import_from_url' }, status: { type: 'string' }, assetId: { type: 'string' }, asset: { type: 'object' }, media: { type: 'object' }, attachment: { type: ['object', 'null'] }, postId: { type: ['string', 'null'] }, postUrl: { type: ['string', 'null'] }, provenance: { type: 'object' }, nextAction: { type: 'string' } }, required: ['contractVersion', 'capability', 'status', 'assetId', 'asset', 'provenance', 'nextAction'], additionalProperties: true },
     permissions: ['asset:write'],
     sideEffects: 'write',
     humanReviewRequired: true,
