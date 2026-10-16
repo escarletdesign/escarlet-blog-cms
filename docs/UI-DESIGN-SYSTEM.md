@@ -28,6 +28,7 @@ La fuente de verdad del código está en `apps/pwa/src/ui/index.tsx`. La fuente 
 - `Modal` y `Drawer` para tareas que no deben sacar al usuario del contexto.
 - `Tabs` para cambiar de sección sin inventar navegación local.
 - `DataTable`, `EmptyState`, `ReviewToolbar` y `BulkActionBar` para operaciones de gestión.
+- `ContentEditor` para contenido editorial que pueda necesitar vista previa, texto plano y fuente HTML.
 
 Si una necesidad aparece en más de una pantalla, debe convertirse en un patrón de `src/ui` antes de repetirse.
 

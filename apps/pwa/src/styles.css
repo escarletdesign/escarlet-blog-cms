@@ -843,6 +843,15 @@ select, .ui-plans-page .ui-select, .ui-page .ui-input.ui-select, .site-switcher 
 .ui-brand-grid, .ui-connection-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px; } .ui-brand-active { border-color: rgba(185,251,84,.55); } .ui-brand-grid .ui-muted { margin: 16px 0 0; } .ui-connection-grid .ui-card p { margin: 8px 0 0; color: var(--ui-muted); }
 @media (max-width: 620px) { .ui-brand-grid, .ui-connection-grid { grid-template-columns: 1fr; } }
 .ui-tabs { display: flex; gap: 4px; padding: 4px; background: var(--ui-surface-tabs); border-radius: 10px; } .ui-tabs button { flex: 1; min-height: 36px; border: 0; border-radius: 7px; color: var(--ui-muted); background: transparent; font: inherit; cursor: pointer; } .ui-tabs button.active { color: var(--ui-accent-ink); background: var(--ui-accent); font-weight: 800; }
+.ui-content-editor { display: grid; gap: var(--ui-space-2); min-width: 0; }
+.ui-content-editor-panel { min-width: 0; }
+.ui-content-editor .ui-textarea { min-height: 300px; line-height: 1.6; }
+.ui-content-editor-source { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .82rem; }
+.ui-content-editor-preview { min-height: 300px; overflow: auto; padding: var(--ui-space-4); border: 1px solid var(--ui-border-strong); border-radius: var(--ui-radius-sm); color: var(--ui-text); background: var(--ui-surface-control); line-height: 1.65; }
+.ui-content-editor-preview > div > :first-child { margin-top: 0; }
+.ui-content-editor-preview > div > :last-child { margin-bottom: 0; }
+.ui-content-editor-preview img { display: block; max-width: 100%; height: auto; border-radius: var(--ui-radius-sm); }
+.ui-content-editor-preview a { color: var(--ui-accent); }
 .ui-drawer-backdrop { position: fixed; inset: 0; z-index: 100; background: var(--ui-overlay); } .ui-drawer { position: absolute; inset: 0 0 0 auto; width: min(560px,100%); overflow: auto; padding: 24px; background: var(--ui-surface-raised); box-shadow: var(--ui-shadow); }
 .ui-toast-region { position: fixed; right: var(--ui-space-4); bottom: var(--ui-space-4); z-index: 120; width: min(420px,calc(100vw - var(--ui-space-8))); display: grid; gap: var(--ui-space-2); pointer-events: none; }
 .ui-toast { display: flex; align-items: center; justify-content: space-between; gap: var(--ui-space-3); min-height: 48px; padding: var(--ui-space-3) var(--ui-space-4); border: 1px solid var(--ui-border-strong); border-radius: var(--ui-radius-md); color: var(--ui-text); background: var(--ui-surface-raised); box-shadow: var(--ui-shadow); pointer-events: auto; animation: ui-toast-in .2s ease-out; }

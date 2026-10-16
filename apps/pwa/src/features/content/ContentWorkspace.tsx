@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { api } from "../../api";
 import { asCanonicalPost, postActionLabel, statusTone } from "../../content-model";
 import type { CanonicalPost, ContentChannel, ContentItem, ContentVariant, PostVariant } from "../../types";
-import { Badge, Button, Card, ChannelBadge, Drawer, EmptyState, Field, FileDropzone, IconButton, Inline, Modal, PageHeader, Select, Stack, StatusBadge, Tabs, Textarea, TextField } from "../../ui";
+import { Badge, Button, Card, ChannelBadge, ContentEditor, Drawer, EmptyState, Field, FileDropzone, IconButton, Inline, Modal, PageHeader, Select, Stack, StatusBadge, Tabs, Textarea, TextField } from "../../ui";
 import { useApp, useI18n, useToast } from "../../app/context";
 
 const channels: ContentChannel[] = ["blog", "instagram", "instagram_story", "linkedin", "x", "video"];
@@ -463,7 +463,7 @@ export function PostWorkspace() {
           {activeVariant ? <Stack gap="md">
             <div className="v3-variant-heading"><div><span className="ui-eyebrow">{channelName(activeVariant.channel, t)}</span><h2>{t("content.variant.title", "Versión para este canal")}</h2></div><Inline gap="sm"><StatusBadge status={activeVariant.status} />{canEdit && !["published", "archived"].includes(activeVariant.status) && <IconButton label={t("content.variant.omit", "Omitir canal")} onClick={() => setCancelVariantOpen(true)}>×</IconButton>}</Inline></div>
             <Field label={t("content.post.title", "Título")}><TextField value={title} onChange={(event) => setTitle(event.target.value)} /></Field>
-            <Field label={t("content.post.copy", "Contenido")} hint={t("content.post.copyHint", "La IA externa y el Brand Kit se muestran en el rail de revisión.")}><Textarea className="v3-copy-editor" value={draft} onChange={(event) => setDraft(event.target.value)} /></Field>
+            <Field label={t("content.post.copy", "Contenido")} hint={t("content.post.copyHint", "La IA externa y el Brand Kit se muestran en el rail de revisión.")}>{activeChannel === "blog" ? <ContentEditor key={activeChannel} value={draft} onChange={setDraft} labels={{ preview: t("editor.preview", "Vista previa"), plain: t("editor.plainText", "Texto plano"), html: t("editor.html", "HTML"), tabs: t("editor.contentFormat", "Formato del contenido"), empty: t("editor.emptyContent", "Sin contenido todavía.") }} /> : <Textarea className="v3-copy-editor" value={draft} onChange={(event) => setDraft(event.target.value)} />}</Field>
             <PostVariantPreview variant={activeVariant} />
             <div className="v3-variant-media">
               <div className="v3-card-heading"><div><span className="ui-eyebrow">{t("content.media.eyebrow", "Assets")}</span><h2>{t("content.media.title", "Elementos de esta variante")}</h2></div><Badge tone="neutral">{activeVariant.media.length}</Badge></div>

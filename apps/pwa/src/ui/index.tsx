@@ -98,6 +98,68 @@ export function Textarea({ className = "", ...props }: TextareaHTMLAttributes<HT
 export function Select({ children, className = "", ...props }: SelectHTMLAttributes<HTMLSelectElement>) { return <select className={`ui-input ui-select ${className}`.trim()} {...props}>{children}</select>; }
 export function Checkbox({ label, className = "", ...props }: InputHTMLAttributes<HTMLInputElement> & { label?: ReactNode }) { return <label className="ui-checkbox"><input type="checkbox" className={className} {...props} /><span>{label}</span></label>; }
 export function Switch({ label, description, className = "", ...props }: InputHTMLAttributes<HTMLInputElement> & { label?: ReactNode; description?: ReactNode }) { return <label className={`ui-switch ${className}`.trim()}><span className="ui-switch-copy">{label && <span>{label}</span>}{description && <small>{description}</small>}</span><input type="checkbox" role="switch" {...props} /><span className="ui-switch-track" aria-hidden="true"><span className="ui-switch-thumb" /></span></label>; }
+
+const CONTENT_BLOCK_TAGS = /<\/(?:p|h[1-6]|li|blockquote|ul|ol)>/gi;
+const CONTENT_HTML_TAGS = /<[^>]*>/g;
+const CONTENT_SAFE_TAGS = new Set(["P", "BR", "STRONG", "EM", "H1", "H2", "H3", "H4", "H5", "H6", "UL", "OL", "LI", "BLOCKQUOTE", "A", "IMG"]);
+
+export function contentHtmlToPlainText(value: string) {
+  const source = String(value || "").replace(/<br\s*\/?\s*>/gi, "\n").replace(CONTENT_BLOCK_TAGS, "\n").replace(CONTENT_HTML_TAGS, "");
+  if (typeof DOMParser === "undefined") return source.replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/\n{3,}/g, "\n\n").trim();
+  const doc = new DOMParser().parseFromString(`<div>${source}</div>`, "text/html");
+  return (doc.body.textContent || "").replace(/\u00a0/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+export function contentPlainTextToHtml(value: string) {
+  const source = String(value || "").replace(/\r\n?/g, "\n").trim();
+  if (!source) return "";
+  const escape = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;");
+  return source.split(/\n{2,}/).map((paragraph) => `<p>${escape(paragraph).replace(/\n/g, "<br />")}</p>`).join("");
+}
+
+function safeContentUrl(value: string, image = false) {
+  return image ? /^(?:https?:|\/|data:image\/)/i.test(value) : /^(?:https?:|mailto:|\/|#)/i.test(value);
+}
+
+export function sanitizeContentHtml(value: string) {
+  if (typeof DOMParser === "undefined") return contentPlainTextToHtml(value);
+  const doc = new DOMParser().parseFromString(String(value || ""), "text/html");
+  doc.body.querySelectorAll("*").forEach((element) => {
+    if (!CONTENT_SAFE_TAGS.has(element.tagName)) {
+      element.replaceWith(...Array.from(element.childNodes));
+      return;
+    }
+    Array.from(element.attributes).forEach((attribute) => {
+      const allowed = element.tagName === "A" && attribute.name === "href"
+        ? safeContentUrl(attribute.value)
+        : element.tagName === "IMG" && ["src", "alt"].includes(attribute.name)
+          ? attribute.name === "alt" || safeContentUrl(attribute.value, true)
+          : false;
+      if (!allowed) element.removeAttribute(attribute.name);
+    });
+  });
+  return doc.body.innerHTML;
+}
+
+export type ContentEditorMode = "preview" | "plain" | "html";
+export type ContentEditorLabels = { preview: string; plain: string; html: string; tabs: string; empty: string };
+
+export function ContentEditor({ value, onChange, labels = { preview: "Vista previa", plain: "Texto plano", html: "HTML", tabs: "Formato del contenido", empty: "Sin contenido todavía." }, placeholder, rows = 16, disabled = false, className = "" }: { value: string; onChange: (value: string) => void; labels?: ContentEditorLabels; placeholder?: string; rows?: number; disabled?: boolean; className?: string }) {
+  const editorId = useId().replace(/:/g, "");
+  const [mode, setMode] = useState<ContentEditorMode>(() => /<[a-z][^>]*>/i.test(value) ? "preview" : "plain");
+  const items = [{ id: "preview" as const, label: labels.preview }, { id: "plain" as const, label: labels.plain }, { id: "html" as const, label: labels.html }];
+  const hasContent = contentHtmlToPlainText(value).length > 0;
+  const previewHtml = /<[a-z][^>]*>/i.test(value) ? sanitizeContentHtml(value) : contentPlainTextToHtml(value);
+  const tabId = `content-editor-tabs-${editorId}`;
+  const panelId = `content-editor-panel-${editorId}`;
+  return <div className={`ui-content-editor ${className}`.trim()}>
+    <Tabs items={items} value={mode} onChange={setMode} idPrefix={tabId} panelIdPrefix={panelId} ariaLabel={labels.tabs} />
+    <div id={`${panelId}-${mode}`} role="tabpanel" aria-labelledby={`${tabId}-${mode}`} className="ui-content-editor-panel">
+      {mode === "preview" ? <article className="ui-content-editor-preview">{hasContent ? <div dangerouslySetInnerHTML={{ __html: previewHtml }} /> : <p className="ui-muted">{labels.empty}</p>}</article> : <Textarea className={mode === "html" ? "ui-content-editor-source" : "ui-content-editor-plain"} value={mode === "html" ? value : contentHtmlToPlainText(value)} onChange={(event) => onChange(mode === "html" ? event.target.value : contentPlainTextToHtml(event.target.value))} placeholder={placeholder} rows={rows} disabled={disabled} />}
+    </div>
+  </div>;
+}
+
 export function MultiSelectPills({ options, value, onChange, ariaLabel }: { options: Array<{ id: string; label: string }>; value: string[]; onChange: (value: string[]) => void; ariaLabel: string }) {
   return <div className="ui-multi-select-pills" role="group" aria-label={ariaLabel}>{options.map((option) => { const selected = value.includes(option.id); return <button key={option.id} type="button" className={`ui-multi-select-pill${selected ? " active" : ""}`} aria-pressed={selected} onClick={() => onChange(selected ? value.filter((id) => id !== option.id) : [...value, option.id])}>{option.label}</button>; })}</div>;
 }

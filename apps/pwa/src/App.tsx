@@ -28,7 +28,7 @@ import type { Author, BrandSummary, ContentItem, MediaItem, Post, Session } from
 import { contentPreviewPath, itemTitle, statusLabel } from "./content-format";
 import { createVideoCapture } from "./portrait-recorder";
 import type { VideoCapture, VideoFormat } from "./portrait-recorder";
-import { Badge, Button, Card, ChannelBadge, Checkbox, ConnectionCard, Drawer, EmptyState as UiEmptyState, Field, IconButton, Inline, Modal, MultiSelectPills, PageHeader, Select, Stack, StatusBadge, Switch, Tabs, TeleprompterLineControls, Textarea, TextField, Toast as UiToast } from "./ui";
+import { Badge, Button, Card, ChannelBadge, Checkbox, ConnectionCard, ContentEditor, Drawer, EmptyState as UiEmptyState, Field, IconButton, Inline, Modal, MultiSelectPills, PageHeader, Select, Stack, StatusBadge, Switch, Tabs, TeleprompterLineControls, Textarea, TextField, Toast as UiToast, contentHtmlToPlainText, contentPlainTextToHtml } from "./ui";
 import { AppShell, NavIcon } from "./app/layouts/AppShell";
 import { SidebarConversations } from "./features/chat/SidebarConversations";
 import { I18nContext, SessionContext, ToastContext, useApp, useI18n, useToast } from "./app/context";
@@ -1708,7 +1708,7 @@ function QuickCreate() {
           <p className="ui-muted">{t("wizard.reviewHelp")}</p>
           <label><b>{t("wizard.titleLabel")}</b><input value={draft.title} maxLength={MAX_EDITOR_TITLE_CHARS} onChange={(event) => updateDraftField("title", event.target.value)} /></label>
           <label><b>{t("wizard.summaryLabel")}</b><textarea value={draft.excerptEs || ""} rows={3} onChange={(event) => updateDraftField("excerptEs", event.target.value)} /></label>
-          <label><b>{t("wizard.bodyLabel")}</b><textarea className="wizard-body-input" value={String(draft.bodyHtml || "").replace(/<[^>]+>/g, " ").replace(/\s{2,}/g, " ").trim()} rows={12} onChange={(event) => updateDraftField("bodyHtml", event.target.value)} /></label>
+          <label><b>{t("wizard.bodyLabel")}</b><ContentEditor value={String(draft.bodyHtml || "")} onChange={(value) => updateDraftField("bodyHtml", value)} labels={{ preview: t("editor.preview", "Vista previa"), plain: t("editor.plainText", "Texto plano"), html: t("editor.html", "HTML"), tabs: t("editor.contentFormat", "Formato del contenido"), empty: t("editor.emptyContent", "Sin contenido todavía.") }} rows={12} /></label>
           <div className="quick-record-row">
             <button type="button" className={recording ? "ui-button ui-button-danger" : "ui-button ui-button-secondary"} onClick={() => void startRecording("edit")} disabled={busy !== "" || transcribing}>{recording ? t("wizard.stop") : t("wizard.editVoice")}</button>
             <input className="quick-edit-input" placeholder={t("wizard.editPlaceholder")} onKeyDown={(event) => { if (event.key === "Enter" && event.currentTarget.value.trim()) { void reviseDraft(event.currentTarget.value.trim()); event.currentTarget.value = ""; } }} />
@@ -1751,6 +1751,7 @@ function RichTextEditor({
   const editorRef = useRef<HTMLDivElement | null>(null);
   const selectionRef = useRef<Range | null>(null);
   const [showLinkModal, setShowLinkModal] = useState(false);
+  const [mode, setMode] = useState<"visual" | "plain" | "html">("visual");
   useEffect(() => {
     if (editorRef.current && editorRef.current.innerHTML !== value)
       editorRef.current.innerHTML = value || "";
@@ -1762,6 +1763,9 @@ function RichTextEditor({
   };
   return (
     <div className="wysiwyg">
+      <Tabs items={[{ id: "visual" as const, label: t("editor.visual", "Visual") }, { id: "plain" as const, label: t("editor.plainText", "Texto plano") }, { id: "html" as const, label: t("editor.html", "HTML") }]} value={mode} onChange={setMode} idPrefix="rich-text-editor-tabs" panelIdPrefix="rich-text-editor-panel" ariaLabel={t("editor.contentFormat", "Formato del contenido")} />
+      <div id={`rich-text-editor-panel-${mode}`} role="tabpanel" aria-labelledby={`rich-text-editor-tabs-${mode}`}>
+      {mode === "visual" && <>
       <div
         className="wysiwyg-toolbar"
         role="toolbar"
@@ -1837,6 +1841,10 @@ function RichTextEditor({
           }}
         />
       )}
+      </>}
+      {mode === "plain" && <Textarea value={contentHtmlToPlainText(value)} onChange={(event) => onChange(contentPlainTextToHtml(event.target.value))} placeholder={placeholder} rows={16} />}
+      {mode === "html" && <Textarea className="ui-content-editor-source" value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} rows={16} />}
+      </div>
     </div>
   );
 }
